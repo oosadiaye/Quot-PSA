@@ -1,0 +1,134 @@
+.ap-management {
+    padding: 24px;
+}
+
+.filters-bar {
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.filters-bar select {
+    padding: 8px 12px;
+    border: 2px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.invoices-table {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.invoices-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.invoices-table thead {
+    background: #f9fafb;
+}
+
+.invoices-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a4a4a;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.invoices-table td {
+    padding: 14px 16px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 14px;
+    color: #1a1a1a;
+}
+
+.invoices-table tr:hover {
+    background: #f9fafb;
+}
+
+.invoice-number {
+    font-weight: 600;
+    color: #191e6a;
+}
+
+.amount {
+    font-weight: 500;
+    text-align: right;
+}
+
+.balance-due {
+    color: #ef4444;
+}
+
+.badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-draft {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.badge-approved {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-partial {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.badge-paid {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-void {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.btn-action {
+    background: #191e6a;
+    color: white;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-action:hover {
+    background: #2d3494;
+}
+
+.btn-action:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6b7280;
+}
+
+.empty-state p {
+    font-size: 16px;
+}

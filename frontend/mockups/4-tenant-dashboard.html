@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1.0">
+<title>DTSG ERP — Tenant Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ─────────────────────────────── */
+  .sidebar {
+    width: 260px;
+    background: white;
+    min-height: 100vh;
+    position: fixed;
+    left: 0; top: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e2e8f0;
+    z-index: 10;
+  }
+  .sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .sidebar-brand {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .sidebar-logo {
+    width: 38px; height: 38px;
+    background: linear-gradient(135deg, #0f3460, #2471a3);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sidebar-logo svg { width: 20px; height: 20px; }
+  .sidebar-title { font-size: 17px; font-weight: 700; color: #0f172a; }
+  .sidebar-org {
+    font-size: 11px; color: #94a3b8; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  .sidebar-search {
+    padding: 12px 16px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 9px 12px 9px 36px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #f8fafc;
+    outline: none;
+    color: #475569;
+  }
+  .search-input:focus { border-color: #2471a3; background: white; }
+  .search-wrapper {
+    position: relative;
+  }
+  .search-wrapper svg {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; stroke: #94a3b8;
+  }
+
+  .sidebar-nav {
+    flex: 1;
+    padding: 8px 12px;
+    overflow-y: auto;
+  }
+  .nav-section {
+    font-size: 10px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    padding: 14px 10px 6px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 13.5px; font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 1px;
+    position: relative;
+  }
+  .nav-item:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+  .nav-item.active {
+    background: #eff6ff;
+    color: #1a5276;
+    font-weight: 600;
+  }
+  .nav-item.active::before {
+    content: '';
+    position: absolute; left: -12px;
+    width: 3px; height: 24px;
+    background: #2471a3;
+    border-radius: 0 3px 3px 0;
+  }
+  .nav-item svg { width: 18px; height: 18px; stroke: currentColor; flex-shrink: 0; opacity: 0.7; }
+  .nav-item.active svg { opacity: 1; }
+
+  .sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid #f1f5f9;
+  }
+  .sidebar-user {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .sidebar-user:hover { background: #f8fafc; }
+  .user-avatar {
+    width: 34px; height: 34px;
+    background: linear-gradient(135deg, #0f3460, #2471a3);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: white;
+  }
+  .user-name { font-size: 13px; font-weight: 600; color: #0f172a; }
+  .user-role { font-size: 11px; color: #94a3b8; }
+
+  /* ── Main Content ──────────────────────── */
+  .main {
+    margin-left: 260px;
+    flex: 1;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    background: white;
+    padding: 16px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky; top: 0; z-index: 5;
+  }
+  .topbar-left h1 { font-size: 22px; font-weight: 700; color: #0f172a; }
+  .topbar-left p { font-size: 13px; color: #64748b; margin-top: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .topbar-btn {
+    width: 38px; height: 38px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .topbar-btn:hover { border-color: #2471a3; }
+  .topbar-btn svg { width: 18px; height: 18px; stroke: #64748b; }
+  .notif-dot {
+    position: absolute; top: -3px; right: -3px;
+    width: 8px; height: 8px;
+    background: #ef4444;
+    border-radius: 50%;
+    border: 2px solid white;
+  }
+  .topbar-date {
+    font-size: 13px; color: #64748b; font-weight: 500;
+    padding: 8px 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+  }
+
+  .content { padding: 28px 32px; }
+
+  /* Welcome Banner */
+  .welcome-banner {
+    background: linear-gradient(135deg, #0f3460 0%, #1a5276 50%, #2471a3 100%);
+    border-radius: 16px;
+    padding: 32px 36px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .welcome-banner::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.05);
+  }
+  .welcome-banner::after {
+    content: '';
+    position: absolute;
+    bottom: -60px; right: 120px;
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.03);
+  }
+  .welcome-text h2 {
+    font-size: 24px; font-weight: 700; margin-bottom: 6px;
+  }
+  .welcome-text p {
+    font-size: 14px; opacity: 0.8; line-height: 1.5;
+  }
+  .welcome-stats {
+    display: flex; gap: 28px;
+    position: relative; z-index: 1;
+  }
+  .welcome-stat {
+    text-align: center;
+    padding: 12px 20px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .welcome-stat-value {
+    font-size: 26px; font-weight: 800;
+  }
+  .welcome-stat-label {
+    font-size: 11px; opacity: 0.7; margin-top: 2px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  /* Quick Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: white;
+    border-radius: 14px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  .stat-icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .stat-icon svg { width: 22px; height: 22px; }
+  .stat-icon.blue { background: #eff6ff; }
+  .stat-icon.blue svg { stroke: #2471a3; }
+  .stat-icon.green { background: #f0fdf4; }
+  .stat-icon.green svg { stroke: #16a34a; }
+  .stat-icon.purple { background: #faf5ff; }
+  .stat-icon.purple svg { stroke: #7c3aed; }
+  .stat-icon.amber { background: #fffbeb; }
+  .stat-icon.amber svg { stroke: #d97706; }
+  .stat-info { flex: 1; }
+  .stat-label { font-size: 12px; color: #94a3b8; font-weight: 500; margin-bottom: 4px; }
+  .stat-value { font-size: 22px; font-weight: 800; color: #0f172a; }
+  .stat-change { font-size: 11px; color: #16a34a; font-weight: 600; margin-top: 2px; }
+
+  /* Module Grid */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .section-title { font-size: 17px; font-weight: 700; color: #0f172a; }
+  .section-subtitle { font-size: 13px; color: #94a3b8; }
+
+  .modules-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .module-card {
+    background: white;
+    border-radius: 14px;
+    padding: 22px;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .module-card:hover {
+    border-color: #2471a3;
+    box-shadow: 0 4px 16px rgba(36,113,163,0.1);
+    transform: translateY(-3px);
+  }
+  .module-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .module-card.m-accounting::before { background: #2471a3; }
+  .module-card.m-procurement::before { background: #7c3aed; }
+  .module-card.m-inventory::before { background: #059669; }
+  .module-card.m-sales::before { background: #d97706; }
+  .module-card.m-hrm::before { background: #0891b2; }
+  .module-card.m-service::before { background: #be185d; }
+  .module-card.m-budget::before { background: #059669; }
+  .module-card.m-quality::before { background: #0d9488; }
+
+  .module-icon {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+  }
+  .module-icon svg { width: 22px; height: 22px; }
+  .m-accounting .module-icon { background: #eff6ff; }
+  .m-accounting .module-icon svg { stroke: #2471a3; }
+  .m-procurement .module-icon { background: #faf5ff; }
+  .m-procurement .module-icon svg { stroke: #7c3aed; }
+  .m-inventory .module-icon { background: #f0fdf4; }
+  .m-inventory .module-icon svg { stroke: #059669; }
+  .m-sales .module-icon { background: #fffbeb; }
+  .m-sales .module-icon svg { stroke: #d97706; }
+  .m-hrm .module-icon { background: #ecfeff; }
+  .m-hrm .module-icon svg { stroke: #0891b2; }
+  .m-service .module-icon { background: #fdf2f8; }
+  .m-service .module-icon svg { stroke: #be185d; }
+  .m-budget .module-icon { background: #f0fdf4; }
+  .m-budget .module-icon svg { stroke: #059669; }
+  .m-quality .module-icon { background: #f0fdfa; }
+  .m-quality .module-icon svg { stroke: #0d9488; }
+
+  .module-name { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+  .module-desc { font-size: 12px; color: #94a3b8; line-height: 1.4; }
+
+  /* Bottom Row */
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 20px;
+  }
+  .card {
+    background: white;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 18px 22px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .card-header h3 { font-size: 15px; font-weight: 600; color: #0f172a; }
+  .card-header .link {
+    font-size: 13px; color: #2471a3; font-weight: 500;
+    text-decoration: none; cursor: pointer;
+  }
+
+  /* Pending Approvals */
+  .approval-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 22px;
+    border-bottom: 1px solid #f8fafc;
+  }
+  .approval-item:hover { background: #fafbfd; }
+  .approval-type {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .approval-type.po { background: #faf5ff; color: #7c3aed; }
+  .approval-type.pr { background: #eff6ff; color: #2471a3; }
+  .approval-type.lv { background: #f0fdf4; color: #059669; }
+  .approval-type.je { background: #fffbeb; color: #d97706; }
+  .approval-info { flex: 1; }
+  .approval-title { font-size: 13.5px; font-weight: 600; color: #0f172a; }
+  .approval-meta { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+  .approval-amount { font-size: 14px; font-weight: 700; color: #0f172a; text-align: right; }
+  .approval-date { font-size: 11px; color: #94a3b8; text-align: right; margin-top: 2px; }
+
+  /* Quick Actions */
+  .quick-actions {
+    padding: 16px 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .quick-action {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: white;
+  }
+  .quick-action:hover {
+    border-color: #2471a3;
+    background: #f0f7ff;
+  }
+  .qa-icon {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: #eff6ff;
+  }
+  .qa-icon svg { width: 18px; height: 18px; stroke: #2471a3; }
+  .qa-label { font-size: 13px; font-weight: 600; color: #0f172a; }
+  .qa-sublabel { font-size: 11px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="8" height="8" rx="2" fill="white"/><rect x="13" y="5" width="8" height="8" rx="2" fill="rgba(255,255,255,0.6)"/><rect x="3" y="15" width="8" height="4" rx="2" fill="rgba(255,255,255,0.6)"/><rect x="13" y="15" width="8" height="4" rx="2" fill="white"/></svg>
+      </div>
+      <div>
+        <div class="sidebar-title">DTSG ERP</div>
+        <div class="sidebar-org">Meridian Industries</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-search">
+    <div class="search-wrapper">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" class="search-input" placeholder="Search modules...">
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Core</div>
+    <div class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      Accounting
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+      Budget
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+      Procurement
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      Inventory
+    </div>
+
+    <div class="nav-section">Operations</div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Sales
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Human Resources
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      Service
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      Quality
+    </div>
+
+    <div class="nav-section">System</div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Approvals
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="user-avatar">JD</div>
+      <div>
+        <div class="user-name">John Doe</div>
+        <div class="user-role">Senior Manager</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main class="main">
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1>Dashboard</h1>
+      <p>Meridian Industries &middot; Fiscal Year 2026</p>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-date">Mar 20, 2026</div>
+      <button class="topbar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="notif-dot"></span>
+      </button>
+      <button class="topbar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- Welcome Banner -->
+    <div class="welcome-banner">
+      <div class="welcome-text">
+        <h2>Good morning, John</h2>
+        <p>You have 5 pending approvals and 3 new purchase requests to review</p>
+      </div>
+      <div class="welcome-stats">
+        <div class="welcome-stat">
+          <div class="welcome-stat-value">5</div>
+          <div class="welcome-stat-label">Approvals</div>
+        </div>
+        <div class="welcome-stat">
+          <div class="welcome-stat-value">12</div>
+          <div class="welcome-stat-label">Open POs</div>
+        </div>
+        <div class="welcome-stat">
+          <div class="welcome-stat-value">3</div>
+          <div class="welcome-stat-label">Alerts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <div class="stat-info">
+          <div class="stat-label">Total Revenue</div>
+          <div class="stat-value">$2.4M</div>
+          <div class="stat-change">+15% from last month</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg></div>
+        <div class="stat-info">
+          <div class="stat-label">Open Orders</div>
+          <div class="stat-value">47</div>
+          <div class="stat-change">8 closing today</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+        <div class="stat-info">
+          <div class="stat-label">Inventory Value</div>
+          <div class="stat-value">$890K</div>
+          <div class="stat-change">5 items below reorder</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+        <div class="stat-info">
+          <div class="stat-label">Active Employees</div>
+          <div class="stat-value">156</div>
+          <div class="stat-change">3 on leave today</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Module Cards -->
+    <div class="section-header">
+      <div>
+        <div class="section-title">Modules</div>
+        <div class="section-subtitle">Quick access to all ERP modules</div>
+      </div>
+    </div>
+    <div class="modules-grid">
+      <div class="module-card m-accounting">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <div class="module-name">Accounting</div>
+        <div class="module-desc">General Ledger, AP/AR, Financial Reports</div>
+      </div>
+      <div class="module-card m-procurement">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg></div>
+        <div class="module-name">Procurement</div>
+        <div class="module-desc">Purchase Orders, GRN, Invoice Matching</div>
+      </div>
+      <div class="module-card m-inventory">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+        <div class="module-name">Inventory</div>
+        <div class="module-desc">Stock Levels, Valuation, Transfers</div>
+      </div>
+      <div class="module-card m-sales">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+        <div class="module-name">Sales</div>
+        <div class="module-desc">CRM, Quotations, Sales Orders</div>
+      </div>
+      <div class="module-card m-hrm">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="module-name">Human Resources</div>
+        <div class="module-desc">Employees, Payroll, Leave, Training</div>
+      </div>
+      <div class="module-card m-service">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        <div class="module-name">Service</div>
+        <div class="module-desc">Tickets, Work Orders, Maintenance</div>
+      </div>
+      <div class="module-card m-budget">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div>
+        <div class="module-name">Budget</div>
+        <div class="module-desc">Allocations, Variance Analysis</div>
+      </div>
+      <div class="module-card m-quality">
+        <div class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <div class="module-name">Quality</div>
+        <div class="module-desc">Inspections, NCR, Calibration</div>
+      </div>
+    </div>
+
+    <!-- Bottom Row -->
+    <div class="bottom-row">
+      <div class="card">
+        <div class="card-header">
+          <h3>Pending Approvals</h3>
+          <span class="link">View All (5) →</span>
+        </div>
+        <div class="approval-item">
+          <div class="approval-type po">PO</div>
+          <div class="approval-info">
+            <div class="approval-title">PO-2026-0142 — Office Supplies</div>
+            <div class="approval-meta">Submitted by Sarah Chen &middot; Procurement</div>
+          </div>
+          <div>
+            <div class="approval-amount">$12,450</div>
+            <div class="approval-date">2 hours ago</div>
+          </div>
+        </div>
+        <div class="approval-item">
+          <div class="approval-type pr">PR</div>
+          <div class="approval-info">
+            <div class="approval-title">PR-2026-0089 — Server Equipment</div>
+            <div class="approval-meta">Submitted by Mike Ross &middot; IT</div>
+          </div>
+          <div>
+            <div class="approval-amount">$45,000</div>
+            <div class="approval-date">5 hours ago</div>
+          </div>
+        </div>
+        <div class="approval-item">
+          <div class="approval-type lv">LV</div>
+          <div class="approval-info">
+            <div class="approval-title">Leave Request — Annual Leave</div>
+            <div class="approval-meta">Submitted by Emily Park &middot; Marketing</div>
+          </div>
+          <div>
+            <div class="approval-amount">5 days</div>
+            <div class="approval-date">Yesterday</div>
+          </div>
+        </div>
+        <div class="approval-item">
+          <div class="approval-type je">JE</div>
+          <div class="approval-info">
+            <div class="approval-title">JE-2026-0312 — Accrual Entry</div>
+            <div class="approval-meta">Submitted by Lisa Wong &middot; Finance</div>
+          </div>
+          <div>
+            <div class="approval-amount">$8,200</div>
+            <div class="approval-date">Yesterday</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Quick Actions</h3>
+        </div>
+        <div class="quick-actions">
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+            <div>
+              <div class="qa-label">New Purchase Request</div>
+              <div class="qa-sublabel">Start procurement</div>
+            </div>
+          </div>
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+            <div>
+              <div class="qa-label">Create Invoice</div>
+              <div class="qa-sublabel">Bill a customer</div>
+            </div>
+          </div>
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+            <div>
+              <div class="qa-label">Stock Transfer</div>
+              <div class="qa-sublabel">Move inventory</div>
+            </div>
+          </div>
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+            <div>
+              <div class="qa-label">Journal Entry</div>
+              <div class="qa-sublabel">Record transaction</div>
+            </div>
+          </div>
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M12 5l7 7-7 7"/></svg></div>
+            <div>
+              <div class="qa-label">New Employee</div>
+              <div class="qa-sublabel">Add to HRM</div>
+            </div>
+          </div>
+          <div class="quick-action">
+            <div class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+            <div>
+              <div class="qa-label">View Reports</div>
+              <div class="qa-sublabel">Financial analytics</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

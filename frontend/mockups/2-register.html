@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1.0">
+<title>DTSG ERP — Create Account</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    background: #f0f4f8;
+    color: #1e293b;
+  }
+
+  /* Left panel */
+  .brand-panel {
+    width: 45%;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #0f3460 0%, #1a5276 50%, #2471a3 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  .brand-panel::before {
+    content: '';
+    position: absolute;
+    top: 60px; right: -80px;
+    width: 300px; height: 300px;
+    border: 40px solid rgba(255,255,255,0.04);
+    border-radius: 50%;
+  }
+  .brand-panel::after {
+    content: '';
+    position: absolute;
+    bottom: 40px; left: -60px;
+    width: 250px; height: 250px;
+    border: 40px solid rgba(255,255,255,0.03);
+    border-radius: 50%;
+  }
+  .brand-logo {
+    width: 64px; height: 64px;
+    background: white;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 24px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+  .brand-logo svg { width: 36px; height: 36px; }
+  .brand-title {
+    font-size: 36px; font-weight: 800; color: white;
+    letter-spacing: -1px; margin-bottom: 10px;
+  }
+  .brand-subtitle {
+    font-size: 16px; color: rgba(255,255,255,0.7);
+    text-align: center; line-height: 1.6; margin-bottom: 48px;
+  }
+
+  .testimonial-card {
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 380px;
+    position: relative;
+  }
+  .testimonial-quote {
+    font-size: 15px; color: rgba(255,255,255,0.9);
+    line-height: 1.7; margin-bottom: 20px;
+    font-style: italic;
+  }
+  .testimonial-author {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .testimonial-avatar {
+    width: 40px; height: 40px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: white;
+  }
+  .testimonial-name { font-size: 14px; font-weight: 600; color: white; }
+  .testimonial-role { font-size: 12px; color: rgba(255,255,255,0.6); }
+
+  .trusted-by {
+    margin-top: 40px;
+    text-align: center;
+  }
+  .trusted-by span {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.4); font-weight: 600;
+  }
+  .trusted-logos {
+    display: flex; gap: 24px; margin-top: 16px; align-items: center; justify-content: center;
+  }
+  .trusted-logo {
+    width: 80px; height: 28px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5);
+    letter-spacing: 1px;
+  }
+
+  /* Right panel */
+  .form-panel {
+    width: 55%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 60px;
+    background: white;
+  }
+  .form-container {
+    width: 100%;
+    max-width: 480px;
+  }
+  .form-header {
+    margin-bottom: 32px;
+  }
+  .form-header h2 {
+    font-size: 28px; font-weight: 700; color: #0f172a;
+    margin-bottom: 8px;
+  }
+  .form-header p {
+    font-size: 15px; color: #64748b;
+  }
+
+  .form-row {
+    display: flex; gap: 16px;
+  }
+  .form-row .form-group { flex: 1; }
+
+  .form-group {
+    margin-bottom: 18px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 13px; font-weight: 600; color: #475569;
+    margin-bottom: 6px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .input-wrapper {
+    position: relative;
+  }
+  .input-wrapper svg.icon {
+    position: absolute;
+    left: 14px; top: 50%; transform: translateY(-50%);
+    width: 18px; height: 18px; stroke: #94a3b8;
+  }
+  .form-input {
+    width: 100%;
+    padding: 13px 16px 13px 44px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #f8fafc;
+    transition: all 0.2s;
+    outline: none;
+    color: #1e293b;
+  }
+  .form-input:focus {
+    border-color: #2471a3;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(36,113,163,0.1);
+  }
+  .form-input::placeholder { color: #94a3b8; }
+
+  .password-strength {
+    margin-top: 8px;
+    display: flex; gap: 4px; align-items: center;
+  }
+  .strength-bar {
+    height: 4px; flex: 1; border-radius: 2px;
+    background: #e2e8f0;
+  }
+  .strength-bar.active { background: #22c55e; }
+  .strength-bar.medium { background: #f59e0b; }
+  .strength-bar.weak { background: #ef4444; }
+  .strength-label {
+    font-size: 11px; color: #22c55e; font-weight: 600;
+    margin-left: 8px;
+  }
+
+  .terms {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin: 20px 0 24px;
+    font-size: 13px; color: #64748b; line-height: 1.5;
+  }
+  .terms input[type="checkbox"] {
+    width: 16px; height: 16px; margin-top: 2px;
+    accent-color: #2471a3; flex-shrink: 0;
+  }
+  .terms a { color: #2471a3; text-decoration: none; font-weight: 500; }
+
+  .btn-register {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #0f3460, #2471a3);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(15,52,96,0.3);
+    letter-spacing: 0.3px;
+  }
+
+  .login-link {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 14px; color: #64748b;
+  }
+  .login-link a { color: #2471a3; text-decoration: none; font-weight: 600; }
+
+  .security-badge {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 20px;
+    font-size: 12px; color: #94a3b8;
+  }
+  .security-badge svg { width: 14px; height: 14px; stroke: #94a3b8; }
+</style>
+</head>
+<body>
+
+<!-- Left Branding Panel -->
+<div class="brand-panel">
+  <div class="brand-logo">
+    <svg viewBox="0 0 40 40" fill="none"><rect x="4" y="8" width="14" height="14" rx="3" fill="#0f3460"/><rect x="22" y="8" width="14" height="14" rx="3" fill="#2471a3"/><rect x="4" y="26" width="14" height="6" rx="3" fill="#2471a3" opacity="0.6"/><rect x="22" y="26" width="14" height="6" rx="3" fill="#0f3460" opacity="0.6"/></svg>
+  </div>
+  <div class="brand-title">DTSG ERP</div>
+  <div class="brand-subtitle">Join thousands of organizations<br>already managing smarter</div>
+
+  <div class="testimonial-card">
+    <div class="testimonial-quote">
+      "DTSG ERP transformed how we handle procurement and accounting. Our month-end close time dropped from 5 days to just 1."
+    </div>
+    <div class="testimonial-author">
+      <div class="testimonial-avatar">JA</div>
+      <div>
+        <div class="testimonial-name">James Adeyemi</div>
+        <div class="testimonial-role">CFO, Meridian Industries</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="trusted-by">
+    <span>Trusted by leading enterprises</span>
+    <div class="trusted-logos">
+      <div class="trusted-logo">ACME</div>
+      <div class="trusted-logo">NEXUS</div>
+      <div class="trusted-logo">APEX</div>
+    </div>
+  </div>
+</div>
+
+<!-- Right Form Panel -->
+<div class="form-panel">
+  <div class="form-container">
+    <div class="form-header">
+      <h2>Create your account</h2>
+      <p>Get started with DTSG ERP in minutes</p>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>First Name</label>
+        <div class="input-wrapper">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <input type="text" class="form-input" placeholder="First name" value="John">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Last Name</label>
+        <div class="input-wrapper">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <input type="text" class="form-input" placeholder="Last name" value="Doe">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Username</label>
+      <div class="input-wrapper">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M15.5 7.5l-3.1 3.1m0 0L9.3 7.5M12.4 10.6V17m4.6-5.6a5 5 0 1 1-10 0 5 5 0 0 1 10 0z"/><circle cx="12" cy="12" r="10"/></svg>
+        <input type="text" class="form-input" placeholder="Choose a username" value="johndoe">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Email Address</label>
+      <div class="input-wrapper">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <input type="email" class="form-input" placeholder="name@company.com" value="john@company.com">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Password</label>
+      <div class="input-wrapper">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input type="password" class="form-input" placeholder="Create a strong password" value="SecurePass123!">
+      </div>
+      <div class="password-strength">
+        <div class="strength-bar active"></div>
+        <div class="strength-bar active"></div>
+        <div class="strength-bar active"></div>
+        <div class="strength-bar active"></div>
+        <span class="strength-label">Strong</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <div class="input-wrapper">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <input type="password" class="form-input" placeholder="Confirm your password" value="SecurePass123!">
+      </div>
+    </div>
+
+    <label class="terms">
+      <input type="checkbox" checked>
+      <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></span>
+    </label>
+
+    <button class="btn-register">Create Account</button>
+
+    <div class="login-link">
+      Already have an account? <a href="#">Sign In</a>
+    </div>
+
+    <div class="security-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Your data is protected with enterprise-grade encryption
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1024">
+<title>DTSG ERP — UI Redesign Mockups</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f1f5f9; padding: 40px; }
+  h1 { font-size: 28px; color: #0f172a; margin-bottom: 8px; }
+  p { font-size: 15px; color: #64748b; margin-bottom: 32px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .card {
+    background: white; border-radius: 14px; border: 1px solid #e2e8f0;
+    overflow: hidden; transition: all 0.2s; cursor: pointer;
+    text-decoration: none; color: inherit;
+  }
+  .card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .card-preview {
+    height: 280px; background: linear-gradient(135deg, #0f3460, #2471a3);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 48px; font-weight: 800;
+  }
+  .card-body { padding: 20px; }
+  .card-title { font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+  .card-desc { font-size: 13px; color: #64748b; }
+  .badge { display: inline-block; background: #eff6ff; color: #2471a3; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h1>DTSG ERP — UI Redesign Mockups</h1>
+  <p>Professional blue & white enterprise theme. Click any card to view the full mockup.</p>
+  <div class="grid">
+    <a class="card" href="1-login.html">
+      <div class="card-preview" style="background: linear-gradient(135deg, #0f3460 50%, white 50%);">1</div>
+      <div class="card-body">
+        <div class="card-title">Login Page</div>
+        <div class="card-desc">Split-screen layout with branding panel and clean form design</div>
+        <div class="badge">Authentication</div>
+      </div>
+    </a>
+    <a class="card" href="2-register.html">
+      <div class="card-preview" style="background: linear-gradient(135deg, #0f3460 45%, white 45%);">2</div>
+      <div class="card-body">
+        <div class="card-title">Sign Up Page</div>
+        <div class="card-desc">Registration with password strength meter and testimonial sidebar</div>
+        <div class="badge">Authentication</div>
+      </div>
+    </a>
+    <a class="card" href="3-superadmin-dashboard.html">
+      <div class="card-preview" style="background: linear-gradient(135deg, #0b1e3d 22%, #f1f5f9 22%);">3</div>
+      <div class="card-body">
+        <div class="card-title">Super Admin Dashboard</div>
+        <div class="card-desc">Dark sidebar, platform metrics, tenant management, revenue charts</div>
+        <div class="badge">Platform Admin</div>
+      </div>
+    </a>
+    <a class="card" href="4-tenant-dashboard.html">
+      <div class="card-preview" style="background: linear-gradient(135deg, white 22%, #f1f5f9 22%);">4</div>
+      <div class="card-body">
+        <div class="card-title">Tenant Dashboard</div>
+        <div class="card-desc">Light sidebar, module cards, pending approvals, quick actions</div>
+        <div class="badge">Tenant User</div>
+      </div>
+    </a>
+  </div>
+</body>
+</html>

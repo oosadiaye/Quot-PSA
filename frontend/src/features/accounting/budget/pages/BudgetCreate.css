@@ -1,0 +1,41 @@
+.budget-create-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+}
+
+.budget-create-header h3 {
+    margin: 0;
+}
+
+.upload-area {
+    margin-top: 16px;
+}
+
+.import-results {
+    margin-top: 16px;
+}
+
+.import-results .error-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 77, 79, 0.04);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.import-results .error-list li {
+    margin-bottom: 4px;
+    color: var(--color-error, #ff4d4f);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .budget-create-header {
+        flex-direction: column;
+        gap: 16px;
+    }
+}

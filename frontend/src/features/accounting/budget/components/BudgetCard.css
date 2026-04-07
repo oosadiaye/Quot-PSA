@@ -1,0 +1,44 @@
+.budget-card {
+    height: 100%;
+    transition: all 0.3s ease;
+}
+
+.budget-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.budget-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.budget-card-icon {
+    font-size: 24px;
+    color: var(--primary-color, #1890ff);
+}
+
+.budget-card-title {
+    font-size: 14px;
+    color: rgba(0, 0, 0, 0.65);
+    font-weight: 500;
+}
+
+.budget-card-trend {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .budget-card-title {
+        color: rgba(255, 255, 255, 0.65);
+    }
+
+    .budget-card-trend {
+        border-top-color: rgba(255, 255, 255, 0.12);
+    }
+}

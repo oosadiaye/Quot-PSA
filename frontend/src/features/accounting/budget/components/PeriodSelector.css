@@ -1,0 +1,12 @@
+.period-selector {
+    width: 100%;
+}
+
+.period-selector .ant-select {
+    min-width: 200px;
+}
+
+.period-selector .ant-select-selection-item {
+    display: flex;
+    align-items: center;
+}

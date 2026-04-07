@@ -1,0 +1,60 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# Django
+*.sqlite3
+staticfiles/
+media/
+
+# Claude / Agent
+.claude/
+.agent/
+.planning/
+
+# One-off debug & recovery scripts
+debug*.py
+append*.py
+capture_check.py
+check_auth_state.py
+find_backup.py
+find_deps.py
+find_perms.py
+gen_stubs*.py
+gen_exhaustive_stubs.py
+introspect_db.py
+normalize_models.py
+rebuild_*.py
+recovered_*.py
+repair_deps.py
+deep_check_*.py
+unify_migrations.py
+update_fonts.py
+auth_state.txt
+users_tenants_roles.txt
+error_page.html
+nul

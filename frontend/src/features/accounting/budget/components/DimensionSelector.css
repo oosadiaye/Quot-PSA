@@ -1,0 +1,21 @@
+.dimension-selector {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+    margin-bottom: 24px;
+}
+
+.dimension-selector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .dimension-selector {
+        background: rgba(30, 30, 30, 0.95);
+    }
+}

@@ -1,0 +1,108 @@
+﻿src/features/accounting/AccrualDeferralList.tsx(8,29): error TS2307: Cannot find module '../../../context/CurrencyContext' or its corresponding type declarations.
+src/features/accounting/ap/VendorInvoiceForm.tsx(7,40): error TS2307: Cannot find module '../../hooks/useTenantModules' or its corresponding type declarations.
+src/features/accounting/ar/CustomerInvoiceForm.tsx(7,40): error TS2307: Cannot find module '../../hooks/useTenantModules' or its corresponding type declarations.
+src/features/accounting/assets/AssetCategories.tsx(139,35): error TS2345: Argument of type '{ cost_account: string | number | null; accumulated_depreciation_account: string | number | null; depreciation_expense_account: string | number | null; residual_value: string; ... 6 more ...; id: number; }' is not assignable to parameter of type 'AssetCategoryFormData & { id: number; }'.
+  Type '{ cost_account: string | number | null; accumulated_depreciation_account: string | number | null; depreciation_expense_account: string | number | null; residual_value: string; ... 6 more ...; id: number; }' is not assignable to type 'AssetCategoryFormData'.
+    Types of property 'residual_value' are incompatible.
+      Type 'string' is not assignable to type 'number'.
+src/features/accounting/assets/AssetCategories.tsx(143,35): error TS2345: Argument of type '{ cost_account: string | number | null; accumulated_depreciation_account: string | number | null; depreciation_expense_account: string | number | null; residual_value: string; ... 5 more ...; residual_value_type: string; }' is not assignable to parameter of type 'AssetCategoryFormData'.
+  Types of property 'residual_value' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/accounting/budget/hooks/useBudgetAnalytics.ts(2,23): error TS2307: Cannot find module '../../../../client' or its corresponding type declarations.
+src/features/accounting/budget/hooks/useBudgetPeriods.ts(2,23): error TS2307: Cannot find module '../../../../client' or its corresponding type declarations.
+src/features/accounting/budget/hooks/useBudgets.ts(2,23): error TS2307: Cannot find module '../../../../client' or its corresponding type declarations.
+src/features/accounting/budget/hooks/useEncumbrances.ts(2,23): error TS2307: Cannot find module '../../../../client' or its corresponding type declarations.
+src/features/accounting/budget/pages/BudgetCreate.tsx(126,22): error TS2322: Type '"left"' is not assignable to type 'Orientation | undefined'.
+src/features/accounting/budget/pages/BudgetCreate.tsx(168,22): error TS2322: Type '"left"' is not assignable to type 'Orientation | undefined'.
+src/features/accounting/tax/TaxManagement.tsx(158,34): error TS2345: Argument of type '{ tax_account: string | number | null; code: string; name: string; tax_type: string; direction: string; rate: string; is_active: boolean; description: string; id: number; }' is not assignable to parameter of type 'TaxCodeFormData & { id: number; }'.
+  Type '{ tax_account: string | number | null; code: string; name: string; tax_type: string; direction: string; rate: string; is_active: boolean; description: string; id: number; }' is not assignable to type 'TaxCodeFormData'.
+    Types of property 'tax_account' are incompatible.
+      Type 'string | number | null' is not assignable to type 'number'.
+        Type 'null' is not assignable to type 'number'.
+src/features/accounting/tax/TaxManagement.tsx(162,34): error TS2345: Argument of type '{ tax_account: string | number | null; code: string; name: string; tax_type: string; direction: string; rate: string; is_active: boolean; description: string; }' is not assignable to parameter of type 'TaxCodeFormData'.
+  Types of property 'tax_account' are incompatible.
+    Type 'string | number | null' is not assignable to type 'number'.
+      Type 'null' is not assignable to type 'number'.
+src/features/accounting/tax/TaxManagement.tsx(200,30): error TS2345: Argument of type '{ withholding_account: string | number | null; code: string; name: string; income_type: string; rate: string; is_active: boolean; id: number; }' is not assignable to parameter of type 'WithholdingTaxFormData & { id: number; }'.
+  Type '{ withholding_account: string | number | null; code: string; name: string; income_type: string; rate: string; is_active: boolean; id: number; }' is not assignable to type 'WithholdingTaxFormData'.
+    Types of property 'withholding_account' are incompatible.
+      Type 'string | number | null' is not assignable to type 'number'.
+        Type 'null' is not assignable to type 'number'.
+src/features/accounting/tax/TaxManagement.tsx(204,30): error TS2345: Argument of type '{ withholding_account: string | number | null; code: string; name: string; income_type: string; rate: string; is_active: boolean; }' is not assignable to parameter of type 'WithholdingTaxFormData'.
+  Types of property 'withholding_account' are incompatible.
+    Type 'string | number | null' is not assignable to type 'number'.
+      Type 'null' is not assignable to type 'number'.
+src/features/inventory/pages/InventoryDashboard.tsx(50,30): error TS2345: Argument of type '{ item: string; from_warehouse: string; to_warehouse: string; quantity: string; }' is not assignable to parameter of type 'StockTransferPayload'.
+  Type '{ item: string; from_warehouse: string; to_warehouse: string; quantity: string; }' is missing the following properties from type 'StockTransferPayload': warehouse, unit_price
+src/features/inventory/pages/ItemForm.tsx(70,64): error TS2322: Type '{ reorder_point: number; reorder_quantity: number; min_stock: number; max_stock: number; sku: string; name: string; description: string; product_type: string; product_category: string; unit_of_measure: string; valuation_method: string; barcode: string; is_active: boolean; }' is not assignable to type 'Partial<ItemPayload>'.
+  Types of property 'product_type' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/inventory/pages/ItemForm.tsx(72,46): error TS2345: Argument of type '{ reorder_point: number; reorder_quantity: number; min_stock: number; max_stock: number; sku: string; name: string; description: string; product_type: string; product_category: string; unit_of_measure: string; valuation_method: string; barcode: string; is_active: boolean; }' is not assignable to parameter of type 'ItemPayload'.
+  Types of property 'product_type' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/inventory/pages/ProductCategoryList.tsx(22,46): error TS2345: Argument of type '{ name: string; product_type: string; parent: string; }' is not assignable to parameter of type 'ProductCategoryPayload'.
+  Types of property 'product_type' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/inventory/pages/ReconciliationList.tsx(21,48): error TS2345: Argument of type '{ warehouse: string; reconciliation_type: string; }' is not assignable to parameter of type 'ReconciliationPayload'.
+  Property 'reconciliation_date' is missing in type '{ warehouse: string; reconciliation_type: string; }' but required in type 'ReconciliationPayload'.
+src/features/inventory/pages/SerialNumberList.tsx(25,40): error TS2345: Argument of type '{ serial_number: string; item: string; warehouse: string; }' is not assignable to parameter of type 'SerialNumberPayload'.
+  Types of property 'item' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/inventory/pages/StockMovementList.tsx(74,46): error TS2345: Argument of type 'StockMovementPayload' is not assignable to parameter of type 'import("C:/Users/USER/Documents/Antigravity/DTSG erp/frontend/src/features/inventory/hooks/useInventory").StockMovementPayload'.
+  Types of property 'item' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/inventory/pages/StockValuation.tsx(30,13): error TS2561: Object literal may only specify known properties, but 'reconciliation_number' does not exist in type 'ReconciliationPayload'. Did you mean to write 'reconciliation_type'?
+src/features/procurement/POForm.tsx(80,40): error TS2345: Argument of type 'POPayload' is not assignable to parameter of type 'PurchaseOrderPayload'.
+  Type 'POPayload' is missing the following properties from type 'PurchaseOrderPayload': function, geo
+src/features/procurement/PurchaseReturns.tsx(39,29): error TS2345: Argument of type '{ vendor: string; purchase_order: string; return_date: string; reason: string; items: string; }' is not assignable to parameter of type 'PurchaseReturnPayload'.
+  Types of property 'vendor' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/procurement/VendorCreditNotes.tsx(45,13): error TS2561: Object literal may only specify known properties, but 'total_amount' does not exist in type 'VendorCreditNotePayload'. Did you mean to write 'tax_amount'?
+src/features/procurement/VendorDebitNotes.tsx(44,13): error TS2561: Object literal may only specify known properties, but 'total_amount' does not exist in type 'VendorDebitNotePayload'. Did you mean to write 'tax_amount'?
+src/features/production/hooks/useProduction.ts(114,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/production/hooks/useProduction.ts(193,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/production/hooks/useProduction.ts(251,43): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/production/hooks/useProduction.ts(304,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/production/hooks/useProduction.ts(398,45): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/production/hooks/useProduction.ts(570,45): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/quality/pages/Calibrations.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/Checklists.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/CustomerComplaints.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/Inspections.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/NonConformances.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/QualityDashboard.tsx(3,129): error TS2307: Cannot find module './hooks/useQuality' or its corresponding type declarations.
+src/features/quality/pages/QualityDashboard.tsx(4,27): error TS2307: Cannot find module './QualityLayout' or its corresponding type declarations.
+src/features/quality/pages/QualityDashboard.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/SupplierQuality.tsx(3,56): error TS2305: Module '"../hooks/useQuality"' has no exported member 'useVendors'.
+src/features/quality/pages/SupplierQuality.tsx(5,27): error TS2307: Cannot find module '../../components/common/LoadingScreen' or its corresponding type declarations.
+src/features/quality/pages/SupplierQuality.tsx(34,13): error TS2353: Object literal may only specify known properties, and 'overall_score' does not exist in type 'SupplierQualityPayload'.
+src/features/service/pages/MaintenanceSchedules.tsx(38,31): error TS2345: Argument of type '{ asset: string; title: string; description: string; frequency: string; next_run_date: string; }' is not assignable to parameter of type 'Partial<MaintenanceSchedule>'.
+  Types of property 'asset' are incompatible.
+    Type 'string' is not assignable to type 'number'.
+src/features/service/pages/ServiceTickets.tsx(42,29): error TS2345: Argument of type '{ subject: string; description: string; priority: string; asset: string; }' is not assignable to parameter of type 'Partial<ServiceTicket>'.
+  Types of property 'priority' are incompatible.
+    Type 'string' is not assignable to type '"Low" | "Medium" | "High" | "Critical" | undefined'.
+src/features/service/pages/WorkOrders.tsx(55,32): error TS2345: Argument of type '{ title: string; description: string; priority: string; technician: string; asset: string; scheduled_date: string; labor_hours: number; labor_cost: number; parts_cost: number; }' is not assignable to parameter of type 'Partial<WorkOrder>'.
+  Types of property 'priority' are incompatible.
+    Type 'string' is not assignable to type '"Low" | "Medium" | "High" | "Urgent" | undefined'.
+src/features/settings/CurrencyManagement.tsx(61,80): error TS2322: Type 'number' is not assignable to type 'string'.
+src/features/settings/CurrencyManagement.tsx(63,61): error TS2322: Type 'number' is not assignable to type 'string'.
+src/features/settings/CurrencyManagement.tsx(80,13): error TS2322: Type 'number' is not assignable to type 'string'.
+src/features/workflow/hooks/useWorkflow.ts(75,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/workflow/hooks/useWorkflow.ts(141,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/workflow/hooks/useWorkflow.ts(207,40): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/features/workflow/pages/ApprovalTemplates.tsx(74,24): error TS2322: Type 'StepInput[]' is not assignable to type 'ApprovalTemplateStepPayload[]'.
+  Type 'StepInput' is not assignable to type 'ApprovalTemplateStepPayload'.
+    Types of property 'group' are incompatible.
+      Type 'string' is not assignable to type 'number'.
+src/pages/superadmin/hooks/useSuperAdmin.ts(110,65): error TS2353: Object literal may only specify known properties, and 'tenant_id' does not exist in type '{ is_active?: boolean | undefined; }'.
+src/pages/superadmin/hooks/useSuperAdmin.ts(289,70): error TS2353: Object literal may only specify known properties, and 'limit' does not exist in type '{ tenant_id?: number | undefined; action_type?: string | undefined; start_date?: string | undefined; end_date?: string | undefined; page?: number | undefined; page_size?: number | undefined; }'.

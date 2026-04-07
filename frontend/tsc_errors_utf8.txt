@@ -1,0 +1,17 @@
+﻿src/features/accounting/budget/pages/BudgetEntry.tsx(199,21): error TS2322: Type '(value: string | undefined) => string' is not assignable to type '(displayValue: string | undefined) => number'.
+  Type 'string' is not assignable to type 'number'.
+src/features/accounting/budget/pages/BudgetEntry.tsx(218,21): error TS2322: Type '(value: string | undefined) => string' is not assignable to type '(displayValue: string | undefined) => number'.
+  Type 'string' is not assignable to type 'number'.
+src/features/accounting/budget/pages/VarianceAnalysis.tsx(268,37): error TS2322: Type '(value: number) => string' is not assignable to type 'Formatter<number, NameType> & ((value: number, name: NameType, item: Payload<number, NameType>, index: number, payload: Payload<number, NameType>[]) => ReactNode | [...])'.
+  Type '(value: number) => string' is not assignable to type 'Formatter<number, NameType>'.
+    Types of parameters 'value' and 'value' are incompatible.
+      Type 'number | undefined' is not assignable to type 'number'.
+        Type 'undefined' is not assignable to type 'number'.
+src/features/inventory/pages/InventoryDashboard.tsx(3,21): error TS2307: Cannot find module '../../../../components/Sidebar' or its corresponding type declarations.
+src/features/inventory/pages/StockValuation.tsx(2,21): error TS2307: Cannot find module '../../../../components/Sidebar' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalGroups.tsx(2,23): error TS2307: Cannot find module '../../api/client' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalGroups.tsx(3,21): error TS2307: Cannot find module '../../components/Sidebar' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalHistory.tsx(2,23): error TS2307: Cannot find module '../../api/client' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalHistory.tsx(3,21): error TS2307: Cannot find module '../../components/Sidebar' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalTemplates.tsx(2,23): error TS2307: Cannot find module '../../api/client' or its corresponding type declarations.
+src/features/workflow/pages/ApprovalTemplates.tsx(3,21): error TS2307: Cannot find module '../../components/Sidebar' or its corresponding type declarations.

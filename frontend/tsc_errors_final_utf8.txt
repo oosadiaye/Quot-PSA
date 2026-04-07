@@ -1,0 +1,5 @@
+﻿src/features/accounting/budget/pages/VarianceAnalysis.tsx(268,37): error TS2322: Type '(value: number | string) => string' is not assignable to type 'Formatter<string | number, NameType> & ((value: string | number, name: NameType, item: Payload<string | number, NameType>, index: number, payload: Payload<...>[]) => ReactNode | [...])'.
+  Type '(value: number | string) => string' is not assignable to type 'Formatter<string | number, NameType>'.
+    Types of parameters 'value' and 'value' are incompatible.
+      Type 'string | number | undefined' is not assignable to type 'string | number'.
+        Type 'undefined' is not assignable to type 'string | number'.

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1.0">
+<title>DTSG ERP — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    background: #f0f4f8;
+    color: #1e293b;
+  }
+
+  /* Left panel — branding */
+  .brand-panel {
+    width: 50%;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0f3460 0%, #1a5276 40%, #2471a3 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  .brand-panel::before {
+    content: '';
+    position: absolute;
+    top: -100px; right: -100px;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+  }
+  .brand-panel::after {
+    content: '';
+    position: absolute;
+    bottom: -150px; left: -150px;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.03);
+  }
+  .brand-logo {
+    width: 72px; height: 72px;
+    background: white;
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 28px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+  .brand-logo svg { width: 40px; height: 40px; }
+  .brand-title {
+    font-size: 42px; font-weight: 800; color: white;
+    letter-spacing: -1px; margin-bottom: 12px;
+  }
+  .brand-subtitle {
+    font-size: 17px; color: rgba(255,255,255,0.75);
+    font-weight: 400; margin-bottom: 56px; text-align: center;
+    line-height: 1.6;
+  }
+  .brand-features {
+    display: flex; flex-direction: column; gap: 20px;
+    max-width: 380px;
+  }
+  .brand-feature {
+    display: flex; align-items: center; gap: 16px;
+    color: rgba(255,255,255,0.85); font-size: 15px;
+  }
+  .brand-feature-icon {
+    width: 44px; height: 44px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .brand-feature-icon svg { width: 22px; height: 22px; stroke: rgba(255,255,255,0.9); }
+
+  /* Right panel — form */
+  .form-panel {
+    width: 50%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    background: white;
+  }
+  .form-container {
+    width: 100%;
+    max-width: 420px;
+  }
+  .form-header {
+    margin-bottom: 36px;
+  }
+  .form-header h2 {
+    font-size: 28px; font-weight: 700; color: #0f172a;
+    margin-bottom: 8px;
+  }
+  .form-header p {
+    font-size: 15px; color: #64748b;
+  }
+  .form-group {
+    margin-bottom: 22px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 13px; font-weight: 600; color: #475569;
+    margin-bottom: 8px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .input-wrapper {
+    position: relative;
+  }
+  .input-wrapper svg {
+    position: absolute;
+    left: 14px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; stroke: #94a3b8;
+  }
+  .form-input {
+    width: 100%;
+    padding: 14px 16px 14px 46px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 15px;
+    font-family: inherit;
+    background: #f8fafc;
+    transition: all 0.2s;
+    outline: none;
+    color: #1e293b;
+  }
+  .form-input:focus {
+    border-color: #2471a3;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(36,113,163,0.1);
+  }
+  .form-input::placeholder { color: #94a3b8; }
+
+  .form-options {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 28px;
+  }
+  .remember-me {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; color: #64748b; cursor: pointer;
+  }
+  .remember-me input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: #2471a3;
+  }
+  .forgot-link {
+    font-size: 14px; color: #2471a3; text-decoration: none;
+    font-weight: 500;
+  }
+  .forgot-link:hover { text-decoration: underline; }
+
+  .btn-login {
+    width: 100%;
+    padding: 15px;
+    background: linear-gradient(135deg, #0f3460, #2471a3);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+    box-shadow: 0 4px 14px rgba(15,52,96,0.3);
+  }
+  .btn-login:hover {
+    box-shadow: 0 6px 20px rgba(15,52,96,0.4);
+    transform: translateY(-1px);
+  }
+
+  .divider {
+    display: flex; align-items: center; gap: 16px;
+    margin: 28px 0;
+    color: #94a3b8; font-size: 13px;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: #e2e8f0;
+  }
+
+  .sso-buttons {
+    display: flex; gap: 12px;
+  }
+  .btn-sso {
+    flex: 1;
+    padding: 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    background: white;
+    font-size: 14px;
+    font-family: inherit;
+    color: #475569;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  .btn-sso:hover {
+    border-color: #2471a3;
+    background: #f0f7ff;
+  }
+  .btn-sso svg { width: 18px; height: 18px; }
+
+  .signup-link {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 14px; color: #64748b;
+  }
+  .signup-link a {
+    color: #2471a3; text-decoration: none; font-weight: 600;
+  }
+  .signup-link a:hover { text-decoration: underline; }
+
+  .security-badge {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 24px;
+    font-size: 12px; color: #94a3b8;
+  }
+  .security-badge svg { width: 14px; height: 14px; stroke: #94a3b8; }
+</style>
+</head>
+<body>
+
+<!-- Left Branding Panel -->
+<div class="brand-panel">
+  <div class="brand-logo">
+    <svg viewBox="0 0 40 40" fill="none"><rect x="4" y="8" width="14" height="14" rx="3" fill="#0f3460"/><rect x="22" y="8" width="14" height="14" rx="3" fill="#2471a3"/><rect x="4" y="26" width="14" height="6" rx="3" fill="#2471a3" opacity="0.6"/><rect x="22" y="26" width="14" height="6" rx="3" fill="#0f3460" opacity="0.6"/></svg>
+  </div>
+  <div class="brand-title">DTSG ERP</div>
+  <div class="brand-subtitle">Enterprise Resource Planning<br>Built for modern organizations</div>
+  <div class="brand-features">
+    <div class="brand-feature">
+      <div class="brand-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <span>Enterprise-grade security with role-based access control</span>
+    </div>
+    <div class="brand-feature">
+      <div class="brand-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></div>
+      <span>Multi-tenant architecture for scalable deployments</span>
+    </div>
+    <div class="brand-feature">
+      <div class="brand-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+      <span>Real-time analytics and financial reporting</span>
+    </div>
+    <div class="brand-feature">
+      <div class="brand-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+      <span>12+ integrated modules — Accounting to Quality</span>
+    </div>
+  </div>
+</div>
+
+<!-- Right Form Panel -->
+<div class="form-panel">
+  <div class="form-container">
+    <div class="form-header">
+      <h2>Welcome back</h2>
+      <p>Sign in to your account to continue</p>
+    </div>
+
+    <div class="form-group">
+      <label>Username</label>
+      <div class="input-wrapper">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <input type="text" class="form-input" placeholder="Enter your username" value="admin">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Password</label>
+      <div class="input-wrapper">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input type="password" class="form-input" placeholder="Enter your password" value="password123">
+      </div>
+    </div>
+
+    <div class="form-options">
+      <label class="remember-me">
+        <input type="checkbox" checked> Remember me
+      </label>
+      <a href="#" class="forgot-link">Forgot password?</a>
+    </div>
+
+    <button class="btn-login">Sign In</button>
+
+    <div class="divider">or continue with</div>
+
+    <div class="sso-buttons">
+      <button class="btn-sso">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/></svg>
+        SSO Login
+      </button>
+      <button class="btn-sso">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+        Azure AD
+      </button>
+    </div>
+
+    <div class="signup-link">
+      Don't have an account? <a href="#">Create Account</a>
+    </div>
+
+    <div class="security-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      256-bit SSL encrypted &middot; SOC 2 Compliant
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

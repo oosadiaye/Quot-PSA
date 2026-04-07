@@ -1,0 +1,40 @@
+.loading-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+    transition: all 0.3s ease;
+}
+
+.loading-screen.full-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: var(--color-background-glass, rgba(255, 255, 255, 0.7));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    height: 100vh;
+    width: 100vw;
+}
+
+.loading-screen :global(.ant-spin) {
+    color: var(--color-primary);
+}
+
+.loading-screen :global(.ant-spin-text) {
+    margin-top: 1rem;
+    font-weight: 500;
+    font-size: 1rem;
+    color: var(--color-text);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}

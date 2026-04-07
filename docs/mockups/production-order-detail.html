@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Production Order Detail — DTSG ERP Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    --primary: #191e6a;
+    --primary-light: #4a52c0;
+    --primary-dark: #0f1240;
+    --accent: #f59e0b;
+    --text: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --surface: #ffffff;
+    --surface-hover: #f8fafc;
+    --bg: #f1f5f9;
+    --border: #e2e8f0;
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar (simplified) ─────────────────────── */
+  .sidebar {
+    width: 260px; height: 100vh; position: fixed; left: 0; top: 0;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 20px 12px; display: flex; flex-direction: column; z-index: 10;
+    overflow-y: auto;
+  }
+  .sidebar-logo {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 8px 16px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+  }
+  .sidebar-logo-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, #0f3460, #2471a3);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 800; font-size: 14px;
+  }
+  .sidebar-logo-text { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .sidebar-logo-sub { font-size: 11px; color: var(--text-subtle); font-weight: 500; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13.5px; font-weight: 500; color: var(--text);
+    transition: all 0.15s;
+  }
+  .nav-item:hover { background: var(--surface-hover); }
+  .nav-item.active { background: #eff6ff; color: #2471a3; font-weight: 600; }
+  .nav-item .icon { width: 18px; height: 18px; color: var(--text-muted); flex-shrink: 0; }
+  .nav-item.active .icon { color: #2471a3; }
+
+  .nav-sub {
+    margin-left: 12px; border-left: 1.5px solid var(--border);
+    margin-top: 2px; margin-bottom: 4px;
+  }
+  .nav-sub-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px 6px 16px; border-radius: 0 6px 6px 0;
+    cursor: pointer; font-size: 12.5px; font-weight: 500;
+    color: #1e293b; margin-left: 4px; transition: all 0.15s;
+  }
+  .nav-sub-item:hover { background: var(--surface-hover); }
+  .nav-sub-item.active { background: #eff6ff; color: #2471a3; font-weight: 600; }
+
+  /* ── Main Content ─────────────────────────────── */
+  .main {
+    margin-left: 260px; padding: 2rem 2.5rem;
+    min-height: 100vh;
+  }
+
+  /* ── Back button ──────────────────────────────── */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text-secondary); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; margin-bottom: 16px;
+  }
+  .back-btn:hover { background: var(--surface-hover); border-color: var(--primary); color: var(--primary); }
+
+  /* ── Order Header Card ────────────────────────── */
+  .order-header {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 28px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+  }
+  .order-header-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .order-title {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .order-title h1 {
+    font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+  }
+  .status-badge {
+    padding: 5px 14px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .status-in-progress { background: rgba(59,130,246,0.12); color: #3b82f6; }
+  .status-draft { background: rgba(100,116,139,0.12); color: #64748b; }
+  .status-done { background: rgba(16,185,129,0.12); color: #10b981; }
+  .status-scheduled { background: rgba(25,30,106,0.12); color: #191e6a; }
+
+  .order-meta {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px;
+    padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .meta-item label {
+    display: block; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); margin-bottom: 4px;
+  }
+  .meta-item span {
+    font-size: 14px; font-weight: 600; color: var(--text);
+  }
+
+  .progress-section {
+    margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .progress-label {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .progress-bar-bg {
+    height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-light));
+    transition: width 0.5s ease;
+  }
+
+  /* ── Action Bar ───────────────────────────────── */
+  .action-bar {
+    display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .action-btn {
+    padding: 9px 20px; border-radius: 8px; font-size: 13px;
+    font-weight: 600; cursor: pointer; border: none;
+    transition: all 0.15s; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .action-btn:hover { transform: translateY(-1px); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: white; box-shadow: 0 4px 12px rgba(15,18,64,0.3);
+  }
+  .btn-green { background: linear-gradient(135deg, #059669, #10b981); color: white; box-shadow: 0 4px 12px rgba(16,185,129,0.3); }
+  .btn-amber { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
+  .btn-outline {
+    background: var(--surface); border: 1.5px solid var(--border);
+    color: var(--text-secondary);
+  }
+  .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-red-outline {
+    background: var(--surface); border: 1.5px solid rgba(239,68,68,0.3);
+    color: var(--red);
+  }
+
+  /* ── Tabs ─────────────────────────────────────── */
+  .tabs {
+    display: flex; gap: 0; border-bottom: 2px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .tab {
+    padding: 10px 20px; font-size: 13px; font-weight: 600;
+    color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -2px; transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab .tab-count {
+    background: rgba(25,30,106,0.1); color: var(--primary);
+    font-size: 10px; font-weight: 700; padding: 2px 7px;
+    border-radius: 99px;
+  }
+
+  /* ── Tab Content ──────────────────────────────── */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Materials Tab ────────────────────────────── */
+  .requirements-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .requirements-card h3 {
+    font-size: 14px; font-weight: 700; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .requirements-card h3 .icon-circle {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse;
+  }
+  thead th {
+    padding: 10px 14px; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); text-align: left;
+    background: rgba(15,18,64,0.04);
+    border-bottom: 1.5px solid var(--border);
+  }
+  tbody td {
+    padding: 12px 14px; font-size: 13px; color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:hover { background: rgba(25,30,106,0.02); }
+
+  .qty-badge {
+    display: inline-flex; padding: 3px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 600;
+  }
+  .qty-full { background: rgba(16,185,129,0.1); color: var(--green); }
+  .qty-partial { background: rgba(245,158,11,0.1); color: var(--amber); }
+  .qty-none { background: rgba(100,116,139,0.1); color: var(--text-muted); }
+
+  .backflush-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-radius: 10px;
+    background: rgba(25,30,106,0.04); border: 1px solid rgba(25,30,106,0.1);
+    margin-bottom: 16px;
+  }
+  .backflush-bar span { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+
+  /* ── Issue Form (inline) ──────────────────────── */
+  .issue-form {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  .issue-form h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 12px;
+    align-items: end;
+  }
+  .form-group label {
+    display: block; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); margin-bottom: 6px;
+  }
+  .form-group input, .form-group select {
+    width: 100%; padding: 9px 14px; border-radius: 8px;
+    border: 2px solid var(--border); font-size: 13px;
+    font-family: inherit; color: var(--text);
+    background: var(--surface-hover); transition: all 0.2s;
+  }
+  .form-group input:focus, .form-group select:focus {
+    outline: none; border-color: var(--primary);
+    background: white; box-shadow: 0 0 0 3px rgba(25,30,106,0.1);
+  }
+
+  /* ── Finished Goods Tab ───────────────────────── */
+  .receipt-summary {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    margin-bottom: 16px;
+  }
+  .summary-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; text-align: center;
+  }
+  .summary-card .value {
+    font-size: 24px; font-weight: 800; color: var(--text);
+    letter-spacing: -0.5px;
+  }
+  .summary-card .label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-muted); margin-top: 4px;
+  }
+  .summary-card.green .value { color: var(--green); }
+  .summary-card.amber .value { color: var(--amber); }
+  .summary-card.red .value { color: var(--red); }
+
+  /* ── Batch Section ────────────────────────────── */
+  .batch-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+  }
+  .batch-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: rgba(15,18,64,0.02);
+  }
+  .batch-card-header h3 {
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .batch-card-body { padding: 0; }
+
+  .batch-actions {
+    display: flex; gap: 8px;
+  }
+  .batch-btn {
+    padding: 6px 14px; border-radius: 6px; font-size: 12px;
+    font-weight: 600; cursor: pointer; border: 1.5px solid var(--border);
+    background: var(--surface); color: var(--text-secondary);
+    font-family: inherit; transition: all 0.15s;
+  }
+  .batch-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .batch-btn.active { background: rgba(25,30,106,0.08); border-color: var(--primary); color: var(--primary); }
+
+  .expiry-badge {
+    display: inline-flex; padding: 3px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .expiry-ok { background: rgba(16,185,129,0.1); color: var(--green); }
+  .expiry-warn { background: rgba(245,158,11,0.1); color: var(--amber); }
+  .expiry-expired { background: rgba(239,68,68,0.1); color: var(--red); }
+
+  /* ── Job Cards Tab ────────────────────────────── */
+  .job-card-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
+  }
+  .job-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; transition: all 0.2s;
+  }
+  .job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+  .job-card-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  .job-card-seq {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: rgba(25,30,106,0.08); color: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800;
+  }
+  .job-card-name { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+  .job-card-meta {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .job-card-meta dt { font-weight: 600; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .job-card-meta dd { font-weight: 600; margin: 0 0 6px; }
+  .job-card-actions { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+  /* ── Utility ──────────────────────────────────── */
+  .section-divider { height: 1px; background: var(--border); margin: 20px 0; }
+  .text-muted { color: var(--text-muted); }
+  .text-sm { font-size: 13px; }
+  .fw-600 { font-weight: 600; }
+  .mt-12 { margin-top: 12px; }
+  .mb-8 { margin-bottom: 8px; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; }
+
+  /* ── Tab switching (JS-driven) ────────────────── */
+  .mockup-note {
+    position: fixed; bottom: 16px; right: 16px;
+    padding: 10px 18px; border-radius: 10px;
+    background: var(--primary); color: white;
+    font-size: 12px; font-weight: 600; z-index: 999;
+    box-shadow: 0 4px 16px rgba(25,30,106,0.4);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────── -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-icon">D</div>
+    <div>
+      <div class="sidebar-logo-text">DTSG ERP</div>
+      <div class="sidebar-logo-sub">Enterprise Platform</div>
+    </div>
+  </div>
+  <div class="nav-item" style="margin-bottom:2px">
+    <span class="icon">&#9632;</span> Dashboard
+  </div>
+  <div class="nav-item active" style="margin-bottom:2px">
+    <span class="icon">&#9881;</span> Production
+  </div>
+  <div class="nav-sub">
+    <div class="nav-sub-item">Production Dashboard</div>
+    <div class="nav-sub-item">Bill of Materials</div>
+    <div class="nav-sub-item">Work Centers</div>
+    <div class="nav-sub-item active">Production Orders</div>
+  </div>
+  <div class="nav-item" style="margin-bottom:2px">
+    <span class="icon">&#9744;</span> Inventory
+  </div>
+  <div class="nav-item" style="margin-bottom:2px">
+    <span class="icon">&#9733;</span> Quality
+  </div>
+</div>
+
+<!-- ── MAIN CONTENT ────────────────────────────── -->
+<div class="main">
+
+  <!-- Back -->
+  <button class="back-btn">&#8592; Production Orders</button>
+
+  <!-- ── Order Header ──────────────────────────── -->
+  <div class="order-header">
+    <div class="order-header-top">
+      <div class="order-title">
+        <h1>PO-2026-0042</h1>
+        <span class="status-badge status-in-progress">In Progress</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted)">
+        Created Mar 25, 2026
+      </div>
+    </div>
+
+    <div class="order-meta">
+      <div class="meta-item">
+        <label>Product (BOM)</label>
+        <span>Premium Steel Widget</span>
+      </div>
+      <div class="meta-item">
+        <label>Work Center</label>
+        <span>WC-ASSEMBLY-01</span>
+      </div>
+      <div class="meta-item">
+        <label>Start Date</label>
+        <span>Mar 25, 2026</span>
+      </div>
+      <div class="meta-item">
+        <label>End Date</label>
+        <span style="color:var(--text-subtle)">&#8212;</span>
+      </div>
+      <div class="meta-item">
+        <label>Quantity</label>
+        <span>35 / 100 <span style="font-size:11px;color:var(--text-muted)">PCS</span></span>
+      </div>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-label">
+        <span>Production Progress</span>
+        <span style="color:var(--primary);font-weight:700">35%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" style="width:35%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Action Bar ────────────────────────────── -->
+  <div class="action-bar">
+    <button class="action-btn btn-green">&#10003; Complete Production</button>
+    <button class="action-btn btn-outline">&#9998; Edit Order</button>
+    <button class="action-btn btn-red-outline">&#10005; Cancel Order</button>
+  </div>
+
+  <!-- ── Tabs ──────────────────────────────────── -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('materials')">
+      &#128230; Materials
+      <span class="tab-count">5</span>
+    </div>
+    <div class="tab" onclick="switchTab('finished')">
+      &#9989; Finished Goods
+      <span class="tab-count">2</span>
+    </div>
+    <div class="tab" onclick="switchTab('jobcards')">
+      &#128203; Job Cards
+      <span class="tab-count">3</span>
+    </div>
+    <div class="tab" onclick="switchTab('batches')">
+      &#128230; Batches
+      <span class="tab-count">2</span>
+    </div>
+    <div class="tab" onclick="switchTab('quality')">
+      &#128737; Quality
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- TAB 1: MATERIALS                              -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div id="tab-materials" class="tab-content active">
+
+    <!-- Backflush bar -->
+    <div class="backflush-bar">
+      <span>&#9889; <strong>Quick Action:</strong> Issue all remaining BOM materials in one click</span>
+      <button class="action-btn btn-primary" style="padding:7px 18px;font-size:12px">
+        Issue All Materials (Backflush)
+      </button>
+    </div>
+
+    <!-- Requirements vs Issued -->
+    <div class="requirements-card">
+      <h3>
+        <span class="icon-circle" style="background:rgba(25,30,106,0.08);color:var(--primary)">&#128196;</span>
+        Material Requirements vs Issued
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Code</th>
+            <th>Required Qty</th>
+            <th>Issued Qty</th>
+            <th>Remaining</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:600">Steel Sheet 2mm</td>
+            <td style="color:var(--text-muted);font-size:12px">RM-STL-002</td>
+            <td>200.00</td>
+            <td>200.00</td>
+            <td>0.00</td>
+            <td><span class="qty-badge qty-full">Fully Issued</span></td>
+            <td style="color:var(--text-subtle);font-size:12px">&#10003; Done</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">Brass Rivets M4</td>
+            <td style="color:var(--text-muted);font-size:12px">RM-BRS-004</td>
+            <td>500.00</td>
+            <td>300.00</td>
+            <td>200.00</td>
+            <td><span class="qty-badge qty-partial">Partial</span></td>
+            <td><button class="batch-btn" style="font-size:11px;padding:4px 12px">Issue</button></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">Coating Powder</td>
+            <td style="color:var(--text-muted);font-size:12px">RM-CTG-001</td>
+            <td>5.00</td>
+            <td>5.00</td>
+            <td>0.00</td>
+            <td><span class="qty-badge qty-full">Fully Issued</span></td>
+            <td style="color:var(--text-subtle);font-size:12px">&#10003; Done</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">Rubber Gasket Ring</td>
+            <td style="color:var(--text-muted);font-size:12px">RM-RBR-012</td>
+            <td>100.00</td>
+            <td>0.00</td>
+            <td>100.00</td>
+            <td><span class="qty-badge qty-none">Not Issued</span></td>
+            <td><button class="batch-btn" style="font-size:11px;padding:4px 12px">Issue</button></td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">Assembly Screws M3</td>
+            <td style="color:var(--text-muted);font-size:12px">RM-SCR-003</td>
+            <td>400.00</td>
+            <td>400.00</td>
+            <td>0.00</td>
+            <td><span class="qty-badge qty-full">Fully Issued</span></td>
+            <td style="color:var(--text-subtle);font-size:12px">&#10003; Done</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Manual Issue Form -->
+    <div class="issue-form">
+      <h3>&#43; Manual Material Issue</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Component</label>
+          <select>
+            <option>Select component...</option>
+            <option>RM-BRS-004 — Brass Rivets M4</option>
+            <option>RM-RBR-012 — Rubber Gasket Ring</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" placeholder="0.00" value="200">
+        </div>
+        <div class="form-group">
+          <label>Warehouse</label>
+          <select>
+            <option>Main Warehouse</option>
+            <option>Raw Materials Store</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Source Batch</label>
+          <select>
+            <option>Auto (FIFO)</option>
+            <option>BATCH-BRS-2026-01 (qty: 500)</option>
+            <option>BATCH-BRS-2026-02 (qty: 250)</option>
+          </select>
+        </div>
+        <button class="action-btn btn-primary" style="padding:9px 18px;font-size:12px;height:38px">
+          Issue
+        </button>
+      </div>
+    </div>
+
+    <!-- Issue History -->
+    <div class="requirements-card">
+      <h3>
+        <span class="icon-circle" style="background:rgba(16,185,129,0.08);color:var(--green)">&#128203;</span>
+        Issue History
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Component</th>
+            <th>Qty Issued</th>
+            <th>Warehouse</th>
+            <th>Batch</th>
+            <th>GL Posted</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Mar 25, 2026</td>
+            <td style="font-weight:600">Steel Sheet 2mm</td>
+            <td>200.00</td>
+            <td>Main Warehouse</td>
+            <td style="font-size:12px;color:var(--primary)">BATCH-STL-2026-03</td>
+            <td><span class="qty-badge qty-full" style="font-size:10px">Posted</span></td>
+          </tr>
+          <tr>
+            <td>Mar 26, 2026</td>
+            <td style="font-weight:600">Brass Rivets M4</td>
+            <td>300.00</td>
+            <td>Raw Materials Store</td>
+            <td style="font-size:12px;color:var(--primary)">BATCH-BRS-2026-01</td>
+            <td><span class="qty-badge qty-full" style="font-size:10px">Posted</span></td>
+          </tr>
+          <tr>
+            <td>Mar 26, 2026</td>
+            <td style="font-weight:600">Coating Powder</td>
+            <td>5.00</td>
+            <td>Main Warehouse</td>
+            <td style="font-size:12px;color:var(--text-muted)">—</td>
+            <td><span class="qty-badge qty-full" style="font-size:10px">Posted</span></td>
+          </tr>
+          <tr>
+            <td>Mar 27, 2026</td>
+            <td style="font-weight:600">Assembly Screws M3</td>
+            <td>400.00</td>
+            <td>Main Warehouse</td>
+            <td style="font-size:12px;color:var(--text-muted)">—</td>
+            <td><span class="qty-badge qty-full" style="font-size:10px">Posted</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- TAB 2: FINISHED GOODS                         -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div id="tab-finished" class="tab-content">
+
+    <!-- Summary cards -->
+    <div class="receipt-summary">
+      <div class="summary-card">
+        <div class="value">100</div>
+        <div class="label">Planned</div>
+      </div>
+      <div class="summary-card green">
+        <div class="value">35</div>
+        <div class="label">Received</div>
+      </div>
+      <div class="summary-card amber">
+        <div class="value">65</div>
+        <div class="label">Remaining</div>
+      </div>
+      <div class="summary-card red">
+        <div class="value">2</div>
+        <div class="label">Scrap</div>
+      </div>
+    </div>
+
+    <!-- Receipt form -->
+    <div class="issue-form">
+      <h3>&#43; Receive Finished Goods</h3>
+      <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr auto auto">
+        <div class="form-group">
+          <label>Quantity Received</label>
+          <input type="number" placeholder="0.00" value="25">
+        </div>
+        <div class="form-group">
+          <label>Warehouse</label>
+          <select>
+            <option>Finished Goods Warehouse</option>
+            <option>Main Warehouse</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Receipt Date</label>
+          <input type="date" value="2026-03-30">
+        </div>
+        <div class="form-group">
+          <label>Scrap Qty</label>
+          <input type="number" placeholder="0" value="0" style="width:80px">
+        </div>
+        <button class="action-btn btn-green" style="padding:9px 18px;font-size:12px;height:38px">
+          Receive
+        </button>
+      </div>
+    </div>
+
+    <!-- Receipt history -->
+    <div class="requirements-card">
+      <h3>
+        <span class="icon-circle" style="background:rgba(16,185,129,0.08);color:var(--green)">&#10003;</span>
+        Receipt History
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Qty Received</th>
+            <th>Scrap</th>
+            <th>Warehouse</th>
+            <th>Batch Created</th>
+            <th>GL Posted</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Mar 27, 2026</td>
+            <td style="font-weight:600">20</td>
+            <td>1</td>
+            <td>Finished Goods Warehouse</td>
+            <td style="color:var(--primary);font-weight:600;font-size:12px">BATCH-PO-2026-0042-01</td>
+            <td><span class="qty-badge qty-full" style="font-size:10px">Posted</span></td>
+          </tr>
+          <tr>
+            <td>Mar 29, 2026</td>
+            <td style="font-weight:600">15</td>
+            <td>1</td>
+            <td>Finished Goods Warehouse</td>
+            <td style="color:var(--primary);font-weight:600;font-size:12px">BATCH-PO-2026-0042-02</td>
+            <td><span class="qty-badge qty-partial" style="font-size:10px">Pending</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- TAB 3: JOB CARDS                              -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div id="tab-jobcards" class="tab-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:14px;font-weight:700">Operations</h3>
+      <button class="action-btn btn-outline" style="padding:7px 16px;font-size:12px">&#43; Add Job Card</button>
+    </div>
+
+    <div class="job-card-grid">
+      <!-- Job Card 1 - Done -->
+      <div class="job-card" style="border-left: 3px solid var(--green)">
+        <div class="job-card-top">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="job-card-seq">1</div>
+            <span class="status-badge status-done" style="font-size:10px;padding:3px 10px">Done</span>
+          </div>
+        </div>
+        <div class="job-card-name">Cutting & Shaping</div>
+        <div class="job-card-meta">
+          <div><dt>Work Center</dt><dd>WC-CUT-01</dd></div>
+          <div><dt>Operator</dt><dd>John Smith</dd></div>
+          <div><dt>Planned Time</dt><dd>4.0 hrs</dd></div>
+          <div><dt>Actual Time</dt><dd style="color:var(--green)">3.5 hrs</dd></div>
+          <div><dt>Labor Cost</dt><dd>$87.50</dd></div>
+        </div>
+      </div>
+
+      <!-- Job Card 2 - In Progress -->
+      <div class="job-card" style="border-left: 3px solid var(--blue)">
+        <div class="job-card-top">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="job-card-seq">2</div>
+            <span class="status-badge status-in-progress" style="font-size:10px;padding:3px 10px">In Progress</span>
+          </div>
+        </div>
+        <div class="job-card-name">Assembly</div>
+        <div class="job-card-meta">
+          <div><dt>Work Center</dt><dd>WC-ASSEMBLY-01</dd></div>
+          <div><dt>Operator</dt><dd>Sarah Davis</dd></div>
+          <div><dt>Planned Time</dt><dd>6.0 hrs</dd></div>
+          <div><dt>Actual Time</dt><dd style="color:var(--text-subtle)">&#8212;</dd></div>
+          <div><dt>Labor Cost</dt><dd style="color:var(--text-subtle)">&#8212;</dd></div>
+        </div>
+        <div class="job-card-actions">
+          <button class="action-btn btn-green" style="padding:6px 14px;font-size:11px">&#10003; Complete</button>
+        </div>
+      </div>
+
+      <!-- Job Card 3 - Pending -->
+      <div class="job-card" style="border-left: 3px solid var(--text-subtle)">
+        <div class="job-card-top">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="job-card-seq">3</div>
+            <span class="status-badge status-draft" style="font-size:10px;padding:3px 10px">Pending</span>
+          </div>
+        </div>
+        <div class="job-card-name">Coating & Finishing</div>
+        <div class="job-card-meta">
+          <div><dt>Work Center</dt><dd>WC-COAT-01</dd></div>
+          <div><dt>Operator</dt><dd style="color:var(--text-subtle)">Unassigned</dd></div>
+          <div><dt>Planned Time</dt><dd>2.5 hrs</dd></div>
+          <div><dt>Actual Time</dt><dd style="color:var(--text-subtle)">&#8212;</dd></div>
+          <div><dt>Labor Cost</dt><dd style="color:var(--text-subtle)">&#8212;</dd></div>
+        </div>
+        <div class="job-card-actions">
+          <button class="action-btn btn-primary" style="padding:6px 14px;font-size:11px">&#9654; Start</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- TAB 4: BATCHES                                -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div id="tab-batches" class="tab-content">
+
+    <!-- Batches created by this order -->
+    <div class="batch-card">
+      <div class="batch-card-header">
+        <h3>&#128230; Batches Created by This Order</h3>
+        <div class="batch-actions">
+          <button class="batch-btn">Split Batch</button>
+          <button class="batch-btn">Transfer</button>
+        </div>
+      </div>
+      <div class="batch-card-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Batch #</th>
+              <th>Item</th>
+              <th>Warehouse</th>
+              <th>Original Qty</th>
+              <th>Remaining</th>
+              <th>Unit Cost</th>
+              <th>Received</th>
+              <th>Expiry</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:700;color:var(--primary)">BATCH-PO-2026-0042-01</td>
+              <td>Premium Steel Widget</td>
+              <td>Finished Goods Warehouse</td>
+              <td>20</td>
+              <td>18</td>
+              <td>$45.00</td>
+              <td>Mar 27, 2026</td>
+              <td><span class="expiry-badge expiry-ok">Dec 27, 2026</span></td>
+              <td>
+                <button class="batch-btn" style="font-size:10px;padding:3px 10px">Split</button>
+                <button class="batch-btn" style="font-size:10px;padding:3px 10px">Transfer</button>
+              </td>
+            </tr>
+            <tr>
+              <td style="font-weight:700;color:var(--primary)">BATCH-PO-2026-0042-02</td>
+              <td>Premium Steel Widget</td>
+              <td>Finished Goods Warehouse</td>
+              <td>15</td>
+              <td>15</td>
+              <td>$45.00</td>
+              <td>Mar 29, 2026</td>
+              <td><span class="expiry-badge expiry-ok">Dec 29, 2026</span></td>
+              <td>
+                <button class="batch-btn" style="font-size:10px;padding:3px 10px">Split</button>
+                <button class="batch-btn" style="font-size:10px;padding:3px 10px">Transfer</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Batches consumed -->
+    <div class="batch-card">
+      <div class="batch-card-header">
+        <h3>&#128295; Source Batches Consumed</h3>
+      </div>
+      <div class="batch-card-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Batch #</th>
+              <th>Component</th>
+              <th>Qty Used</th>
+              <th>Warehouse</th>
+              <th>Issue Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:600;color:var(--primary)">BATCH-STL-2026-03</td>
+              <td>Steel Sheet 2mm</td>
+              <td>200.00</td>
+              <td>Main Warehouse</td>
+              <td>Mar 25, 2026</td>
+            </tr>
+            <tr>
+              <td style="font-weight:600;color:var(--primary)">BATCH-BRS-2026-01</td>
+              <td>Brass Rivets M4</td>
+              <td>300.00</td>
+              <td>Raw Materials Store</td>
+              <td>Mar 26, 2026</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- TAB 5: QUALITY                                -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div id="tab-quality" class="tab-content">
+    <div style="text-align:center;padding:48px 0;color:var(--text-muted)">
+      <div style="font-size:48px;margin-bottom:12px">&#128737;</div>
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:6px">No Quality Inspection</h3>
+      <p style="font-size:13px;margin-bottom:16px">Create a quality inspection to verify production output</p>
+      <button class="action-btn btn-primary" style="font-size:13px">&#43; Create Quality Inspection</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Mockup label -->
+<div class="mockup-note">MOCKUP — Production Order Detail</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+</script>
+</body>
+</html>

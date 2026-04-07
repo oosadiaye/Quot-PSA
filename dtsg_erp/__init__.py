@@ -1,0 +1,7 @@
+# Ensure Celery app is loaded when Django starts (Phase 2).
+try:
+    from .celery import app as celery_app
+    __all__ = ('celery_app',)
+except ImportError:
+    # Celery not installed — skip async task support
+    pass

@@ -1,0 +1,48 @@
+.variance-analysis {
+    padding: 24px;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.variance-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.variance-header h2 {
+    margin: 0;
+    color: #1a1a1a;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .variance-analysis {
+        padding: 16px;
+    }
+
+    .variance-header {
+        flex-direction: column;
+        gap: 16px;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .variance-analysis {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    }
+
+    .variance-header {
+        background: rgba(30, 30, 30, 0.95);
+    }
+
+    .variance-header h2 {
+        color: #ffffff;
+    }
+}
