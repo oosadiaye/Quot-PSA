@@ -437,3 +437,49 @@ class ExperienceCertificateAdmin(admin.ModelAdmin):
 class AssetReturnAdmin(admin.ModelAdmin):
     list_display = ['exit_request', 'asset_name', 'asset_tag', 'status', 'return_actual_date']
     list_filter = ['status']
+
+
+# ─── Pension & Statutory Deductions Admin ────────────────────────────
+
+from .models import (
+    PensionFundAdministrator, EmployeePensionProfile,
+    PensionConfiguration, PensionRemittance, NigeriaTaxBracket,
+)
+
+
+@admin.register(PensionFundAdministrator)
+class PensionFundAdministratorAdmin(admin.ModelAdmin):
+    list_display = ['pfa_code', 'name', 'bank_name', 'is_active']
+    list_filter = ['is_active']
+    search_fields = ['pfa_code', 'name']
+    ordering = ['pfa_code']
+
+
+@admin.register(EmployeePensionProfile)
+class EmployeePensionProfileAdmin(admin.ModelAdmin):
+    list_display = ['employee', 'rsa_pin', 'pfa', 'enrollment_date', 'is_active']
+    list_filter = ['is_active', 'pfa']
+    search_fields = ['rsa_pin', 'employee__first_name', 'employee__last_name']
+    raw_id_fields = ['employee', 'pfa']
+
+
+@admin.register(PensionConfiguration)
+class PensionConfigurationAdmin(admin.ModelAdmin):
+    list_display = ['employer_rate', 'employee_rate', 'remittance_deadline_days',
+                    'effective_date', 'is_current']
+    list_filter = ['is_current']
+
+
+@admin.register(PensionRemittance)
+class PensionRemittanceAdmin(admin.ModelAdmin):
+    list_display = ['payroll_run', 'pfa', 'employer_amount', 'employee_amount',
+                    'total_amount', 'status']
+    list_filter = ['status', 'pfa']
+    raw_id_fields = ['payroll_run', 'pfa', 'payment_voucher']
+
+
+@admin.register(NigeriaTaxBracket)
+class NigeriaTaxBracketAdmin(admin.ModelAdmin):
+    list_display = ['lower_bound', 'upper_bound', 'rate', 'effective_date', 'is_current']
+    list_filter = ['is_current']
+    ordering = ['lower_bound']

@@ -13,7 +13,6 @@ Each category defines:
   - work_centers: default production work centers
 """
 import logging
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -448,7 +447,11 @@ def _seed_bom_templates(templates):
     if not templates:
         return
 
-    from production.models import BillOfMaterials, BOMLine
+    try:
+        from production.models import BillOfMaterials, BOMLine
+    except ImportError:
+        logger.debug('production module not available, skipping BOM template seed')
+        return
 
     for tmpl in templates:
         parent_bom, _ = BillOfMaterials.objects.get_or_create(

@@ -7,16 +7,17 @@ from ..serializers import AccountingSettingsSerializer
 
 # ===================== Accounting Settings =====================
 
-@api_view(['GET', 'PUT'])
+@api_view(['GET', 'PUT', 'PATCH'])
 @perm_classes([IsAuthenticated])
 def accounting_settings_api(request):
-    """GET/PUT the per-tenant accounting settings (singleton)."""
+    """GET/PUT/PATCH the per-tenant accounting settings (singleton)."""
     settings_obj, _ = AccountingSettings.objects.get_or_create(pk=1)
 
     if request.method == 'GET':
         serializer = AccountingSettingsSerializer(settings_obj)
         return Response(serializer.data)
 
+    # PUT/PATCH: both treated as partial updates (settings is a singleton row).
     serializer = AccountingSettingsSerializer(settings_obj, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     serializer.save()

@@ -87,18 +87,41 @@ DEFAULT_CHART_OF_ACCOUNTS = [
     {'code': '11200000', 'name': 'Interest Receivable',              'type': 'Asset'},
     {'code': '11300000', 'name': 'Due from Other Funds',             'type': 'Asset'},
 
-    # --- 121x Fixed Assets ---
-    {'code': '12100000', 'name': 'Land',                             'type': 'Asset'},
-    {'code': '12200000', 'name': 'Buildings',                        'type': 'Asset'},
+    # --- 121x–125x Fixed Assets ─────────────────────────────────────────────
+    #   Five major asset categories, each a reconciliation account so the
+    #   asset subledger (FixedAsset records) can be reconciled to the GL.
+    #   reconciliation_type='fixed_assets' lets the recon engine group them.
+
+    # ── 1. Land ──────────────────────────────────────────────────────────
+    #   Non-depreciable — no accumulated depreciation account needed.
+    {'code': '12100000', 'name': 'Land',                             'type': 'Asset',
+     'is_reconciliation': True, 'reconciliation_type': 'asset_accounting'},
+
+    # ── 2. Buildings ─────────────────────────────────────────────────────
+    {'code': '12200000', 'name': 'Buildings',                        'type': 'Asset',
+     'is_reconciliation': True, 'reconciliation_type': 'asset_accounting'},
     {'code': '12201000', 'name': 'Building Improvements',            'type': 'Asset'},
     {'code': '12202000', 'name': 'Accumulated Depreciation - Buildings','type': 'Asset'},
-    {'code': '12300000', 'name': 'Equipment',                        'type': 'Asset'},
+
+    # ── 3. Equipment & Machinery ─────────────────────────────────────────
+    {'code': '12300000', 'name': 'Equipment',                        'type': 'Asset',
+     'is_reconciliation': True, 'reconciliation_type': 'asset_accounting'},
     {'code': '12301000', 'name': 'Office Equipment',                 'type': 'Asset'},
     {'code': '12302000', 'name': 'Computer Equipment',               'type': 'Asset'},
-    {'code': '12303000', 'name': 'Vehicles',                         'type': 'Asset'},
     {'code': '12304000', 'name': 'Machinery',                        'type': 'Asset'},
-    {'code': '12305000', 'name': 'Furniture and Fixtures',           'type': 'Asset'},
     {'code': '12306000', 'name': 'Accumulated Depreciation - Equipment','type': 'Asset'},
+
+    # ── 4. Motor Vehicles ────────────────────────────────────────────────
+    {'code': '12303000', 'name': 'Vehicles',                         'type': 'Asset',
+     'is_reconciliation': True, 'reconciliation_type': 'asset_accounting'},
+    {'code': '12307000', 'name': 'Accumulated Depreciation - Vehicles','type': 'Asset'},
+
+    # ── 5. Furniture & Fixtures ──────────────────────────────────────────
+    {'code': '12305000', 'name': 'Furniture and Fixtures',           'type': 'Asset',
+     'is_reconciliation': True, 'reconciliation_type': 'asset_accounting'},
+    {'code': '12308000', 'name': 'Accumulated Depreciation - Furniture','type': 'Asset'},
+
+    # --- Intangible Assets ---
     {'code': '12400000', 'name': 'Intangible Assets',                'type': 'Asset'},
     {'code': '12401000', 'name': 'Software',                         'type': 'Asset'},
     {'code': '12402000', 'name': 'Patents and Trademarks',           'type': 'Asset'},

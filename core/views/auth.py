@@ -13,7 +13,6 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
 from django.core.mail import send_mail
 from django.conf import settings
-from django.utils import timezone
 from django_tenants.utils import schema_context
 
 from core.serializers import UserSerializer
@@ -32,7 +31,7 @@ class SignupRateThrottle(AnonRateThrottle):
 
 def _get_user_tenants(user):
     """Return serializable list of tenants accessible by this user."""
-    from tenants.models import UserTenantRole, Domain
+    from tenants.models import UserTenantRole
     if user.is_superuser:
         # Superusers can access every tenant
         from tenants.models import Client
@@ -104,7 +103,8 @@ def login_view(request):
 
     # Resolve email → username so authenticate() (which only accepts username)
     # works correctly regardless of which identifier the user supplied.
-    username = identifier
+    # Normalize to lowercase — usernames are case-insensitive.
+    username = identifier.lower()
     if '@' in identifier:
         with schema_context('public'):
             try:
@@ -447,7 +447,7 @@ def forgot_password(request):
                 frontend_url = settings.FRONTEND_URL
                 reset_link = f"{frontend_url}/reset-password?uid={uid}&token={token}"
                 send_mail(
-                    subject='DTSG ERP — Password Reset',
+                    subject='QUOT ERP — Password Reset',
                     message=f'Click the link to reset your password:\n\n{reset_link}\n\nThis link expires in 3 days. If you did not request this, ignore this email.',
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
@@ -559,7 +559,7 @@ def resend_verification_email(request):
 
         try:
             send_mail(
-                subject='DTSG ERP — Verify Your Email',
+                subject='QUOT ERP — Verify Your Email',
                 message=(
                     f"Hi {request.user.first_name or request.user.username},\n\n"
                     f"Please verify your email address by clicking this link:\n\n"

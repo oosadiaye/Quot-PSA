@@ -1,4 +1,4 @@
-# DTSG ERP - Comprehensive Fix Implementation Plan
+# QUOT ERP - Comprehensive Fix Implementation Plan
 
 **Date:** March 26, 2026  
 **Version:** 1.0  

@@ -5,9 +5,9 @@ Provides scheduled foreign currency revaluation:
 - Unrealized gain/loss calculation
 - FX journal generation
 """
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple
 from dataclasses import dataclass
 from django.db import transaction
 from django.contrib.auth.models import User
@@ -41,28 +41,28 @@ class CurrencyRevaluationService:
     ) -> Decimal:
         """
         Get the exchange rate for revaluation.
-        
+
         Args:
             currency_code: Currency code
             revaluation_date: Date for rate lookup
-            
+
         Returns:
             Exchange rate to base currency
         """
         from accounting.models import Currency, ExchangeRateHistory
-        
+
         currency = Currency.objects.filter(code=currency_code).first()
         if not currency:
             return Decimal('1')
-        
+
         historical_rate = ExchangeRateHistory.objects.filter(
             from_currency=currency,
             rate_date__lte=revaluation_date
         ).order_by('-rate_date').first()
-        
+
         if historical_rate:
             return historical_rate.exchange_rate
-        
+
         return currency.exchange_rate
 
     @classmethod
@@ -74,27 +74,27 @@ class CurrencyRevaluationService:
     ) -> List[Dict[str, Any]]:
         """
         Get all account balances that need revaluation for a currency.
-        
+
         Args:
             currency_code: Currency code
             fiscal_year: Fiscal year
             period: Period number
-            
+
         Returns:
             List of account balance dictionaries
         """
-        from accounting.models import GLBalance, Account
-        
+        from accounting.models import GLBalance
+
         balances = GLBalance.objects.filter(
             account__is_active=True,
             fiscal_year=fiscal_year,
             period=period,
         ).select_related('account')
-        
+
         result = []
         for balance in balances:
             account = balance.account
-            
+
             if hasattr(account, 'currency') and account.currency and account.currency.code == currency_code:
                 result.append({
                     'account_id': account.id,
@@ -104,7 +104,7 @@ class CurrencyRevaluationService:
                     'credit_balance': balance.credit_balance,
                     'net_balance': balance.debit_balance - balance.credit_balance,
                 })
-        
+
         return result
 
     @classmethod
@@ -118,52 +118,52 @@ class CurrencyRevaluationService:
     ) -> CurrencyRevaluationRun:
         """
         Calculate currency revaluation for all or specific currencies.
-        
+
         Args:
             revaluation_date: Date of revaluation
             currency_code: Optional specific currency
             fiscal_year: Fiscal year
             period: Period number
             user: User performing revaluation
-            
+
         Returns:
             CurrencyRevaluationRun with calculated values
         """
         from accounting.models import Currency
-        
+
         if not fiscal_year:
             fiscal_year = revaluation_date.year
         if not period:
             period = revaluation_date.month
-        
+
         run = CurrencyRevaluationRun.objects.create(
             revaluation_date=revaluation_date,
             created_by=user,
             status='DRAFT',
         )
-        
+
         currencies = Currency.objects.filter(is_active=True, is_base_currency=False)
         if currency_code:
             currencies = currencies.filter(code=currency_code)
-        
+
         currencies_processed = []
         total_gain = Decimal('0')
         total_loss = Decimal('0')
-        
+
         for currency in currencies:
             current_rate = cls.get_revaluation_rate(currency.code, revaluation_date)
-            
+
             if currency.exchange_rate == current_rate:
                 continue
-            
+
             accounts = cls.get_accounts_to_revalue(currency.code, fiscal_year, period)
-            
+
             for account_data in accounts:
                 balance = account_data['net_balance']
                 current_value = balance * currency.exchange_rate
                 revalued_value = balance * current_rate
                 difference = revalued_value - current_value
-                
+
                 detail = CurrencyRevaluationDetail.objects.create(
                     run=run,
                     currency=currency,
@@ -176,24 +176,24 @@ class CurrencyRevaluationService:
                     gain_amount=difference if difference > 0 else Decimal('0'),
                     loss_amount=abs(difference) if difference < 0 else Decimal('0'),
                 )
-                
+
                 if difference > 0:
                     total_gain += difference
                 else:
                     total_loss += abs(difference)
-            
+
             currencies_processed.append(currency.code)
-            
+
             currency.exchange_rate = current_rate
             currency.save()
-        
+
         run.currencies_processed = currencies_processed
         run.total_gain = total_gain
         run.total_loss = total_loss
         run.net_effect = total_gain - total_loss
         run.status = 'CALCULATED'
         run.save()
-        
+
         return run
 
     @classmethod
@@ -204,39 +204,39 @@ class CurrencyRevaluationService:
     ) -> Tuple[bool, str, List[int]]:
         """
         Post revaluation journal entries.
-        
+
         Args:
             run_id: CurrencyRevaluationRun ID
             user: User posting
-            
+
         Returns:
             Tuple of (success, message, journal_ids)
         """
         from accounting.models import (
             JournalHeader, JournalLine, Account
         )
-        
+
         try:
             run = CurrencyRevaluationRun.objects.get(id=run_id)
         except CurrencyRevaluationRun.DoesNotExist:
             return False, "Revaluation run not found", []
-        
+
         if run.status != 'CALCULATED':
             return False, f"Cannot post: status is {run.status}", []
-        
+
         gain_account = Account.objects.filter(
             code=cls.GAIN_ACCOUNT_CODE
         ).first()
-        
+
         loss_account = Account.objects.filter(
             code=cls.LOSS_ACCOUNT_CODE
         ).first()
-        
+
         if not gain_account or not loss_account:
             return False, "Gain/Loss accounts not configured", []
-        
+
         journal_ids = []
-        
+
         with transaction.atomic():
             journal = JournalHeader.objects.create(
                 posting_date=run.revaluation_date,
@@ -246,7 +246,7 @@ class CurrencyRevaluationService:
                 source_module='accounting',
                 source_document_id=run.pk,
             )
-            
+
             for detail in run.details.all():
                 if detail.gain_amount > 0:
                     JournalLine.objects.create(
@@ -257,7 +257,7 @@ class CurrencyRevaluationService:
                     )
                     detail.journal_line_id = journal.id
                     detail.save()
-                
+
                 elif detail.loss_amount > 0:
                     JournalLine.objects.create(
                         header=journal,
@@ -267,34 +267,34 @@ class CurrencyRevaluationService:
                     )
                     detail.journal_line_id = journal.id
                     detail.save()
-            
+
             if run.total_gain > 0:
                 JournalLine.objects.create(
                     header=journal,
                     account=gain_account,
                     credit=run.total_gain,
-                    memo=f"Total FX Gain"
+                    memo="Total FX Gain"
                 )
-            
+
             if run.total_loss > 0:
                 JournalLine.objects.create(
                     header=journal,
                     account=loss_account,
                     debit=run.total_loss,
-                    memo=f"Total FX Loss"
+                    memo="Total FX Loss"
                 )
-            
+
             journal.status = 'Posted'
             journal.save()
-            
+
             run.status = 'POSTED'
             run.posted_at = timezone.now()
             run.posted_by = user
             run.journals_created = [journal.id]
             run.save()
-            
+
             journal_ids.append(journal.id)
-        
+
         return True, f"Posted {len(journal_ids)} journal(s)", journal_ids
 
     @classmethod
@@ -305,11 +305,11 @@ class CurrencyRevaluationService:
     ) -> Tuple[bool, str]:
         """
         Reverse a posted revaluation.
-        
+
         Args:
             run_id: CurrencyRevaluationRun ID
             user: User reversing
-            
+
         Returns:
             Tuple of (success, message)
         """
@@ -317,19 +317,19 @@ class CurrencyRevaluationService:
             run = CurrencyRevaluationRun.objects.get(id=run_id)
         except CurrencyRevaluationRun.DoesNotExist:
             return False, "Revaluation run not found"
-        
+
         if run.status != 'POSTED':
             return False, f"Cannot reverse: status is {run.status}"
-        
+
         for detail in run.details.all():
             if detail.account:
                 detail.account.exchange_rate = detail.exchange_rate_before
                 detail.account.save()
-        
+
         run.status = 'REVERSED'
         run.notes = f"Reversed by {user.username} on {timezone.now()}"
         run.save()
-        
+
         return True, "Revaluation reversed successfully"
 
     @classmethod
@@ -339,10 +339,10 @@ class CurrencyRevaluationService:
     ) -> Dict[str, Any]:
         """
         Generate a detailed revaluation report.
-        
+
         Args:
             run_id: CurrencyRevaluationRun ID
-            
+
         Returns:
             Dictionary with report data
         """
@@ -350,7 +350,7 @@ class CurrencyRevaluationService:
             run = CurrencyRevaluationRun.objects.get(id=run_id)
         except CurrencyRevaluationRun.DoesNotExist:
             return {'error': 'Run not found'}
-        
+
         details = []
         for detail in run.details.all():
             details.append({
@@ -366,7 +366,7 @@ class CurrencyRevaluationService:
                 'gain': float(detail.gain_amount),
                 'loss': float(detail.loss_amount),
             })
-        
+
         return {
             'run_id': run.id,
             'revaluation_date': str(run.revaluation_date),

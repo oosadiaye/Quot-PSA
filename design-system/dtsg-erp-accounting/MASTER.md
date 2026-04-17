@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** DTSG ERP Accounting
+**Project:** QUOT ERP Accounting
 **Generated:** 2026-02-13 18:35:51
 **Category:** Financial Dashboard
 

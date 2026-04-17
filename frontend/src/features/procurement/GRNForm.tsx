@@ -2,10 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Package, FileText, Layers, Info, Truck, AlertTriangle,
-    CheckCircle2, Split, CalendarClock,
+    CheckCircle2, Split, CalendarClock, Building2, Lock,
 } from 'lucide-react';
 import { useCreateGRN, usePurchaseOrders, usePurchaseOrder } from './hooks/useProcurement';
-import { useWarehouses } from '../inventory/hooks/useInventory';
+// NOTE: warehouse selection has been removed from the GRN form. The MDA is now
+// the user-facing receiving dimension; the backend resolves MDA → default
+// Warehouse via inventory.services.get_default_warehouse_for_mda().
 import { useCurrency } from '../../context/CurrencyContext';
 import { safeAdd, safeMultiply } from '../accounting/utils/currency';
 import AccountingLayout from '../accounting/AccountingLayout';
@@ -56,18 +58,23 @@ const GRNForm = () => {
         ? allPos.filter((po: any) => ['Approved', 'Posted'].includes(po.status))
         : [];
 
-    const { data: warehousesData } = useWarehouses();
-    const warehousesList = warehousesData?.results || warehousesData || [];
-
     const [selectedPOId, setSelectedPOId] = useState<number | null>(preselectedPoId);
     const { data: selectedPO, isLoading: poLoading } = usePurchaseOrder(selectedPOId);
 
     const [header, setHeader] = useState({
         received_date: new Date().toISOString().split('T')[0],
         received_by: '',
-        warehouse: '',
         notes: '',
     });
+
+    // MDA is derived from the selected PO and is locked — the user cannot
+    // change it. Public-sector accountability requires that the receiving
+    // MDA always equals the MDA on the originating Purchase Order.
+    const poMdaId: number | null = (selectedPO?.mda as number | null) ?? null;
+    const poMdaName: string =
+        (selectedPO?.mda_name as string | undefined) ?? '';
+    const poMdaCode: string =
+        (selectedPO?.mda_code as string | undefined) ?? '';
 
     const [lines, setLines] = useState<GRNLine[]>([]);
     const [formError, setFormError] = useState('');
@@ -147,11 +154,10 @@ const GRNForm = () => {
     const lineHasOverQty = (line: GRNLine) => parseFloat(line.quantity_received || '0') > line.pending_qty;
     const anyLineOverQty = useMemo(() => lines.some(lineHasOverQty), [lines]);
 
-    // Lines with qty > 0 but no batch_number
-    const linesMissingBatch = useMemo(
-        () => linesWithQty.filter(l => !l.batch_number.trim()),
-        [linesWithQty]
-    );
+    // Batch number is optional in PSA — many ministries receive non-batchable
+    // items (stationery, office furniture, services). Kept here as a no-op
+    // for backwards compat with downstream code that still reads it.
+    const linesMissingBatch: GRNLine[] = [];
 
     // ── Submit ────────────────────────────────────────────────────────────────
     const handleSubmit = async (e: React.FormEvent) => {
@@ -160,21 +166,22 @@ const GRNForm = () => {
 
         if (!selectedPOId)          { setFormError('Purchase Order is required.'); return; }
         if (!header.received_by.trim()) { setFormError('Received By is required.'); return; }
-        if (!header.warehouse)      { setFormError('Warehouse is required.'); return; }
-        if (linesWithQty.length === 0) { setFormError('At least one line must have a quantity received.'); return; }
-        if (anyLineOverQty)         { setFormError('One or more lines exceed the pending quantity. Please correct before saving.'); return; }
-        if (linesMissingBatch.length > 0) {
+        if (!poMdaId) {
             setFormError(
-                `Batch number is required for lines with a quantity received. Missing on: ${linesMissingBatch.map(l => l.item_description).join(', ')}.`
+                'Selected Purchase Order has no MDA assigned — cannot create a GRN. ' +
+                'Re-open the PO and assign an MDA before receiving.'
             );
             return;
         }
+        if (linesWithQty.length === 0) { setFormError('At least one line must have a quantity received.'); return; }
+        if (anyLineOverQty)         { setFormError('One or more lines exceed the pending quantity. Please correct before saving.'); return; }
+        // Batch number is optional in PSA — no missing-batch check.
 
         const payload = {
             purchase_order: selectedPOId,
             received_date: header.received_date,
             received_by: header.received_by,
-            warehouse: Number(header.warehouse),
+            mda: poMdaId,  // sent for defense-in-depth; backend also auto-populates from PO
             notes: header.notes || undefined,
             lines: linesWithQty.map(l => ({
                 po_line: l.po_line_id,
@@ -311,7 +318,7 @@ const GRNForm = () => {
                                         onChange={e => setHeader({ ...header, received_date: e.target.value })} required />
                                 </div>
 
-                                {/* Received By + Warehouse */}
+                                {/* Received By + MDA (locked, from PO) */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                     <div>
                                         <label style={labelStyle}>Received By{requiredMark}</label>
@@ -320,14 +327,41 @@ const GRNForm = () => {
                                             onChange={e => setHeader({ ...header, received_by: e.target.value })} required />
                                     </div>
                                     <div>
-                                        <label style={labelStyle}>Warehouse{requiredMark}</label>
-                                        <select style={selectStyle} value={header.warehouse}
-                                            onChange={e => setHeader({ ...header, warehouse: e.target.value })} required>
-                                            <option value="">— Select Warehouse —</option>
-                                            {Array.isArray(warehousesList) && warehousesList.map((w: any) => (
-                                                <option key={w.id} value={w.id}>{w.name}</option>
-                                            ))}
-                                        </select>
+                                        <label style={labelStyle}>
+                                            MDA (from PO){requiredMark}
+                                            <span style={{
+                                                marginLeft: '0.4rem', display: 'inline-flex',
+                                                alignItems: 'center', gap: '0.2rem',
+                                                fontSize: '10px', color: '#64748b', fontWeight: 500,
+                                            }}>
+                                                <Lock size={10} /> locked
+                                            </span>
+                                        </label>
+                                        <div style={{
+                                            ...inputStyle,
+                                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                            background: 'rgba(79, 70, 229, 0.04)',
+                                            borderColor: poMdaId ? 'rgba(79, 70, 229, 0.25)' : '#e2e8f0',
+                                            cursor: 'not-allowed',
+                                            color: poMdaId ? 'var(--color-text, #1e293b)' : '#94a3b8',
+                                            minHeight: '36px',
+                                        }}>
+                                            <Building2 size={14} color={poMdaId ? '#4f46e5' : '#94a3b8'} />
+                                            {poMdaId ? (
+                                                <span>
+                                                    <strong>{poMdaCode || `#${poMdaId}`}</strong>
+                                                    {poMdaName ? ` — ${poMdaName}` : ''}
+                                                </span>
+                                            ) : selectedPOId ? (
+                                                <span style={{ fontStyle: 'italic' }}>
+                                                    PO has no MDA assigned
+                                                </span>
+                                            ) : (
+                                                <span style={{ fontStyle: 'italic' }}>
+                                                    Select a Purchase Order first
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -375,7 +409,7 @@ const GRNForm = () => {
                                     {/* Batch hint banner */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 0.875rem', background: 'rgba(79,70,229,0.06)', border: '1px solid rgba(79,70,229,0.18)', borderRadius: '8px', marginBottom: '1.25rem', fontSize: 'var(--text-xs)', color: '#4f46e5' }}>
                                         <CalendarClock size={14} style={{ flexShrink: 0 }} />
-                                        <span><strong>Batch number is required</strong> for each line received. Expiry date is auto-suggested from the product's shelf life — override with the supplier label date if different.</span>
+                                        <span><strong>Batch &amp; expiry are optional</strong> — fill them in only for batchable inventory (drugs, consumables). Expiry date is auto-suggested from the product's shelf life when applicable.</span>
                                     </div>
 
                                     <div style={{ overflowX: 'auto' }}>
@@ -388,7 +422,7 @@ const GRNForm = () => {
                                                     <th style={{ ...thStyle, width: '72px', textAlign: 'right' }}>Pending</th>
                                                     <th style={{ ...thStyle, width: '100px', textAlign: 'right' }}>Unit Price</th>
                                                     <th style={{ ...thStyle, width: '110px' }}>Qty to Receive{requiredMark}</th>
-                                                    <th style={{ ...thStyle, width: '140px' }}>Batch / Lot No.{requiredMark}</th>
+                                                    <th style={{ ...thStyle, width: '140px' }}>Batch / Lot No.</th>
                                                     <th style={{ ...thStyle, width: '140px' }}>Expiry Date</th>
                                                     <th style={{ ...thStyle, width: '90px', textAlign: 'right' }}>Line Total</th>
                                                 </tr>
@@ -397,8 +431,8 @@ const GRNForm = () => {
                                                 {lines.map((line, idx) => {
                                                     const qtyRcv = parseFloat(line.quantity_received || '0');
                                                     const overQty = qtyRcv > line.pending_qty;
-                                                    const hasQty = qtyRcv > 0;
-                                                    const missingBatch = hasQty && !line.batch_number.trim();
+                                                    // Batch number is optional in PSA — no per-row "missing batch" error.
+                                                    const missingBatch = false;
                                                     const lineTotal = safeMultiply(line.quantity_received || '0', line.unit_price);
                                                     const rowError = overQty || missingBatch;
 
@@ -415,11 +449,7 @@ const GRNForm = () => {
                                                                         Exceeds pending ({line.pending_qty})
                                                                     </div>
                                                                 )}
-                                                                {missingBatch && (
-                                                                    <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '2px', fontWeight: 600 }}>
-                                                                        Batch number required
-                                                                    </div>
-                                                                )}
+                                                                {/* Batch is optional — no inline error. */}
                                                             </td>
                                                             {/* Ordered */}
                                                             <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontSize: 'var(--text-sm)' }}>{line.ordered_qty}</td>
@@ -526,7 +556,7 @@ const GRNForm = () => {
                         {/* Summary / validation card */}
                         <div style={{
                             borderRadius: '12px', padding: '1.75rem',
-                            background: anyLineOverQty || linesMissingBatch.length > 0
+                            background: anyLineOverQty
                                 ? 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)'
                                 : isPartialGRN
                                     ? 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)'
@@ -535,7 +565,6 @@ const GRNForm = () => {
                         }}>
                             <p style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.35rem', opacity: 0.85 }}>
                                 {anyLineOverQty ? '⚠ Over-Quantity Error'
-                                    : linesMissingBatch.length > 0 ? '⚠ Batch Numbers Missing'
                                     : isPartialGRN ? 'Partial Receipt'
                                     : 'Receipt Summary'}
                             </p>
@@ -547,7 +576,7 @@ const GRNForm = () => {
                                 {[
                                     { label: 'Items Receiving', value: linesWithQty.length },
                                     { label: 'Total Qty',       value: totalQtyReceiving },
-                                    { label: 'Batches Entered', value: linesWithQty.filter(l => l.batch_number.trim()).length + ' / ' + linesWithQty.length },
+                                    { label: 'Batches Entered', value: linesWithQty.filter(l => l.batch_number.trim()).length + ' / ' + linesWithQty.length + ' (optional)' },
                                     { label: 'Type',            value: isPartialGRN ? 'Partial' : linesWithQty.length > 0 ? 'Full Receipt' : 'Draft' },
                                 ].map(({ label, value }) => (
                                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
@@ -558,15 +587,13 @@ const GRNForm = () => {
                             </div>
 
                             {/* Context messages */}
-                            {(anyLineOverQty || linesMissingBatch.length > 0 || isPartialGRN || totalValue > 0) && (
+                            {(anyLineOverQty || isPartialGRN || totalValue > 0) && (
                                 <div style={{ marginTop: '1.25rem', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: 'var(--text-xs)' }}>
                                     {anyLineOverQty
                                         ? <><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>One or more lines exceed their pending quantity. Correct quantities to save.</span></>
-                                        : linesMissingBatch.length > 0
-                                            ? <><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>Enter batch/lot numbers for all lines with a quantity before saving.</span></>
-                                            : isPartialGRN
-                                                ? <><Split size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>Partial receipt — remaining qty can be received in a future GRN.</span></>
-                                                : <><Info size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>GRN saved as Draft. Post to update inventory &amp; batch records.</span></>
+                                        : isPartialGRN
+                                            ? <><Split size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>Partial receipt — remaining qty can be received in a future GRN.</span></>
+                                            : <><Info size={14} style={{ flexShrink: 0, marginTop: '1px' }} /><span>GRN saved as Draft. Post from the GRN list to update inventory &amp; book the GL journal.</span></>
                                     }
                                 </div>
                             )}

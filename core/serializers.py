@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 
@@ -40,6 +40,12 @@ class UserCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = ['username', 'email', 'password', 'password_confirm', 'first_name', 'last_name']
 
+    def validate_username(self, value):
+        value = value.lower()
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("A user with this username already exists.")
+        return value
+
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
@@ -52,6 +58,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        validated_data['username'] = validated_data['username'].lower()
         user = User.objects.create_user(**validated_data)
         return user
 

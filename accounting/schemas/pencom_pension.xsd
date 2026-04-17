@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PENCOM pension remittance schedule — Quot PSE internal representation.
+
+  Based on the Nigerian Pension Commission's monthly contribution
+  schedule format (Pension Reform Act 2014, as amended). Aligned
+  with the PENCOM PFA/PFC data-exchange spec used by the National
+  Pension Operators.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+  <xs:element name="PencomSchedule">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Header"        type="PencomHeaderType"/>
+        <xs:element name="Summary"       type="PencomSummaryType"/>
+        <xs:element name="Contributions">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Contribution" type="PencomContributionType"
+                          minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="PencomHeaderType">
+    <xs:sequence>
+      <xs:element name="EmployerRC"    type="RCType"/>
+      <xs:element name="EmployerName"  type="xs:string"/>
+      <xs:element name="PFACode"       type="PFACodeType"/>
+      <xs:element name="PeriodYear">
+        <xs:simpleType><xs:restriction base="xs:gYear"/></xs:simpleType>
+      </xs:element>
+      <xs:element name="PeriodMonth">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="1"/>
+            <xs:maxInclusive value="12"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="EmployeeCount" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PencomSummaryType">
+    <xs:sequence>
+      <xs:element name="TotalEmployer" type="AmountType"/>
+      <xs:element name="TotalEmployee" type="AmountType"/>
+      <xs:element name="GrandTotal"    type="AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PencomContributionType">
+    <xs:sequence>
+      <xs:element name="PIN"                   type="PINType"/>
+      <xs:element name="Surname"               type="xs:string"/>
+      <xs:element name="FirstName"             type="xs:string"/>
+      <xs:element name="OtherNames"            type="xs:string" minOccurs="0"/>
+      <xs:element name="DateOfBirth"           type="xs:date"/>
+      <xs:element name="EmployerContribution"  type="AmountType"/>
+      <xs:element name="EmployeeContribution"  type="AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="RCType">
+    <!-- CAC registration (e.g. RC123456 or BN123456) -->
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(RC|BN|IT|LP|LLP)[0-9]{3,10}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PFACodeType">
+    <!-- PENCOM-assigned PFA code / short name. 3-12 uppercase
+         alphanumerics (e.g. STANBIC, ARM, FCMB, LEADWAY). -->
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z0-9]{3,12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PINType">
+    <!-- RSA PIN issued by PENCOM — prefix PEN + 12 digits. -->
+    <xs:restriction base="xs:string">
+      <xs:pattern value="PEN[0-9]{12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AmountType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+      <xs:totalDigits value="17"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

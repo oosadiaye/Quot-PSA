@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, FileExtensionValidator
 from core.models import AuditBaseModel, ImmutableModelMixin, StatusTransitionMixin, quantize_currency
-from accounting.models import Fund, Function, Program, Geo, Account, MDA, BudgetEncumbrance, Budget, WithholdingTax, TaxCode
+from accounting.models import Fund, Function, Program, Geo, Account, MDA, BudgetEncumbrance, WithholdingTax, TaxCode
 from accounting.budget_logic import check_budget_availability, get_active_budget
 from decimal import Decimal
 from datetime import date
@@ -15,10 +15,10 @@ class PurchaseType(models.Model):
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
-    
+
     class Meta:
         verbose_name_plural = 'Purchase Types (Legacy)'
-    
+
     def __str__(self):
         return self.name
 
@@ -55,8 +55,8 @@ class Vendor(AuditBaseModel):
     address = models.TextField(blank=True)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
-    is_active = models.BooleanField(default=True)
-    
+    is_active = models.BooleanField(default=False, help_text='Activated only after registration payment is confirmed')
+
     # AP balance — outstanding amount owed to vendor (updated atomically at PO/payment posting)
     balance = models.DecimalField(max_digits=19, decimal_places=2, default=0)
 
@@ -65,7 +65,7 @@ class Vendor(AuditBaseModel):
     on_time_deliveries = models.IntegerField(default=0)
     quality_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     total_purchase_value = models.DecimalField(max_digits=19, decimal_places=2, default=0)
-    
+
     # Vendor rating
     @property
     def performance_rating(self):
@@ -73,7 +73,7 @@ class Vendor(AuditBaseModel):
             return 0
         delivery_rate = (self.on_time_deliveries / self.total_orders) * 100
         return (delivery_rate * 0.5) + (float(self.quality_score or 0) * 0.5)
-    
+
     @property
     def on_time_delivery_rate(self):
         if self.total_orders == 0:
@@ -87,13 +87,128 @@ class Vendor(AuditBaseModel):
     )
     wht_exempt = models.BooleanField(default=False, help_text='Exempt this vendor from withholding tax')
 
+    # ── Government Vendor Registration (Annual Validity) ─────────
+    registration_number = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text='BPP/State registration certificate number',
+    )
+    registration_fiscal_year = models.ForeignKey(
+        'accounting.FiscalYear', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='registered_vendors',
+        help_text='Fiscal year this registration is valid for',
+    )
+    registration_date = models.DateField(
+        null=True, blank=True,
+        help_text='Date vendor was registered/renewed',
+    )
+    expiry_date = models.DateField(
+        null=True, blank=True,
+        help_text='Registration expiry date (typically end of fiscal year)',
+    )
+
+    # Banking details
+    bank_name = models.CharField(max_length=100, blank=True, default='')
+    bank_account_number = models.CharField(max_length=20, blank=True, default='')
+    bank_sort_code = models.CharField(max_length=10, blank=True, default='')
+
     class Meta:
         indexes = [
             models.Index(fields=['is_active']),
+            models.Index(fields=['expiry_date']),
         ]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
+
+    @property
+    def is_registration_valid(self) -> bool:
+        """Check if vendor registration is valid for the current date."""
+        from datetime import date
+        if not self.expiry_date:
+            return self.is_active  # No expiry set = use is_active flag
+        return self.is_active and self.expiry_date >= date.today()
+
+    @property
+    def registration_status(self) -> str:
+        """Return human-readable registration status."""
+        from datetime import date
+        if not self.is_active and not self.registration_date:
+            return 'PENDING_ACTIVATION'
+        if not self.is_active:
+            return 'BLOCKED'
+        if not self.expiry_date:
+            return 'NO_EXPIRY'
+        if self.expiry_date >= date.today():
+            return 'ACTIVE'
+        return 'EXPIRED'
+
+
+class VendorRenewalInvoice(AuditBaseModel):
+    """
+    Invoice generated for vendor registration or renewal.
+
+    Flow:
+    1. Government generates invoice with fee amount + TSA bank details
+    2. Vendor pays to the specified TSA bank account
+    3. Vendor submits payment receipt
+    4. Government confirms payment → GL entry: DR TSA Bank, CR Revenue
+    5. Vendor activated (new) or renewed (existing)
+    """
+    STATUS_CHOICES = [
+        ('GENERATED', 'Invoice Generated'),
+        ('SENT', 'Sent to Vendor'),
+        ('PAID', 'Payment Confirmed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+    TYPE_CHOICES = [
+        ('REGISTRATION', 'Initial Registration'),
+        ('RENEWAL', 'Annual Renewal'),
+    ]
+
+    invoice_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default='RENEWAL')
+    invoice_number = models.CharField(max_length=30, unique=True, db_index=True)
+    vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT, related_name='renewal_invoices')
+    fiscal_year = models.ForeignKey(
+        'accounting.FiscalYear', on_delete=models.PROTECT,
+        related_name='renewal_invoices',
+        help_text='Fiscal year the vendor is renewing for',
+    )
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    tsa_account = models.ForeignKey(
+        'accounting.TreasuryAccount', on_delete=models.PROTECT,
+        related_name='renewal_invoices',
+        help_text='TSA bank account where vendor should pay',
+    )
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='GENERATED')
+    invoice_date = models.DateField(auto_now_add=True)
+    due_date = models.DateField(null=True, blank=True)
+    payment_reference = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text='Vendor payment receipt/teller number',
+    )
+    payment_date = models.DateField(null=True, blank=True)
+    journal = models.ForeignKey(
+        'accounting.JournalHeader', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='renewal_invoices',
+    )
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['-invoice_date']
+        indexes = [
+            models.Index(fields=['vendor', 'status']),
+            models.Index(fields=['fiscal_year', 'status']),
+        ]
+
+    def __str__(self):
+        return f"RNW-{self.invoice_number} — {self.vendor.name} — NGN {self.amount:,.2f}"
+
+    def save(self, *args, **kwargs):
+        if not self.invoice_number:
+            from accounting.models.gl import TransactionSequence
+            self.invoice_number = TransactionSequence.get_next('vendor_renewal', 'RNW-')
+        super().save(*args, **kwargs)
+
 
 class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
     """Initial request for purchase."""
@@ -106,13 +221,13 @@ class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
     request_number = models.CharField(max_length=50, unique=True, blank=True)
     description = models.TextField()
     requested_date = models.DateField(auto_now_add=True)
-    
+
     # Requester info
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='purchase_requests'
     )
-    
+
     PRIORITY_CHOICES = [
         ('Low', 'Low'),
         ('Medium', 'Medium'),
@@ -217,7 +332,7 @@ class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
                 transaction_type='PR',
                 transaction_id=self.pk or 0
             )
-            
+
             if not allowed:
                 raise ValidationError(f"Budget Check Failed for {account.code}: {message}")
 
@@ -283,11 +398,11 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
     purchase_request = models.ForeignKey(PurchaseRequest, on_delete=models.SET_NULL, null=True, blank=True)
     order_date = models.DateField()
     expected_delivery_date = models.DateField(null=True, blank=True)
-    
+
     # Delivery info
     delivery_address = models.TextField(blank=True)
     delivery_contact = models.CharField(max_length=100, blank=True)
-    
+
     # Payment terms
     PAYMENT_TERMS = [
         ('Immediate', 'Immediate'),
@@ -298,7 +413,7 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         ('Due_on_Receipt', 'Due on Receipt'),
     ]
     payment_terms = models.CharField(max_length=20, choices=PAYMENT_TERMS, default='Net_30')
-    
+
     # Tax
     tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -307,11 +422,11 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         related_name='purchase_orders',
     )
     wht_exempt = models.BooleanField(default=False, help_text='Exempt this transaction from withholding tax')
-    
+
     # Additional fields
     notes = models.TextField(blank=True)
     terms_and_conditions = models.TextField(blank=True)
-    
+
     # Dimensions
     mda = models.ForeignKey(MDA, on_delete=models.PROTECT, null=True, blank=True)
     fund = models.ForeignKey(Fund, on_delete=models.PROTECT)
@@ -328,15 +443,15 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         ('Closed', 'Closed'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
-    
+
     @property
     def subtotal(self):
         return sum(line.total_price for line in self.lines.all())
-    
+
     @property
     def total_amount(self):
         return self.subtotal + self.tax_amount
-    
+
     def calculate_tax(self):
         """Calculate tax amount based on subtotal and tax rate"""
         self.tax_amount = quantize_currency(self.subtotal * (self.tax_rate / 100))
@@ -352,28 +467,141 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
             if self.expected_delivery_date < self.order_date:
                 raise ValidationError("Expected delivery date cannot be before order date.")
 
+    def _generate_po_number(self):
+        """Generate a sequential PO number for the current year: PO-YYYY-NNNNN.
+
+        Mirrors the PR auto-numbering: locks the highest-numbered PO for the
+        current year with select_for_update() so concurrent inserts queue
+        instead of producing duplicates.
+        """
+        import datetime
+        from django.db import transaction
+        year = datetime.date.today().year
+        prefix = f'PO-{year}-'
+        with transaction.atomic():
+            last = (
+                PurchaseOrder.objects
+                .select_for_update()
+                .filter(po_number__startswith=prefix)
+                .order_by('-po_number')
+                .first()
+            )
+            if last and last.po_number:
+                try:
+                    last_seq = int(last.po_number.split('-')[-1])
+                except (ValueError, IndexError):
+                    last_seq = PurchaseOrder.objects.filter(
+                        po_number__startswith=prefix
+                    ).count()
+            else:
+                last_seq = 0
+            return f'{prefix}{last_seq + 1:05d}'
+
     def save(self, *args, **kwargs):
+        if not self.po_number:
+            self.po_number = self._generate_po_number()
+
         self.clean()
         self.validate_status_transition()
         is_new = self.pk is None
         old_status = None
 
-        # Calculate tax before saving
-        self.calculate_tax()
+        # Calculate tax — only safe after the row exists, since `subtotal`
+        # iterates `self.lines.all()` (a reverse relation that requires a PK).
+        # On the initial INSERT the serializer creates the lines AFTER this
+        # save, so a follow-up save triggered by the serializer (or by a
+        # subsequent status transition) will recompute the correct tax.
+        if self.pk:
+            self.calculate_tax()
 
         if not is_new:
             old_inst = PurchaseOrder.objects.get(pk=self.pk)
             old_status = old_inst.status
 
-        # Transition to Approved or Posted triggers budget check and encumbrance
-        if self.status in ['Approved', 'Posted'] and old_status not in ['Approved', 'Posted']:
+        # Budget encumbrance transitions also require lines, so they only
+        # make sense on UPDATE (when self.pk exists). On insert, status is
+        # 'Draft' anyway — encumbrance kicks in later when status moves
+        # to Approved/Posted.
+        if self.pk and self.status in ['Approved', 'Posted'] and old_status not in ['Approved', 'Posted']:
+            # ── Warrant ceiling check (PSA Authority to Incur Expenditure) ──
+            # Block the Approved transition if the PO would push committed +
+            # expended beyond what has been warranted/released. This is the
+            # quarterly cash-release ceiling — distinct from the annual
+            # appropriation ceiling already validated by
+            # process_budget_encumbrance().
+            self._check_warrant_ceiling()
             self.process_budget_encumbrance()
-            
-        # Transition from Approved/Posted to Cancelled/Rejected/Closed
-        if old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
+            # ── Register Appropriation commitment (ProcurementBudgetLink) ──
+            # This is what populates the "Committed" column on the Budget
+            # Execution Report. Booking it on Approved (not only Posted)
+            # aligns with IPSAS — the MDA has a legal obligation the moment
+            # the PO is approved, so the appropriation should be encumbered
+            # immediately, not deferred to GL journal entry time.
+            try:
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(self)
+            except Exception as exc:  # Don't block the save on commitment failure
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Commitment link failed for PO %s: %s", self.po_number, exc,
+                )
+
+        if self.pk and old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
             self.cancel_budget_encumbrance()
+            # Release the appropriation commitment when the PO is cancelled.
+            try:
+                from accounting.services.procurement_commitments import cancel_commitment_for_po
+                cancel_commitment_for_po(self)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Cancel commitment failed for PO %s: %s", self.po_number, exc,
+                )
 
         super().save(*args, **kwargs)
+
+    def _check_warrant_ceiling(self):
+        """Validate the PO total against the released-warrant ceiling.
+
+        Called from save() at the Draft → Approved transition. Raises
+        ``ValidationError`` if the PO would exceed the cumulative warrants
+        released against the matching Appropriation. The error bubbles
+        up through DRF as a 400 with a structured message that the
+        frontend turns into a red error banner.
+
+        Aggregates by economic account so a multi-line PO that spans
+        several economic codes is checked per-appropriation.
+        """
+        from accounting.budget_logic import check_warrant_availability
+        from collections import defaultdict
+        from decimal import Decimal as _D
+
+        # Group line totals by their economic account so each
+        # appropriation's warrant balance is checked independently.
+        account_totals: dict = defaultdict(lambda: _D('0'))
+        for line in self.lines.all():
+            if line.account:
+                account_totals[line.account] += (line.quantity * line.unit_price)
+
+        # Tax rolls into the first line's account (mirrors how tax is
+        # encumbered today). If you eventually split tax across lines,
+        # update this loop to match.
+        if self.tax_amount and account_totals:
+            first_acct = next(iter(account_totals))
+            account_totals[first_acct] += self.tax_amount
+
+        for account, amount in account_totals.items():
+            allowed, message, _info = check_warrant_availability(
+                dimensions={'mda': self.mda, 'fund': self.fund},
+                account=account,
+                amount=amount,
+                exclude_po=self,  # don't double-count this PO if it's a re-approval
+            )
+            if not allowed:
+                # Plain-string ValidationError — serializer renders it as
+                # {"non_field_errors": ["..."]} which the frontend's red
+                # banner picks up directly.
+                raise ValidationError(message)
 
     def process_budget_encumbrance(self):
         """
@@ -401,12 +629,11 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                 transaction_type='PO',
                 transaction_id=self.pk
             )
-            
+
             if not allowed:
                 raise ValidationError(f"Budget Check Failed for {account.code}: {message}")
-            
+
             # Find the budget object (needed for encumbrance)
-            from accounting.budget_logic import get_active_budget
             budget = get_active_budget(
                 dimensions={
                     'mda': mda,
@@ -469,15 +696,15 @@ class PurchaseOrderLine(models.Model):
     quantity = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
     quantity_received = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(Decimal('0.00'))])
     unit_price = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(Decimal('0.00'))])
-    
+
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
-    
+
     # Optional link to inventory Item
     item = models.ForeignKey(
         'inventory.Item', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='purchase_order_lines'
     )
-    
+
     # Product type and category from inventory
     product_type = models.ForeignKey(
         'inventory.ProductType', on_delete=models.SET_NULL, null=True, blank=True,
@@ -497,15 +724,15 @@ class PurchaseOrderLine(models.Model):
     @property
     def total_price(self):
         return self.quantity * self.unit_price
-        
+
     @property
     def pending_quantity(self):
         return self.quantity - self.quantity_received
-        
+
     @property
     def is_fully_received(self):
         return self.quantity_received >= self.quantity
-        
+
     @property
     def received_amount(self):
         return self.quantity_received * self.unit_price
@@ -516,9 +743,13 @@ class PurchaseOrderLine(models.Model):
 class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
     """Confirms receipt of goods/services."""
     ALLOWED_TRANSITIONS = {
-        # Normal path (approval disabled):     Draft → Received → Posted
-        # Approval-gated path:                 Draft → On Hold → Received → Posted
-        'Draft':     ['Received', 'On Hold'],
+        # PSA simple path (no Receiving Officer gating):  Draft → Posted
+        # Approval-gated path:                            Draft → On Hold → Posted
+        # Legacy receiving-bay path (still supported):    Draft → Received → Posted
+        # In Public Sector Accounting the receipt and the posting are a single
+        # operational step ("post the GRN" = "confirm goods received and book
+        # the GL entry"), so we allow Draft → Posted directly.
+        'Draft':     ['Received', 'On Hold', 'Posted', 'Cancelled'],
         'Received':  ['On Hold', 'Posted', 'Cancelled'],
         'On Hold':   ['Received', 'Posted', 'Cancelled'],
         'Posted':    [],
@@ -531,7 +762,21 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
     warehouse = models.ForeignKey(
         'inventory.Warehouse', on_delete=models.PROTECT,
         null=True, blank=True,
-        help_text="Receiving warehouse for this GRN"
+        help_text=(
+            "Receiving warehouse for this GRN. Auto-resolved from the MDA "
+            "via inventory.services.get_default_warehouse_for_mda() — not "
+            "exposed in the UI."
+        ),
+    )
+    mda = models.ForeignKey(
+        MDA, on_delete=models.PROTECT,
+        null=True, blank=True,  # nullable for migration; tightened in stage-3 migration
+        related_name='goods_received_notes',
+        help_text=(
+            "The MDA receiving the goods/services. Must match "
+            "purchase_order.mda — enforced in clean(). Auto-populated from "
+            "the PO on first save."
+        ),
     )
 
     STATUS_CHOICES = [
@@ -553,6 +798,27 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
 
     def __str__(self):
         return self.grn_number
+
+    def clean(self):
+        """Enforce MDA consistency with the originating Purchase Order.
+
+        A GRN must always receive goods against the same MDA that raised the
+        PO — otherwise the P2P audit trail breaks and one ministry could
+        "receive" goods charged to another ministry's budget. Auto-population
+        in ``save()`` handles the happy path; this guard catches direct
+        API/shell attempts to override the MDA.
+        """
+        super().clean()
+        if self.mda_id and self.purchase_order_id:
+            po_mda_id = self.purchase_order.mda_id
+            if po_mda_id and self.mda_id != po_mda_id:
+                raise ValidationError({
+                    'mda': (
+                        f"GRN MDA must match the Purchase Order's MDA "
+                        f"(PO {self.purchase_order.po_number} is assigned "
+                        f"to MDA id={po_mda_id}, got id={self.mda_id})."
+                    )
+                })
 
     def _generate_grn_number(self):
         """Generate a sequential GRN number for the current year: GRN-YYYY-NNNNN.
@@ -590,6 +856,21 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
         if not self.grn_number:
             self.grn_number = self._generate_grn_number()
 
+        # Auto-populate MDA from the originating PO when missing. The UI no
+        # longer asks the user to pick a warehouse — MDA is the public-sector
+        # accountable custodian and is copied straight from the PO. Running
+        # before validate_status_transition() so clean() sees a consistent
+        # MDA during ModelForm / serializer validation.
+        if not self.mda_id and self.purchase_order_id:
+            self.mda_id = self.purchase_order.mda_id
+
+        # Auto-resolve the default Warehouse for this MDA so inventory
+        # tracking (ItemStock / StockMovement / ItemBatch) keeps working
+        # without changing the inventory schema. Idempotent per MDA.
+        if not self.warehouse_id and self.mda_id:
+            from inventory.services import get_default_warehouse_for_mda
+            self.warehouse = get_default_warehouse_for_mda(self.mda)
+
         self.validate_status_transition()
         is_new = self.pk is None
         old_status = None
@@ -599,23 +880,28 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
 
         # Only process GRN posting logic when transitioning to Posted
         should_process_posting = (old_status != 'Posted' and self.status == 'Posted')
-        
+
         if should_process_posting:
             with transaction.atomic():
                 # First save the GRN to get its PK
                 super().save(*args, **kwargs)
-                
+
                 # Now process the posting
                 proc_settings = getattr(settings, 'PROCUREMENT_SETTINGS', {})
                 allow_partial = proc_settings.get('ALLOW_PARTIAL_RECEIVING', True)
-                
-                # Determine receiving warehouse
-                from inventory.models import StockMovement, Warehouse
+
+                # Receiving warehouse is auto-resolved from self.mda in the
+                # early save() block above, so it is always populated by the
+                # time we get here. The "first active warehouse" fallback
+                # was removed because it could route Ministry-of-Health goods
+                # into the Ministry-of-Education stores.
+                from inventory.models import StockMovement
                 receiving_warehouse = self.warehouse
                 if not receiving_warehouse:
-                    receiving_warehouse = Warehouse.objects.filter(is_active=True).first()
-                if not receiving_warehouse:
-                    raise ValidationError("No receiving warehouse specified and no active warehouse found.")
+                    raise ValidationError(
+                        "GRN has no resolved warehouse — MDA missing or "
+                        "get_default_warehouse_for_mda() failed."
+                    )
 
                 for grn_line in self.lines.all():
                     po_line = PurchaseOrderLine.objects.select_for_update().get(pk=grn_line.po_line.pk)
@@ -748,6 +1034,23 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
                         "GRN %s: auto VendorInvoice creation failed (non-fatal): %s",
                         self.grn_number, exc,
                     )
+
+                # Commitment status progression: ACTIVE → INVOICED
+                # Goods are now physically received but unpaid. INVOICED
+                # still counts toward Appropriation.total_committed
+                # (which sums status IN ('ACTIVE', 'INVOICED')) so the
+                # budget encumbrance is preserved until the PV pays.
+                try:
+                    from accounting.services.procurement_commitments import (
+                        mark_commitment_invoiced_for_po,
+                    )
+                    mark_commitment_invoiced_for_po(po)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "GRN %s: commitment INVOICED flip failed (non-fatal): %s",
+                        self.grn_number, exc,
+                    )
         else:
             # Normal save path
             super().save(*args, **kwargs)
@@ -770,7 +1073,7 @@ class GoodsReceivedNoteLine(models.Model):
     ], default='Partial')
 
     notes = models.TextField(blank=True)
-    
+
     def save(self, *args, **kwargs):
         if self.po_line:
             # Validate that total received across all GRNs does not exceed PO qty
@@ -795,7 +1098,7 @@ class GoodsReceivedNoteLine(models.Model):
             else:
                 self.received_quantity_status = 'Full'
         super().save(*args, **kwargs)
-    
+
     @property
     def line_total(self):
         return self.quantity_received * self.po_line.unit_price
@@ -892,18 +1195,18 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
         related_name='invoice_matchings',
         help_text='Link to the accounting VendorInvoice for payment processing'
     )
-    
+
     invoice_reference = models.CharField(max_length=50)
     invoice_date = models.DateField()
     invoice_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    
+
     # Tax on invoice
     invoice_tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     invoice_subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
+
     po_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     grn_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    
+
     STATUS_CHOICES = [
         ('Draft', 'Draft'),
         ('Pending_Review', 'Pending Review'),
@@ -913,14 +1216,14 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
         ('Rejected', 'Rejected'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
-    
+
     MATCH_TYPE_CHOICES = [
         ('Full', 'Full Match'),
         ('Partial', 'Partial Match'),
         ('None', 'No Match'),
     ]
     match_type = models.CharField(max_length=20, choices=MATCH_TYPE_CHOICES, blank=True)
-    
+
     variance_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     variance_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     variance_reason = models.TextField(blank=True)
@@ -958,7 +1261,7 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             if line.quantity_received < line.quantity:
                 return False
         return True
-    
+
     @property
     def grn_fully_received(self):
         """Check if all GRN lines are fully received vs PO"""
@@ -970,31 +1273,31 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             if received < po_line.quantity:
                 return False
         return True
-    
+
     def calculate_match(self):
         """Calculate match between PO, GRN, and Invoice amounts with partial quantity support"""
         from django.conf import settings
-        
+
         proc_settings = getattr(settings, 'PROCUREMENT_SETTINGS', {})
         variance_threshold = proc_settings.get('INVOICE_VARIANCE_THRESHOLD', 5.0)
-        
+
         if self.purchase_order:
             self.po_amount = self.purchase_order.total_amount
         if self.goods_received_note:
             self.grn_amount = sum(line.line_total for line in self.goods_received_note.lines.all())
-        
+
         if not self.po_amount or not self.grn_amount:
             self.match_type = 'None'
             self.status = 'Pending_Review'
             return
-        
+
         po_received_amount = 0
         if self.purchase_order:
             for line in self.purchase_order.lines.all():
                 po_received_amount += line.quantity_received * line.unit_price
-        
+
         grn_amount = self.grn_amount or 0
-        
+
         if self.invoice_amount == self.po_amount == grn_amount:
             self.match_type = 'Full'
             self.status = 'Matched'
@@ -1016,7 +1319,7 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             self.variance_amount = quantize_currency(self.invoice_amount - (grn_amount or self.po_amount))
             if self.po_amount and self.po_amount > 0:
                 self.variance_percentage = quantize_currency((abs(self.variance_amount) / self.po_amount) * 100)
-            
+
             if self.variance_percentage <= variance_threshold:
                 self.status = 'Matched'
                 self.payment_hold = False
@@ -1045,14 +1348,14 @@ class VendorCreditNote(AuditBaseModel):
     vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.SET_NULL, null=True, blank=True)
     goods_received_note = models.ForeignKey(GoodsReceivedNote, on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     credit_note_date = models.DateField()
     reason = models.TextField()
-    
+
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    
+
     STATUS_CHOICES = [
         ('Draft', 'Draft'),
         ('Approved', 'Approved'),
@@ -1060,9 +1363,9 @@ class VendorCreditNote(AuditBaseModel):
         ('Void', 'Void'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
-    
+
     journal_entry = models.ForeignKey('accounting.JournalHeader', on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     class Meta:
         indexes = [
             models.Index(fields=['status']),
@@ -1078,14 +1381,14 @@ class VendorDebitNote(AuditBaseModel):
     debit_note_number = models.CharField(max_length=50, unique=True)
     vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     debit_note_date = models.DateField()
     reason = models.TextField()
-    
+
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    
+
     STATUS_CHOICES = [
         ('Draft', 'Draft'),
         ('Approved', 'Approved'),
@@ -1093,9 +1396,9 @@ class VendorDebitNote(AuditBaseModel):
         ('Void', 'Void'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
-    
+
     journal_entry = models.ForeignKey('accounting.JournalHeader', on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     class Meta:
         indexes = [
             models.Index(fields=['status']),
@@ -1230,32 +1533,32 @@ class PurchaseReturnLine(models.Model):
 class VendorPerformanceMetrics(models.Model):
     """Track vendor performance metrics over time."""
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name='performance_metrics')
-    
+
     period_start = models.DateField()
     period_end = models.DateField()
-    
+
     total_orders = models.IntegerField(default=0)
     total_order_value = models.DecimalField(max_digits=19, decimal_places=2, default=0)
-    
+
     on_time_deliveries = models.IntegerField(default=0)
     late_deliveries = models.IntegerField(default=0)
     early_deliveries = models.IntegerField(default=0)
-    
+
     perfect_orders = models.IntegerField(default=0)
     defective_receipts = models.IntegerField(default=0)
-    
+
     average_lead_time_days = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    
+
     quality_score = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     on_time_delivery_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     fulfillment_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    
+
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         unique_together = ['vendor', 'period_start', 'period_end']
         ordering = ['-period_end']
-    
+
     def __str__(self):
         return f"{self.vendor.name} - {self.period_start} to {self.period_end}"
 
@@ -1269,7 +1572,7 @@ class VendorClassification(models.Model):
         ('Preferred', 'Preferred'),
         ('Blocked', 'Blocked'),
     ]
-    
+
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name='classifications')
     tier = models.CharField(max_length=20, choices=VENDOR_TIER_CHOICES, default='New')
     qualification_date = models.DateField(null=True, blank=True)
@@ -1278,10 +1581,10 @@ class VendorClassification(models.Model):
     notes = models.TextField(blank=True, default='')
     is_current = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         ordering = ['-is_current', '-qualification_date']
-    
+
     def __str__(self):
         return f"{self.vendor.name} - {self.tier}"
 
@@ -1308,10 +1611,10 @@ class VendorContract(AuditBaseModel):
         validators=[FileExtensionValidator(['pdf', 'doc', 'docx', 'xlsx', 'jpg', 'png'])],
         null=True, blank=True
     )
-    
+
     class Meta:
         ordering = ['-start_date']
-    
+
     def __str__(self):
         return f"{self.contract_number} - {self.vendor.name}"
 
@@ -1325,10 +1628,168 @@ class InvoiceMatchingSettings(models.Model):
     escalation_threshold_days = models.IntegerField(default=3)
     require_grn_for_payment = models.BooleanField(default=True)
     auto_approve_matched = models.BooleanField(default=False)
-    
+
     class Meta:
         verbose_name = 'Invoice Matching Settings'
         verbose_name_plural = 'Invoice Matching Settings'
-    
+
     def __str__(self):
         return f"Tolerance: Qty={self.quantity_variance_percent}%, Price={self.price_variance_percent}%"
+
+
+# =============================================================================
+# BPP DUE PROCESS COMPLIANCE
+# =============================================================================
+
+class ProcurementThreshold(models.Model):
+    """
+    BPP Procurement thresholds — determines approval authority level.
+    Values per the Public Procurement Act 2007 and State Procurement Laws.
+
+    When a PO amount is being approved, the system checks against these thresholds
+    to route to the correct authority and determine if a No Objection Certificate is required.
+    """
+    CATEGORY_CHOICES = [
+        ('GOODS_SERVICES', 'Goods & Services'),
+        ('WORKS',          'Works / Construction'),
+        ('CONSULTANCY',    'Consultancy Services'),
+    ]
+    AUTHORITY_CHOICES = [
+        ('ACCOUNTING_OFFICER', 'Accounting Officer'),
+        ('PTB',                'Parastatal Tenders Board (PTB)'),
+        ('MTB',                'Ministerial Tenders Board (MTB)'),
+        ('EXCO',               'State Executive Council'),
+        ('BPP',                'Bureau of Public Procurement'),
+    ]
+
+    category        = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    authority_level = models.CharField(max_length=25, choices=AUTHORITY_CHOICES)
+    min_amount      = models.DecimalField(max_digits=20, decimal_places=2)
+    max_amount      = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True,
+        help_text="Null = unlimited (highest tier)",
+    )
+    requires_bpp_no = models.BooleanField(
+        default=False,
+        help_text="Requires No Objection Certificate from BPP",
+    )
+    fiscal_year     = models.ForeignKey(
+        'accounting.FiscalYear', on_delete=models.PROTECT,
+        null=True, blank=True,
+        help_text="Null = applies to all fiscal years",
+    )
+    is_active       = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['category', 'min_amount']
+        verbose_name = 'BPP Procurement Threshold'
+        verbose_name_plural = 'BPP Procurement Thresholds'
+
+    def __str__(self):
+        max_display = f"NGN {self.max_amount:,.2f}" if self.max_amount else "Unlimited"
+        return f"{self.category} | {self.authority_level} | NGN {self.min_amount:,.2f} - {max_display}"
+
+    @classmethod
+    def get_authority_level(cls, amount: Decimal, category: str) -> dict:
+        """
+        Returns the appropriate approval authority for a given procurement amount.
+        Returns dict with authority_level, requires_bpp_no, threshold_id.
+        """
+        threshold = cls.objects.filter(
+            category=category,
+            min_amount__lte=amount,
+            is_active=True,
+        ).filter(
+            models.Q(max_amount__gte=amount) | models.Q(max_amount__isnull=True),
+        ).order_by('-min_amount').first()
+
+        if threshold:
+            return {
+                'authority_level': threshold.authority_level,
+                'requires_bpp_no': threshold.requires_bpp_no,
+                'threshold_id': threshold.pk,
+            }
+        # Default to highest authority if no threshold matches
+        return {
+            'authority_level': 'EXCO',
+            'requires_bpp_no': True,
+            'threshold_id': None,
+        }
+
+
+class CertificateOfNoObjection(AuditBaseModel):
+    """
+    BPP No Objection Certificate (NOC) — required for procurements above threshold.
+    Purchase Order CANNOT be issued without a valid NOC above the BPP threshold.
+    Section 16 of the Public Procurement Act 2007.
+    """
+    purchase_order     = models.OneToOneField(
+        'procurement.PurchaseOrder', on_delete=models.PROTECT,
+        related_name='no_objection',
+    )
+    certificate_number = models.CharField(max_length=50, unique=True)
+    issued_date        = models.DateField()
+    expiry_date        = models.DateField()
+    authority_level    = models.CharField(max_length=25)
+    issuing_officer    = models.CharField(max_length=200)
+    is_valid           = models.BooleanField(default=True)
+    amount_covered     = models.DecimalField(max_digits=20, decimal_places=2)
+    scope_description  = models.TextField()
+    conditions         = models.TextField(blank=True, default='')
+
+    class Meta:
+        verbose_name = 'Certificate of No Objection'
+        verbose_name_plural = 'Certificates of No Objection'
+
+    def __str__(self):
+        return f"NOC {self.certificate_number} - PO {self.purchase_order}"
+
+    def save(self, *args, **kwargs):
+        """Auto-invalidate expired certificates on every save."""
+        from django.utils import timezone
+        if self.expiry_date and self.expiry_date < timezone.now().date():
+            self.is_valid = False
+        super().save(*args, **kwargs)
+
+
+class ProcurementBudgetLink(models.Model):
+    """
+    Links a Purchase Order to its appropriation — enforces budget availability.
+    Created automatically when PO is approved.
+
+    This is the commitment (encumbrance) record that reduces the available
+    appropriation balance when a PO is approved.
+    """
+    purchase_order   = models.OneToOneField(
+        'procurement.PurchaseOrder', on_delete=models.PROTECT,
+        related_name='budget_link',
+    )
+    appropriation    = models.ForeignKey(
+        'budget.Appropriation', on_delete=models.PROTECT,
+        related_name='commitments',
+    )
+    committed_amount = models.DecimalField(max_digits=20, decimal_places=2)
+    ncoa_code        = models.ForeignKey(
+        'accounting.NCoACode', on_delete=models.PROTECT,
+        related_name='procurement_commitments',
+    )
+    committed_at     = models.DateTimeField(auto_now_add=True)
+    status           = models.CharField(
+        max_length=20, default='ACTIVE',
+        choices=[
+            ('ACTIVE',    'Active Commitment'),
+            ('INVOICED',  'Partially/Fully Invoiced'),
+            ('CLOSED',    'Closed'),
+            ('CANCELLED', 'Cancelled'),
+        ],
+    )
+
+    class Meta:
+        verbose_name = 'Procurement Budget Link'
+        verbose_name_plural = 'Procurement Budget Links'
+        indexes = [
+            models.Index(fields=['appropriation', 'status'], name='cmt_appr_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"PO {self.purchase_order} -> APP {self.appropriation.pk}"

@@ -91,3 +91,32 @@ class PurchaseReturnAdmin(admin.ModelAdmin):
 class VendorPerformanceMetricsAdmin(admin.ModelAdmin):
     list_display = ['vendor', 'period_start', 'period_end', 'quality_score']
     list_filter = ['vendor']
+
+
+# ─── BPP Due Process Admin ───────────────────────────────────────────
+
+from .models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
+
+
+@admin.register(ProcurementThreshold)
+class ProcurementThresholdAdmin(admin.ModelAdmin):
+    list_display = ['category', 'authority_level', 'min_amount', 'max_amount',
+                    'requires_bpp_no', 'is_active']
+    list_filter = ['category', 'authority_level', 'is_active']
+    ordering = ['category', 'min_amount']
+
+
+@admin.register(CertificateOfNoObjection)
+class CertificateOfNoObjectionAdmin(admin.ModelAdmin):
+    list_display = ['certificate_number', 'purchase_order', 'authority_level',
+                    'issued_date', 'expiry_date', 'is_valid']
+    list_filter = ['is_valid', 'authority_level']
+    search_fields = ['certificate_number']
+    raw_id_fields = ['purchase_order']
+
+
+@admin.register(ProcurementBudgetLink)
+class ProcurementBudgetLinkAdmin(admin.ModelAdmin):
+    list_display = ['purchase_order', 'appropriation', 'committed_amount', 'status']
+    list_filter = ['status']
+    raw_id_fields = ['purchase_order', 'appropriation', 'ncoa_code']

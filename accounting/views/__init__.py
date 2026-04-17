@@ -58,17 +58,7 @@ from .cost_profit import (  # noqa: F401
     CostCenterViewSet, ProfitCenterViewSet, CostAllocationRuleViewSet,
 )
 
-# Intercompany & Consolidation
-from .intercompany import (  # noqa: F401
-    InterCompanyViewSet, InterCompanyTransactionViewSet,
-    CompanyViewSet, InterCompanyConfigViewSet, InterCompanyInvoiceViewSet,
-    InterCompanyTransferViewSet, InterCompanyAllocationViewSet,
-    InterCompanyCashTransferViewSet,
-    ConsolidationRunViewSet,
-    FinancialReportTemplateViewSet, FinancialReportViewSet,
-    AccountingDocumentViewSet,
-    ConsolidationGroupViewSet, ConsolidationViewSet,
-)
+# Intercompany & Consolidation — REMOVED for public sector
 
 # Deferred, Leases, Treasury
 from .deferred_treasury import (  # noqa: F401
@@ -92,7 +82,7 @@ from .recurring_accrual import (  # noqa: F401
     CurrencyRevaluationViewSet,
 )
 
-# Reports
+# Reports (Sales/Production reports removed — public sector)
 from .reports import (  # noqa: F401
     BalanceSheetViewSet, IncomeStatementViewSet, CashFlowStatementViewSet,
     BudgetVsActualViewSet, BudgetPerformanceViewSet,
@@ -100,10 +90,7 @@ from .reports import (  # noqa: F401
     GeneralLedgerViewSet, TrialBalanceViewSet,
     InventoryStockValuationViewSet, InventoryLowStockViewSet, InventoryMovementViewSet,
     HRHeadcountViewSet, HRPayrollSummaryViewSet,
-    SalesSummaryViewSet, SalesCustomersViewSet,
     ProcurementSummaryViewSet, ProcurementVendorsViewSet,
-    ProductionSummaryViewSet, ProductionMaterialConsumptionViewSet,
-    ProductionCostReportViewSet, ProductProfitabilityViewSet,
 )
 
 # Workflows (Credit/Debit Notes, Bad Debt, Petty Cash, Cheque, Suspense, Budget Period)
@@ -114,6 +101,35 @@ from .workflows import (  # noqa: F401
     ChequeRegisterViewSet,
     BudgetPeriodManagementViewSet,
     SuspenseClearingViewSet,
+)
+
+# Treasury & Revenue (Quot PSE Phase 4)
+from .treasury_revenue import (  # noqa: F401
+    TreasuryAccountViewSet, PaymentVoucherViewSet, PaymentInstructionViewSet,
+    RevenueHeadViewSet, RevenueCollectionViewSet,
+)
+
+# NCoA Segment API (Phase 8)
+from .ncoa_views import (  # noqa: F401
+    AdministrativeSegmentViewSet as NCoAAdminSegViewSet,
+    EconomicSegmentViewSet as NCoAEconSegViewSet,
+    FunctionalSegmentViewSet as NCoAFuncSegViewSet,
+    ProgrammeSegmentViewSet as NCoAProgSegViewSet,
+    FundSegmentViewSet as NCoAFundSegViewSet,
+    GeographicSegmentViewSet as NCoAGeoSegViewSet,
+    NCoACodeViewSet,
+)
+
+# IPSAS Financial Statements (Phase 7)
+from .ipsas_reports import (  # noqa: F401
+    StatementOfFinancialPositionView, StatementOfFinancialPerformanceView,
+    # Sprint 2 additions — complete the 5 mandatory IPSAS statements.
+    CashFlowStatementView,
+    StatementOfChangesInNetAssetsView,
+    NotesToFinancialStatementsView,
+    BudgetVsActualIPSASView, RevenuePerformanceView, TSACashPositionView,
+    FunctionalClassificationView, ProgrammePerformanceView, GeographicDistributionView,
+    FundPerformanceView,
 )
 
 # Settings (function-based views)

@@ -8,7 +8,7 @@ import {
     useCreateReceiptAllocation, useAccountingSettings,
 } from '../hooks/useAccountingEnhancements';
 import { useCustomerInvoices } from '../hooks/useAccountingEnhancements';
-import { useCustomers } from '../../sales/hooks/useSales';
+import { useCustomers } from '../hooks/useCustomers';
 import { useBankAccounts } from '../../settings/hooks/useBankAccounts';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';

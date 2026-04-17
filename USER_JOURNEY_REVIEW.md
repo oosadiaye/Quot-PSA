@@ -1,4 +1,4 @@
-# DTSG ERP - Complete User Journey & Business Process Review
+# QUOT ERP - Complete User Journey & Business Process Review
 
 **Date:** March 26, 2026  
 **Version:** 1.0  
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document maps the complete business processes through the DTSG ERP system from end-to-end, identifying gaps, missing integrations, and recommendations for production readiness.
+This document maps the complete business processes through the QUOT ERP system from end-to-end, identifying gaps, missing integrations, and recommendations for production readiness.
 
 ---
 

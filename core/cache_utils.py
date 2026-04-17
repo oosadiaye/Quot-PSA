@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 
 class CacheManager:
     """Centralized cache management for the ERP"""
-    
+
     @staticmethod
     def make_key(prefix: str, *args, **kwargs) -> str:
         """Generate a cache key from prefix and arguments"""
@@ -16,13 +16,13 @@ class CacheManager:
             hash_key = hashlib.md5(data.encode()).hexdigest()[:8]
             return f"{prefix}:{hash_key}"
         return prefix
-    
+
     @staticmethod
     def get(prefix: str, *args, **kwargs) -> Optional[Any]:
         """Get value from cache"""
         key = CacheManager.make_key(prefix, *args, **kwargs)
         return cache.get(key)
-    
+
     @staticmethod
     def set(prefix: str, value: Any, ttl: int = None, *args, **kwargs):
         """Set value in cache with optional TTL"""
@@ -31,20 +31,20 @@ class CacheManager:
             cache.set(key, value, ttl)
         else:
             cache.set(key, value)
-    
+
     @staticmethod
     def delete(prefix: str, *args, **kwargs):
         """Delete a specific cache key"""
         key = CacheManager.make_key(prefix, *args, **kwargs)
         cache.delete(key)
-    
+
     @staticmethod
     def delete_pattern(pattern: str):
         """Delete all keys matching a pattern ( Redis only)"""
         # For Redis, you would use: cache.delete_pattern(f"{pattern}*")
         # For LocMemCache, we clear all
         cache.clear()
-    
+
     @staticmethod
     def clear_all():
         """Clear all cache"""
@@ -65,26 +65,26 @@ def cache_view(ttl: int = 300, prefix: str = None):
             # Skip cache for logged-out users
             if not request.user.is_authenticated:
                 return view_func(request, *args, **kwargs)
-            
+
             cache_key = prefix or view_func.__name__
             if request.user.id:
                 cache_key = f"{cache_key}:user_{request.user.id}"
-            
+
             # Check for query params
             if request.GET:
                 query_hash = hashlib.md5(request.GET.urlencode().encode()).hexdigest()[:8]
                 cache_key = f"{cache_key}:{query_hash}"
-            
+
             cached_response = cache.get(cache_key)
             if cached_response is not None:
                 return cached_response
-            
+
             response = view_func(request, *args, **kwargs)
-            
+
             # Only cache successful responses
             if response.status_code == 200:
                 cache.set(cache_key, response, ttl)
-            
+
             return response
         return wrapper
     return decorator

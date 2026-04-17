@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
 from core.models import AuditBaseModel
@@ -1551,3 +1552,182 @@ class AssetReturn(AuditBaseModel):
 
     def __str__(self):
         return f"{self.asset_name} - {self.exit_request.employee}"
+
+
+# =============================================================================
+# PENSION & STATUTORY DEDUCTIONS — Nigeria CPS Compliance
+# =============================================================================
+
+class PensionFundAdministrator(models.Model):
+    """
+    PENCOM-registered Pension Fund Administrator (PFA) registry.
+    Employees select a PFA and provide their RSA PIN.
+    Employer remits pension contributions to the employee's PFA monthly.
+    """
+    name         = models.CharField(max_length=200)
+    pfa_code     = models.CharField(
+        max_length=10, unique=True,
+        help_text="PENCOM registration code",
+    )
+    bank_name    = models.CharField(max_length=100)
+    bank_account = models.CharField(max_length=20)
+    sort_code    = models.CharField(max_length=10, blank=True, default='')
+    is_active    = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Pension Fund Administrator (PFA)'
+        verbose_name_plural = 'Pension Fund Administrators (PFAs)'
+
+    def __str__(self):
+        return f"{self.pfa_code} - {self.name}"
+
+
+class EmployeePensionProfile(models.Model):
+    """
+    Employee's contributory pension scheme details.
+    Per the Pension Reform Act 2014:
+    - Employee contributes minimum 8% of (basic + housing + transport)
+    - Employer contributes minimum 10% of (basic + housing + transport)
+    """
+    employee      = models.OneToOneField(
+        Employee, on_delete=models.PROTECT, related_name='pension_profile',
+    )
+    rsa_pin       = models.CharField(
+        max_length=20, unique=True,
+        help_text="Retirement Savings Account PIN (from PENCOM)",
+    )
+    pfa           = models.ForeignKey(
+        PensionFundAdministrator, on_delete=models.PROTECT,
+        related_name='employees',
+    )
+    enrollment_date = models.DateField()
+    is_active     = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'Employee Pension Profile'
+        verbose_name_plural = 'Employee Pension Profiles'
+
+    def __str__(self):
+        return f"{self.employee} - RSA: {self.rsa_pin}"
+
+
+class PensionConfiguration(models.Model):
+    """
+    State-level Contributory Pension Scheme (CPS) configuration.
+    Per Pension Reform Act 2014 (as amended):
+    - Minimum employer: 10% of (basic + housing + transport)
+    - Minimum employee: 8% of (basic + housing + transport)
+    - Remittance to PFA within 7 working days after payroll
+    """
+    employer_rate           = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('10.00'),
+        help_text="Employer contribution rate (minimum 10%)",
+    )
+    employee_rate           = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('8.00'),
+        help_text="Employee contribution rate (minimum 8%)",
+    )
+    qualifying_components   = models.JSONField(
+        default=list,
+        help_text='Salary components for pension base, e.g. ["basic", "housing", "transport"]',
+    )
+    remittance_deadline_days = models.IntegerField(
+        default=7,
+        help_text="Days after payroll to remit to PFA (7 working days per PRA 2014)",
+    )
+    effective_date          = models.DateField()
+    is_current              = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-effective_date']
+        verbose_name = 'Pension Configuration'
+        verbose_name_plural = 'Pension Configurations'
+
+    def __str__(self):
+        return f"CPS: Employer {self.employer_rate}% + Employee {self.employee_rate}% (from {self.effective_date})"
+
+
+class PensionRemittance(models.Model):
+    """
+    Monthly pension contribution remittance to PFA.
+    Grouped by PFA for batch remittance via TSA.
+    """
+    STATUS_CHOICES = [
+        ('PENDING',    'Pending'),
+        ('INITIATED',  'Remittance Initiated'),
+        ('REMITTED',   'Remitted'),
+        ('FAILED',     'Failed'),
+    ]
+
+    payroll_run      = models.ForeignKey(
+        PayrollRun, on_delete=models.PROTECT,
+        related_name='pension_remittances',
+    )
+    pfa              = models.ForeignKey(
+        PensionFundAdministrator, on_delete=models.PROTECT,
+        related_name='remittances',
+    )
+    employee_count   = models.IntegerField()
+    employer_amount  = models.DecimalField(max_digits=20, decimal_places=2)
+    employee_amount  = models.DecimalField(max_digits=20, decimal_places=2)
+    total_amount     = models.DecimalField(max_digits=20, decimal_places=2)
+    remittance_date  = models.DateField(null=True, blank=True)
+    payment_voucher  = models.ForeignKey(
+        'accounting.PaymentVoucherGov', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='pension_remittances',
+    )
+    status           = models.CharField(
+        max_length=15, choices=STATUS_CHOICES, default='PENDING',
+    )
+    created_at       = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Pension Remittance'
+        verbose_name_plural = 'Pension Remittances'
+        unique_together = ['payroll_run', 'pfa']
+
+    def __str__(self):
+        return f"Pension to {self.pfa.name} - NGN {self.total_amount:,.2f}"
+
+    def save(self, *args, **kwargs):
+        self.total_amount = self.employer_amount + self.employee_amount
+        super().save(*args, **kwargs)
+
+
+class NigeriaTaxBracket(models.Model):
+    """
+    Nigeria PAYE Tax Brackets per the Personal Income Tax Act (PITAM).
+    Updated per Finance Act amendments.
+
+    Current brackets (Finance Act 2020):
+      First  NGN 300,000  ->  7%
+      Next   NGN 300,000  ->  11%
+      Next   NGN 500,000  ->  15%
+      Next   NGN 500,000  ->  19%
+      Next   NGN 1,600,000 -> 21%
+      Above  NGN 3,200,000 -> 24%
+
+    Plus: 1% minimum tax if PAYE < 1% of gross income.
+    """
+    lower_bound  = models.DecimalField(max_digits=15, decimal_places=2)
+    upper_bound  = models.DecimalField(
+        max_digits=15, decimal_places=2, null=True, blank=True,
+        help_text="Null = unlimited (highest bracket)",
+    )
+    rate         = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        help_text="Tax rate as percentage",
+    )
+    effective_date = models.DateField()
+    is_current   = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['lower_bound']
+        verbose_name = 'Nigeria PAYE Tax Bracket'
+        verbose_name_plural = 'Nigeria PAYE Tax Brackets'
+
+    def __str__(self):
+        upper = f"NGN {self.upper_bound:,.2f}" if self.upper_bound else "Above"
+        return f"NGN {self.lower_bound:,.2f} - {upper} @ {self.rate}%"

@@ -1,4 +1,4 @@
-# DTSG ERP Implementation Verification Checklist
+# QUOT ERP Implementation Verification Checklist
 
 ## COMPLETED IMPLEMENTATIONS
 
@@ -164,7 +164,7 @@ inventory: Reservation model
 cd "C:\Users\USER\Documents\Antigravity\DTSG erp"
 python -c "
 import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dtsg_erp.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'quot_pse.settings')
 import django
 django.setup()
 

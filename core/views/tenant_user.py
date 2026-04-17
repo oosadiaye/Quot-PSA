@@ -102,7 +102,7 @@ class TenantUserViewSet(viewsets.ViewSet):
 
         with schema_context('public'):
             user = User.objects.create_user(
-                username=data['username'],
+                username=data['username'].lower(),
                 email=data['email'],
                 password=data['password'],
                 first_name=data.get('first_name', ''),

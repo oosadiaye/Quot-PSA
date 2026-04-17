@@ -10,7 +10,6 @@ import apiClient from '../../api/client';
 import SettingsLayout from './SettingsLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import logger from '../../utils/logger';
-import '../accounting/styles/glassmorphism.css';
 
 interface BankAccountFormData {
     name: string;
@@ -42,18 +41,70 @@ const initialFormData: BankAccountFormData = {
     iban: '',
 };
 
-// ── Shared compact style tokens ──────────────────────────────────
-const inp: React.CSSProperties = {
-    width: '100%', padding: '0.45rem 0.7rem', borderRadius: '7px',
-    border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: '0.875rem',
-    outline: 'none', fontFamily: 'inherit',
+// ── Design-system style tokens ──────────────────────────────────
+const cardStyle: React.CSSProperties = {
+    background: 'white',
+    borderRadius: '20px',
+    padding: '28px 32px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
+
 const lbl: React.CSSProperties = {
-    display: 'block', marginBottom: '0.25rem',
-    fontSize: '0.68rem', fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: '0.05em',
-    color: 'var(--color-text-muted)',
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: '0.6px',
+    marginBottom: '6px',
+};
+
+const inp: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 14px',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: '12px',
+    background: '#f8fafc',
+    color: '#0f172a',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    outline: 'none',
+};
+
+const selectStyle: React.CSSProperties = {
+    ...inp,
+    appearance: 'auto' as any,
+};
+
+const btnPrimary: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 20px',
+    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '12px',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+};
+
+const btnOutline: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 20px',
+    background: 'white',
+    color: '#374151',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: '12px',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
 };
 
 export default function BankAccountSettings() {
@@ -167,57 +218,67 @@ export default function BankAccountSettings() {
     const isSaving = createBankAccount.isPending || updateBankAccount.isPending;
 
     return (
-        <SettingsLayout>
-            {/* ── Page header ─────────────────────────────────────── */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div>
-                    <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.2rem' }}>
-                        Bank & Cash Accounts
-                    </h2>
-                    <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                        Manage bank accounts, cash accounts, and petty cash for treasury management.
-                    </p>
-                </div>
-                <button className="btn btn-primary" onClick={() => handleOpenDrawer()}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <Plus size={16} /> Add Account
-                </button>
-            </div>
-
-            {/* ── Search + filter bar ──────────────────────────────── */}
-            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                <div style={{ position: 'relative', flex: 1, maxWidth: '280px' }}>
+        <SettingsLayout
+            title="Bank & Cash Accounts"
+            breadcrumb="Bank Accounts"
+            icon={<CreditCard size={22} color="white" />}
+            gradient="linear-gradient(135deg, #6366f1, #4f46e5)"
+            gradientShadow="rgba(99, 102, 241, 0.25)"
+            subtitle="Manage bank accounts, cash accounts, and petty cash for treasury management."
+            maxWidth="1060px"
+        >
+            {/* Search + filter bar + Add button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                {/* Search */}
+                <div style={{ position: 'relative', flex: 1, maxWidth: '300px' }}>
                     <Search size={15} style={{
-                        position: 'absolute', left: '10px', top: '50%',
-                        transform: 'translateY(-50%)', color: 'var(--color-text-muted)',
+                        position: 'absolute', left: '14px', top: '50%',
+                        transform: 'translateY(-50%)', color: '#94a3b8',
                         pointerEvents: 'none',
                     }} />
-                    <input type="text" placeholder="Search accounts…" value={searchQuery}
+                    <input
+                        type="text"
+                        placeholder="Search accounts..."
+                        value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        style={{ ...inp, paddingLeft: '32px' }} />
+                        style={{ ...inp, paddingLeft: '38px' }}
+                    />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <Filter size={15} style={{ color: 'var(--color-text-muted)' }} />
-                    <select style={{ ...inp, width: 'auto', minWidth: '160px' }}
-                        value={filterType} onChange={e => setFilterType(e.target.value)}>
+
+                {/* Filter */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Filter size={15} style={{ color: '#94a3b8' }} />
+                    <select
+                        style={{ ...selectStyle, width: 'auto', minWidth: '180px' }}
+                        value={filterType}
+                        onChange={e => setFilterType(e.target.value)}
+                    >
                         <option value="">All Types</option>
                         <option value="bank">Bank</option>
                         <option value="cash">Cash / Petty Cash / Imprest</option>
                     </select>
                 </div>
+
+                <div style={{ flex: 1 }} />
+
+                {/* Add Account */}
+                <button onClick={() => handleOpenDrawer()} style={btnPrimary}>
+                    <Plus size={16} /> Add Account
+                </button>
             </div>
 
-            {/* ── Accounts table ───────────────────────────────────── */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Accounts table */}
+            <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr style={{ borderBottom: '1.5px solid var(--color-border)' }}>
+                        <tr style={{ borderBottom: '1.5px solid #e2e8f0' }}>
                             {['Account', 'Type', 'GL Account', 'Currency', 'Opening Balance', 'Status', 'Actions'].map((h, i) => (
                                 <th key={h} style={{
-                                    padding: '0.75rem 1.25rem',
-                                    fontSize: '0.65rem', fontWeight: 700,
-                                    textTransform: 'uppercase', letterSpacing: '0.05em',
-                                    color: 'var(--color-text-muted)',
+                                    padding: '14px 20px',
+                                    fontSize: '11px', fontWeight: 700,
+                                    textTransform: 'uppercase', letterSpacing: '0.6px',
+                                    color: '#64748b',
+                                    background: '#f8fafc',
                                     textAlign: i === 4 ? 'right' : i === 6 ? 'center' : 'left',
                                 }}>{h}</th>
                             ))}
@@ -226,60 +287,79 @@ export default function BankAccountSettings() {
                     <tbody>
                         {filteredAccounts.length === 0 ? (
                             <tr>
-                                <td colSpan={7} style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                                    <CreditCard size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.25, display: 'block' }} />
-                                    <p style={{ fontWeight: 500 }}>No bank accounts found.</p>
-                                    <p style={{ fontSize: 'var(--text-xs)', marginTop: '0.25rem' }}>Click "Add Account" to create one.</p>
+                                <td colSpan={7} style={{ padding: '56px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                                    <CreditCard size={40} style={{ margin: '0 auto 12px', opacity: 0.25, display: 'block' }} />
+                                    <p style={{ fontWeight: 500, margin: '0 0 4px', color: '#64748b' }}>No bank accounts found.</p>
+                                    <p style={{ fontSize: '12px', margin: 0, color: '#94a3b8' }}>Click "Add Account" to create one.</p>
                                 </td>
                             </tr>
                         ) : filteredAccounts.map((account: any) => (
-                            <tr key={account.id} style={{ borderBottom: '1px solid var(--color-border)', transition: 'background 0.1s' }}
-                                onMouseOver={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
-                                onMouseOut={e => (e.currentTarget.style.background = '')}>
-                                <td style={{ padding: '0.875rem 1.25rem' }}>
-                                    <div style={{ fontWeight: 600, color: 'var(--color-text)', fontSize: 'var(--text-sm)' }}>{account.name}</div>
-                                    <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: '1px' }}>{account.account_number}</div>
+                            <tr
+                                key={account.id}
+                                style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}
+                                onMouseOver={e => (e.currentTarget.style.background = '#f8fafc')}
+                                onMouseOut={e => (e.currentTarget.style.background = '')}
+                            >
+                                <td style={{ padding: '14px 20px' }}>
+                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px' }}>{account.name}</div>
+                                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{account.account_number}</div>
                                 </td>
-                                <td style={{ padding: '0.875rem 1.25rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+                                <td style={{ padding: '14px 20px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: '#475569' }}>
                                         {getAccountTypeIcon(account.account_type)}
                                         {account.account_type}
                                     </div>
                                 </td>
-                                <td style={{ padding: '0.875rem 1.25rem' }}>
-                                    <div style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--color-text)' }}>{account.gl_account_code}</div>
-                                    <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: '1px' }}>{account.gl_account_name}</div>
+                                <td style={{ padding: '14px 20px' }}>
+                                    <div style={{ fontFamily: 'monospace', fontSize: '14px', color: '#0f172a' }}>{account.gl_account_code}</div>
+                                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{account.gl_account_name}</div>
                                 </td>
-                                <td style={{ padding: '0.875rem 1.25rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>{account.currency_code}</td>
-                                <td style={{ padding: '0.875rem 1.25rem', textAlign: 'right', fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--color-text)' }}>
+                                <td style={{ padding: '14px 20px', fontSize: '14px', color: '#475569' }}>{account.currency_code}</td>
+                                <td style={{ padding: '14px 20px', textAlign: 'right', fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
                                     {parseFloat(account.opening_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
-                                <td style={{ padding: '0.875rem 1.25rem' }}>
+                                <td style={{ padding: '14px 20px' }}>
                                     <span style={{
-                                        padding: '0.2rem 0.6rem', borderRadius: '20px',
-                                        fontSize: '0.68rem', fontWeight: 600,
+                                        padding: '4px 10px', borderRadius: '20px',
+                                        fontSize: '11px', fontWeight: 600,
                                         background: account.is_active ? 'rgba(22,163,74,0.1)' : 'rgba(107,114,128,0.1)',
-                                        color: account.is_active ? '#16a34a' : 'var(--color-text-muted)',
+                                        color: account.is_active ? '#16a34a' : '#94a3b8',
                                     }}>
                                         {account.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                     {account.is_default && (
                                         <span style={{
-                                            marginLeft: '0.4rem', padding: '0.2rem 0.6rem', borderRadius: '20px',
-                                            fontSize: '0.68rem', fontWeight: 600,
-                                            background: 'rgba(25,30,106,0.08)', color: 'var(--color-primary)',
+                                            marginLeft: '6px', padding: '4px 10px', borderRadius: '20px',
+                                            fontSize: '11px', fontWeight: 600,
+                                            background: 'rgba(99,102,241,0.1)', color: '#6366f1',
                                         }}>Default</span>
                                     )}
                                 </td>
-                                <td style={{ padding: '0.875rem 1.25rem', textAlign: 'center' }}>
-                                    <button onClick={() => handleOpenDrawer(account)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px', borderRadius: '5px', marginRight: '4px' }}
-                                        title="Edit">
+                                <td style={{ padding: '14px 20px', textAlign: 'center' }}>
+                                    <button
+                                        onClick={() => handleOpenDrawer(account)}
+                                        style={{
+                                            background: 'none', border: 'none', cursor: 'pointer',
+                                            color: '#94a3b8', padding: '6px', borderRadius: '8px',
+                                            marginRight: '4px', transition: 'color 0.15s, background 0.15s',
+                                        }}
+                                        onMouseOver={e => { e.currentTarget.style.color = '#6366f1'; e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}
+                                        title="Edit"
+                                    >
                                         <Pencil size={15} />
                                     </button>
-                                    <button onClick={() => handleDelete(account.id)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', borderRadius: '5px' }}
-                                        title="Delete">
+                                    <button
+                                        onClick={() => handleDelete(account.id)}
+                                        style={{
+                                            background: 'none', border: 'none', cursor: 'pointer',
+                                            color: '#94a3b8', padding: '6px', borderRadius: '8px',
+                                            transition: 'color 0.15s, background 0.15s',
+                                        }}
+                                        onMouseOver={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}
+                                        title="Delete"
+                                    >
                                         <Trash2 size={15} />
                                     </button>
                                 </td>
@@ -298,92 +378,134 @@ export default function BankAccountSettings() {
                     display: 'flex',
                 }}>
                     {/* Backdrop */}
-                    <div style={{
-                        flex: 1, background: 'rgba(15,23,42,0.45)',
-                        backdropFilter: 'blur(3px)',
-                    }} onClick={handleCloseDrawer} />
+                    <div
+                        style={{
+                            flex: 1,
+                            background: 'rgba(15, 23, 42, 0.5)',
+                            backdropFilter: 'blur(4px)',
+                        }}
+                        onClick={handleCloseDrawer}
+                    />
 
                     {/* Drawer panel */}
                     <div style={{
-                        width: '520px', background: 'var(--color-surface)',
-                        boxShadow: '-12px 0 40px rgba(0,0,0,0.15)',
-                        display: 'flex', flexDirection: 'column',
+                        width: '540px',
+                        background: 'white',
+                        boxShadow: '-12px 0 48px rgba(0,0,0,0.12)',
+                        display: 'flex',
+                        flexDirection: 'column',
                         overflowY: 'auto',
                     }}>
-
                         {/* Drawer header */}
                         <div style={{
-                            padding: '1.1rem 1.5rem',
-                            borderBottom: '1px solid var(--color-border)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '24px 28px',
+                            borderBottom: '1px solid #e2e8f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
                             flexShrink: 0,
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                                 <div style={{
-                                    width: '32px', height: '32px', borderRadius: '8px',
-                                    background: 'rgba(25,30,106,0.08)',
+                                    width: '40px', height: '40px', borderRadius: '12px',
+                                    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
                                 }}>
-                                    <CreditCard size={16} style={{ color: 'var(--color-primary)' }} />
+                                    <CreditCard size={18} style={{ color: 'white' }} />
                                 </div>
                                 <div>
-                                    <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
                                         {editingId ? 'Edit Bank Account' : 'Add Bank Account'}
                                     </h3>
-                                    <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#94a3b8' }}>
                                         {editingId ? 'Update account details below' : 'Fill in the details to create a new account'}
                                     </p>
                                 </div>
                             </div>
-                            <button onClick={handleCloseDrawer} style={{
-                                background: 'none', border: 'none', cursor: 'pointer',
-                                color: 'var(--color-text-muted)', padding: '4px', borderRadius: '6px',
-                                display: 'flex', alignItems: 'center',
-                            }}>
+                            <button
+                                onClick={handleCloseDrawer}
+                                style={{
+                                    background: '#f1f5f9', border: 'none', cursor: 'pointer',
+                                    color: '#64748b', padding: '8px', borderRadius: '10px',
+                                    display: 'flex', alignItems: 'center',
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseOver={e => (e.currentTarget.style.background = '#e2e8f0')}
+                                onMouseOut={e => (e.currentTarget.style.background = '#f1f5f9')}
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        {/* Drawer body — compact grid form */}
+                        {/* Drawer body */}
                         <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ padding: '1.25rem 1.5rem', flex: 1 }}>
+                            <div style={{ padding: '24px 28px', flex: 1 }}>
 
                                 {formError && (
                                     <div style={{
-                                        padding: '0.5rem 0.875rem', background: '#fee2e2', color: '#dc2626',
-                                        borderRadius: '7px', marginBottom: '1rem',
-                                        fontSize: '0.8rem', fontWeight: 500,
+                                        padding: '12px 16px',
+                                        background: '#fef2f2',
+                                        color: '#dc2626',
+                                        borderRadius: '12px',
+                                        marginBottom: '20px',
+                                        fontSize: '13px',
+                                        fontWeight: 500,
+                                        border: '1px solid #fecaca',
                                     }}>
                                         {formError}
                                     </div>
                                 )}
 
-                                {/* ── Section: Core Info ─────────────────── */}
-                                <p style={{ ...lbl, marginBottom: '0.75rem', fontSize: '0.6rem', letterSpacing: '0.07em' }}>
+                                {/* Section: Core Info */}
+                                <p style={{
+                                    fontSize: '10px', fontWeight: 700, color: '#94a3b8',
+                                    textTransform: 'uppercase', letterSpacing: '0.8px',
+                                    marginBottom: '16px', marginTop: 0,
+                                }}>
                                     Core Information
                                 </p>
 
-                                {/* Account Name — full width */}
-                                <div style={{ marginBottom: '0.75rem' }}>
+                                {/* Account Name */}
+                                <div style={{ marginBottom: '16px' }}>
                                     <label style={lbl}>Account Name <span style={{ color: '#ef4444' }}>*</span></label>
-                                    <input style={inp} type="text" placeholder="e.g. Main Operating Account"
+                                    <input
+                                        style={inp}
+                                        type="text"
+                                        placeholder="e.g. Main Operating Account"
                                         value={formData.name}
-                                        onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+                                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                        onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                        onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                        required
+                                    />
                                 </div>
 
                                 {/* Account Number | Account Type */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
                                     <div>
                                         <label style={lbl}>Account Number <span style={{ color: '#ef4444' }}>*</span></label>
-                                        <input style={inp} type="text" placeholder="e.g. 0012345678"
+                                        <input
+                                            style={inp}
+                                            type="text"
+                                            placeholder="e.g. 0012345678"
                                             value={formData.account_number}
-                                            onChange={e => setFormData({ ...formData, account_number: e.target.value })} required />
+                                            onChange={e => setFormData({ ...formData, account_number: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                            required
+                                        />
                                     </div>
                                     <div>
                                         <label style={lbl}>Account Type <span style={{ color: '#ef4444' }}>*</span></label>
-                                        <select style={{ ...inp, appearance: 'auto' as any }}
+                                        <select
+                                            style={selectStyle}
                                             value={formData.account_type}
-                                            onChange={e => setFormData({ ...formData, account_type: e.target.value })} required>
+                                            onChange={e => setFormData({ ...formData, account_type: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                            required
+                                        >
                                             <option value="Bank">Bank</option>
                                             <option value="Cash">Cash</option>
                                             <option value="Petty Cash">Petty Cash</option>
@@ -393,96 +515,149 @@ export default function BankAccountSettings() {
                                 </div>
 
                                 {/* Currency | GL Account */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
                                     <div>
                                         <label style={lbl}>Currency <span style={{ color: '#ef4444' }}>*</span></label>
-                                        <select style={{ ...inp, appearance: 'auto' as any }}
+                                        <select
+                                            style={selectStyle}
                                             value={formData.currency}
-                                            onChange={e => setFormData({ ...formData, currency: parseInt(e.target.value) })} required>
-                                            <option value="">Select currency…</option>
+                                            onChange={e => setFormData({ ...formData, currency: parseInt(e.target.value) })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                            required
+                                        >
+                                            <option value="">Select currency...</option>
                                             {currencies?.filter((c: any) => c.is_active).map((c: any) => (
-                                                <option key={c.id} value={c.id}>{c.code} – {c.name}</option>
+                                                <option key={c.id} value={c.id}>{c.code} - {c.name}</option>
                                             ))}
                                         </select>
                                     </div>
                                     <div>
                                         <label style={lbl}>GL Account <span style={{ color: '#ef4444' }}>*</span></label>
-                                        <select style={{ ...inp, appearance: 'auto' as any }}
+                                        <select
+                                            style={selectStyle}
                                             value={formData.gl_account}
-                                            onChange={e => setFormData({ ...formData, gl_account: parseInt(e.target.value) })} required>
-                                            <option value="">Select GL account…</option>
+                                            onChange={e => setFormData({ ...formData, gl_account: parseInt(e.target.value) })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                            required
+                                        >
+                                            <option value="">Select GL account...</option>
                                             {glAccounts.map((a: any) => (
-                                                <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
+                                                <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
                                             ))}
                                         </select>
                                     </div>
                                 </div>
 
-                                {/* Opening Balance — half width */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                                {/* Opening Balance */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
                                     <div>
                                         <label style={lbl}>Opening Balance</label>
-                                        <input style={inp} type="number" step="0.01" placeholder="0.00"
+                                        <input
+                                            style={inp}
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="0.00"
                                             value={formData.opening_balance}
-                                            onChange={e => setFormData({ ...formData, opening_balance: e.target.value })} />
+                                            onChange={e => setFormData({ ...formData, opening_balance: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                        />
                                     </div>
                                 </div>
 
-                                {/* ── Divider ─────────────────────────── */}
-                                <div style={{ borderTop: '1px solid var(--color-border)', margin: '0.25rem 0 1rem' }} />
+                                {/* Divider */}
+                                <div style={{ borderTop: '1px solid #e2e8f0', margin: '4px 0 20px' }} />
 
-                                {/* ── Section: Bank Details ──────────── */}
-                                <p style={{ ...lbl, marginBottom: '0.75rem', fontSize: '0.6rem', letterSpacing: '0.07em' }}>
+                                {/* Section: Bank Details */}
+                                <p style={{
+                                    fontSize: '10px', fontWeight: 700, color: '#94a3b8',
+                                    textTransform: 'uppercase', letterSpacing: '0.8px',
+                                    marginBottom: '16px', marginTop: 0,
+                                }}>
                                     Bank Details <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
                                 </p>
 
-                                {/* Bank Name — full width */}
-                                <div style={{ marginBottom: '0.75rem' }}>
+                                {/* Bank Name */}
+                                <div style={{ marginBottom: '16px' }}>
                                     <label style={lbl}>Bank Name</label>
-                                    <input style={inp} type="text" placeholder="e.g. First National Bank"
+                                    <input
+                                        style={inp}
+                                        type="text"
+                                        placeholder="e.g. First National Bank"
                                         value={formData.bank_name}
-                                        onChange={e => setFormData({ ...formData, bank_name: e.target.value })} />
+                                        onChange={e => setFormData({ ...formData, bank_name: e.target.value })}
+                                        onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                        onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                    />
                                 </div>
 
                                 {/* Branch | SWIFT */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
                                     <div>
                                         <label style={lbl}>Branch Name</label>
-                                        <input style={inp} type="text" placeholder="Branch"
+                                        <input
+                                            style={inp}
+                                            type="text"
+                                            placeholder="Branch"
                                             value={formData.branch_name}
-                                            onChange={e => setFormData({ ...formData, branch_name: e.target.value })} />
+                                            onChange={e => setFormData({ ...formData, branch_name: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                        />
                                     </div>
                                     <div>
                                         <label style={lbl}>SWIFT Code</label>
-                                        <input style={inp} type="text" placeholder="e.g. FNBZAJJXXX"
+                                        <input
+                                            style={inp}
+                                            type="text"
+                                            placeholder="e.g. FNBZAJJXXX"
                                             value={formData.swift_code}
-                                            onChange={e => setFormData({ ...formData, swift_code: e.target.value })} />
+                                            onChange={e => setFormData({ ...formData, swift_code: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                        />
                                     </div>
                                 </div>
 
-                                {/* IBAN — half width */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                                {/* IBAN */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
                                     <div>
                                         <label style={lbl}>IBAN</label>
-                                        <input style={inp} type="text" placeholder="e.g. GB29 NWBK…"
+                                        <input
+                                            style={inp}
+                                            type="text"
+                                            placeholder="e.g. GB29 NWBK..."
                                             value={formData.iban}
-                                            onChange={e => setFormData({ ...formData, iban: e.target.value })} />
+                                            onChange={e => setFormData({ ...formData, iban: e.target.value })}
+                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
+                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                                        />
                                     </div>
                                 </div>
 
-                                {/* ── Checkboxes ──────────────────────── */}
+                                {/* Checkboxes */}
                                 <div style={{
-                                    display: 'flex', gap: '1.5rem',
-                                    padding: '0.75rem 1rem', borderRadius: '8px',
-                                    background: 'var(--color-surface-hover)',
-                                    border: '1px solid var(--color-border)',
+                                    display: 'flex', gap: '12px',
+                                    flexDirection: 'column',
                                 }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 500 }}>
+                                    <label style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px',
+                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: '#0f172a',
+                                        padding: '12px 16px', borderRadius: '12px',
+                                        background: '#f8fafc', border: '1px solid #e2e8f0',
+                                    }}>
                                         <input type="checkbox" checked={formData.is_active}
                                             onChange={e => setFormData({ ...formData, is_active: e.target.checked })} />
                                         Active
                                     </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 500 }}>
+                                    <label style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px',
+                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: '#0f172a',
+                                        padding: '12px 16px', borderRadius: '12px',
+                                        background: '#f8fafc', border: '1px solid #e2e8f0',
+                                    }}>
                                         <input type="checkbox" checked={formData.is_default}
                                             onChange={e => setFormData({ ...formData, is_default: e.target.checked })} />
                                         Default Account
@@ -491,21 +666,23 @@ export default function BankAccountSettings() {
 
                             </div>
 
-                            {/* Drawer footer — sticky at bottom */}
+                            {/* Drawer footer */}
                             <div style={{
-                                padding: '0.875rem 1.5rem',
-                                borderTop: '1px solid var(--color-border)',
-                                display: 'flex', gap: '0.6rem', justifyContent: 'flex-end',
+                                padding: '16px 28px',
+                                borderTop: '1px solid #e2e8f0',
+                                display: 'flex', gap: '10px', justifyContent: 'flex-end',
                                 flexShrink: 0,
-                                background: 'var(--color-surface)',
+                                background: 'white',
                             }}>
-                                <button type="button" className="btn btn-outline" onClick={handleCloseDrawer}
-                                    style={{ padding: '0.45rem 1.1rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                                <button type="button" onClick={handleCloseDrawer} style={btnOutline}>
                                     Cancel
                                 </button>
-                                <button type="submit" className="btn btn-primary" disabled={isSaving}
-                                    style={{ padding: '0.45rem 1.25rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                                    {isSaving ? 'Saving…' : editingId ? 'Update Account' : 'Save Account'}
+                                <button type="submit" disabled={isSaving} style={{
+                                    ...btnPrimary,
+                                    opacity: isSaving ? 0.7 : 1,
+                                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                                }}>
+                                    {isSaving ? 'Saving...' : editingId ? 'Update Account' : 'Save Account'}
                                 </button>
                             </div>
                         </form>

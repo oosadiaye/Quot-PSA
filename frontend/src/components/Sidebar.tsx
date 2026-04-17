@@ -60,10 +60,16 @@ import {
     User,
     ArrowUpRight,
     SlidersHorizontal,
+    Monitor,
+    Activity,
+    Scale,
 } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
 import { useTenantModules } from '../hooks/useTenantModules';
 import { useBranding } from '../context/BrandingContext';
+import { useAuth } from '../context/AuthContext';
+import OrganizationSwitcher from './OrganizationSwitcher';
+import NotificationBell from './NotificationBell';
 import BackButton from './BackButton';
 
 interface SubItem {
@@ -84,109 +90,77 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
     { name: 'Dashboard', icon: BarChart3, path: '/dashboard', requiredPerm: null, module: null },
     {
-        name: 'Accounting', icon: Wallet, path: '/accounting/dashboard',
+        name: 'General Ledger', icon: Wallet, path: '/accounting',
         requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
-            { name: 'Chart of Accounts', path: '/accounting/coa', icon: List },
             { name: 'Journal Entries', path: '/accounting', icon: FileText },
-            { name: 'GL Reports', path: '/accounting/reports', icon: BarChart3 },
+            { name: 'Revenue Entries (IGR)', path: '/accounting/revenue-collections', icon: Banknote },
+            { name: 'Chart of Accounts', path: '/accounting/coa', icon: List },
             { name: 'Accounts Payable', path: '/accounting/ap', icon: Receipt },
-            { name: 'Accounts Receivable', path: '/accounting/ar', icon: DollarSign },
-            { name: 'Incoming Payments', path: '/accounting/incoming-payments', icon: Banknote },
-            { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            { name: 'Trial Balance', path: '/accounting/reports/trial-balance', icon: ClipboardCheck },
+            { name: 'GL Reports', path: '/accounting/reports', icon: BarChart3 },
             { name: 'Fixed Assets', path: '/accounting/fixed-assets', icon: Building },
-            { name: 'Asset Categories', path: '/accounting/asset-categories', icon: FolderTree },
-            { name: 'Bank & Cash', path: '/accounting/bank-cash', icon: Landmark },
-            { name: 'Cash Accounts', path: '/accounting/cash-accounts', icon: Coins },
-            { name: 'Cost Centers', path: '/accounting/cost-centers', icon: Target },
-            { name: 'Recurring Journals', path: '/accounting/recurring-journals', icon: Repeat },
-            { name: 'Accruals & Deferrals', path: '/accounting/accruals-deferrals', icon: CalendarClock },
-            { name: 'Intercompany', path: '/accounting/intercompany', icon: Building },
-            { name: 'Multi-Company', path: '/accounting/multi-company', icon: Landmark },
-            { name: 'Consolidation', path: '/accounting/consolidation', icon: Layers },
+            { name: 'Period Close', path: '/accounting/reports/period-close', icon: CalendarCheck },
         ],
     },
     {
-        name: 'Dimensions', icon: Layers, path: '/accounting/dimensions',
-        requiredPerm: 'view_journalheader', module: 'dimensions',
-        subItems: [
-            { name: 'Dimensions Dashboard', path: '/accounting/dimensions', icon: BarChart3 },
-            { name: 'Funds', path: '/accounting/dimensions/funds', icon: Wallet },
-            { name: 'Functions', path: '/accounting/dimensions/functions', icon: BarChart3 },
-            { name: 'Programs', path: '/accounting/dimensions/programs', icon: FileText },
-            { name: 'Geo Locations', path: '/accounting/dimensions/geos', icon: MapPin },
-        ],
-    },
-    {
-        name: 'Budget Management', icon: DollarSign, path: '/accounting/budget/dashboard',
+        name: 'Budget & Appropriation', icon: DollarSign, path: '/budget/appropriations',
         requiredPerm: 'view_budget', module: 'budget',
         subItems: [
-            { name: 'Budget Dashboard', path: '/accounting/budget/dashboard', icon: BarChart3 },
-            { name: 'Budget Entry', path: '/accounting/budget/entry', icon: FileText },
-            { name: 'Create / Upload', path: '/accounting/budget/create', icon: FilePlus },
+            { name: 'Appropriations', path: '/budget/appropriations', icon: FileText },
+            { name: 'Revenue Budget', path: '/budget/revenue-budget', icon: Banknote },
+            { name: 'Warrants / AIE', path: '/budget/warrants', icon: CreditCard },
+            { name: 'Execution Report', path: '/budget/execution-report', icon: TrendingUp },
             { name: 'Variance Analysis', path: '/accounting/budget/variance', icon: TrendingUp },
         ],
     },
     {
-        name: 'Procurement', icon: ShoppingCart, path: '/procurement/dashboard',
+        name: 'Treasury & Banking (TSA)', icon: Landmark, path: '/accounting/tsa-accounts',
+        requiredPerm: 'view_journalheader', module: 'treasury',
+        subItems: [
+            { name: 'TSA Accounts', path: '/accounting/tsa-accounts', icon: Landmark },
+            { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
+            { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            { name: 'Payment Instructions', path: '/accounting/payment-instructions', icon: CreditCard },
+            { name: 'Bank Reconciliation', path: '/accounting/bank-reconciliation', icon: Scale },
+            { name: 'Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Activity },
+        ],
+    },
+    {
+        name: 'NCoA Classification', icon: Layers, path: '/accounting/ncoa/economic',
+        requiredPerm: 'view_journalheader', module: 'accounting',
+        subItems: [
+            { name: 'Economic Segment', path: '/accounting/ncoa/economic', icon: DollarSign },
+            { name: 'Administrative (MDA)', path: '/accounting/ncoa/administrative', icon: Building },
+            { name: 'Functional (COFOG)', path: '/accounting/ncoa/functional', icon: Target },
+            { name: 'Programme', path: '/accounting/ncoa/programme', icon: FileText },
+            { name: 'Fund Sources', path: '/accounting/ncoa/fund', icon: Wallet },
+            { name: 'Geographic', path: '/accounting/ncoa/geographic', icon: MapPin },
+            { name: 'NCoA Codes', path: '/accounting/ncoa/codes', icon: Layers },
+        ],
+    },
+    {
+        name: 'Procurement', icon: ShoppingCart, path: '/procurement/requisitions',
         requiredPerm: 'view_purchaseorder', module: 'procurement',
         subItems: [
-            { name: 'Vendors', path: '/procurement/vendors', icon: Building },
-            { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
             { name: 'Purchase Requisitions', path: '/procurement/requisitions', icon: FileText },
             { name: 'Purchase Orders', path: '/procurement/orders', icon: ShoppingCart },
             { name: 'Goods Received Notes', path: '/procurement/grn', icon: Package },
             { name: 'Invoice Verification', path: '/procurement/matching', icon: CheckCircle },
-            { name: 'Vendor Performance', path: '/procurement/vendor-performance', icon: TrendingUp },
-            { name: 'Purchase Returns', path: '/procurement/returns', icon: RotateCcw },
+            { name: 'Active Suppliers', path: '/procurement/vendors', icon: Building },
+            { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
+            { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
         ],
     },
     {
-        name: 'Inventory', icon: Package, path: '/inventory/dashboard',
+        name: 'Government Stores', icon: Package, path: '/inventory',
         requiredPerm: 'view_item', module: 'inventory',
         subItems: [
-            { name: 'Inventory Dashboard', path: '/inventory/dashboard', icon: BarChart3 },
-            { name: 'Products', path: '/inventory', icon: Package },
-            { name: 'Product Types', path: '/inventory/product-types', icon: Layers },
-            { name: 'Product Categories', path: '/inventory/categories', icon: List },
-            { name: 'Warehouses', path: '/inventory/warehouses', icon: Warehouse },
-            { name: 'Inventory Ledger', path: '/inventory/stocks', icon: Boxes },
-            { name: 'Batch Management', path: '/inventory/batches', icon: Package },
-            { name: 'Serial Numbers', path: '/inventory/serial-numbers', icon: Hash },
-            { name: 'Inventory Adjustments', path: '/inventory/adjustments', icon: SlidersHorizontal },
-            { name: 'Stock Transfers', path: '/inventory/movements', icon: Truck },
-            { name: 'Stock Valuation', path: '/inventory/valuation', icon: DollarSign },
-            { name: 'Reconciliation', path: '/inventory/reconciliations', icon: RotateCcw },
-            { name: 'Reorder Alerts', path: '/inventory/reorder-alerts', icon: Bell },
-            { name: 'Expiry Alerts', path: '/inventory/expiry-alerts', icon: Calendar },
-        ],
-    },
-    {
-        name: 'Sales', icon: TrendingUp, path: '/sales/dashboard',
-        requiredPerm: 'view_salesorder', module: 'sales',
-        subItems: [
-            { name: 'Customers', path: '/sales/customers', icon: Users },
-            { name: 'Customer Categories', path: '/sales/customer-categories', icon: BookOpen },
-            { name: 'CRM Lite', path: '/sales/crm', icon: UserPlus },
-            { name: 'Quotations', path: '/sales/quotations', icon: FileText },
-            { name: 'Sales Orders', path: '/sales/orders', icon: ShoppingCart },
-            { name: 'Delivery Notes', path: '/sales/delivery-notes', icon: Truck },
-            { name: 'Automated Invoicing', path: '/sales/invoicing', icon: Receipt },
-            { name: 'Credit Limits', path: '/sales/credit-limits', icon: CreditCard },
-        ],
-    },
-    {
-        name: 'Service', icon: Wrench, path: '/service/dashboard',
-        requiredPerm: 'view_serviceticket', module: 'service',
-        subItems: [
-            { name: 'Service Dashboard', path: '/service/dashboard', icon: BarChart3 },
-            { name: 'Service Assets', path: '/service/assets', icon: HardDrive },
-            { name: 'Technicians', path: '/service/technicians', icon: UserCog },
-            { name: 'Service Tickets', path: '/service/tickets', icon: Ticket },
-            { name: 'Maintenance Schedules', path: '/service/schedules', icon: CalendarClock },
-            { name: 'Work Orders', path: '/service/work-orders', icon: FileText },
-            { name: 'Citizen Requests', path: '/service/citizen-requests', icon: UserPlus },
-            { name: 'Service Metrics', path: '/service/metrics', icon: BarChart3 },
+            { name: 'Store Items', path: '/inventory', icon: Package },
+            { name: 'Item Categories', path: '/inventory/categories', icon: List },
+            { name: 'Warehouses / Stores', path: '/inventory/warehouses', icon: Warehouse },
+            { name: 'Goods Received', path: '/inventory/stocks', icon: Boxes },
+            { name: 'Store Issuance', path: '/inventory/movements', icon: Truck },
         ],
     },
     {
@@ -213,27 +187,50 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'Production', icon: Factory, path: '/production/dashboard',
-        requiredPerm: 'view_productionorder', module: 'production',
+        name: 'IPSAS Reporting', icon: BarChart3, path: '/accounting/ipsas/financial-position',
+        requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
-            { name: 'Production Dashboard', path: '/production/dashboard', icon: BarChart3 },
-            { name: 'Bill of Materials', path: '/production/bom', icon: FileText },
-            { name: 'Work Centers', path: '/production/work-centers', icon: Factory },
-            { name: 'Production Orders', path: '/production/orders', icon: Package },
+            { name: 'Financial Position', path: '/accounting/ipsas/financial-position', icon: Landmark },
+            { name: 'Financial Performance', path: '/accounting/ipsas/financial-performance', icon: TrendingUp },
+            { name: 'Cash Flow Statement', path: '/accounting/ipsas/cash-flow', icon: Activity },
+            { name: 'Changes in Net Assets', path: '/accounting/ipsas/changes-in-net-assets', icon: TrendingUp },
+            { name: 'Notes to Financial Statements', path: '/accounting/ipsas/notes', icon: FileText },
+            { name: 'Budget vs Actual', path: '/accounting/ipsas/budget-vs-actual', icon: BarChart3 },
+            { name: 'Revenue Performance', path: '/accounting/ipsas/revenue-performance', icon: Banknote },
+            { name: 'TSA Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Landmark },
+            { name: 'Functional Performance', path: '/accounting/ipsas/functional-classification', icon: BarChart3 },
+            { name: 'Programme Performance', path: '/accounting/ipsas/programme-performance', icon: TrendingUp },
+            { name: 'Geographic Performance', path: '/accounting/ipsas/geographic-distribution', icon: MapPin },
+            { name: 'Fund Performance', path: '/accounting/ipsas/fund-performance', icon: DollarSign },
         ],
     },
     {
-        name: 'Quality', icon: Shield, path: '/quality/dashboard',
-        requiredPerm: 'view_qualityinspection', module: 'quality',
-        subItems: [
-            { name: 'Quality Dashboard', path: '/quality/dashboard', icon: BarChart3 },
-            { name: 'Inspections', path: '/quality/inspections', icon: Search },
-            { name: 'Non-Conformance', path: '/quality/ncr', icon: AlertTriangle },
-            { name: 'Customer Complaints', path: '/quality/complaints', icon: UserPlus },
-            { name: 'Checklists', path: '/quality/checklists', icon: ClipboardCheck },
-            { name: 'Calibrations', path: '/quality/calibrations', icon: Gauge },
-            { name: 'Supplier Quality', path: '/quality/supplier-quality', icon: BadgeCheck },
-        ],
+        name: 'Data Quality', icon: Shield, path: '/accounting/data-quality',
+        requiredPerm: 'view_journalheader', module: 'audit',
+    },
+    {
+        name: 'Roles & Permissions', icon: Shield, path: '/admin/roles',
+        requiredPerm: 'view_user', module: 'admin',
+    },
+    {
+        name: 'Approval Rules', icon: CheckCircle, path: '/admin/approval-rules',
+        requiredPerm: 'view_approvalrule', module: 'admin',
+    },
+    {
+        name: 'Override Audit', icon: AlertTriangle, path: '/admin/audit/overrides',
+        requiredPerm: 'view_journalheader', module: 'audit',
+    },
+    {
+        name: 'Fiscal Years', icon: Calendar, path: '/admin/fiscal-years',
+        requiredPerm: 'view_fiscalyear', module: 'admin',
+    },
+    {
+        name: 'Appropriations', icon: DollarSign, path: '/budget/appropriations',
+        requiredPerm: 'view_appropriation', module: 'budget',
+    },
+    {
+        name: 'Audit Trail', icon: Shield, path: '/audit/trail',
+        requiredPerm: 'view_journalheader', module: 'audit',
     },
     {
         name: 'Approvals', icon: CheckCircle, path: '/approvals/dashboard',
@@ -258,16 +255,16 @@ const menuItems: MenuItem[] = [
     },
     { name: 'User Management', icon: UserCog, path: '/user-management', requiredPerm: 'view_employee', module: null },
     {
-        name: 'Settings', icon: Settings, path: '/settings/accounting',
+        name: 'Settings', icon: Settings, path: '/settings/organizations',
         requiredPerm: 'view_accountingsettings', module: null,
         subItems: [
-            { name: 'Accounting Settings', path: '/settings/accounting', icon: Wallet },
-            { name: 'Currencies', path: '/settings/accounting/currencies', icon: Coins },
-            { name: 'Tax Management', path: '/settings/tax', icon: Receipt },
+            { name: 'Organizations (MDAs)', path: '/settings/organizations', icon: Users },
+            { name: 'Government Config', path: '/settings/government', icon: Building },
             { name: 'Fiscal Year', path: '/settings/fiscal-year', icon: CalendarCheck },
             { name: 'Bank Accounts', path: '/settings/bank-accounts', icon: Landmark },
-            { name: 'Inventory Settings', path: '/settings/inventory', icon: Package },
+            { name: 'Tax Management', path: '/settings/tax', icon: Receipt },
             { name: 'Branding & Company', path: '/settings/branding', icon: Building },
+            { name: 'Accounting Settings', path: '/settings/accounting', icon: Settings },
         ],
     },
     {
@@ -283,6 +280,8 @@ const Sidebar = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { branding } = useBranding();
+    const { mdaIsolationMode } = useAuth();
+    const showMdaSwitcher = mdaIsolationMode === 'SEPARATED';
     const tenantInfo = (() => {
         try {
             const raw = localStorage.getItem('tenantInfo');
@@ -328,7 +327,9 @@ const Sidebar = () => {
     const filteredItems = menuItems.filter((item) => {
         if (!isModuleEnabled(item.module)) return false;
         if (!item.requiredPerm) return true;
-        if (permLoading) return !item.requiredPerm;
+        // Show all items while loading or if user data unavailable
+        // (prevents blank sidebar during auth issues)
+        if (permLoading || !user) return true;
         return hasPermission(user, item.requiredPerm);
     });
 
@@ -365,6 +366,21 @@ const Sidebar = () => {
     };
 
     return (
+        <>
+        {/* Top Header Bar — only visible when MDA separation is active */}
+        {showMdaSwitcher && (
+            <div style={{
+                position: 'fixed', top: 0, left: '260px', right: 0, height: '48px',
+                background: '#ffffff', borderBottom: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                padding: '0 24px', gap: '16px', zIndex: 15,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+                <OrganizationSwitcher />
+                <NotificationBell />
+            </div>
+        )}
+
         <div style={{
             width: '260px', height: '100vh',
             background: 'linear-gradient(180deg, #1a1f66 0%, #242a88 100%)',
@@ -406,42 +422,6 @@ const Sidebar = () => {
                             Enterprise Platform
                         </div>
                     </div>
-                </div>
-
-                {/* Tenant switcher */}
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '8px 10px', borderRadius: '8px',
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.12)'
-                }}>
-                    <div style={{
-                        width: '28px', height: '28px', borderRadius: '6px',
-                        background: 'rgba(255,255,255,0.12)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0
-                    }}>
-                        <Building size={14} style={{ color: 'rgba(255,255,255,0.7)' }} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                            fontSize: '12px', fontWeight: 600, color: '#ffffff',
-                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
-                        }}>
-                            {activeTenant}
-                        </div>
-                    </div>
-                    <button
-                        onClick={handleSwitchTenant}
-                        title="Switch Organization"
-                        style={{
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            color: 'rgba(255,255,255,0.55)', padding: '2px',
-                            fontSize: '11px', fontWeight: 600,
-                        }}
-                    >
-                        Switch
-                    </button>
                 </div>
             </div>
 
@@ -645,6 +625,7 @@ const Sidebar = () => {
                 </div>
             )}
         </div>
+        </>
     );
 };
 

@@ -2,7 +2,7 @@ import os
 import django
 
 # Setup Django environment
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dtsg_erp.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'quot_pse.settings')
 django.setup()
 
 from django_tenants.utils import tenant_context

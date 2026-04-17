@@ -16,6 +16,18 @@ interface TenantInfo {
     role: string;
 }
 
+export interface OrganizationInfo {
+    id: number;
+    name: string;
+    code: string;
+    short_name: string;
+    org_role: 'MDA' | 'BUDGET_AUTHORITY' | 'FINANCE_AUTHORITY' | 'AUDIT_AUTHORITY';
+    is_oversight: boolean;
+    is_read_only: boolean;
+    per_org_role: string;
+    is_default: boolean;
+}
+
 const ROLE_HIERARCHY: Record<string, number> = {
     admin: 5,
     senior_manager: 4,
@@ -35,6 +47,12 @@ interface AuthState {
     setAuthData: (user: UserInfo, token: string, rememberMe?: boolean) => void;
     setTenantData: (tenant: TenantInfo, permissions: string[]) => void;
     logout: () => void;
+    // Organization (MDA branch) state
+    activeOrganization: OrganizationInfo | null;
+    userOrganizations: OrganizationInfo[];
+    mdaIsolationMode: 'UNIFIED' | 'SEPARATED';
+    setActiveOrganization: (org: OrganizationInfo | null) => void;
+    setOrganizationList: (orgs: OrganizationInfo[], mode: 'UNIFIED' | 'SEPARATED') => void;
 }
 
 // Helper: get the active storage backend (localStorage if remembered, sessionStorage otherwise)
@@ -71,6 +89,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const raw = getStored('tenantPermissions');
             return raw ? JSON.parse(raw) : [];
         } catch { return []; }
+    });
+
+    const [activeOrganization, setActiveOrgState] = useState<OrganizationInfo | null>(() => {
+        try {
+            const raw = getStored('activeOrganization');
+            return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+    });
+
+    const [userOrganizations, setUserOrganizations] = useState<OrganizationInfo[]>(() => {
+        try {
+            const raw = getStored('userOrganizations');
+            return raw ? JSON.parse(raw) : [];
+        } catch { return []; }
+    });
+
+    const [mdaIsolationMode, setMdaIsolationMode] = useState<'UNIFIED' | 'SEPARATED'>(() => {
+        return (getStored('mdaIsolationMode') as 'UNIFIED' | 'SEPARATED') || 'UNIFIED';
     });
 
     const isAuthenticated = !!getStored('authToken') && !!user;
@@ -125,10 +161,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPermissions(perms);
     }, []);
 
+    const setActiveOrganization = useCallback((org: OrganizationInfo | null) => {
+        const store = getStorage();
+        if (org) {
+            store.setItem('activeOrganization', JSON.stringify(org));
+        } else {
+            store.removeItem('activeOrganization');
+        }
+        setActiveOrgState(org);
+    }, []);
+
+    const setOrganizationList = useCallback((orgs: OrganizationInfo[], mode: 'UNIFIED' | 'SEPARATED') => {
+        const store = getStorage();
+        store.setItem('userOrganizations', JSON.stringify(orgs));
+        store.setItem('mdaIsolationMode', mode);
+        setUserOrganizations(orgs);
+        setMdaIsolationMode(mode);
+    }, []);
+
     const logout = useCallback(() => {
         // Clear auth data from both storages
         const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo',
-                      'tenantPermissions', 'activeTenant', 'impersonation'];
+                      'tenantPermissions', 'activeTenant', 'impersonation',
+                      'activeOrganization', 'userOrganizations', 'mdaIsolationMode'];
         for (const key of keys) {
             localStorage.removeItem(key);
             sessionStorage.removeItem(key);
@@ -137,6 +192,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setTenantInfo(null);
         setPermissions([]);
+        setActiveOrgState(null);
+        setUserOrganizations([]);
+        setMdaIsolationMode('UNIFIED');
     }, []);
 
     // Sync with storage changes from other tabs (localStorage only — sessionStorage doesn't fire cross-tab)
@@ -153,8 +211,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const value = useMemo(() => ({
         user, tenantInfo, tenantRole, permissions, isAuthenticated,
         hasPermission, hasRole, setAuthData, setTenantData, logout,
+        activeOrganization, userOrganizations, mdaIsolationMode,
+        setActiveOrganization, setOrganizationList,
     }), [user, tenantInfo, tenantRole, permissions, isAuthenticated,
-        hasPermission, hasRole, setAuthData, setTenantData, logout]);
+        hasPermission, hasRole, setAuthData, setTenantData, logout,
+        activeOrganization, userOrganizations, mdaIsolationMode,
+        setActiveOrganization, setOrganizationList]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

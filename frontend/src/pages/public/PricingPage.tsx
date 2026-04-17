@@ -7,20 +7,15 @@ import CurrencySwitcher from '../../components/public/CurrencySwitcher';
 import {
   Check, ArrowRight, Building2, ChevronRight, Star, Crown, Sparkles,
   BarChart3, Globe, Users,
-  Package, FileText, Wallet, Factory, Wrench, ClipboardCheck, Layers,
-  TrendingUp,
+  Package, FileText, Wallet, Layers,
 } from 'lucide-react';
 
 const MODULE_ICONS: Record<string, React.ReactNode> = {
   accounting: <Wallet size={24} />,
-  sales: <TrendingUp size={24} />,
   procurement: <Package size={24} />,
   inventory: <Layers size={24} />,
   hrm: <Users size={24} />,
   budget: <BarChart3 size={24} />,
-  production: <Factory size={24} />,
-  quality: <ClipboardCheck size={24} />,
-  service: <Wrench size={24} />,
   dimensions: <Globe size={24} />,
   workflow: <FileText size={24} />,
 };
@@ -93,7 +88,7 @@ const PricingPage = () => {
             }}>
               <Building2 size={20} color="#fff" />
             </div>
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700 }}>DTSG ERP</span>
+            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700 }}>QUOT ERP</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <CurrencySwitcher

@@ -6,11 +6,29 @@ imports from `accounting.models` continues to work without modification.
 """
 
 from accounting.models.gl import *
+from accounting.models.ncoa import *
 from accounting.models.balances import *
 from accounting.models.receivables import *
 from accounting.models.assets import *
 from accounting.models.tax import *
-from accounting.models.intercompany import *
+from accounting.models.treasury import *
+from accounting.models.revenue import *
+from accounting.models.tsa_reconciliation import *
+from accounting.models.report_snapshot import ReportSnapshot  # noqa: F401
+from accounting.models.provision import (  # noqa: F401
+    Provision, ContingentLiability, ContingentAsset,
+)
+from accounting.models.mda_import_log import MDAImportLog  # noqa: F401
+from accounting.models.intangible_asset import IntangibleAsset  # noqa: F401
+from accounting.models.opening_balance import (  # noqa: F401
+    OpeningBalanceSheet, OpeningBalanceItem,
+)
+from accounting.models.pension import (  # noqa: F401
+    PensionScheme, ActuarialValuation, PensionContribution,
+)
+from accounting.models.social_benefit import (  # noqa: F401
+    SocialBenefitScheme, SocialBenefitClaim,
+)
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -93,20 +111,28 @@ __all__ = [
     'VATReturnDetail',
     'WHTCertificate',
 
-    # intercompany.py
-    'Company',
-    'InterCompanyConfig',
-    'InterCompanyInvoice',
-    'InterCompanyTransfer',
-    'InterCompanyAllocation',
-    'InterCompanyCashTransfer',
-    'ConsolidationGroup',
-    'ConsolidationRun',
-    'InterCompany',
-    'InterCompanyAccountMapping',
-    'InterCompanyTransaction',
-    'InterCompanyElimination',
-    'Consolidation',
+    # ncoa.py — Nigeria National Chart of Accounts (52-digit, 6-segment)
+    'AdministrativeSegment',
+    'EconomicSegment',
+    'FunctionalSegment',
+    'ProgrammeSegment',
+    'FundSegment',
+    'GeographicSegment',
+    'NCoACode',
+
+    # treasury.py — TSA & Payment Vouchers
+    'TreasuryAccount',
+    'PaymentVoucherGov',
+    'PaymentInstruction',
+
+    # revenue.py — IGR Revenue Collection
+    'RevenueHead',
+    'RevenueCollection',
+
+    # tsa_reconciliation.py — Treasury bank reconciliation
+    'TSABankStatement',
+    'TSABankStatementLine',
+    'TSAReconciliation',
 
     # advanced.py
     'FinancialReportTemplate',
@@ -169,4 +195,31 @@ __all__ = [
     'FinancialRatio',
     'PeriodClosing',
     'YearEndClosing',
+
+    # report_snapshot.py — S10-03
+    'ReportSnapshot',
+
+    # provision.py — S10-04 — IPSAS 19
+    'Provision',
+    'ContingentLiability',
+    'ContingentAsset',
+
+    # mda_import_log.py — S12-01
+    'MDAImportLog',
+
+    # intangible_asset.py — S12-03 — IPSAS 31
+    'IntangibleAsset',
+
+    # opening_balance.py — S12-05 — IPSAS 33
+    'OpeningBalanceSheet',
+    'OpeningBalanceItem',
+
+    # pension.py — S14-01 — IPSAS 39
+    'PensionScheme',
+    'ActuarialValuation',
+    'PensionContribution',
+
+    # social_benefit.py — S14-02 — IPSAS 42
+    'SocialBenefitScheme',
+    'SocialBenefitClaim',
 ]

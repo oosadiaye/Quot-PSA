@@ -1,4 +1,4 @@
-# DTSG ERP — Full System Specification
+# QUOT ERP — Full System Specification
 
 > Multi-Tenant SaaS Enterprise Resource Planning System
 > Tech Stack: Django 5/6 + DRF | React 19 + TypeScript + Vite | PostgreSQL | django-tenants
@@ -26,7 +26,7 @@
 
 ### 1.1 What Has Been Built
 
-DTSG ERP is a **production-grade, multi-tenant SaaS ERP** with 11 business modules, centralized authentication, role-based access control, and a modern glassmorphism UI.
+QUOT ERP is a **production-grade, multi-tenant SaaS ERP** with 11 business modules, centralized authentication, role-based access control, and a modern glassmorphism UI.
 
 **Core Capabilities:**
 - Schema-per-tenant isolation via `django-tenants`
@@ -114,7 +114,7 @@ DTSG ERP is a **production-grade, multi-tenant SaaS ERP** with 11 business modul
 ### 2.2 Multi-Tenant Schema Architecture
 
 ```
-PostgreSQL Database: dtsg_erp
+PostgreSQL Database: quot_pse
 ├── public (schema)
 │   ├── auth_user              ← All users (centralized)
 │   ├── authtoken_token        ← All auth tokens
@@ -186,7 +186,7 @@ App.tsx
 
 ```
 DTSG erp/
-├── dtsg_erp/                  # Django project config
+├── quot_pse/                  # Django project config
 │   ├── settings.py            # Full settings (security, DB, cache, logging)
 │   ├── urls.py                # Root URL router → 12 app routers
 │   ├── wsgi.py / asgi.py      # Server entry points
@@ -673,7 +673,7 @@ The UI uses fixed-width sidebar (260px) and is primarily desktop-optimized. Mobi
 ```json
 // manifest.json
 {
-  "name": "DTSG ERP",
+  "name": "QUOT ERP",
   "short_name": "DTSG",
   "start_url": "/dashboard",
   "display": "standalone",
@@ -743,7 +743,7 @@ The UI uses fixed-width sidebar (260px) and is primarily desktop-optimized. Mobi
 Create `.github/workflows/ci-cd.yml`:
 
 ```yaml
-name: DTSG ERP CI/CD
+name: QUOT ERP CI/CD
 
 on:
   push:
@@ -754,7 +754,7 @@ on:
 env:
   PYTHON_VERSION: '3.12'
   NODE_VERSION: '22'
-  POSTGRES_DB: dtsg_erp_test
+  POSTGRES_DB: quot_pse_test
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: postgres
 
@@ -1249,7 +1249,7 @@ pip install -r requirements.txt
 pip install gunicorn
 
 # Database
-sudo -u postgres createdb dtsg_erp
+sudo -u postgres createdb quot_pse
 sudo -u postgres createuser dtsg --password
 python manage.py migrate --skip-checks --noinput
 python manage.py createsuperuser
@@ -1264,7 +1264,7 @@ cd ..
 # Gunicorn (via supervisor)
 # /etc/supervisor/conf.d/dtsg-erp.conf
 [program:dtsg-erp]
-command=/var/www/dtsg-erp/venv/bin/gunicorn dtsg_erp.wsgi:application --bind 127.0.0.1:8000 --workers 4 --timeout 60
+command=/var/www/dtsg-erp/venv/bin/gunicorn quot_pse.wsgi:application --bind 127.0.0.1:8000 --workers 4 --timeout 60
 directory=/var/www/dtsg-erp
 user=www-data
 autostart=true
@@ -1342,10 +1342,10 @@ sudo systemctl enable redis-server
 
 ```bash
 # Database backup
-pg_dump -U dtsg dtsg_erp | gzip > backup_$(date +%Y%m%d).sql.gz
+pg_dump -U dtsg quot_pse | gzip > backup_$(date +%Y%m%d).sql.gz
 
 # Database restore
-gunzip -c backup_20260301.sql.gz | psql -U dtsg dtsg_erp
+gunzip -c backup_20260301.sql.gz | psql -U dtsg quot_pse
 
 # View logs
 tail -f /var/log/dtsg-erp/gunicorn.log
@@ -1468,4 +1468,4 @@ GET    /api/tenants/superadmin-dashboard/
 
 ---
 
-*Generated: March 2026 | DTSG ERP v1.0*
+*Generated: March 2026 | QUOT ERP v1.0*

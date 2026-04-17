@@ -6,8 +6,7 @@ Budget Period management, Suspense Clearing, and Audit Trail integration.
 """
 
 from .common import (
-    viewsets, status, Response, action, DjangoFilterBackend,
-    transaction, Decimal, AccountingPagination,
+    viewsets, status, Response, action, transaction, Decimal, AccountingPagination,
 )
 from ..models import (
     CreditNote, DebitNote,
@@ -15,8 +14,7 @@ from ..models import (
     PettyCashFund, PettyCashVoucher, PettyCashReplenishment,
     ChequeRegister,
     SuspenseClearing,
-    BudgetPeriod, PeriodStatus,
-    Account, BankAccount, JournalHeader, JournalLine, GLBalance, TransactionSequence,
+    BudgetPeriod, Account, BankAccount, JournalHeader, JournalLine, TransactionSequence,
     TransactionAuditLog,
 )
 from ..serializers import (
@@ -64,9 +62,9 @@ def _log_audit(transaction_type, transaction_id, act, user, request=None, **kwar
 # ===================== Credit / Debit Notes =====================
 
 class CreditNoteViewSet(viewsets.ModelViewSet):
-    queryset = CreditNote.objects.all().select_related('customer', 'original_invoice')
+    queryset = CreditNote.objects.all().select_related('original_invoice')
     serializer_class = CreditNoteSerializer
-    filterset_fields = ['customer', 'status', 'reason_type']
+    filterset_fields = ['customer_name', 'status', 'reason_type']
     pagination_class = AccountingPagination
 
     @action(detail=True, methods=['post'])
@@ -251,9 +249,9 @@ class BadDebtProvisionViewSet(viewsets.ModelViewSet):
 
 
 class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
-    queryset = BadDebtWriteOff.objects.all().select_related('customer', 'original_invoice')
+    queryset = BadDebtWriteOff.objects.all().select_related('original_invoice')
     serializer_class = BadDebtWriteOffSerializer
-    filterset_fields = ['customer', 'status']
+    filterset_fields = ['customer_name', 'status']
     pagination_class = AccountingPagination
 
     @action(detail=True, methods=['post'])

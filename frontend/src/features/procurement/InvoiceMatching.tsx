@@ -1,12 +1,37 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, CheckCircle, XCircle, Search, FileText, AlertTriangle } from 'lucide-react';
-import { useInvoiceMatchings, useMatchInvoice, useRejectMatching } from './hooks/useProcurement';
+import { Plus, CheckCircle, XCircle, Search, FileText, Eye } from 'lucide-react';
+import {
+    useInvoiceMatchings,
+    useMatchInvoice,
+    useRejectMatching,
+} from './hooks/useProcurement';
 import { useDialog } from '../../hooks/useDialog';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import { useCurrency } from '../../context/CurrencyContext';
 import '../accounting/styles/glassmorphism.css';
+
+// Shared button styles for the action cell — keeps row markup compact and
+// makes it easy to evolve the visual language in one place.
+const baseBtn: React.CSSProperties = {
+    padding: '0.375rem 0.75rem',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: 'var(--text-xs)',
+    fontWeight: 600,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+};
+const btnStyles = {
+    success: { ...baseBtn, background: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' },
+    danger:  { ...baseBtn, background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' },
+    primary: { ...baseBtn, background: 'rgba(36, 113, 163, 0.1)', color: '#2471a3' },
+    post:    { ...baseBtn, background: '#22c55e', color: 'white' },
+    outline: { ...baseBtn, background: 'transparent', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' },
+} as const;
 
 export default function InvoiceMatchingPage() {
     const navigate = useNavigate();
@@ -18,23 +43,39 @@ export default function InvoiceMatchingPage() {
     const { data: matchings, isLoading } = useInvoiceMatchings({ status: statusFilter });
     const matchMutation = useMatchInvoice();
     const rejectMutation = useRejectMatching();
+    const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+    const flash = (msg: string, ok = true) => {
+        setToast({ msg, ok });
+        setTimeout(() => setToast(null), 5000);
+    };
 
     const matchingsList = matchings?.results || matchings || [];
-    
+
     const filteredMatchings = Array.isArray(matchingsList) ? matchingsList.filter((m: any) =>
         m.invoice_reference?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
     ) : [];
 
+    // Variance override (with reason) — only available action that remains
+    // on the list because Variance rows can't be auto-resolved by the
+    // create flow; they need a human decision after the fact.
     const handleMatch = async (id: number) => {
-        const reason = await showPrompt('Enter variance reason (if any):');
-        matchMutation.mutate({ id, variance_reason: reason || '' });
+        const reason = await showPrompt('Enter variance reason (required to override):');
+        if (!reason) return;
+        matchMutation.mutate({ id, variance_reason: reason }, {
+            onSuccess: () => flash('Variance overridden — open the row and click Post inside the verification page.'),
+            onError: (err: any) => flash(err?.response?.data?.error || 'Failed to override', false),
+        });
     };
 
     const handleReject = async (id: number) => {
         const reason = await showPrompt('Enter rejection reason:');
         if (reason) {
-            rejectMutation.mutate({ id, reason });
+            rejectMutation.mutate({ id, reason }, {
+                onSuccess: () => flash('Verification rejected.'),
+                onError: (err: any) => flash(err?.response?.data?.error || 'Failed to reject', false),
+            });
         }
     };
 
@@ -101,6 +142,17 @@ export default function InvoiceMatchingPage() {
     return (
         <AccountingLayout>
             <div style={{ padding: '1.5rem' }}>
+                {toast && (
+                    <div style={{
+                        padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: '8px',
+                        background: toast.ok ? '#ecfdf5' : '#fef2f2',
+                        border: `1px solid ${toast.ok ? '#a7f3d0' : '#fecaca'}`,
+                        color: toast.ok ? '#065f46' : '#991b1b',
+                        fontSize: 'var(--text-sm)', fontWeight: 500,
+                    }}>
+                        {toast.msg}
+                    </div>
+                )}
                 <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                         <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
@@ -220,66 +272,33 @@ export default function InvoiceMatchingPage() {
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>{getMatchBadge(m.match_type || 'None')}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>{getStatusBadge(m.status)}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                                            {m.status === 'Variance' && (
-                                                <>
-                                                    <button
-                                                        onClick={() => handleMatch(m.id)}
-                                                        style={{
-                                                            padding: '0.375rem 0.75rem',
-                                                            background: 'rgba(34, 197, 94, 0.1)',
-                                                            color: '#22c55e',
-                                                            border: 'none',
-                                                            borderRadius: '6px',
-                                                            fontSize: 'var(--text-xs)',
-                                                            fontWeight: 600,
-                                                            cursor: 'pointer',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: '0.25rem',
-                                                        }}
-                                                    >
-                                                        <CheckCircle size={14} />
-                                                        Match
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleReject(m.id)}
-                                                        style={{
-                                                            padding: '0.375rem 0.75rem',
-                                                            background: 'rgba(239, 68, 68, 0.1)',
-                                                            color: '#ef4444',
-                                                            border: 'none',
-                                                            borderRadius: '6px',
-                                                            fontSize: 'var(--text-xs)',
-                                                            fontWeight: 600,
-                                                            cursor: 'pointer',
-                                                            marginLeft: '0.5rem',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: '0.25rem',
-                                                        }}
-                                                    >
-                                                        <XCircle size={14} />
-                                                        Reject
-                                                    </button>
-                                                </>
-                                            )}
-                                            {m.status === 'Pending_Review' && (
+                                            <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                                {/* The list is read-only — verification + posting both
+                                                    happen on the New Verification page (SAP MIRO-style
+                                                    real-time post). Clicking "View" opens the detail
+                                                    page; for Variance rows, the override+reject
+                                                    actions stay here as an exception because they
+                                                    operate on already-created matchings that the
+                                                    initial create flow couldn't auto-resolve. */}
+                                                {m.status === 'Variance' && (
+                                                    <>
+                                                        <button onClick={() => handleMatch(m.id)} style={btnStyles.success} title="Override variance with a reason">
+                                                            <CheckCircle size={14} /> Override
+                                                        </button>
+                                                        <button onClick={() => handleReject(m.id)} style={btnStyles.danger} title="Reject this invoice">
+                                                            <XCircle size={14} /> Reject
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {/* View — always available */}
                                                 <button
-                                                    onClick={() => handleMatch(m.id)}
-                                                    style={{
-                                                        padding: '0.375rem 0.75rem',
-                                                        background: 'rgba(36, 113, 163, 0.1)',
-                                                        color: '#2471a3',
-                                                        border: 'none',
-                                                        borderRadius: '6px',
-                                                        fontSize: 'var(--text-xs)',
-                                                        fontWeight: 600,
-                                                        cursor: 'pointer',
-                                                    }}
+                                                    onClick={() => navigate(`/procurement/matching/${m.id}`)}
+                                                    style={btnStyles.outline}
+                                                    title="View verification details"
                                                 >
-                                                    Calculate
+                                                    <Eye size={14} /> View
                                                 </button>
-                                            )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

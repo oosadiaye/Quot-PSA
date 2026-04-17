@@ -1,0 +1,77 @@
+# Local development stack for Quot PSE.
+#
+# Usage:
+#   cp .env.example .env   (then edit)
+#   docker compose up -d
+#   docker compose exec app python manage.py migrate_schemas --shared
+#   docker compose exec app python manage.py migrate_schemas --tenant
+#   docker compose exec app python manage.py createsuperuser
+#
+# Stops at: http://localhost:8000
+#
+# Services:
+#   db    — PostgreSQL 15, volume-persisted.
+#   app   — Django container built from the local Dockerfile; live-reload
+#           via a bind mount in development. Swap `command` to gunicorn
+#           + remove the bind mount for a production-style image.
+
+services:
+
+  db:
+    image: postgres:15
+    # Matches the DB_* env var scheme in .env.example (settings.py reads
+    # DB_NAME/DB_USER/DB_PASSWORD). The postgres image expects POSTGRES_*
+    # var names, so we map them here.
+    environment:
+      POSTGRES_USER: ${DB_USER:-dtsg}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dtsg_dev}
+      POSTGRES_DB: ${DB_NAME:-quot_pse}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Exposed so you can run `psql` against the container from the host
+      # during dev. Close this in production deployments.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dtsg}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The app reads DB_HOST etc. from env — docker-compose provides them
+    # here so settings.py connects to the ``db`` service container rather
+    # than 127.0.0.1.
+    environment:
+      DJANGO_SETTINGS_MODULE: quot_pse.settings
+      DB_NAME: ${DB_NAME:-quot_pse}
+      DB_USER: ${DB_USER:-dtsg}
+      DB_PASSWORD: ${DB_PASSWORD:-dtsg_dev}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DEBUG: ${DEBUG:-1}
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-key-do-not-use-in-prod}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+    # Bind-mount the repo for live reload. For a production build, remove
+    # this volume + switch the command to a gunicorn invocation.
+    volumes:
+      - ./:/app
+      - staticfiles:/app/staticfiles
+      - media:/app/media
+    # Wait for Postgres before starting Django.
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "python manage.py migrate_schemas --shared &&
+             python manage.py runserver 0.0.0.0:8000"
+
+volumes:
+  pgdata:
+  staticfiles:
+  media:

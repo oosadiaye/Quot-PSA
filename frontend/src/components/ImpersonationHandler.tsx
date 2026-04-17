@@ -50,9 +50,12 @@ const ImpersonationHandler = () => {
     // Clean up the pending data immediately
     sessionStorage.removeItem('pending_impersonation');
 
-    // Store only session_id and tenant_domain in sessionStorage (tab-scoped, not accessible from other tabs).
-    // We intentionally do NOT store the original superadmin token — the superadmin
-    // should re-authenticate after ending impersonation for security.
+    // Capture the current superadmin token + user BEFORE overwriting them,
+    // so we can restore the superadmin session when impersonation ends.
+    const originalToken = localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || '';
+    const originalUser = localStorage.getItem('user') || sessionStorage.getItem('user') || '';
+
+    // Store session info in sessionStorage (tab-scoped)
     sessionStorage.setItem('impersonation_session', JSON.stringify({
       sessionId: session_id ? Number(session_id) : 0,
       tenantDomain: tenant_domain,
@@ -60,9 +63,12 @@ const ImpersonationHandler = () => {
       targetUser,
     }));
 
-    // Also keep a flag in localStorage for components that check impersonation state
+    // Store impersonation state in localStorage WITH original superadmin credentials
+    // so ImpersonationBanner can restore the session on exit.
     localStorage.setItem('impersonation', JSON.stringify({
       sessionId: session_id ? Number(session_id) : 0,
+      originalToken,
+      originalUser,
       targetUser,
       targetTenant: tenant_domain,
       targetTenantName: displayName,

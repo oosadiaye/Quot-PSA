@@ -384,14 +384,10 @@ const PlanCards = ({
 // ── Module Pricing Manager ────────────────────────────────────────────
 const MODULE_NAME_OPTIONS = [
   { value: 'accounting', label: 'Accounting' },
-  { value: 'sales', label: 'Sales' },
   { value: 'procurement', label: 'Procurement' },
   { value: 'inventory', label: 'Inventory' },
   { value: 'hrm', label: 'Human Resources' },
   { value: 'budget', label: 'Budget Management' },
-  { value: 'production', label: 'Production' },
-  { value: 'quality', label: 'Quality' },
-  { value: 'service', label: 'Service' },
   { value: 'dimensions', label: 'Dimensions' },
   { value: 'workflow', label: 'Workflow' },
 ];
@@ -912,12 +908,8 @@ const PlansTab = () => {
               { label: 'Budget', value: 'budget' },
               { label: 'Procurement', value: 'procurement' },
               { label: 'Inventory', value: 'inventory' },
-              { label: 'Sales', value: 'sales' },
               { label: 'HRM', value: 'hrm' },
-              { label: 'Service', value: 'service' },
               { label: 'Workflow', value: 'workflow' },
-              { label: 'Production', value: 'production' },
-              { label: 'Quality', value: 'quality' },
             ]} />
           </Form.Item>
           <Form.Item name="is_featured" valuePropName="checked">

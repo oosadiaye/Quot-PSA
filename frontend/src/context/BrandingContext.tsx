@@ -13,7 +13,7 @@ interface BrandingContextType {
     isLoading: boolean;
 }
 
-const FALLBACK: BrandingInfo = { name: 'DTSG ERP', tagline: '', logo: null };
+const FALLBACK: BrandingInfo = { name: 'QUOT ERP', tagline: '', logo: null };
 
 const BrandingContext = createContext<BrandingContextType>({
     branding: FALLBACK,

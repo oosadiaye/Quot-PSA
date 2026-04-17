@@ -28,7 +28,7 @@ class SuperAdminProfile(models.Model):
 
 class SuperAdminSettings(models.Model):
     """Global platform settings (singleton, pk=1)"""
-    organization_name = models.CharField(max_length=200, default='DTSG ERP')
+    organization_name = models.CharField(max_length=200, default='QUOT ERP')
     default_timezone = models.CharField(max_length=50, default='Africa/Lagos')
     default_currency = models.CharField(max_length=10, default='NGN')
     maintenance_mode = models.BooleanField(default=False)
@@ -55,7 +55,7 @@ class SuperAdminSettings(models.Model):
     smtp_use_tls = models.BooleanField(default=True)
     smtp_use_ssl = models.BooleanField(default=False)
     smtp_from_email = models.EmailField(blank=True, default='')
-    smtp_from_name = models.CharField(max_length=100, blank=True, default='DTSG ERP')
+    smtp_from_name = models.CharField(max_length=100, blank=True, default='QUOT ERP')
     support_email = models.EmailField(blank=True, default='')
     smtp_enabled = models.BooleanField(default=False)
 

@@ -264,6 +264,24 @@ class JournalViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # ── Period lock enforcement ──────────────────────────────
+        posting_date = serializer.validated_data.get('posting_date')
+        if posting_date:
+            from accounting.models.advanced import FiscalPeriod
+            period = FiscalPeriod.objects.filter(
+                start_date__lte=posting_date,
+                end_date__gte=posting_date,
+                period_type='Monthly',
+            ).first()
+            if period and (period.is_closed or period.is_locked):
+                if not period.allow_journal_entry:
+                    return Response(
+                        {"error": f"Period {period.period_number}/{period.fiscal_year} is {period.status}. "
+                                  f"Journal entries are not allowed in this period. "
+                                  f"Contact the Accountant General to request access."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
         lines_data = request.data.get('lines', [])
 
         # Validate debits equal credits
@@ -350,16 +368,16 @@ class JournalViewSet(viewsets.ModelViewSet):
         """Update only the description of a journal entry, regardless of its status."""
         journal = self.get_object()
         new_description = request.data.get('description')
-        
+
         if new_description is None:
             return Response(
                 {"error": "Please provide a 'description' field."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
+
         journal.description = new_description
         journal.save(update_fields=['description'], _allow_status_change=True)
-        
+
         return Response({
             "status": "Journal description updated successfully.",
             "id": journal.id,
@@ -369,7 +387,6 @@ class JournalViewSet(viewsets.ModelViewSet):
     def _post_to_gl(self, journal, user, skip_budget_check=False):
         """Post journal entries to GL balances in real-time with optional budget validation."""
         from django.db import transaction
-        from django.db.models import Sum
         # Canonical budget system: use budget.models.UnifiedBudget for all budget checks.
         # accounting.budget_logic is the legacy wrapper; budget.models is the source of truth.
         from budget.models import UnifiedBudget
@@ -386,7 +403,7 @@ class JournalViewSet(viewsets.ModelViewSet):
 
             # Budget validation for expense transactions (debits)
             budget_violations = []
-            
+
             for line in journal.lines.all():
                 if not line.document_number:
                     line.document_number = journal.document_number
@@ -395,21 +412,18 @@ class JournalViewSet(viewsets.ModelViewSet):
                 # Budget check for expense accounts with debit amounts
                 if not skip_budget_check and line.account.account_type == 'Expense' and line.debit and line.debit > 0:
                     # Find matching budget
+                    # Budget control: MDA + Account (Economic) + Fund only
                     budget = UnifiedBudget.get_budget_for_transaction(
                         dimensions={
                             'fund': journal.fund,
-                            'function': journal.function,
-                            'program': journal.program,
-                            'geo': journal.geo,
                             'mda': journal.mda,
-                            'cost_center': None,  # Could be extended
                         },
                         account=line.account,
                         fiscal_year=str(fiscal_year),
                         period_type='MONTHLY',
                         period_number=period
                     )
-                    
+
                     if budget:
                         is_allowed, message, available = budget.check_availability(line.debit, 'JOURNAL')
 
@@ -449,7 +463,7 @@ class JournalViewSet(viewsets.ModelViewSet):
     def post_journal(self, request, pk=None):
         """Post journal entry to GL balances in real-time."""
         from accounting.models import BudgetPeriod
-        
+
         journal = self.get_object()
 
         if journal.status == 'Posted':
@@ -490,6 +504,14 @@ class JournalViewSet(viewsets.ModelViewSet):
             # Update status
             journal.status = 'Posted'
             journal.save(_allow_status_change=True)
+
+            # P6-T4 — bust cached reports for this fiscal year so the next
+            # dashboard load reflects the newly-posted journal.
+            try:
+                from accounting.services.report_cache import invalidate_period_reports
+                invalidate_period_reports(fiscal_year=journal.posting_date.year)
+            except Exception:
+                pass
 
             return Response({
                 "status": "Journal posted successfully.",
@@ -564,6 +586,13 @@ class JournalViewSet(viewsets.ModelViewSet):
                     reversed_by=request.user,
                     gl_balances_reversed=reversed_balances
                 )
+
+            # P6-T4 — bust cached reports; the unpost removed GL balances.
+            try:
+                from accounting.services.report_cache import invalidate_period_reports
+                invalidate_period_reports(fiscal_year=fiscal_year)
+            except Exception:
+                pass
 
             return Response({"status": "Journal unposted successfully."})
         except Exception as e:
@@ -786,7 +815,6 @@ class JournalViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def gl_report(self, request):
         """Get general ledger report."""
-        from django.db.models import Sum
 
         account_id = request.query_params.get('account')
         start_date = request.query_params.get('start_date')
@@ -903,7 +931,6 @@ class CurrencyViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get', 'put'], url_path='defaults')
     def defaults(self, request):
         """GET/PUT the default currency configuration."""
-        from ..serializers import AccountingSettingsSerializer
         settings_obj, _ = AccountingSettings.objects.get_or_create(pk=1)
 
         if request.method == 'GET':

@@ -202,7 +202,6 @@ class TransactionSequence(models.Model):
 
     @classmethod
     def get_next(cls, name, prefix=""):
-        from django.db import transaction
         with transaction.atomic():
             seq, created = cls.objects.select_for_update().get_or_create(
                 name=name, defaults={'prefix': prefix}
@@ -275,9 +274,86 @@ class JournalHeader(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
             ('post_journalheader', 'Can post journal entries to GL'),
             ('approve_journalheader', 'Can approve journal entries'),
         ]
+        # S1-02 — integrity constraints.
+        #   * reference_number must be unique when non-blank (duplicate
+        #     references break auditor traceability).
+        #   * (source_module, source_document_id, status='Posted') must be
+        #     unique so the same source cannot be posted twice — prevents the
+        #     race condition in _check_duplicate_posting.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reference_number'],
+                condition=models.Q(reference_number__gt=''),
+                name='uniq_journalheader_reference_number',
+            ),
+            models.UniqueConstraint(
+                fields=['source_module', 'source_document_id'],
+                condition=models.Q(status='Posted')
+                          & models.Q(source_module__isnull=False)
+                          & models.Q(source_document_id__isnull=False),
+                name='uniq_journalheader_source_doc_posted',
+            ),
+        ]
 
     def __str__(self):
         return f"Journal {self.reference_number} ({self.posting_date})"
+
+    # ── S1-03 — Posted-immutability guard ─────────────────────────────────
+    # Fields that may still change after posting (purely audit metadata that
+    # reversal/undelete flows legitimately need to update). Everything else
+    # is frozen once status='Posted'.
+    POST_POSTING_MUTABLE_FIELDS = frozenset({
+        'status',                 # only transitions to 'Posted' / 'Reversed' allowed
+        'posted_by', 'posted_at',
+        'is_reversed',
+        'is_deleted', 'deleted_at', 'deleted_by',
+        'updated_at', 'modified_at',
+    })
+
+    def save(self, *args, **kwargs):
+        """Reject edits to fields on a journal that is already Posted.
+
+        The only legitimate mutations on a Posted journal are:
+          • status → 'Reversed' (via JournalReversal flow)
+          • is_reversed flag flip
+          • soft-delete metadata
+          • auto-managed audit timestamps
+
+        Anything else must be prevented to preserve the audit trail. Raises
+        ``ValidationError`` so callers trying to do this surface it cleanly.
+        """
+        from django.core.exceptions import ValidationError
+        # Trust callers that pass update_fields — we still intersect with the
+        # mutable allow-list.
+        update_fields = kwargs.get('update_fields')
+        if self.pk:
+            try:
+                prior = type(self).all_objects.get(pk=self.pk)
+            except type(self).DoesNotExist:
+                prior = None
+            if prior and prior.status == 'Posted':
+                if update_fields is not None:
+                    disallowed = set(update_fields) - self.POST_POSTING_MUTABLE_FIELDS
+                    if disallowed:
+                        raise ValidationError(
+                            f"Cannot modify posted journal {prior.reference_number}: "
+                            f"attempted to change {sorted(disallowed)}"
+                        )
+                else:
+                    # Compare persisted snapshot to current instance field-by-field.
+                    changed = []
+                    for f in self._meta.concrete_fields:
+                        name = f.attname
+                        if name in self.POST_POSTING_MUTABLE_FIELDS:
+                            continue
+                        if getattr(prior, name, None) != getattr(self, name, None):
+                            changed.append(f.name)
+                    if changed:
+                        raise ValidationError(
+                            f"Cannot modify posted journal {prior.reference_number}: "
+                            f"attempted to change {changed}. Reverse the journal instead."
+                        )
+        return super().save(*args, **kwargs)
 
 
 class JournalLine(models.Model):
@@ -294,6 +370,16 @@ class JournalLine(models.Model):
         help_text="MDA / Department cost centre this line is allocated to."
     )
 
+    # ─── NCoA fields (nullable for migration safety) ──────────────
+    # Once seed data exists and journals are backfilled, these will become required.
+    # The economic segment is derived from ncoa_code.economic — no standalone FK
+    # to avoid drift between ncoa_code.economic and a separate economic_segment field.
+    ncoa_code = models.ForeignKey(
+        'accounting.NCoACode', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='journal_lines',
+        help_text="Full 52-digit NCoA composite code",
+    )
+
     def clean(self):
         from django.core.exceptions import ValidationError
         super().clean()
@@ -302,12 +388,95 @@ class JournalLine(models.Model):
         if self.debit == 0 and self.credit == 0:
             raise ValidationError("A journal line must have either a debit or credit amount.")
 
+    # ── S1-01 — DB-level amount constraints ───────────────────────────────
+    # Enforces the double-entry invariants at the database layer so bulk
+    # imports, raw SQL, and admin actions cannot persist invalid lines:
+    #   * debit and credit are both non-negative
+    #   * at most one of (debit, credit) is non-zero
+    #   * at least one of (debit, credit) is non-zero
+    class Meta:
+        indexes = [
+            # P6-T1 — hot paths on JournalLine (see docs/PERFORMANCE_AUDIT.md)
+            models.Index(fields=['header', 'account'], name='jrn_line_header_account_idx'),
+            models.Index(fields=['header', 'ncoa_code'], name='jrn_line_header_ncoa_idx'),
+            models.Index(fields=['header', 'cost_center'], name='jrn_line_header_cc_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(debit__gte=0),
+                name='jrn_line_debit_nonneg',
+            ),
+            models.CheckConstraint(
+                check=models.Q(credit__gte=0),
+                name='jrn_line_credit_nonneg',
+            ),
+            models.CheckConstraint(
+                check=~(models.Q(debit__gt=0) & models.Q(credit__gt=0)),
+                name='jrn_line_not_both_sides',
+            ),
+            models.CheckConstraint(
+                check=models.Q(debit__gt=0) | models.Q(credit__gt=0),
+                name='jrn_line_at_least_one_side',
+            ),
+        ]
+
+    # ── S1-03 — reject edits on lines belonging to a Posted journal ───────
+    def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        if self.pk and self.header_id:
+            try:
+                header_status = (
+                    JournalHeader.all_objects
+                    .filter(pk=self.header_id)
+                    .values_list('status', flat=True)
+                    .first()
+                )
+            except Exception:
+                header_status = None
+            if header_status == 'Posted':
+                # Allow a read-modify-write that doesn't actually change
+                # anything (rare, but e.g. from serializer round-trips).
+                try:
+                    prior = type(self).objects.get(pk=self.pk)
+                    dirty = any(
+                        getattr(prior, f.attname, None) != getattr(self, f.attname, None)
+                        for f in self._meta.concrete_fields
+                    )
+                except type(self).DoesNotExist:
+                    dirty = True
+                if dirty:
+                    raise ValidationError(
+                        'Cannot modify a line on a posted journal. '
+                        'Reverse the journal and re-post to correct.'
+                    )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Prevent deletion of lines on posted journals."""
+        from django.core.exceptions import ValidationError
+        if self.header_id:
+            header_status = (
+                JournalHeader.all_objects
+                .filter(pk=self.header_id)
+                .values_list('status', flat=True)
+                .first()
+            )
+            if header_status == 'Posted':
+                raise ValidationError(
+                    'Cannot delete a line on a posted journal. '
+                    'Reverse the journal instead.'
+                )
+        return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.header} - {self.account} (D:{self.debit}, C:{self.credit})"
 
 
 class JournalReversal(AuditBaseModel):
-    original_journal = models.ForeignKey(JournalHeader, on_delete=models.CASCADE, related_name='reversals', null=True, blank=True)
+    # S1-04 — PROTECT instead of CASCADE so deleting an original journal
+    # cannot silently wipe its reversal record. The reversal *must* remain
+    # on disk to preserve the audit trail.
+    original_journal = models.ForeignKey(JournalHeader, on_delete=models.PROTECT, related_name='reversals', null=True, blank=True)
     reversal_journal = models.ForeignKey(JournalHeader, on_delete=models.SET_NULL, null=True, blank=True, related_name='reversal_of')
     reversal_type = models.CharField(max_length=20, choices=[
         ('Unpost', 'Unpost'),

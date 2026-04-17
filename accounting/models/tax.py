@@ -1,9 +1,6 @@
 from datetime import date
-from decimal import Decimal
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
-from django.core.validators import MinValueValidator
-from core.models import AuditBaseModel, ImmutableModelMixin
 from django.contrib.auth.models import User
 
 
@@ -22,7 +19,8 @@ class TaxRegistration(models.Model):
 
 class TaxExemption(models.Model):
     tax_registration = models.ForeignKey(TaxRegistration, on_delete=models.CASCADE, null=True, blank=True)
-    customer = models.ForeignKey('sales.Customer', on_delete=models.CASCADE, null=True, blank=True)
+    entity_name = models.CharField(max_length=200, blank=True, default='',
+        help_text="Exempt entity name (replaces FK to deleted sales.Customer)")
     vendor = models.ForeignKey('procurement.Vendor', on_delete=models.CASCADE, null=True, blank=True)
     exemption_certificate = models.CharField(max_length=50, default='')
     valid_from = models.DateField(default=date.today)

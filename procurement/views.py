@@ -7,13 +7,13 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsApprover, RBACPermission
 
-from django.db import transaction, IntegrityError
+from django.db import transaction
 from django.db.models import Sum, F, Q, Value, DecimalField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from decimal import Decimal
-from .models import Vendor, VendorCategory, PurchaseRequest, PurchaseOrder, GoodsReceivedNote, InvoiceMatching, VendorCreditNote, VendorDebitNote, PurchaseReturn, PurchaseReturnLine, DownPaymentRequest
+from .models import Vendor, VendorCategory, PurchaseRequest, PurchaseOrder, GoodsReceivedNote, InvoiceMatching, VendorCreditNote, VendorDebitNote, PurchaseReturn, DownPaymentRequest
 from .serializers import (
     VendorSerializer, VendorCategorySerializer, PurchaseRequestSerializer, PurchaseOrderSerializer,
     GoodsReceivedNoteSerializer, InvoiceMatchingSerializer,
@@ -22,6 +22,7 @@ from .serializers import (
 )
 from accounting.transaction_posting import TransactionPostingService
 from accounting.models import BudgetEncumbrance   # BUG-3 FIX: was missing, caused NameError in PR approve
+from core.mixins import OrganizationFilterMixin
 
 logger = logging.getLogger('dtsg')
 class ProcurementPagination(PageNumberPagination):
@@ -54,15 +55,33 @@ class VendorCategoryViewSet(viewsets.ModelViewSet):
 
 
 class VendorViewSet(viewsets.ModelViewSet):
-    queryset = Vendor.objects.all().select_related('category')
+    queryset = Vendor.objects.all().select_related('category', 'registration_fiscal_year')
     serializer_class = VendorSerializer
     permission_classes = [RBACPermission]
-    search_fields = ['name', 'code']
+    search_fields = ['name', 'code', 'registration_number', 'bank_name']
     filterset_fields = ['is_active', 'category']
     pagination_class = ProcurementPagination
 
+    def _invoice_gate_enabled(self) -> bool:
+        """Check if vendor registration invoice gate is enabled in settings."""
+        from accounting.models import AccountingSettings
+        settings_obj = AccountingSettings.objects.first()
+        return settings_obj.require_vendor_registration_invoice if settings_obj else True
+
+    def perform_create(self, serializer):
+        """Force is_active based on invoice gate setting.
+
+        Gate ON  → is_active=False (vendor must pay registration invoice first)
+        Gate OFF → is_active=True  (vendor created active immediately)
+        """
+        if self._invoice_gate_enabled():
+            serializer.save(is_active=False)
+        else:
+            serializer.save(is_active=True)
+
     def get_queryset(self):
-        return Vendor.objects.select_related('category').annotate(
+        from datetime import date
+        qs = Vendor.objects.select_related('category', 'registration_fiscal_year').annotate(
             current_balance=Coalesce(
                 Sum(
                     F('invoices__total_amount') - F('invoices__paid_amount'),
@@ -73,6 +92,454 @@ class VendorViewSet(viewsets.ModelViewSet):
                 output_field=DecimalField(),
             )
         )
+        # Default list excludes expired & pending-activation vendors
+        if self.action == 'list':
+            qs = qs.filter(
+                is_active=True,
+            ).filter(
+                Q(expiry_date__gte=date.today()) | Q(expiry_date__isnull=True)
+            )
+        return qs
+
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """List vendors with valid registration (not expired)."""
+        from datetime import date
+        qs = self.get_queryset().filter(
+            is_active=True,
+        ).filter(
+            Q(expiry_date__gte=date.today()) | Q(expiry_date__isnull=True)
+        )
+        search = request.query_params.get('search', '')
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        serializer = self.get_serializer(qs[:100], many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def expired(self, request):
+        """List vendors whose registration has expired."""
+        from datetime import date
+        qs = self.get_queryset().filter(
+            expiry_date__lt=date.today(),
+        )
+        search = request.query_params.get('search', '')
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        serializer = self.get_serializer(qs[:100], many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def invoice_gate_status(self, request):
+        """Return whether vendor registration invoice gate is enabled."""
+        return Response({'enabled': self._invoice_gate_enabled()})
+
+    @action(detail=False, methods=['get'])
+    def pending_activation(self, request):
+        """List newly registered vendors awaiting payment activation."""
+        qs = self.get_queryset().filter(
+            is_active=False, registration_date__isnull=True,
+        )
+        search = request.query_params.get('search', '')
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        serializer = self.get_serializer(qs[:100], many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def generate_registration_invoice(self, request, pk=None):
+        """Generate a registration invoice for a new (inactive) vendor.
+
+        Same flow as renewal but for initial activation.
+        Only available when invoice gate is enabled.
+        """
+        if not self._invoice_gate_enabled():
+            return Response(
+                {'error': 'Invoice gate is disabled. Vendors are activated without invoices.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vendor = self.get_object()
+        if vendor.is_active:
+            return Response({'error': 'Vendor is already active'}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = request.data.get('amount')
+        tsa_account_id = request.data.get('tsa_account_id')
+        fiscal_year_id = request.data.get('fiscal_year_id')
+
+        if not amount or not tsa_account_id or not fiscal_year_id:
+            return Response(
+                {'error': 'amount, tsa_account_id, and fiscal_year_id are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from accounting.models.advanced import FiscalYear
+        from accounting.models.treasury import TreasuryAccount
+        from .models import VendorRenewalInvoice
+
+        fy = FiscalYear.objects.filter(pk=fiscal_year_id).first()
+        tsa = TreasuryAccount.objects.filter(pk=tsa_account_id).first()
+        if not fy:
+            return Response({'error': 'Fiscal year not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if not tsa:
+            return Response({'error': 'TSA account not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        invoice = VendorRenewalInvoice.objects.create(
+            invoice_type='REGISTRATION',
+            vendor=vendor,
+            fiscal_year=fy,
+            amount=Decimal(str(amount)),
+            tsa_account=tsa,
+            due_date=request.data.get('due_date') or fy.end_date,
+            notes=request.data.get('notes', ''),
+        )
+
+        return Response({
+            'id': invoice.id,
+            'invoice_number': invoice.invoice_number,
+            'invoice_type': 'REGISTRATION',
+            'vendor_name': vendor.name,
+            'vendor_code': vendor.code,
+            'amount': str(invoice.amount),
+            'fiscal_year': fy.name or f'FY {fy.year}',
+            'tsa_account_number': tsa.account_number,
+            'tsa_account_name': tsa.account_name,
+            'tsa_bank': tsa.bank,
+            'invoice_date': str(invoice.invoice_date),
+            'due_date': str(invoice.due_date) if invoice.due_date else None,
+            'status': invoice.status,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def confirm_registration_payment(self, request, pk=None):
+        """Confirm initial registration payment → activate vendor + 1 year validity.
+
+        DR TSA Bank Account (cash received)
+        CR Revenue - Registration Fees (income recognized)
+        Then activates the vendor with 1-year expiry from payment date.
+        """
+        vendor = self.get_object()
+        invoice_id = request.data.get('invoice_id')
+        payment_reference = request.data.get('payment_reference', '')
+
+        if not invoice_id:
+            return Response({'error': 'invoice_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import VendorRenewalInvoice
+        invoice = VendorRenewalInvoice.objects.filter(
+            pk=invoice_id, vendor=vendor, invoice_type='REGISTRATION',
+        ).first()
+        if not invoice:
+            return Response({'error': 'Registration invoice not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if invoice.status == 'PAID':
+            return Response({'error': 'Invoice already paid'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Post GL entry: DR TSA, CR Revenue
+        from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
+        from accounting.models.ncoa import EconomicSegment
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        from accounting.services.treasury_service import TSABalanceService
+        from datetime import timedelta
+
+        ref = TransactionSequence.get_next('journal', 'JE-')
+        header = JournalHeader.objects.create(
+            reference_number=ref,
+            description=f"Vendor Registration: {vendor.name} — {invoice.invoice_number}",
+            posting_date=timezone.now().date(),
+            status='Draft',
+            source_module='vendor_registration',
+            source_document_id=invoice.pk,
+        )
+
+        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
+        tsa_gl = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
+        if not tsa_gl:
+            header.delete()
+            return Response(
+                {'error': 'TSA Cash account (31100100) not found in Chart of Accounts. Configure it before confirming payments.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rev_seg = EconomicSegment.objects.filter(code='12100200').first()
+        rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
+            account_type='Income', name__icontains='fee'
+        ).first()
+        if not rev_gl:
+            header.delete()
+            return Response(
+                {'error': 'Revenue account (Registration Fees / 12100200) not found in Chart of Accounts.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        JournalLine.objects.create(
+            header=header, account=tsa_gl,
+            debit=invoice.amount, credit=0,
+            memo=f"Registration payment: {vendor.name}",
+        )
+        JournalLine.objects.create(
+            header=header, account=rev_gl,
+            debit=0, credit=invoice.amount,
+            memo=f"Registration fee: {invoice.invoice_number}",
+        )
+
+        IPSASJournalService.post_journal(header, request.user)
+
+        TSABalanceService.process_revenue(type('RC', (), {
+            'tsa_account': invoice.tsa_account,
+            'amount': invoice.amount,
+            'receipt_number': invoice.invoice_number,
+        })())
+
+        # Update invoice
+        invoice.status = 'PAID'
+        invoice.payment_reference = payment_reference
+        invoice.payment_date = timezone.now().date()
+        invoice.journal = header
+        invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
+
+        # Activate vendor — 1 year from payment date
+        today = timezone.now().date()
+        vendor.registration_fiscal_year = invoice.fiscal_year
+        vendor.registration_date = today
+        vendor.expiry_date = today + timedelta(days=365)
+        vendor.is_active = True
+        vendor.save(update_fields=[
+            'registration_fiscal_year', 'registration_date',
+            'expiry_date', 'is_active', 'updated_at',
+        ])
+
+        return Response({
+            'status': 'Payment confirmed. Vendor activated.',
+            'invoice_number': invoice.invoice_number,
+            'journal_id': header.id,
+            'vendor_status': 'ACTIVE',
+            'registration_date': str(vendor.registration_date),
+            'expiry_date': str(vendor.expiry_date),
+        })
+
+    @action(detail=True, methods=['post'])
+    def renew(self, request, pk=None):
+        """Renew a vendor's registration for a new fiscal year.
+
+        Only available when invoice gate is disabled.
+        """
+        if self._invoice_gate_enabled():
+            return Response(
+                {'error': 'Invoice gate is enabled. Use generate_renewal_invoice instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vendor = self.get_object()
+        fiscal_year_id = request.data.get('fiscal_year_id')
+        expiry_date = request.data.get('expiry_date')
+
+        if not fiscal_year_id:
+            return Response({'error': 'fiscal_year_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from accounting.models.advanced import FiscalYear
+        fy = FiscalYear.objects.filter(pk=fiscal_year_id).first()
+        if not fy:
+            return Response({'error': 'Fiscal year not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        vendor.registration_fiscal_year = fy
+        vendor.registration_date = timezone.now().date()
+        vendor.expiry_date = expiry_date or fy.end_date
+        vendor.is_active = True
+        vendor.save(update_fields=[
+            'registration_fiscal_year', 'registration_date',
+            'expiry_date', 'is_active', 'updated_at',
+        ])
+
+        return Response(VendorSerializer(vendor).data)
+
+    @action(detail=True, methods=['post'])
+    def direct_renew(self, request, pk=None):
+        """Directly renew a vendor for 1 year without invoice (when gate is disabled)."""
+        if self._invoice_gate_enabled():
+            return Response(
+                {'error': 'Invoice gate is enabled. Use generate_renewal_invoice instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vendor = self.get_object()
+        from datetime import timedelta
+        today = timezone.now().date()
+        vendor.registration_date = today
+        vendor.expiry_date = today + timedelta(days=365)
+        vendor.is_active = True
+        vendor.save(update_fields=[
+            'registration_date', 'expiry_date', 'is_active', 'updated_at',
+        ])
+        return Response({
+            'status': 'Vendor renewed for 1 year.',
+            'vendor_name': vendor.name,
+            'registration_date': str(vendor.registration_date),
+            'expiry_date': str(vendor.expiry_date),
+        })
+
+    @action(detail=True, methods=['post'])
+    def generate_renewal_invoice(self, request, pk=None):
+        """Generate a renewal invoice for an expired vendor.
+
+        Creates an invoice with TSA bank details for the vendor to pay.
+        Only available when invoice gate is enabled.
+        """
+        if not self._invoice_gate_enabled():
+            return Response(
+                {'error': 'Invoice gate is disabled. Use direct_renew instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vendor = self.get_object()
+        amount = request.data.get('amount')
+        tsa_account_id = request.data.get('tsa_account_id')
+        fiscal_year_id = request.data.get('fiscal_year_id')
+
+        if not amount or not tsa_account_id or not fiscal_year_id:
+            return Response(
+                {'error': 'amount, tsa_account_id, and fiscal_year_id are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from accounting.models.advanced import FiscalYear
+        from accounting.models.treasury import TreasuryAccount
+        from .models import VendorRenewalInvoice
+
+        fy = FiscalYear.objects.filter(pk=fiscal_year_id).first()
+        tsa = TreasuryAccount.objects.filter(pk=tsa_account_id).first()
+        if not fy:
+            return Response({'error': 'Fiscal year not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if not tsa:
+            return Response({'error': 'TSA account not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        invoice = VendorRenewalInvoice.objects.create(
+            vendor=vendor,
+            fiscal_year=fy,
+            amount=Decimal(str(amount)),
+            tsa_account=tsa,
+            due_date=request.data.get('due_date') or fy.end_date,
+            notes=request.data.get('notes', ''),
+        )
+
+        return Response({
+            'id': invoice.id,
+            'invoice_number': invoice.invoice_number,
+            'vendor_name': vendor.name,
+            'vendor_code': vendor.code,
+            'amount': str(invoice.amount),
+            'fiscal_year': fy.name or f'FY {fy.year}',
+            'tsa_account_number': tsa.account_number,
+            'tsa_account_name': tsa.account_name,
+            'tsa_bank': tsa.bank,
+            'invoice_date': str(invoice.invoice_date),
+            'due_date': str(invoice.due_date) if invoice.due_date else None,
+            'status': invoice.status,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def confirm_renewal_payment(self, request, pk=None):
+        """Confirm vendor renewal payment and post GL entry.
+
+        DR TSA Bank Account (cash received)
+        CR Revenue - Registration Fees (income recognized)
+        Then renews the vendor registration.
+        """
+        vendor = self.get_object()
+        invoice_id = request.data.get('invoice_id')
+        payment_reference = request.data.get('payment_reference', '')
+
+        if not invoice_id:
+            return Response({'error': 'invoice_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import VendorRenewalInvoice
+        invoice = VendorRenewalInvoice.objects.filter(
+            pk=invoice_id, vendor=vendor, invoice_type='RENEWAL',
+        ).first()
+        if not invoice:
+            return Response({'error': 'Renewal invoice not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if invoice.status == 'PAID':
+            return Response({'error': 'Invoice already paid'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Post GL entry: DR TSA, CR Revenue
+        from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
+        from accounting.models.ncoa import EconomicSegment
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        from accounting.services.treasury_service import TSABalanceService
+
+        ref = TransactionSequence.get_next('journal', 'JE-')
+        header = JournalHeader.objects.create(
+            reference_number=ref,
+            description=f"Vendor Renewal: {vendor.name} — {invoice.invoice_number}",
+            posting_date=timezone.now().date(),
+            status='Draft',
+            source_module='vendor_renewal',
+            source_document_id=invoice.pk,
+        )
+
+        # DR: TSA Bank Account
+        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
+        tsa_gl = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
+        if not tsa_gl:
+            header.delete()
+            return Response(
+                {'error': 'TSA Cash account (31100100) not found in Chart of Accounts.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # CR: Revenue - Registration Fees
+        rev_seg = EconomicSegment.objects.filter(code='12100200').first()
+        rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
+            account_type='Income', name__icontains='fee'
+        ).first()
+        if not rev_gl:
+            header.delete()
+            return Response(
+                {'error': 'Revenue account (Registration Fees / 12100200) not found in Chart of Accounts.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        JournalLine.objects.create(
+            header=header, account=tsa_gl,
+            debit=invoice.amount, credit=0,
+            memo=f"Renewal payment: {vendor.name}",
+        )
+        JournalLine.objects.create(
+            header=header, account=rev_gl,
+            debit=0, credit=invoice.amount,
+            memo=f"Renewal fee: {invoice.invoice_number}",
+        )
+
+        IPSASJournalService.post_journal(header, request.user)
+
+        TSABalanceService.process_revenue(type('RC', (), {
+            'tsa_account': invoice.tsa_account,
+            'amount': invoice.amount,
+            'receipt_number': invoice.invoice_number,
+        })())
+
+        # Update invoice
+        invoice.status = 'PAID'
+        invoice.payment_reference = payment_reference
+        invoice.payment_date = timezone.now().date()
+        invoice.journal = header
+        invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
+
+        # Renew vendor registration — 1 year from payment date
+        from datetime import timedelta
+        today = timezone.now().date()
+        vendor.registration_fiscal_year = invoice.fiscal_year
+        vendor.registration_date = today
+        vendor.expiry_date = today + timedelta(days=365)
+        vendor.is_active = True
+        vendor.save(update_fields=[
+            'registration_fiscal_year', 'registration_date',
+            'expiry_date', 'is_active', 'updated_at',
+        ])
+
+        return Response({
+            'status': 'Payment confirmed. Vendor renewed.',
+            'invoice_number': invoice.invoice_number,
+            'journal_id': header.id,
+            'vendor_status': 'ACTIVE',
+            'registration_date': str(vendor.registration_date),
+            'expiry_date': str(vendor.expiry_date),
+        })
 
     @action(detail=True, methods=['get'])
     def performance(self, request, pk=None):
@@ -110,10 +577,13 @@ class VendorViewSet(viewsets.ModelViewSet):
         } for v in vendors]
         return Response(data)
 
-class PurchaseRequestViewSet(viewsets.ModelViewSet):
+class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    org_filter_field = 'mda'
     queryset = PurchaseRequest.objects.select_related(
-        'fund', 'function', 'program', 'geo'
-    ).prefetch_related('lines').all()
+        'fund', 'function', 'program', 'geo', 'mda',
+    ).prefetch_related(
+        'lines', 'lines__account', 'lines__asset', 'lines__item',
+    ).all()
     serializer_class = PurchaseRequestSerializer
     permission_classes = [RBACPermission]
     filterset_fields = ['status']
@@ -157,34 +627,28 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
         pr = self.get_object()
         if pr.status != 'Pending':
             return Response({"error": "Only pending PRs can be approved."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             with transaction.atomic():
                 # P2P-H3: Budget Encumbrance on PR Approval
                 # Create budget encumbrance when PR is approved
+                # Budget check uses MDA + Economic Code (account) + Fund only.
+                # Function, Programme, Geo are for reporting — not budget gating.
                 budget_totals = {}
                 for line in pr.lines.all():
-                    # FIX #18: Skip lines without a GL account — no budget dimension
-                    # is available for encumbrance, so these lines are not tracked.
                     if not line.account_id:
                         continue
-                    key = (line.account, pr.mda, pr.fund, pr.function, pr.program, pr.geo)
+                    key = (line.account, pr.mda, pr.fund)
                     amount = line.estimated_unit_price * line.quantity
                     budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
 
                 from accounting.budget_logic import get_active_budget
                 encumbrance_created = False
-                
+
                 missing_budget_keys = []
-                for (account, mda, fund, function, program, geo), total_amount in budget_totals.items():
+                for (account, mda, fund), total_amount in budget_totals.items():
                     budget = get_active_budget(
-                        dimensions={
-                            'mda': mda,
-                            'fund': fund,
-                            'function': function,
-                            'program': program,
-                            'geo': geo
-                        },
+                        dimensions={'mda': mda, 'fund': fund},
                         account=account,
                         date=pr.requested_date
                     )
@@ -201,16 +665,21 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
                         )
                         encumbrance_created = True
                     else:
-                        # Record which dimension combination had no active budget
+                        mda_code = mda.code if mda else 'N/A'
                         fund_code = fund.code if fund else 'N/A'
-                        function_code = function.code if function else 'N/A'
-                        missing_budget_keys.append(f"Fund:{fund_code}/Function:{function_code}")
+                        acct_code = account.code if account else 'N/A'
+                        missing_budget_keys.append(f"MDA:{mda_code}/Econ:{acct_code}/Fund:{fund_code}")
 
-                if missing_budget_keys and not encumbrance_created:
-                    # No budget found for ANY line — block approval to enforce financial control
+                # Budget check is a soft warning when no budget infrastructure exists.
+                # Hard-block only when budgets ARE configured but this specific
+                # dimension combination is missing (indicates a real miscoding).
+                from accounting.models import BudgetPeriod
+                budget_infra_exists = BudgetPeriod.objects.filter(status='ACTIVE').exists()
+
+                if missing_budget_keys and not encumbrance_created and budget_infra_exists:
                     raise ValueError(
                         f"No active budget found for dimension(s): {', '.join(missing_budget_keys)}. "
-                        "Create or activate a budget period before approving this PR."
+                        "Create or activate a budget for these dimensions before approving."
                     )
 
                 pr.status = 'Approved'
@@ -219,7 +688,9 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
                 msg = "Purchase Requisition approved successfully."
                 if encumbrance_created:
                     msg += f" Budget encumbrance created for {len(budget_totals)} line(s)."
-                if missing_budget_keys:
+                if missing_budget_keys and not budget_infra_exists:
+                    msg += " Note: No active budget periods configured — budget enforcement skipped."
+                elif missing_budget_keys:
                     msg += f" Warning: no active budget for {', '.join(missing_budget_keys)} — encumbrance skipped for those lines."
 
                 return Response({"status": msg})
@@ -250,14 +721,14 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
         pr = self.get_object()
         if pr.status != 'Approved':
             return Response({"error": "Only approved PRs can be converted to PO."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         vendor_id = request.data.get('vendor_id')
         order_date = request.data.get('order_date')
         expected_delivery_date = request.data.get('expected_delivery_date')
-        
+
         if not vendor_id or not order_date:
             return Response({"error": "vendor_id and order_date are required."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             from .models import Vendor, PurchaseOrderLine
             import datetime
@@ -315,13 +786,17 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
             logger.error("Failed to create PO from PR %s: %s", pr.pk, e)
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-class PurchaseOrderViewSet(viewsets.ModelViewSet):
+class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    org_filter_field = 'mda'
     queryset = PurchaseOrder.objects.select_related(
         'vendor', 'purchase_request', 'fund', 'function', 'program', 'geo'
     ).prefetch_related('lines').all()
     serializer_class = PurchaseOrderSerializer
     permission_classes = [RBACPermission]
-    filterset_fields = ['status', 'vendor']
+    # Added 'mda' so the Invoice Verification screen can scope its PO
+    # dropdown to the verifier's selected MDA — prevents cross-MDA
+    # postings even at the dropdown level (defense in depth).
+    filterset_fields = ['status', 'vendor', 'mda']
     pagination_class = ProcurementPagination
 
     def get_queryset(self):
@@ -416,6 +891,46 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
         po.save()
         return Response({"status": msg, "approval_id": result.get('approval_id')})
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve a Pending PO directly (Pending → Approved).
+
+        This is the in-list approval path — bypasses the central workflow
+        inbox so an authorized user can approve from the PO list. The
+        underlying status-transition machinery in `PurchaseOrder.save()`
+        will fire `process_budget_encumbrance()` automatically.
+        """
+        po = self.get_object()
+        if po.status != 'Pending':
+            return Response(
+                {"error": f"Only Pending POs can be approved. Current status: {po.status}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            po.status = 'Approved'
+            po.save()
+        except Exception as e:
+            logger.error(f"Failed to approve PO {po.po_number}: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"status": "Purchase Order approved.", "po_status": po.status})
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a Pending PO (Pending → Rejected). Author can resubmit later."""
+        po = self.get_object()
+        if po.status != 'Pending':
+            return Response(
+                {"error": f"Only Pending POs can be rejected. Current status: {po.status}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            po.status = 'Rejected'
+            po.save()
+        except Exception as e:
+            logger.error(f"Failed to reject PO {po.po_number}: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"status": "Purchase Order rejected.", "po_status": po.status})
 
     @action(detail=True, methods=['post'])
     def post_order(self, request, pk=None):
@@ -514,7 +1029,8 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         order.save()
         return Response({"status": f"Purchase Order {order.po_number} cancelled (Rejected)."})
 
-class DownPaymentRequestViewSet(viewsets.ModelViewSet):
+class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    org_filter_field = 'purchase_order__mda'
     """Finance-facing view to list, review, and process down payment requests."""
     queryset = DownPaymentRequest.objects.select_related(
         'purchase_order', 'purchase_order__vendor', 'bank_account', 'payment'
@@ -591,13 +1107,17 @@ class DownPaymentRequestViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
+class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    org_filter_field = 'purchase_order__mda'
     queryset = GoodsReceivedNote.objects.select_related(
         'purchase_order', 'purchase_order__vendor', 'warehouse'
     ).prefetch_related('lines', 'lines__po_line').all()
     serializer_class = GoodsReceivedNoteSerializer
     permission_classes = [RBACPermission]
-    filterset_fields = ['status', 'purchase_order']
+    # 'mda' filter scopes GRNs to the verifier's selected MDA on the
+    # Invoice Verification screen. Filters by GoodsReceivedNote.mda
+    # which equals purchase_order.mda (enforced in clean()).
+    filterset_fields = ['status', 'purchase_order', 'mda']
     pagination_class = ProcurementPagination
 
     def perform_create(self, serializer):
@@ -707,53 +1227,6 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # P2P-H1: GRN Quality Enforcement — block GRN posting if quality inspection not passed
-        try:
-            from quality.models import QualityInspection, QAConfiguration
-            # Check if any GRN line items require quality inspection
-            for grn_line in grn.lines.select_related('po_line__item', 'po_line__product_type').all():
-                po_line = grn_line.po_line
-                item = po_line.item
-                if not item:
-                    continue
-
-                # Check if QA configuration requires inspection for this item's category or product type
-                qa_required = QAConfiguration.objects.filter(
-                    trigger_event='GRN_Created',
-                    is_required=True,
-                    is_active=True,
-                ).filter(
-                    Q(item_category=getattr(item, 'category', None)) |
-                    Q(product_type=getattr(item, 'product_type', None)) |
-                    Q(item_category__isnull=True, product_type__isnull=True)
-                ).exists()
-
-                if qa_required:
-                    # Inspection is required — check that one exists AND has passed
-                    passed_inspection = QualityInspection.objects.filter(
-                        goods_received_note=grn,
-                        item=item,
-                        status='Passed'
-                    ).exists()
-                    if not passed_inspection:
-                        failed_inspection = QualityInspection.objects.filter(
-                            goods_received_note=grn,
-                            item=item,
-                            status='Failed'
-                        ).exists()
-                        if failed_inspection:
-                            return Response({
-                                "error": f"Cannot post GRN: Quality inspection failed for item '{item}'. Clear quality issues before posting.",
-                                "grn": grn.grn_number
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                        else:
-                            return Response({
-                                "error": f"Quality inspection required before GRN posting for item '{item}'. No passed inspection found.",
-                                "grn": grn.grn_number
-                            }, status=status.HTTP_400_BAD_REQUEST)
-        except ImportError as exc:
-            logger.warning("Quality module unavailable, skipping quality check for GRN %s: %s", grn.grn_number, exc)
-
         try:
             with transaction.atomic():
                 # Budget check: verify GRN amount against PO encumbered budget
@@ -771,11 +1244,9 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
                     # Force evaluation of select_for_update
                     list(budget_qs[:1])
 
+                    # Budget control: MDA + Account (Economic) + Fund only
                     allowed, msg = check_budget_availability(
-                        dimensions={
-                            'mda': po.mda, 'fund': po.fund,
-                            'function': po.function, 'program': po.program, 'geo': po.geo,
-                        },
+                        dimensions={'mda': po.mda, 'fund': po.fund},
                         account=po.lines.first().account if po.lines.exists() else None,
                         amount=grn_total,
                         date=grn.received_date,
@@ -821,10 +1292,23 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
-                # Require warehouse before posting (M3)
-                if not grn.warehouse:
+                # MDA is the new mandatory receiving dimension. Warehouse
+                # is auto-resolved from MDA inside GoodsReceivedNote.save()
+                # via inventory.services.get_default_warehouse_for_mda(),
+                # so the old "warehouse required" check is replaced by an
+                # MDA-required + MDA-matches-PO check (defense in depth —
+                # the serializer + model.clean() also enforce this).
+                if not grn.mda_id:
                     return Response(
-                        {"error": "Warehouse is required for posting"},
+                        {"error": "MDA is required for posting a GRN."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if grn.purchase_order.mda_id and grn.mda_id != grn.purchase_order.mda_id:
+                    return Response(
+                        {"error": (
+                            f"GRN MDA does not match PO {grn.purchase_order.po_number}'s "
+                            f"MDA — refusing to post (cross-MDA receipt is not allowed)."
+                        )},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
@@ -857,7 +1341,7 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
                 {"error": f"Cannot cancel GRN in '{grn.status}' status. Allowed transitions: {allowed_from}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         # P2P-L4: Prevent GRN cancel if InvoiceMatching exists in any active state.
         # Status list mirrors _invoice_match_lock_reason to ensure consistent enforcement:
         # 'Matched', 'Approved' lock edits; 'Pending_Review' also blocks cancellation
@@ -872,7 +1356,7 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
                 return Response({
                     "error": "Cannot cancel GRN: Invoice matching exists. Cancel or remove the matching first."
                 }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         if grn.status == 'Draft':
             grn.status = 'Cancelled'
             grn.save()
@@ -989,55 +1473,6 @@ class GoodsReceivedNoteViewSet(viewsets.ModelViewSet):
 
         return Response({"results": results})
 
-    @action(detail=True, methods=['post'])
-    def create_quality_inspection(self, request, pk=None):
-        """Create a quality inspection for this GRN"""
-        from quality.models import QualityInspection, InspectionLine
-        from django.utils import timezone
-        from django.utils.crypto import get_random_string
-
-        grn = self.get_object()
-
-        inspection_number = f"QI-{grn.grn_number}-{get_random_string(4, allowed_chars='0123456789')}"
-        
-        inspection = QualityInspection.objects.create(
-            inspection_number=inspection_number,
-            inspection_type='Incoming',
-            reference_type='GRN',
-            reference_number=grn.grn_number,
-            inspection_date=timezone.now().date(),
-            status='Pending',
-            goods_received_note=grn,
-            notes=request.data.get('notes', '')
-        )
-        
-        for grn_line in grn.lines.all():
-            if grn_line.po_line.item:
-                InspectionLine.objects.create(
-                    inspection=inspection,
-                    parameter=f"Quantity Check - {grn_line.po_line.item.name}",
-                    specification=f"Expected: {grn_line.quantity_received}",
-                    result='Pass'
-                )
-        
-        return Response({
-            'status': 'Quality inspection created',
-            'inspection_id': inspection.id,
-            'inspection_number': inspection.inspection_number
-        })
-
-    @action(detail=True, methods=['get'])
-    def quality_inspection(self, request, pk=None):
-        """Get quality inspection for this GRN if exists"""
-        grn = self.get_object()
-        inspection = grn.quality_inspections.first()
-        
-        if not inspection:
-            return Response({'error': 'No quality inspection found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        from quality.serializers import QualityInspectionSerializer
-        return Response(QualityInspectionSerializer(inspection).data)
-
 class InvoiceMatchingViewSet(viewsets.ModelViewSet):
     queryset = InvoiceMatching.objects.all().select_related('purchase_order', 'purchase_order__vendor', 'goods_received_note')
     serializer_class = InvoiceMatchingSerializer
@@ -1093,11 +1528,9 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         po = matching.purchase_order
         if po and po.fund and matching.invoice_amount:
             from accounting.budget_logic import check_budget_availability
+            # Budget control: MDA + Account (Economic) + Fund only
             allowed, msg = check_budget_availability(
-                dimensions={
-                    'mda': po.mda, 'fund': po.fund,
-                    'function': po.function, 'program': po.program, 'geo': po.geo,
-                },
+                dimensions={'mda': po.mda, 'fund': po.fund},
                 account=po.lines.first().account if po.lines.exists() else None,
                 amount=matching.invoice_amount,
                 date=matching.invoice_date,
@@ -1166,12 +1599,658 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         """Reject a matching due to significant variance"""
         matching = self.get_object()
         reason = request.data.get('reason', '')
-        
+
         matching.variance_reason = reason
         matching.status = 'Rejected'
         matching.save()
-        
+
         return Response({"status": "Matching rejected."})
+
+    @action(detail=False, methods=['post'])
+    def simulate(self, request):
+        """
+        SAP MIRO "Simulate" — preview the GL journal without posting.
+
+        Builds the proposed DR/CR lines for the invoice the user is about
+        to post, *without* creating the InvoiceMatching, VendorInvoice, or
+        any journal record. Returns a snapshot the UI can render in a
+        modal so the verifier sees the GL hit before committing.
+
+        Mirrors the same accounts the real post path will use:
+
+            DR  GR/IR Clearing      (clears the GRN-time accrual)
+            DR  Input Tax           (if invoice has tax)
+            CR  Accounts Payable    (recognises the supplier liability)
+           [CR  WHT Liability]      (per-line withholding, when applicable)
+
+        Body: same shape as verify_and_post, minus acknowledge_partial
+        and variance_reason (simulation never blocks).
+
+        Returns: { proposed_lines: [...], total_debit, total_credit,
+                   match_type, status, variance_amount, variance_percentage,
+                   partial_receipt, accounts_used }
+        """
+        from accounting.services.base_posting import get_gl_account
+        from django.conf import settings as dj_settings
+
+        data = request.data or {}
+
+        po_id = data.get('purchase_order')
+        if not po_id:
+            return Response({"error": "purchase_order is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            po = PurchaseOrder.objects.get(pk=po_id)
+        except PurchaseOrder.DoesNotExist:
+            return Response({"error": f"PO id={po_id} not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            invoice_amount = Decimal(str(data.get('invoice_amount') or '0'))
+        except (ValueError, ArithmeticError, TypeError):
+            invoice_amount = Decimal('0')
+        if invoice_amount <= 0:
+            return Response({"error": "invoice_amount must be greater than zero to simulate."}, status=status.HTTP_400_BAD_REQUEST)
+
+        invoice_subtotal_raw = data.get('invoice_subtotal')
+        invoice_tax_raw      = data.get('invoice_tax_amount')
+        invoice_subtotal = Decimal(str(invoice_subtotal_raw)) if invoice_subtotal_raw not in (None, '') else None
+        invoice_tax      = Decimal(str(invoice_tax_raw))      if invoice_tax_raw      not in (None, '') else Decimal('0')
+        if invoice_subtotal is None:
+            invoice_subtotal = invoice_amount - invoice_tax
+
+        # Compute the GRN-side total (matches verify_and_post logic)
+        grn_total = Decimal('0')
+        grn_id = data.get('goods_received_note')
+        grn = None
+        if grn_id:
+            try:
+                grn = GoodsReceivedNote.objects.get(pk=grn_id)
+                for gl in grn.lines.select_related('po_line').all():
+                    if gl.po_line:
+                        grn_total += (gl.quantity_received or Decimal('0')) * (gl.po_line.unit_price or Decimal('0'))
+            except GoodsReceivedNote.DoesNotExist:
+                pass
+
+        po_total = po.total_amount or Decimal('0')
+
+        # 3-way match calculation (mirrors the model's calculate_match)
+        if invoice_amount == po_total == grn_total:
+            match_type, sim_status, variance_pct = 'Full', 'Matched', Decimal('0')
+        elif invoice_amount == grn_total:
+            match_type = 'Full' if all(l.quantity_received >= l.quantity for l in po.lines.all()) else 'Partial'
+            sim_status, variance_pct = 'Matched', Decimal('0')
+        else:
+            base = grn_total or po_total or invoice_amount
+            variance_pct = abs((invoice_amount - base) / base * Decimal('100')) if base > 0 else Decimal('0')
+            threshold = Decimal(str(getattr(dj_settings, 'PROCUREMENT_SETTINGS', {}).get('INVOICE_VARIANCE_THRESHOLD', 5.0)))
+            sim_status = 'Matched' if variance_pct <= threshold else 'Variance'
+            match_type = 'Partial' if grn_total and invoice_amount != grn_total else 'None'
+
+        variance_amount = invoice_amount - (grn_total or po_total or Decimal('0'))
+
+        # Detect partial receipt (purely informational for simulate)
+        partial = po.lines.exists() and any(
+            l.quantity_received < l.quantity for l in po.lines.all()
+        )
+
+        # Build the proposed DR/CR lines — exact same accounts the post
+        # path will use, so the user sees the real GL hit.
+        gr_ir = get_gl_account('GOODS_RECEIPT_CLEARING', 'Liability', 'GR/IR')
+        ap    = get_gl_account('ACCOUNTS_PAYABLE',       'Liability', 'Payable')
+
+        lines = []
+        # DR GR/IR Clearing for the subtotal (3-way matched flow)
+        if gr_ir and invoice_subtotal > 0:
+            lines.append({
+                'account_code': gr_ir.code,
+                'account_name': gr_ir.name,
+                'account_type': gr_ir.account_type,
+                'debit':  str(invoice_subtotal.quantize(Decimal('0.01'))),
+                'credit': '0.00',
+                'memo':   f'Clear GR/IR for {data.get("invoice_reference", "invoice")}',
+            })
+
+        # DR Input Tax (if invoice has tax)
+        if invoice_tax > 0:
+            tax_acct = get_gl_account('TAX_PAYABLE', 'Liability', 'Tax')
+            if tax_acct:
+                lines.append({
+                    'account_code': tax_acct.code,
+                    'account_name': tax_acct.name,
+                    'account_type': tax_acct.account_type,
+                    'debit':  str(invoice_tax.quantize(Decimal('0.01'))),
+                    'credit': '0.00',
+                    'memo':   'Input Tax / VAT',
+                })
+
+        # CR Accounts Payable (full invoice total)
+        if ap:
+            lines.append({
+                'account_code': ap.code,
+                'account_name': ap.name,
+                'account_type': ap.account_type,
+                'debit':  '0.00',
+                'credit': str(invoice_amount.quantize(Decimal('0.01'))),
+                'memo':   f'AP {po.vendor.name if po.vendor else "vendor"}',
+            })
+
+        total_debit  = sum((Decimal(l['debit'])  for l in lines), Decimal('0'))
+        total_credit = sum((Decimal(l['credit']) for l in lines), Decimal('0'))
+
+        return Response({
+            'simulated': True,
+            'match_type': match_type,
+            'status': sim_status,
+            'variance_amount': str(variance_amount.quantize(Decimal('0.01'))),
+            'variance_percentage': str(variance_pct.quantize(Decimal('0.01'))),
+            'partial_receipt': partial,
+            'po_total':  str(po_total),
+            'grn_total': str(grn_total),
+            'invoice_amount':   str(invoice_amount),
+            'invoice_subtotal': str(invoice_subtotal),
+            'invoice_tax':      str(invoice_tax),
+            'proposed_lines':   lines,
+            'total_debit':      str(total_debit.quantize(Decimal('0.01'))),
+            'total_credit':     str(total_credit.quantize(Decimal('0.01'))),
+            'balanced':         total_debit == total_credit,
+            'accounts_used': {
+                'gr_ir_clearing': gr_ir.code if gr_ir else None,
+                'accounts_payable': ap.code if ap else None,
+            },
+        })
+
+    @action(detail=False, methods=['post'])
+    def verify_and_post(self, request):
+        """
+        SAP MIRO-style Logistics Invoice Verification — single atomic call.
+
+        Creates the InvoiceMatching from the request body, calculates the
+        3-way match, and immediately posts the resulting Vendor Invoice to
+        the GL — all in one database transaction. Bypasses the
+        Pending_Review workflow gate so the verifier can complete
+        verification + posting in a single click.
+
+        Variance handling:
+        - If the calculated variance exceeds the configured 5% threshold,
+          posting is BLOCKED unless the request body includes a
+          ``variance_reason``. This forces the verifier to acknowledge the
+          variance with an audit trail.
+        - If a ``variance_reason`` is supplied, it is recorded on the
+          matching and posting proceeds.
+
+        Partial-receipt handling:
+        - If the GRN has been only partially received against the PO, the
+          client is expected to supply ``acknowledge_partial: true`` after
+          showing the user a confirmation modal. Without acknowledgement,
+          the request is rejected with a 400 + ``partial_receipt: true``
+          flag so the client can prompt and retry.
+
+        Body:
+            purchase_order        (int, required)
+            goods_received_note   (int, optional but typical)
+            invoice_reference     (str, required)
+            invoice_date          (date, required)
+            invoice_amount        (decimal, required)
+            invoice_subtotal      (decimal, optional)
+            invoice_tax_amount    (decimal, optional)
+            notes                 (str, optional)
+            variance_reason       (str, required if variance exceeds 5%)
+            acknowledge_partial   (bool, required if GRN < PO qty)
+            down_payment_amount   (decimal, optional — apply advance)
+
+        Returns the created matching, vendor invoice, and journal info.
+        """
+        from accounting.models import VendorInvoice
+        from accounting.services.procurement_posting import (
+            ProcurementPostingService,
+        )
+        from accounting.services.procurement_commitments import (
+            mark_commitment_closed_for_po,
+        )
+
+        data = request.data or {}
+
+        # ── Required fields ─────────────────────────────────────────
+        po_id = data.get('purchase_order')
+        if not po_id:
+            return Response({"error": "purchase_order is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            po = PurchaseOrder.objects.get(pk=po_id)
+        except PurchaseOrder.DoesNotExist:
+            return Response({"error": f"PO id={po_id} not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        invoice_reference = (data.get('invoice_reference') or '').strip()
+        if not invoice_reference:
+            return Response({"error": "invoice_reference is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse invoice_date upfront. JSON gives us a string; the GL posting
+        # path eventually does `journal.posting_date.year` so it MUST be a
+        # real ``datetime.date`` instance, not a string.
+        from django.utils.dateparse import parse_date as _parse_date
+        from datetime import date as _date
+        invoice_date_raw = data.get('invoice_date')
+        if isinstance(invoice_date_raw, str):
+            invoice_date = _parse_date(invoice_date_raw)
+        elif isinstance(invoice_date_raw, _date):
+            invoice_date = invoice_date_raw
+        else:
+            invoice_date = None
+        if not invoice_date:
+            return Response(
+                {"error": "invoice_date is required (YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            invoice_amount = Decimal(str(data.get('invoice_amount') or '0'))
+            if invoice_amount <= 0:
+                raise ValueError
+        except (ValueError, ArithmeticError, TypeError):
+            return Response({"error": "invoice_amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        invoice_subtotal_raw = data.get('invoice_subtotal')
+        invoice_tax_raw      = data.get('invoice_tax_amount')
+        invoice_subtotal = Decimal(str(invoice_subtotal_raw)) if invoice_subtotal_raw not in (None, '') else None
+        invoice_tax      = Decimal(str(invoice_tax_raw))      if invoice_tax_raw      not in (None, '') else Decimal('0')
+        if invoice_subtotal is None:
+            invoice_subtotal = invoice_amount - invoice_tax
+
+        # ── GRN resolution + partial-receipt gate ──────────────────
+        grn = None
+        grn_id = data.get('goods_received_note')
+        if grn_id:
+            try:
+                grn = GoodsReceivedNote.objects.get(pk=grn_id)
+            except GoodsReceivedNote.DoesNotExist:
+                return Response({"error": f"GRN id={grn_id} not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── MDA resolution + cross-MDA boundary check ─────────────
+        # The verifier picks an MDA at the start of the Invoice
+        # Verification session ("session MDA"). We use that as the
+        # journal's posting MDA AND we strictly verify that the chosen
+        # PO and GRN belong to the same MDA — preventing a verifier from
+        # accidentally booking another ministry's spend.
+        from accounting.models import MDA
+        mda_override_id = data.get('mda')
+        posting_mda = po.mda
+        if mda_override_id:
+            try:
+                posting_mda = MDA.objects.get(pk=mda_override_id)
+            except MDA.DoesNotExist:
+                return Response(
+                    {"error": f"MDA id={mda_override_id} not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Cross-MDA reject: PO must belong to the session MDA.
+            if po.mda_id and po.mda_id != posting_mda.pk:
+                return Response({
+                    "error": (
+                        f"Cross-MDA error: PO {po.po_number} belongs to MDA "
+                        f"{po.mda.code if po.mda else po.mda_id}, but the "
+                        f"session MDA is {posting_mda.code}. Pick the right "
+                        f"MDA at the start of the verification session."
+                    ),
+                    "cross_mda": True,
+                }, status=status.HTTP_400_BAD_REQUEST)
+            # Same check for the GRN — defense in depth.
+            if grn and grn.mda_id and grn.mda_id != posting_mda.pk:
+                return Response({
+                    "error": (
+                        f"Cross-MDA error: GRN {grn.grn_number} belongs to a "
+                        f"different MDA than the session MDA "
+                        f"({posting_mda.code})."
+                    ),
+                    "cross_mda": True,
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Detect partial receipt (any PO line not fully received)
+        partial = False
+        if po.lines.exists():
+            for line in po.lines.all():
+                if line.quantity_received < line.quantity:
+                    partial = True
+                    break
+        if partial and not data.get('acknowledge_partial'):
+            return Response({
+                "error": (
+                    "Goods are partially received against this PO. Please "
+                    "acknowledge before posting."
+                ),
+                "partial_receipt": True,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Warrant ceiling check (PSA Authority to Incur Expenditure) ──
+        # Defense-in-depth: even though PO approval already checks this,
+        # the warrant might have been suspended/reduced between PO approval
+        # and invoice verification. Block posting if the cumulative
+        # commitment + this invoice would exceed released warrants.
+        from accounting.budget_logic import check_warrant_availability
+        first_account = po.lines.first().account if po.lines.exists() else None
+        if first_account:
+            allowed, msg, info = check_warrant_availability(
+                dimensions={'mda': posting_mda, 'fund': po.fund},
+                account=first_account,
+                amount=invoice_amount,
+                exclude_po=po,  # this PO's commitment is already counted
+            )
+            if not allowed:
+                return Response({
+                    "error": msg,
+                    "warrant_exceeded": True,
+                    "warrant_info": {
+                        k: str(v) if hasattr(v, 'quantize') else v
+                        for k, v in info.items()
+                    } if info else {},
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Create the matching + auto-calculate ────────────────────
+        try:
+            with transaction.atomic():
+                matching = InvoiceMatching.objects.create(
+                    purchase_order=po,
+                    goods_received_note=grn,
+                    invoice_reference=invoice_reference,
+                    invoice_date=invoice_date,
+                    invoice_amount=invoice_amount,
+                    invoice_subtotal=invoice_subtotal,
+                    invoice_tax_amount=invoice_tax,
+                    notes=(data.get('notes') or '').strip(),
+                )
+                matching.calculate_match()
+                matching.save()
+
+                # ── Variance gate ───────────────────────────────────
+                variance_reason = (data.get('variance_reason') or '').strip()
+                if matching.status == 'Variance' and not variance_reason:
+                    transaction.set_rollback(True)
+                    return Response({
+                        "error": (
+                            f"Invoice variance ({matching.variance_percentage}%) "
+                            f"exceeds the 5% threshold. Provide a variance_reason "
+                            f"to override and post."
+                        ),
+                        "requires_variance_reason": True,
+                        "variance_amount": str(matching.variance_amount or 0),
+                        "variance_percentage": str(matching.variance_percentage or 0),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # If a reason was supplied (whether or not variance exceeds
+                # the threshold), record it and force-match.
+                if variance_reason:
+                    matching.variance_reason = variance_reason
+                    matching.status = 'Matched'
+
+                # Bypass the workflow gate — single-click posting model.
+                matching.status = 'Approved'
+                matching.matched_date = timezone.now()
+                matching.save()
+
+                # ── Locate or create the linked VendorInvoice ───────
+                # Only consider unclaimed Draft VIs (the auto-created shells
+                # from GRN posting). Don't reuse Approved VIs from other
+                # matchings — those are different invoices waiting to be
+                # posted on their own. Posted/Paid VIs are skipped to avoid
+                # the ImmutableModelMixin "Cannot modify a posted
+                # transaction" error.
+                vi = VendorInvoice.objects.filter(
+                    purchase_order=po, status='Draft',
+                ).exclude(
+                    invoice_matchings__isnull=False,
+                ).order_by('-created_at').first()
+                if vi is None:
+                    vi = VendorInvoice.objects.create(
+                        vendor=po.vendor,
+                        purchase_order=po,
+                        reference=invoice_reference,
+                        description=(
+                            f"Invoice verification {matching.pk} — PO {po.po_number}"
+                        ),
+                        invoice_date=invoice_date,
+                        due_date=getattr(po, 'payment_due_date', None) or invoice_date,
+                        mda=posting_mda,
+                        fund=po.fund,
+                        function=po.function,
+                        program=po.program,
+                        geo=po.geo,
+                        account=po.lines.first().account if po.lines.exists() else None,
+                        subtotal=invoice_subtotal,
+                        tax_amount=invoice_tax,
+                        total_amount=invoice_amount,
+                        status='Draft',
+                    )
+
+                # Refresh VI fields with the verified amounts. ``invoice_date``
+                # is now a real ``date`` instance (parsed above) so downstream
+                # ``journal.posting_date.year`` works.
+                vi.reference     = invoice_reference
+                vi.invoice_date  = invoice_date
+                vi.subtotal      = invoice_subtotal
+                vi.tax_amount    = invoice_tax
+                vi.total_amount  = invoice_amount
+                # Honour the MDA override even when reusing an auto-created VI.
+                vi.mda           = posting_mda
+                if vi.status == 'Draft':
+                    vi.status = 'Approved'  # service requires Approved/Paid
+                vi.save()
+
+                # ── Post the GL journal ─────────────────────────────
+                journal = ProcurementPostingService.post_vendor_invoice(vi)
+
+                vi.status = 'Posted'
+                vi.save()
+
+                matching.vendor_invoice = vi
+                matching.save()
+
+                # ── Close the budget commitment ─────────────────────
+                try:
+                    closed_count = mark_commitment_closed_for_po(po)
+                except Exception as exc:
+                    closed_count = 0
+                    logger.warning(
+                        "Matching %s: commitment CLOSED flip failed (non-fatal): %s",
+                        matching.pk, exc,
+                    )
+
+                # ── Optional: apply down payment to the matching ────
+                dp_amount_raw = data.get('down_payment_amount')
+                if dp_amount_raw:
+                    try:
+                        dp_amount = Decimal(str(dp_amount_raw))
+                        if dp_amount > 0:
+                            matching.down_payment_applied = dp_amount
+                            matching.save(update_fields=['down_payment_applied'])
+                    except (ValueError, ArithmeticError, TypeError):
+                        pass  # non-fatal
+
+            return Response({
+                "status": "Invoice verified and posted to GL.",
+                "matching_id": matching.id,
+                "matching_status": matching.status,
+                "match_type": matching.match_type,
+                "variance_amount": str(matching.variance_amount or 0),
+                "variance_percentage": str(matching.variance_percentage or 0),
+                "journal_id": journal.id if journal else None,
+                "journal_reference": journal.reference_number if journal else None,
+                "vendor_invoice_id": vi.id,
+                "vendor_invoice_number": vi.invoice_number,
+                "commitment_closed": bool(closed_count),
+                "partial_receipt": partial,
+                "posted_to_mda": posting_mda.code if posting_mda else None,
+                "posted_to_mda_name": posting_mda.name if posting_mda else None,
+            })
+        except Exception as exc:
+            logger.exception("verify_and_post failed: %s", exc)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def post_to_gl(self, request, pk=None):
+        """
+        Post the verified invoice to the General Ledger — IPSAS three-way close.
+
+        This is the final step of Invoice Verification. It locates (or creates)
+        the linked VendorInvoice, copies the verified amounts onto it, and
+        posts the GL journal that closes the GR/IR accrual:
+
+            DR  GR/IR Clearing    (clears the credit booked at GRN time)
+            CR  Accounts Payable  (recognises the supplier liability)
+           [DR  Input Tax]        (if invoice has tax)
+           [CR  WHT Liability]    (per-line WHT, if applicable)
+
+        Side effects:
+        - VendorInvoice.status: Draft/Approved → Posted
+        - InvoiceMatching.vendor_invoice ← FK to the posted VI
+        - ProcurementBudgetLink.status: INVOICED → CLOSED (commitment released)
+
+        Allowed entry statuses: Matched, Approved.
+
+        Returns the JournalHeader id/reference so the UI can deep-link to
+        the posted journal.
+        """
+        from accounting.models import VendorInvoice
+        from accounting.services.procurement_posting import (
+            ProcurementPostingService,
+        )
+        from accounting.services.procurement_commitments import (
+            mark_commitment_closed_for_po,
+        )
+
+        matching = self.get_object()
+
+        if matching.status not in ('Matched', 'Approved'):
+            return Response(
+                {"error": (
+                    f"Invoice must be 'Matched' or 'Approved' before posting "
+                    f"to the GL. Current status: '{matching.status}'."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not matching.purchase_order:
+            return Response(
+                {"error": "Cannot post — matching has no Purchase Order link."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        po = matching.purchase_order
+
+        # ── Idempotency check ─────────────────────────────────────
+        # If this matching already has a Posted VendorInvoice linked,
+        # the work is done — don't re-post (would trigger
+        # ImmutableModelMixin's "Cannot modify a posted transaction"
+        # error). Just return the existing journal info as success.
+        existing_vi = matching.vendor_invoice
+        if existing_vi and existing_vi.status == 'Posted':
+            existing_journal = existing_vi.journal_entry
+            return Response({
+                "status": "Invoice was already posted to GL.",
+                "already_posted": True,
+                "journal_id": existing_journal.id if existing_journal else None,
+                "journal_reference": existing_journal.reference_number if existing_journal else None,
+                "vendor_invoice_id": existing_vi.id,
+                "vendor_invoice_number": existing_vi.invoice_number,
+            })
+
+        try:
+            with transaction.atomic():
+                # 1. Locate or create the VendorInvoice for this matching.
+                #    Lookup priority:
+                #      a. VI explicitly linked to this matching (if Draft/Approved)
+                #      b. An UNCLAIMED Draft VI for the PO — i.e. one that has
+                #         no other InvoiceMatching pointing to it (the typical
+                #         GRN-auto-created shell VI)
+                #      c. Otherwise, create a fresh VI for this matching
+                #
+                #    We deliberately do NOT reuse another matching's
+                #    Approved VI — that's a different invoice payment and
+                #    should have its own VI record + journal.
+                vi = matching.vendor_invoice
+                if vi and vi.status not in ('Draft', 'Approved'):
+                    vi = None  # don't touch a Posted/Paid/Void VI
+                if vi is None:
+                    vi = VendorInvoice.objects.filter(
+                        purchase_order=po, status='Draft',
+                    ).exclude(
+                        # Skip Draft VIs already claimed by another matching
+                        invoicematching__isnull=False,
+                    ).order_by('-created_at').first()
+                if vi is None:
+                    # No prior VI — create a fresh one for this matching.
+                    vi = VendorInvoice.objects.create(
+                        vendor=po.vendor,
+                        purchase_order=po,
+                        reference=matching.invoice_reference,
+                        description=(
+                            f"Invoice verification {matching.pk} — "
+                            f"PO {po.po_number}"
+                        ),
+                        invoice_date=matching.invoice_date,
+                        due_date=getattr(po, 'payment_due_date', None) or matching.invoice_date,
+                        mda=po.mda,
+                        fund=po.fund,
+                        function=po.function,
+                        program=po.program,
+                        geo=po.geo,
+                        account=po.lines.first().account if po.lines.exists() else None,
+                        subtotal=matching.invoice_subtotal or matching.invoice_amount,
+                        tax_amount=matching.invoice_tax_amount or Decimal('0'),
+                        total_amount=matching.invoice_amount,
+                        status='Draft',
+                    )
+
+                # 2. Refresh VI fields from the verified matching record so
+                #    the GL journal reflects the *verified* amounts, not
+                #    whatever was on the auto-created draft.
+                vi.reference = matching.invoice_reference or vi.reference
+                vi.invoice_date = matching.invoice_date or vi.invoice_date
+                vi.subtotal = matching.invoice_subtotal or matching.invoice_amount
+                vi.tax_amount = matching.invoice_tax_amount or Decimal('0')
+                vi.total_amount = matching.invoice_amount
+                if vi.status == 'Draft':
+                    vi.status = 'Approved'  # service requires Approved/Paid to post
+                vi.save()
+
+                # 3. Post the GL journal (DR GR/IR Clearing, CR AP, +tax/WHT).
+                journal = ProcurementPostingService.post_vendor_invoice(vi)
+
+                # 4. Flip the VI to Posted (the service sets vi.journal_entry
+                #    but leaves status alone) and link the matching to it.
+                vi.status = 'Posted'
+                vi.save()
+
+                if matching.vendor_invoice_id != vi.pk:
+                    matching.vendor_invoice = vi
+                if matching.status == 'Matched':
+                    matching.status = 'Approved'
+                matching.save()
+
+                # 5. Close the budget commitment — INVOICED → CLOSED.
+                #    The expense is now formally in the GL via the journal
+                #    above, so the encumbrance can be released.
+                try:
+                    closed_count = mark_commitment_closed_for_po(po)
+                except Exception as exc:
+                    closed_count = 0
+                    logger.warning(
+                        "Matching %s: commitment CLOSED flip failed (non-fatal): %s",
+                        matching.pk, exc,
+                    )
+
+            return Response({
+                "status": "Invoice posted to GL successfully.",
+                "journal_id": journal.id if journal else None,
+                "journal_reference": journal.reference_number if journal else None,
+                "vendor_invoice_id": vi.id,
+                "vendor_invoice_number": vi.invoice_number,
+                "commitment_closed": bool(closed_count),
+            })
+        except Exception as exc:
+            logger.exception(
+                "Matching %s post_to_gl failed: %s", matching.pk, exc,
+            )
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def calculate_match(self, request, pk=None):
@@ -1186,7 +2265,7 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
 
         matching.calculate_match()
         matching.save()
-        
+
         return Response({
             "status": "Match calculated",
             "match_type": matching.match_type,
@@ -1297,10 +2376,10 @@ class VendorCreditNoteViewSet(viewsets.ModelViewSet):
     def post_to_gl(self, request, pk=None):
         """Post credit note to general ledger"""
         credit_note = self.get_object()
-        
+
         if credit_note.status != 'Approved':
             return Response({"error": "Credit note must be approved before posting"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             journal = TransactionPostingService.post_vendor_credit_note(credit_note)
             credit_note.journal_entry = journal
@@ -1345,10 +2424,10 @@ class VendorDebitNoteViewSet(viewsets.ModelViewSet):
     def post_to_gl(self, request, pk=None):
         """Post debit note to general ledger"""
         debit_note = self.get_object()
-        
+
         if debit_note.status != 'Approved':
             return Response({"error": "Debit note must be approved before posting"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             journal = TransactionPostingService.post_vendor_debit_note(debit_note)
             debit_note.journal_entry = journal
@@ -1584,3 +2663,59 @@ class PurchaseReturnViewSet(viewsets.ModelViewSet):
         ret.status = 'Cancelled'
         ret.save()
         return Response({"status": "Purchase return cancelled.", "return_number": ret.return_number})
+
+
+# ─── BPP Due Process ViewSets (Quot PSE Phase 5) ────────────────────
+
+from procurement.models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
+from procurement.serializers import (
+    ProcurementThresholdSerializer, CertificateOfNoObjectionSerializer,
+    ProcurementBudgetLinkSerializer, ThresholdCheckSerializer,
+)
+from rest_framework.views import APIView
+
+
+class ProcurementThresholdViewSet(viewsets.ModelViewSet):
+    """BPP procurement approval thresholds."""
+    serializer_class = ProcurementThresholdSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['category', 'is_active']
+    ordering = ['category', 'min_amount']
+
+    def get_queryset(self):
+        return ProcurementThreshold.objects.all()
+
+
+class CertificateOfNoObjectionViewSet(viewsets.ModelViewSet):
+    """BPP No Objection Certificates."""
+    serializer_class = CertificateOfNoObjectionSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['is_valid', 'authority_level']
+    search_fields = ['certificate_number']
+
+    def get_queryset(self):
+        return CertificateOfNoObjection.objects.select_related('purchase_order')
+
+
+class ProcurementBudgetLinkViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only view of PO-to-appropriation budget commitments."""
+    serializer_class = ProcurementBudgetLinkSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['status']
+
+    def get_queryset(self):
+        return ProcurementBudgetLink.objects.select_related('purchase_order', 'appropriation')
+
+
+class ThresholdCheckView(APIView):
+    """Check which BPP approval authority applies for a given amount."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ser = ThresholdCheckSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result = ProcurementThreshold.get_authority_level(
+            amount=ser.validated_data['amount'],
+            category=ser.validated_data['category'],
+        )
+        return Response(result)

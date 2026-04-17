@@ -1,7 +1,6 @@
 import logging
 
 from django.db import connection
-from django_tenants.utils import schema_context
 
 logger = logging.getLogger('dtsg')
 

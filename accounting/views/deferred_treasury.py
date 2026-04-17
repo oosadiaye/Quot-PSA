@@ -1,9 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
-from .common import AccountingPagination
 from ..models import (
     DeferredRevenue, DeferredExpense,
     Lease, LeasePayment,
@@ -20,27 +18,27 @@ from ..serializers import (
 
 
 class DeferredRevenueViewSet(viewsets.ModelViewSet):
-    queryset = DeferredRevenue.objects.all().select_related('customer', 'revenue_account', 'unearned_revenue_account')
+    queryset = DeferredRevenue.objects.all()
     serializer_class = DeferredRevenueSerializer
-    filterset_fields = ['customer', 'is_fully_recognized']
+    filterset_fields = ['payer_name', 'is_active']
 
 
 class DeferredExpenseViewSet(viewsets.ModelViewSet):
-    queryset = DeferredExpense.objects.all().select_related('vendor', 'expense_account', 'prepaid_account')
+    queryset = DeferredExpense.objects.all().select_related('vendor')
     serializer_class = DeferredExpenseSerializer
-    filterset_fields = ['vendor', 'is_fully_recognized']
+    filterset_fields = ['vendor', 'is_active']
 
 
 class LeaseViewSet(viewsets.ModelViewSet):
     queryset = Lease.objects.all().select_related('lessor', 'right_of_use_asset', 'lease_liability_account')
     serializer_class = LeaseSerializer
-    filterset_fields = ['lease_type', 'status']
+    filterset_fields = []
 
 
 class LeasePaymentViewSet(viewsets.ModelViewSet):
     queryset = LeasePayment.objects.all().select_related('lease')
     serializer_class = LeasePaymentSerializer
-    filterset_fields = ['lease', 'status']
+    filterset_fields = ['lease']
 
 
 class TreasuryForecastViewSet(viewsets.ModelViewSet):
@@ -51,19 +49,19 @@ class TreasuryForecastViewSet(viewsets.ModelViewSet):
 class InvestmentViewSet(viewsets.ModelViewSet):
     queryset = Investment.objects.all().select_related('bank_account')
     serializer_class = InvestmentSerializer
-    filterset_fields = ['investment_type', 'status']
+    filterset_fields = ['investment_type']
 
 
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all().select_related('lender', 'loan_account', 'interest_expense_account')
     serializer_class = LoanSerializer
-    filterset_fields = ['loan_type', 'status']
+    filterset_fields = []
 
 
 class LoanRepaymentViewSet(viewsets.ModelViewSet):
     queryset = LoanRepayment.objects.all().select_related('loan')
     serializer_class = LoanRepaymentSerializer
-    filterset_fields = ['loan', 'status']
+    filterset_fields = ['loan']
 
 
 class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
@@ -74,7 +72,8 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):
         """Download a CSV template for exchange rate imports."""
-        import io, csv
+        import io
+        import csv
         from django.http import HttpResponse
 
         output = io.StringIO()
@@ -164,7 +163,8 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='export')
     def export_data(self, request):
         """Export exchange rates as CSV."""
-        import io, csv
+        import io
+        import csv
         from django.http import HttpResponse
 
         output = io.StringIO()
@@ -180,6 +180,6 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
 
 
 class ForeignCurrencyRevaluationViewSet(viewsets.ModelViewSet):
-    queryset = ForeignCurrencyRevaluation.objects.all().select_related('period', 'base_currency', 'gain_account', 'loss_account')
+    queryset = ForeignCurrencyRevaluation.objects.all().select_related('currency')
     serializer_class = ForeignCurrencyRevaluationSerializer
-    filterset_fields = ['period', 'status']
+    filterset_fields = ['currency', 'is_posted']

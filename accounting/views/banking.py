@@ -4,14 +4,9 @@ import logging
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Sum, F, Q
-from django.db.models.functions import Coalesce
 from django.db import transaction
 from decimal import Decimal, InvalidOperation
-from .common import AccountingPagination
 from ..models import (
     BankAccount, Checkbook, Check, BankReconciliation,
     CashFlowCategory, CashFlowForecast, BankStatement, BankStatementLine,
@@ -61,7 +56,7 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def transactions(self, request, pk=None):
         bank_account = self.get_object()
-        incoming = bank_account.incoming_payments.all().select_related('customer', 'currency')
+        incoming = bank_account.incoming_payments.all().select_related('currency')
         outgoing = bank_account.outgoing_payments.all().select_related('vendor', 'currency')
         return Response({
             'incoming_payments': ReceiptSerializer(incoming, many=True).data,
@@ -108,6 +103,7 @@ class BankReconciliationViewSet(viewsets.ModelViewSet):
             recon.status = 'Reconciled'
             recon.reconciled_by = request.user
             recon.save()
+            recon.complete(approved_by_user=request.user)
 
         return Response(BankReconciliationSerializer(recon).data)
 
@@ -327,10 +323,11 @@ class BankStatementViewSet(viewsets.ViewSet):
                 )
 
         # ── 5. Create BankStatement header ────────────────────────────────────
+        from accounting.utils import get_base_currency_code
         currency_code = (
             request.data.get('currency_code')
             or getattr(bank_account.currency, 'code', None)
-            or 'USD'
+            or get_base_currency_code()
         )
 
         statement = BankStatement.objects.create(

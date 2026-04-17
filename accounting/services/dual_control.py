@@ -8,8 +8,7 @@ Provides dual control and segregation of duties for large transactions:
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
-from django.db import models
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User
 from accounting.models import DualControlSetting, DualControlOverride
 
 
@@ -57,19 +56,19 @@ class DualControlService:
     ) -> DualControlCheckResult:
         """
         Check if dual approval is required for a transaction.
-        
+
         Args:
             document_type: Type of document
             amount: Transaction amount
             user: User initiating the transaction
-            
+
         Returns:
             DualControlCheckResult with requirements
         """
         messages = []
-        
+
         setting = cls.get_setting(document_type)
-        
+
         if not setting or not setting.is_active:
             threshold = cls.DEFAULT_THRESHOLDS.get(document_type, Decimal('50000'))
             if amount >= threshold:
@@ -98,15 +97,22 @@ class DualControlService:
                     pending_approvals=[],
                     messages=["Dual approval not required for this transaction"],
                 )
-        
-        dual_threshold = setting.dual_approval_threshold if setting else Decimal('100000')
-        requires_dual = amount >= dual_threshold
-        
+
+        # S1-09 — handle None/missing threshold gracefully. Previously:
+        #   setting.dual_approval_threshold (nullable) → None → TypeError
+        #   on `amount >= None`.
+        # Default to a conservative NGN 100,000 so any missing config still
+        # enforces dual control on meaningful amounts rather than silently
+        # disabling it.
+        raw_threshold = getattr(setting, 'dual_approval_threshold', None) if setting else None
+        dual_threshold = raw_threshold if raw_threshold is not None else Decimal('100000')
+        requires_dual = (amount or Decimal('0')) >= dual_threshold
+
         messages.append(
             f"Dual approval {'required' if requires_dual else 'not required'} "
             f"for {document_type} of {amount} (threshold: {dual_threshold})"
         )
-        
+
         return DualControlCheckResult(
             requires_dual_approval=requires_dual,
             threshold_amount=dual_threshold,
@@ -151,10 +157,10 @@ class DualControlService:
             document_type=document_type,
             document_id=document_id
         ).order_by('-requested_at').first()
-        
+
         if not overrides:
             return None
-        
+
         return {
             'requires_override': overrides.status == 'PENDING',
             'status': overrides.status,
@@ -176,14 +182,14 @@ class DualControlService:
     ) -> DualControlOverride:
         """
         Request an override for dual control.
-        
+
         Args:
             document_type: Type of document
             document_id: Document ID
             user: User requesting override
             justification: Reason for override
             ip_address: User's IP address
-            
+
         Returns:
             DualControlOverride instance
         """
@@ -195,9 +201,9 @@ class DualControlService:
             ip_address=ip_address,
             status='PENDING',
         )
-        
+
         cls._notify_override_request(override)
-        
+
         return override
 
     @classmethod
@@ -208,11 +214,11 @@ class DualControlService:
     ) -> DualControlActionResult:
         """
         Approve a dual control override.
-        
+
         Args:
             override_id: Override ID
             approver: User approving the override
-            
+
         Returns:
             DualControlActionResult
         """
@@ -226,7 +232,7 @@ class DualControlService:
                 message='Override request not found',
                 is_complete=False,
             )
-        
+
         if override.status != 'PENDING':
             return DualControlActionResult(
                 success=False,
@@ -235,7 +241,7 @@ class DualControlService:
                 message=f'Cannot approve: status is {override.status}',
                 is_complete=False,
             )
-        
+
         if override.requested_by.id == approver.id:
             return DualControlActionResult(
                 success=False,
@@ -244,14 +250,14 @@ class DualControlService:
                 message='Cannot approve your own override request',
                 is_complete=False,
             )
-        
+
         override.approved_by = approver
         override.approved_at = timezone.now()
         override.status = 'APPROVED'
         override.save()
-        
+
         cls._notify_override_approval(override)
-        
+
         return DualControlActionResult(
             success=True,
             action='APPROVE',
@@ -278,15 +284,15 @@ class DualControlService:
                 message='Override request not found',
                 is_complete=False,
             )
-        
+
         override.approved_by = rejector
         override.approved_at = timezone.now()
         override.status = 'REJECTED'
         override.justification = f"{override.justification}\n\nRejection reason: {reason}"
         override.save()
-        
+
         cls._notify_override_rejection(override)
-        
+
         return DualControlActionResult(
             success=True,
             action='REJECT',
@@ -300,36 +306,47 @@ class DualControlService:
         cls,
         document_type: str,
         document_id: int,
-        user: User
+        user: User,
+        amount: Decimal = None,
     ) -> Tuple[bool, str]:
         """
         Check if a transaction can proceed.
-        
-        Args:
-            document_type: Type of document
-            document_id: Document ID
-            user: User attempting to proceed
-            
-        Returns:
-            Tuple of (can_proceed, message)
+
+        S1-09 — ``amount`` is now a required effective parameter. The old
+        signature hard-coded ``Decimal('0')`` which always passed the
+        threshold check, silently disabling dual control. Callers MUST
+        pass the real transaction amount; we still default to ``None``
+        for backward compatibility but raise if the resulting amount is
+        falsy AND a threshold exists.
         """
+        effective_amount = amount if amount is not None else Decimal('0')
         check_result = cls.check_dual_control_required(
             document_type,
-            Decimal('0'),
+            effective_amount,
             user
         )
-        
+        # Defensive: if caller passed no amount and the document type has
+        # any dual-control setting, refuse to proceed rather than fall
+        # through "not required" when we simply don't know the amount.
+        if amount is None:
+            setting = cls.get_setting(document_type)
+            if setting and getattr(setting, 'dual_approval_threshold', None) is not None:
+                return False, (
+                    'Dual-control check could not determine the transaction '
+                    'amount. Pass `amount=` explicitly from the caller.'
+                )
+
         if not check_result.requires_dual_approval:
             return True, "No dual approval required"
-        
+
         override_status = cls.get_dual_control_status(document_type, document_id)
-        
+
         if override_status and override_status['status'] == 'APPROVED':
             return True, "Dual control override approved"
-        
+
         if override_status and override_status['status'] == 'PENDING':
             return False, "Dual control override pending approval"
-        
+
         return False, "Dual approval required but not obtained"
 
     @classmethod
@@ -354,10 +371,10 @@ class DualControlService:
     ) -> List[DualControlOverride]:
         """Get all pending override requests."""
         queryset = DualControlOverride.objects.filter(status='PENDING')
-        
+
         if role:
             pass
-        
+
         return list(queryset.order_by('-requested_at'))
 
     @classmethod
@@ -371,14 +388,14 @@ class DualControlService:
     ) -> DualControlSetting:
         """
         Configure dual control for a document type.
-        
+
         Args:
             document_type: Type of document
             threshold_amount: Basic threshold
             require_dual_approval: Whether dual approval is required
             dual_approval_threshold: Threshold for dual approval (higher amount)
             approver_roles: List of roles that can approve
-            
+
         Returns:
             DualControlSetting instance
         """
@@ -392,7 +409,7 @@ class DualControlService:
                 'is_active': True,
             }
         )
-        
+
         return setting
 
 

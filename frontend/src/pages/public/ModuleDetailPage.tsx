@@ -5,34 +5,26 @@ import CurrencySwitcher from '../../components/public/CurrencySwitcher';
 import {
   ArrowLeft, ArrowRight, Check, Building2,
   BarChart3, Shield, Globe, Users,
-  Package, FileText, Wallet, Factory, Wrench, ClipboardCheck, Layers,
-  TrendingUp, Zap,
+  Package, FileText, Wallet, Layers,
+  Zap,
 } from 'lucide-react';
 
 const MODULE_ICONS: Record<string, React.ReactNode> = {
   accounting: <Wallet size={32} />,
-  sales: <TrendingUp size={32} />,
   procurement: <Package size={32} />,
   inventory: <Layers size={32} />,
   hrm: <Users size={32} />,
   budget: <BarChart3 size={32} />,
-  production: <Factory size={32} />,
-  quality: <ClipboardCheck size={32} />,
-  service: <Wrench size={32} />,
   dimensions: <Globe size={32} />,
   workflow: <FileText size={32} />,
 };
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   accounting: 'Full double-entry accounting with Chart of Accounts, General Ledger, Accounts Payable, Accounts Receivable, Fixed Assets, Bank Reconciliation, and real-time financial statements. Government-grade reporting with multi-dimensional tracking.',
-  sales: 'End-to-end sales lifecycle from CRM leads and opportunities through quotations, sales orders, delivery notes, and customer invoicing. Track pipelines, conversion rates, and revenue by segment.',
   procurement: 'Complete purchase-to-pay cycle including purchase requests, purchase orders, goods received notes (GRN), vendor invoices with 3-way matching, and vendor management. Credit notes, debit notes, and returns supported.',
-  inventory: 'Warehouse management with multi-location stock tracking, batch and serial number control, automated reorder alerts, stock movements, and reconciliation. Full integration with procurement and sales.',
+  inventory: 'Warehouse management with multi-location stock tracking, batch and serial number control, automated reorder alerts, stock movements, and reconciliation. Full integration with procurement.',
   hrm: 'Comprehensive human resource management: employee records, leave management, attendance tracking, payroll processing, recruitment pipeline, onboarding workflows, performance reviews, and training management.',
   budget: 'Budget planning and control with multi-level allocations, variance analysis, and encumbrance tracking. Prevent over-spending with real-time budget checking on procurement and journal entries.',
-  production: 'Manufacturing management with Bill of Materials (BOM), production orders, material issues and receipts, job cards, work centers, and routing definitions. Track WIP and finished goods inventory.',
-  quality: 'Quality management system with inspections, non-conformance reports (NCR), customer complaints, checklists, calibration records, and supplier quality scorecards. Supports ISO-style quality workflows.',
-  service: 'Service and maintenance management with service assets, technician assignments, work orders, SLA tracking, citizen/customer requests, and maintenance schedules. Track service metrics and costs.',
   dimensions: 'Multi-dimensional accounting for government and enterprise: Fund, Function, Program, Geographic Region, and MDA dimensions. Enable granular reporting and compliance with IPSAS/IFRS standards.',
   workflow: 'Configurable approval workflows with sequential and parallel approval chains, delegation rules, escalation policies, and complete audit trail. Attach to any business document.',
 };
@@ -76,7 +68,7 @@ const ModuleDetailPage = () => {
             }}>
               <Building2 size={20} color="#fff" />
             </div>
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700 }}>DTSG ERP</span>
+            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700 }}>QUOT ERP</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <CurrencySwitcher

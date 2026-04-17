@@ -515,7 +515,7 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             {
                 'name': 'Free Trial',
                 'plan_type': 'free',
-                'description': 'Explore DTSG ERP with core accounting and budget modules. Perfect for evaluation.',
+                'description': 'Explore QUOT ERP with core accounting and budget modules. Perfect for evaluation.',
                 'price': 0,
                 'billing_cycle': 'monthly',
                 'max_users': 3,
@@ -529,12 +529,12 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             {
                 'name': 'Basic',
                 'plan_type': 'basic',
-                'description': 'Essential ERP for small teams with accounting, budget, procurement, and inventory.',
+                'description': 'Essential IFMIS for small MDAs with accounting, budget, and procurement.',
                 'price': 50000,
                 'billing_cycle': 'monthly',
                 'max_users': 10,
                 'max_storage_gb': 10,
-                'allowed_modules': ['accounting', 'budget', 'inventory', 'procurement'],
+                'allowed_modules': ['accounting', 'budget', 'procurement', 'dimensions'],
                 'features': basic_features,
                 'is_active': True,
                 'is_featured': False,
@@ -543,12 +543,12 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             {
                 'name': 'Standard',
                 'plan_type': 'standard',
-                'description': 'Complete ERP for growing organizations with sales, HR, and advanced features.',
+                'description': 'Complete IFMIS with Treasury, Revenue, HR, and advanced financial management.',
                 'price': 150000,
                 'billing_cycle': 'monthly',
                 'max_users': 50,
                 'max_storage_gb': 50,
-                'allowed_modules': ['accounting', 'budget', 'inventory', 'procurement', 'sales', 'hrm'],
+                'allowed_modules': ['accounting', 'budget', 'treasury', 'revenue', 'procurement', 'inventory', 'hrm', 'workflow', 'dimensions'],
                 'features': standard_features,
                 'is_active': True,
                 'is_featured': True,
@@ -557,7 +557,7 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             {
                 'name': 'Enterprise',
                 'plan_type': 'enterprise',
-                'description': 'Full-suite ERP with all modules, unlimited users, priority support, and custom integrations.',
+                'description': 'Full IFMIS with all modules, unlimited users, IPSAS reporting, and priority support.',
                 'price': 500000,
                 'billing_cycle': 'yearly',
                 'max_users': 999999,
@@ -1044,7 +1044,7 @@ def tenant_public_branding_api(request):
     """
     tenant = getattr(request, 'tenant', None)
     if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
-        return Response({'name': 'DTSG ERP', 'tagline': '', 'logo': None})
+        return Response({'name': 'QUOT ERP', 'tagline': '', 'logo': None})
 
     return Response({
         'name': tenant.name,
@@ -1195,3 +1195,158 @@ def tenant_modules_api(request):
             "dimensions_enabled": all_modules.get('dimensions', False),
         })
     return Response({"enabled_modules": {}, "dimensions_enabled": False})
+
+
+# ─── Government Configuration (Quot PSE) ────────────────────────────
+
+# NBS state code -> (state_name, zone_code) lookup
+_NBS_STATES = {
+    '01': ('Abia', '4'), '02': ('Adamawa', '2'), '03': ('Akwa Ibom', '5'),
+    '04': ('Anambra', '4'), '05': ('Bauchi', '2'), '06': ('Bayelsa', '5'),
+    '07': ('Benue', '1'), '08': ('Borno', '2'), '09': ('Cross River', '5'),
+    '10': ('Delta', '5'), '11': ('Ebonyi', '4'), '12': ('Edo', '5'),
+    '13': ('Enugu', '4'), '14': ('Jigawa', '3'), '15': ('Kogi', '1'),
+    '16': ('Kaduna', '3'), '17': ('Kano', '3'), '18': ('Kwara', '1'),
+    '19': ('Katsina', '3'), '20': ('Kebbi', '3'), '21': ('Ekiti', '6'),
+    '22': ('Nasarawa', '1'), '23': ('Lagos', '6'), '25': ('Niger', '1'),
+    '26': ('Ogun', '6'), '27': ('Imo', '4'), '28': ('Ondo', '6'),
+    '29': ('Osun', '6'), '30': ('Oyo', '6'), '31': ('Sokoto', '3'),
+    '32': ('Rivers', '5'), '33': ('Taraba', '2'), '35': ('Yobe', '2'),
+    '36': ('Zamfara', '3'), '37': ('FCT Abuja', '1'),
+}
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def configure_government(request):
+    """
+    GET: Returns current government configuration + list of available states.
+    POST: Configure the tenant's government tier, state, and LGA.
+          Triggers NCoA seeding for the selected state/tier.
+    """
+    tenant = getattr(request, 'tenant', None)
+    if not tenant:
+        return Response({'error': 'No tenant context'}, status=400)
+
+    if request.method == 'GET':
+        states = [
+            {'code': code, 'name': name, 'zone': zone}
+            for code, (name, zone) in sorted(_NBS_STATES.items())
+        ]
+        return Response({
+            'current': {
+                'government_tier': tenant.government_tier,
+                'state_nbs_code': tenant.state_nbs_code,
+                'state_name': tenant.state_name,
+                'lga_code': tenant.lga_code,
+                'lga_name': tenant.lga_name,
+                'is_configured': bool(tenant.government_tier and tenant.state_nbs_code),
+            },
+            'available_states': states,
+            'tiers': [
+                {'value': 'STATE', 'label': 'State Government'},
+                {'value': 'LGA', 'label': 'Local Government Area'},
+            ],
+        })
+
+    # POST — configure government
+    tier = request.data.get('government_tier', '')
+    state_code = request.data.get('state_nbs_code', '')
+    lga_code = request.data.get('lga_code', '')
+    lga_name = request.data.get('lga_name', '')
+
+    if tier not in ('STATE', 'LGA'):
+        return Response({'error': 'government_tier must be STATE or LGA'}, status=400)
+    if not state_code or state_code not in _NBS_STATES:
+        return Response({'error': f'Invalid state_nbs_code: {state_code}'}, status=400)
+    if tier == 'LGA' and not lga_code:
+        return Response({'error': 'lga_code is required for LGA tier'}, status=400)
+
+    state_name = _NBS_STATES[state_code][0]
+
+    # Update Client record
+    tenant.government_tier = tier
+    tenant.state_nbs_code = state_code
+    tenant.state_name = state_name
+    tenant.lga_code = lga_code
+    tenant.lga_name = lga_name
+    tenant.business_category = 'government'
+    tenant.save(update_fields=[
+        'government_tier', 'state_nbs_code', 'state_name',
+        'lga_code', 'lga_name', 'business_category',
+    ])
+
+    # Trigger NCoA seeding in the tenant's schema
+    from django.core.management import call_command
+    from django.db import connection as db_connection
+    try:
+        db_connection.set_tenant(tenant)
+        call_command('seed_ncoa_economic')
+        call_command('seed_ncoa', '--segment', 'functional')
+        call_command('seed_ncoa', '--segment', 'fund')
+        call_command('seed_ncoa', '--segment', 'geo')
+        call_command('seed_ncoa', '--segment', 'administrative')
+        call_command('seed_ncoa', '--segment', 'programme')
+        try:
+            call_command('seed_ncoa_lgas', '--state-code', state_code)
+        except Exception:
+            pass  # LGA data may not be available for all states
+        call_command('seed_ncoa_state_mdas', '--tier', tier)
+        call_command('seed_procurement_thresholds')
+        call_command('seed_nigeria_payroll')
+        call_command('seed_revenue_heads')
+        call_command('seed_ncoa_as_coa')
+        call_command('seed_ncoa_as_dimensions')
+
+        seeded = True
+    except Exception as e:
+        seeded = False
+        return Response({
+            'status': 'configured_with_errors',
+            'error': str(e),
+            'government_tier': tier,
+            'state_name': state_name,
+        }, status=500)
+
+    return Response({
+        'status': 'configured',
+        'government_tier': tier,
+        'state_name': state_name,
+        'state_nbs_code': state_code,
+        'lga_code': lga_code,
+        'lga_name': lga_name,
+        'seeded': seeded,
+    })
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def isolation_mode(request):
+    """
+    GET: Returns current MDA isolation mode.
+    POST: Toggle between UNIFIED and SEPARATED.
+    """
+    from django_tenants.utils import schema_context
+    with schema_context('public'):
+        tenant = Client.objects.get(pk=request.tenant.pk)
+
+    if request.method == 'GET':
+        return Response({
+            'mda_isolation_mode': tenant.mda_isolation_mode,
+        })
+
+    mode = request.data.get('mda_isolation_mode', '')
+    if mode not in ('UNIFIED', 'SEPARATED'):
+        return Response(
+            {'error': 'mda_isolation_mode must be UNIFIED or SEPARATED'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with schema_context('public'):
+        tenant.mda_isolation_mode = mode
+        tenant.save(update_fields=['mda_isolation_mode'])
+
+    return Response({
+        'mda_isolation_mode': tenant.mda_isolation_mode,
+        'message': f'Isolation mode set to {mode}',
+    })

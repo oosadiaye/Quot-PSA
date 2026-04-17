@@ -194,7 +194,6 @@ class ItemSerializer(serializers.ModelSerializer):
             'inventory_account', 'inventory_account_name',
             'expense_account', 'expense_account_name',
             'preferred_vendor', 'preferred_vendor_name',
-            'production_bom',
             'stocks', 'created_at', 'updated_at'
         ]
 
@@ -276,7 +275,7 @@ class ItemSerialNumberSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'item', 'item_name', 'serial_number', 'batch', 'status',
             'warehouse', 'warehouse_name', 'purchase_date', 'purchase_price',
-            'sale_date', 'sales_order_line', 'warranty_start', 'warranty_end',
+            'sale_date', 'warranty_start', 'warranty_end',
             'current_location', 'notes', 'is_under_warranty',
         ]
         read_only_fields = ['id']

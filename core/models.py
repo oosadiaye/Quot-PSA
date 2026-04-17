@@ -3,7 +3,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-import json
 from decimal import Decimal, ROUND_HALF_UP
 
 CURRENCY_PRECISION = Decimal('0.01')
@@ -146,49 +145,49 @@ class AuditLog(models.Model):
         ('EXPORT', 'Exported'),
         ('IMPORT', 'Imported'),
     ]
-    
+
     # Who and when
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, related_name='core_audit_logs'
     )
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
-    
+
     # What action
     action = models.CharField(max_length=20, choices=ACTION_CHOICES, db_index=True)
-    
+
     # Which object
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True)
     object_id = models.PositiveIntegerField(null=True)
     content_object = GenericForeignKey('content_type', 'object_id')
-    
+
     # Object identification
     object_repr = models.CharField(max_length=500, blank=True, default='')
     object_key = models.CharField(max_length=200, blank=True, default='', db_index=True)
-    
+
     # Changes tracking (for updates)
     changes = models.JSONField(default=dict, blank=True)
     previous_values = models.JSONField(default=dict, blank=True)
     new_values = models.JSONField(default=dict, blank=True)
-    
+
     # Status changes
     old_status = models.CharField(max_length=50, blank=True, default='')
     new_status = models.CharField(max_length=50, blank=True, default='')
-    
+
     # Financial amounts
     amount = models.DecimalField(max_digits=19, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, blank=True, default='')
-    
+
     # Additional context
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(blank=True, default='')
     tenant = models.CharField(max_length=50, blank=True, default='', db_index=True)
     session_id = models.CharField(max_length=100, blank=True, default='')
-    
+
     # Notes
     description = models.TextField(blank=True, default='')
     reference = models.CharField(max_length=200, blank=True, default='')
-    
+
     class Meta:
         db_table = 'core_audit_log'
         ordering = ['-timestamp']
@@ -227,7 +226,7 @@ class AuditLog(models.Model):
                     'old': old_values[field],
                     'new': new_values[field]
                 }
-        
+
         return cls._log_action(
             user=user,
             action='UPDATE',
@@ -270,11 +269,11 @@ class AuditLog(models.Model):
     def _log_action(cls, user, action, instance=None, **kwargs):
         """Internal method to create audit log entry"""
         from django.db import connection
-        
+
         # Get tenant from connection if available
         tenant = getattr(connection, 'tenant', None)
         tenant_name = getattr(tenant, 'name', '') if tenant else kwargs.get('tenant', '')
-        
+
         log_entry = cls(
             user=user,
             action=action,
@@ -295,7 +294,7 @@ class AuditLog(models.Model):
             description=kwargs.get('description', ''),
             reference=kwargs.get('reference', ''),
         )
-        
+
         if instance and not log_entry.content_type:
             log_entry.content_type = ContentType.objects.get_for_model(instance)
             pk = instance.pk
@@ -304,7 +303,7 @@ class AuditLog(models.Model):
             else:
                 # Store non-integer PKs in object_repr since object_id is PositiveIntegerField
                 log_entry.object_repr = f"{log_entry.object_repr} [pk={pk}]"
-            
+
         log_entry.save()
         return log_entry
 
@@ -313,7 +312,7 @@ class AuditLog(models.Model):
         """Extract relevant field values from an instance"""
         values = {}
         skip_fields = {'id', 'password', '_state', 'created_at', 'updated_at'}
-        
+
         from datetime import date, datetime as dt
         for field in instance._meta.get_fields():
             if field.name in skip_fields:
@@ -332,7 +331,7 @@ class AuditLog(models.Model):
                         values[field.name] = value
             except (AttributeError, ValueError):
                 pass
-                
+
         return values
 
     @staticmethod
@@ -355,9 +354,9 @@ class AuditLog(models.Model):
 def log_model_changes(sender, instance, created, **kwargs):
     """Signal handler to automatically log model changes"""
     from django.db import connection
-    
+
     user = getattr(connection, 'user', None)
-    
+
     # Skip logging for AuditLog itself to avoid infinite recursion,
     # and skip Django internal models (e.g. migration recorder) that
     # don't belong to our app modules.
@@ -365,7 +364,7 @@ def log_model_changes(sender, instance, created, **kwargs):
         return
     if sender.__module__.startswith('django.'):
         return
-    
+
     if created:
         AuditLog.log_create(user, instance)
     else:
@@ -483,17 +482,18 @@ class Role(models.Model):
     Superadmin must switch to a tenant's schema_context() to manage their roles.
     """
     MODULE_CHOICES = [
-        ('accounting', 'Accounting'),
-        ('sales', 'Sales'),
-        ('procurement', 'Procurement'),
-        ('inventory', 'Inventory'),
-        ('hrm', 'Human Resources'),
-        ('budget', 'Budget'),
-        ('production', 'Production'),
-        ('quality', 'Quality'),
-        ('service', 'Service'),
-        ('technical', 'Technical'),
-        ('admin', 'Administration'),
+        ('accounting',   'General Ledger & Accounting'),
+        ('budget',       'Budget & Appropriation'),
+        ('treasury',     'Treasury & TSA'),
+        ('procurement',  'Procurement & Due Process'),
+        ('inventory',    'Stores & Inventory'),
+        ('hrm',          'Human Resources & Payroll'),
+        ('revenue',      'Revenue Collection (IGR)'),
+        ('assets',       'Fixed Asset Management'),
+        ('workflow',     'Workflow & Approvals'),
+        ('reporting',    'Financial Reporting'),
+        ('audit',        'Internal Audit & Compliance'),
+        ('admin',        'System Administration'),
     ]
 
     ROLE_TYPE_CHOICES = [
@@ -549,57 +549,55 @@ class Role(models.Model):
         """Return the list of model codenames governed by this role's module."""
         module_models = {
             'accounting': [
-                'fund', 'function', 'program', 'geo', 'account', 'mda',
-                'journalheader', 'journalline', 'journalreversal', 'currency', 'glbalance',
-                'budgetperiod', 'budget', 'budgetencumbrance', 'budgettransfer',
+                'administrativesegment', 'economicsegment', 'functionalsegment',
+                'programmesegment', 'fundsegment', 'geographicsegment', 'ncoacode',
+                'journalentry', 'journalline', 'currency', 'glbalance',
                 'bankaccount', 'vendorinvoice', 'payment', 'paymentallocation',
-                'customerinvoice', 'receipt', 'receiptallocation',
-                'fixedasset', 'depreciationschedule', 'costcenter',
-                'bankreconciliation', 'taxregistration', 'taxexemption', 'taxreturn',
-                'withholdingtax', 'taxcode', 'profitcenter', 'fiscalperiod', 'fiscalyear',
+                'fixedasset', 'depreciationschedule',
+                'bankreconciliation', 'fiscalperiod', 'fiscalyear',
             ],
-            'sales': [
-                'customer', 'lead', 'opportunity', 'quotation', 'quotationline',
-                'salesorder', 'salesorderline', 'deliverynote', 'deliverynoteline',
+            'budget': [
+                'appropriation', 'warrant', 'unifiedbudget',
+                'unifiedbudgetamendment', 'unifiedbudgetencumbrance',
+            ],
+            'treasury': [
+                'treasuryaccount', 'paymentvouchergov', 'paymentinstruction',
             ],
             'procurement': [
-                'purchasetype', 'vendor', 'purchaserequest', 'purchaserequestline',
+                'vendor', 'purchaserequest', 'purchaserequestline',
                 'purchaseorder', 'purchaseorderline', 'goodsreceivednote',
-                'goodsreceivednoteline', 'invoicematching', 'vendorcreditnote',
-                'vendordebitnote', 'purchasereturn', 'purchasereturnline',
+                'goodsreceivednoteline', 'invoicematching',
+                'procurementthreshold', 'certificateofnoobjection',
+                'procurementbudgetlink',
             ],
             'inventory': [
-                'warehouse', 'producttype', 'productcategory', 'itemcategory',
-                'item', 'itemstock', 'itembatch', 'stockmovement',
-                'stockreconciliation', 'stockreconciliationline', 'reorderalert',
-                'itemserialnumber', 'batchexpiryalert',
+                'warehouse', 'itemcategory', 'item', 'itemstock',
+                'itembatch', 'stockmovement', 'stockreconciliation',
             ],
             'hrm': [
                 'department', 'position', 'employee', 'leavetype', 'leaverequest',
-                'leavebalance', 'attendance', 'holiday', 'jobpost', 'candidate',
-                'interview', 'onboardingtask', 'onboardingprogress', 'salarystructure',
+                'leavebalance', 'attendance', 'holiday', 'salarystructure',
                 'salarycomponent', 'payrollperiod', 'payrollrun', 'payrollline',
-                'payslip', 'performancecycle', 'performancegoal', 'performancereview',
+                'payslip', 'pensionfundadministrator', 'employeepensionprofile',
+                'pensionremittance', 'nigeriataxbracket',
             ],
-            'budget': [
-                'budgetallocation', 'budgetline', 'budgetvariance',
+            'revenue': [
+                'revenuehead', 'revenuecollection',
             ],
-            'production': [
-                'workcenter', 'billofmaterials', 'bomline', 'productionorder',
-                'materialissue', 'materialreceipt', 'jobcard', 'routing',
+            'assets': [
+                'fixedasset', 'assetclass', 'assetcategory', 'assetlocation',
+                'depreciationschedule', 'assetdisposal', 'assettransfer',
             ],
-            'quality': [
-                'qualityinspection', 'inspectionline', 'nonconformance',
-                'customercomplaint', 'qualitychecklist', 'qualitychecklistline',
-                'calibrationrecord', 'supplierquality',
+            'workflow': [
+                'workflowdefinition', 'workflowinstance', 'workflowstep',
+                'approvaltemplate', 'approval', 'approvallog',
             ],
-            'service': [
-                'serviceasset', 'technician', 'serviceticket', 'slatracking',
-                'workorder', 'workordermaterial', 'citizenrequest', 'servicemetric',
-                'maintenanceschedule',
+            'reporting': [
+                'financialreporttemplate', 'financialreport', 'xbrlreport',
             ],
-            'technical': [
-                'serviceasset', 'serviceticket', 'workorder', 'technician',
+            'audit': [
+                'transactionauditlog', 'approvalrule', 'approvalinstance',
+                'periodclosing', 'yearendclosing',
             ],
             'admin': [
                 'user', 'group', 'tenant', 'tenantmodule', 'tenantsubscription',
@@ -607,6 +605,53 @@ class Role(models.Model):
             ],
         }
         return module_models.get(self.module, [])
+
+
+class RoleAssignment(models.Model):
+    """
+    Tenant-local link between an auth.User and a ``core.Role``.
+
+    Lives in the tenant schema (core is TENANT_APPS), so a user can
+    hold "Budget Officer" in Delta State and "Budget Manager" in Lagos
+    without collision — the schema boundary provides the tenant scope.
+
+    SOD rules are enforced at the **service layer**, not here.
+    The unique_together guarantees idempotency (no duplicate
+    (user, role) rows); the RoleAssignmentService runs the SOD check
+    before ``create()`` and returns a structured rejection if the
+    combination violates the matrix.
+
+    Audit fields (``assigned_at``, ``assigned_by``) are present so the
+    assignment history is queryable without a separate audit table.
+    """
+
+    user = models.ForeignKey(
+        'auth.User', on_delete=models.CASCADE,
+        related_name='role_assignments',
+    )
+    role = models.ForeignKey(
+        'core.Role', on_delete=models.CASCADE,
+        related_name='assignments',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    assigned_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='role_assignments_made',
+        help_text='User who performed this assignment — for audit trail.',
+    )
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        unique_together = ['user', 'role']
+        ordering = ['-assigned_at']
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['role', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'{self.user.username} → {self.role.code}'
 
 
 # =============================================================================
@@ -621,7 +666,7 @@ class LoginAttempt(models.Model):
     - 5 failed attempts: 15 minutes lockout
     - 10 failed attempts: 30 minutes lockout
     - 15+ failed attempts: 2 hours lockout
-    
+
     Resets after successful login.
     """
     LOCKOUT_TIERS = [
@@ -652,7 +697,7 @@ class LoginAttempt(models.Model):
     @classmethod
     def _get_lockout_duration(cls, failure_count):
         """Get lockout duration based on failure count.
-        
+
         Returns the duration for the highest threshold reached.
         """
         for threshold, duration in reversed(cls.LOCKOUT_TIERS):
@@ -870,3 +915,318 @@ class UserSession(models.Model):
         # Delete corresponding auth tokens
         with schema_context('public'):
             Token.objects.filter(key__in=token_keys).delete()
+
+
+# ── Organization (MDA-as-Branch) ──────────────────────────────────────
+
+class Organization(AuditBaseModel):
+    """
+    Organizational unit within a government tenant.
+
+    In SEPARATED mode this gates data visibility; in UNIFIED mode it exists
+    for reporting grouping only.
+
+    ``org_role`` determines cross-MDA access:
+    - MDA: standard ministry/department — sees only own data
+    - BUDGET_AUTHORITY: Min. of Budget & Economic Planning — manages
+      appropriations/warrants across all MDAs
+    - FINANCE_AUTHORITY: Accountant General's Office — manages GL/TSA/
+      payments across all MDAs
+    - AUDIT_AUTHORITY: Auditor General's Office — read-only access to all
+    """
+
+    ORG_ROLE_CHOICES = [
+        ('MDA', 'Standard MDA'),
+        ('BUDGET_AUTHORITY', 'Budget Authority (Min. of Budget)'),
+        ('FINANCE_AUTHORITY', 'Finance Authority (AG Office)'),
+        ('AUDIT_AUTHORITY', 'Audit Authority (Auditor General)'),
+    ]
+
+    name = models.CharField(max_length=200)
+    code = models.CharField(max_length=20, unique=True, db_index=True)
+    short_name = models.CharField(max_length=50, blank=True, default='')
+    org_role = models.CharField(
+        max_length=20, choices=ORG_ROLE_CHOICES, default='MDA',
+    )
+    # S5-01 — ``db_constraint=False`` on both FKs below.
+    #
+    # ``core`` lives in SHARED_APPS, so its migrations run against the
+    # ``public`` schema. Both ``accounting.AdministrativeSegment`` and
+    # ``accounting.MDA`` are TENANT_APPS — they exist only in tenant
+    # schemas, never in public. A physical Postgres FK from
+    # ``core_organization`` to a tenant-only table is impossible to
+    # satisfy at migration time in the public schema (the referenced
+    # table does not exist there). That's exactly what blocks the DB
+    # tier of the pytest suite from running.
+    #
+    # ``db_constraint=False`` preserves the FK as an ORM-level pointer
+    # (queryset joins, ``_id`` columns, ``PROTECT`` in Python) while
+    # telling the schema editor to NOT emit the physical
+    # ``ALTER TABLE ADD CONSTRAINT``. Cross-schema references are
+    # fundamentally unenforceable by Postgres in the first place, so
+    # we aren't losing guarantees we actually had.
+    administrative_segment = models.OneToOneField(
+        'accounting.AdministrativeSegment',
+        on_delete=models.PROTECT, null=True, blank=True,
+        related_name='organization',
+        db_constraint=False,
+        help_text='NCoA Administrative Segment this org represents',
+    )
+    legacy_mda = models.OneToOneField(
+        'accounting.MDA', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='organization',
+        db_constraint=False,
+        help_text='Bridge to legacy MDA dimension model',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    description = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['code']
+        verbose_name = 'Organization (MDA)'
+        verbose_name_plural = 'Organizations (MDAs)'
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name} ({self.get_org_role_display()})"
+
+    @property
+    def is_oversight(self) -> bool:
+        """True for BUDGET/FINANCE/AUDIT authority roles."""
+        return self.org_role in (
+            'BUDGET_AUTHORITY', 'FINANCE_AUTHORITY', 'AUDIT_AUTHORITY',
+        )
+
+    @property
+    def has_cross_mda_read(self) -> bool:
+        """True if this org can read data across all MDAs."""
+        return self.org_role in (
+            'BUDGET_AUTHORITY', 'FINANCE_AUTHORITY', 'AUDIT_AUTHORITY',
+        )
+
+    @property
+    def has_cross_mda_write(self) -> bool:
+        """True if this org can write data for other MDAs."""
+        return self.org_role in ('BUDGET_AUTHORITY', 'FINANCE_AUTHORITY')
+
+    @property
+    def is_read_only(self) -> bool:
+        """Audit authority never writes."""
+        return self.org_role == 'AUDIT_AUTHORITY'
+
+
+class UserOrganization(models.Model):
+    """
+    Maps a user to one or more organizations within a tenant.
+
+    Lives in tenant schema so it's queried after tenant context is active.
+    ``per_org_role`` overrides the user's coarse UserTenantRole when
+    operating within this specific organization.
+    """
+
+    PER_ORG_ROLE_CHOICES = [
+        ('admin', 'Organization Admin'),
+        ('manager', 'Manager'),
+        ('officer', 'Officer'),
+        ('viewer', 'Read-Only Viewer'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='user_organizations',
+    )
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE,
+        related_name='user_assignments',
+    )
+    per_org_role = models.CharField(
+        max_length=20, choices=PER_ORG_ROLE_CHOICES, default='officer',
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text='Auto-select this org on login',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'organization']
+        ordering = ['organization__code']
+
+    def __str__(self) -> str:
+        return f"{self.user.username} → {self.organization.code} ({self.per_org_role})"
+
+
+# ── In-App Notifications ─────────────────────────────────────────
+
+class Notification(models.Model):
+    """
+    Per-user in-app notification within a tenant.
+
+    Created automatically by system events (warrant release, PV approval,
+    budget alert, period close, etc.) and delivered to the relevant users
+    based on their organization assignment.
+    """
+
+    CATEGORY_CHOICES = [
+        ('BUDGET', 'Budget & Appropriation'),
+        ('WARRANT', 'Warrant / AIE'),
+        ('PAYMENT', 'Payment Voucher'),
+        ('PROCUREMENT', 'Procurement'),
+        ('REVENUE', 'Revenue'),
+        ('PERIOD', 'Period / Fiscal Year'),
+        ('APPROVAL', 'Approval Required'),
+        ('SYSTEM', 'System'),
+    ]
+
+    PRIORITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('NORMAL', 'Normal'),
+        ('HIGH', 'High'),
+        ('URGENT', 'Urgent'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='SYSTEM')
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='NORMAL')
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    action_url = models.CharField(max_length=300, blank=True, default='')
+    is_read = models.BooleanField(default=False, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Optional: link to the source object
+    related_model = models.CharField(max_length=50, blank=True, default='')
+    related_id = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"[{self.category}] {self.title} → {self.user.username}"
+
+    @classmethod
+    def send(
+        cls,
+        users,
+        category: str,
+        title: str,
+        message: str,
+        action_url: str = '',
+        priority: str = 'NORMAL',
+        related_model: str = '',
+        related_id: int | None = None,
+    ):
+        """
+        Send a notification to one or more users.
+
+        ``users`` can be a single User, a queryset, or a list of Users.
+        """
+        from django.contrib.auth.models import User as UserModel
+        if isinstance(users, UserModel):
+            users = [users]
+
+        notifications = [
+            cls(
+                user=u,
+                category=category,
+                priority=priority,
+                title=title,
+                message=message,
+                action_url=action_url,
+                related_model=related_model,
+                related_id=related_id,
+            )
+            for u in users
+        ]
+        return cls.objects.bulk_create(notifications)
+
+
+# ─── S6-04 — Multi-Factor Authentication (TOTP) ───────────────────────────
+# MFA lives in ``core`` (SHARED_APPS) because an enrollment is tied to the
+# user, not any single tenant. A user who logs into two state-government
+# tenants uses the same authenticator app entry. The secret is stored
+# encrypted at the application layer; recovery codes are stored hashed
+# using Django's password hasher so a DB leak leaves them unusable.
+
+class UserMFA(models.Model):
+    """TOTP-based multi-factor authentication state for a user.
+
+    One row per user. Lifecycle:
+
+        (no row)
+           │  user hits /auth/mfa/enroll/
+           ▼
+        is_enrolled=False  ← secret generated, provisioning URI returned
+           │  user scans QR, submits first 6-digit code
+           ▼
+        is_enrolled=True, enrolled_at=now, recovery_codes generated
+           │  ongoing login flow: verify(code) accepted
+           ▼
+        last_verified_at updated each successful verify
+
+    Failed verification attempts bump ``failed_attempts``. After a
+    configurable threshold (``MAX_FAILED_ATTEMPTS``) the row is locked
+    via ``locked_until`` so repeated guessing is rate-limited.
+    """
+
+    # How many wrong codes before temporary lockout (15 minutes).
+    MAX_FAILED_ATTEMPTS = 5
+    LOCKOUT_DURATION_MINUTES = 15
+    # Number of single-use recovery codes generated at enrollment.
+    RECOVERY_CODE_COUNT = 10
+    # TOTP parameters (industry standard: 30-s window, 6 digits, SHA-1).
+    TOTP_INTERVAL_SECONDS = 30
+    TOTP_DIGITS = 6
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='mfa',
+    )
+    # Base32 TOTP shared secret. Stored as-is; the row is protected by
+    # row-level permissions and the audit log. For production hardening,
+    # wrap this with an application-layer encryption field
+    # (django-cryptography or equivalent) — that's a future ticket.
+    secret = models.CharField(max_length=64, blank=True, default='')
+    is_enrolled = models.BooleanField(default=False, db_index=True)
+    enrolled_at = models.DateTimeField(null=True, blank=True)
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+
+    # Recovery codes — hashed list of single-use backup codes.
+    # Schema: [{"hash": "<pbkdf2_sha256$...>", "used_at": null | ISO-8601}, ...]
+    recovery_codes = models.JSONField(default=list, blank=True)
+
+    # Rate-limit state.
+    failed_attempts = models.IntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'User MFA'
+        verbose_name_plural = 'User MFA Enrollments'
+
+    def __str__(self):
+        state = 'enrolled' if self.is_enrolled else 'pending'
+        return f'{self.user.username} — MFA {state}'
+
+    @property
+    def is_locked(self) -> bool:
+        """True if lockout window is still in the future."""
+        from django.utils import timezone
+        return bool(self.locked_until and self.locked_until > timezone.now())
+
+    @property
+    def unused_recovery_code_count(self) -> int:
+        """Number of recovery codes still available."""
+        return sum(
+            1 for entry in (self.recovery_codes or [])
+            if not entry.get('used_at')
+        )

@@ -14,6 +14,53 @@ export const useJournals = (filters: Record<string, any> = {}) => {
     });
 };
 
+/**
+ * Single journal header + line detail. Used by the AP Invoice View
+ * modal to show the DR/CR breakdown linked to a posted invoice.
+ */
+export const useJournal = (id: number | null | undefined) => {
+    return useQuery({
+        queryKey: ['journal', id],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/journals/${id}/`);
+            return data;
+        },
+        enabled: !!id,
+        staleTime: 2 * 60 * 1000,
+    });
+};
+
+/**
+ * Fetch the PROPOSED GL journal for an unposted invoice.
+ *
+ * Hits ``/accounting/vendor-invoices/{id}/simulate_posting/`` which
+ * computes the DR/CR lines *without writing anything* — useful for the
+ * AP View modal so the accounting entries are visible the moment the
+ * invoice is drafted, not only after posting. The response shape is a
+ * superset of ``JournalDetailSerializer`` (adds ``simulated: true``
+ * and a ``warnings[]`` array), so the same render component can handle
+ * both proposed and actual journals.
+ */
+export const useSimulatedInvoiceJournal = (
+    invoiceId: number | null | undefined,
+    enabled: boolean = true,
+) => {
+    return useQuery({
+        queryKey: ['vendor-invoice-simulated-journal', invoiceId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(
+                `/accounting/vendor-invoices/${invoiceId}/simulate_posting/`,
+            );
+            return data;
+        },
+        enabled: !!invoiceId && enabled,
+        // Simulated journals are deterministic from invoice data, but the
+        // invoice fields can change before Post — keep the cache short so
+        // edits to amounts are reflected quickly in the modal.
+        staleTime: 30 * 1000,
+    });
+};
+
 export const useCreateJournal = () => {
     const queryClient = useQueryClient();
     return useMutation({

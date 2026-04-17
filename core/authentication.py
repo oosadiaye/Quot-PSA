@@ -23,6 +23,8 @@ class PublicSchemaBackend(ModelBackend):
     """
 
     def authenticate(self, request, username=None, password=None, **kwargs):
+        if username:
+            username = username.lower()
         with schema_context('public'):
             return super().authenticate(
                 request, username=username, password=password, **kwargs

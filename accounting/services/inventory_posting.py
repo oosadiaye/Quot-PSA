@@ -27,7 +27,6 @@ class InventoryPostingService(BasePostingService):
         Resolve the inventory account and Goods-in-Transit account for a transfer movement.
         Raises TransactionPostingError if either cannot be found.
         """
-        from inventory.models import Item  # avoid circular import at module level
         item = movement.item
 
         inventory_account = item.inventory_account

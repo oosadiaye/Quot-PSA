@@ -6,14 +6,12 @@ Provides configurable multi-level approval workflows for:
 - Budget amendments/transfers
 - Payments
 """
-from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass, field
-from django.db import transaction
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
 from django.utils import timezone
 from django.contrib.auth.models import User
-from accounting.models import ApprovalRule, ApprovalLevel, ApprovalInstance
+from accounting.models import ApprovalRule, ApprovalInstance
 
 
 @dataclass
@@ -50,20 +48,20 @@ class ApprovalWorkflowService:
     ) -> ApprovalCheckResult:
         """
         Check if a document requires approval.
-        
+
         Args:
             document_type: Type of document (e.g., 'JE', 'VI')
             amount: Document amount
             user: User submitting the document
             document_id: Optional document ID for context
-            
+
         Returns:
             ApprovalCheckResult with approval requirements
         """
         messages = []
-        
+
         rule = cls.get_applicable_rule(document_type, amount)
-        
+
         if not rule:
             return ApprovalCheckResult(
                 requires_approval=False,
@@ -72,7 +70,7 @@ class ApprovalWorkflowService:
                 auto_approved_by='SYSTEM',
                 messages=["No approval rule found for this document type/amount"],
             )
-        
+
         levels = []
         for level in rule.levels.all():
             levels.append({
@@ -81,9 +79,9 @@ class ApprovalWorkflowService:
                 'approver_value': level.approver_value,
                 'min_approvers': level.min_approvers,
             })
-        
+
         is_auto = cls._is_auto_approvable(rule, user)
-        
+
         return ApprovalCheckResult(
             requires_approval=True,
             approval_levels=levels,
@@ -100,11 +98,11 @@ class ApprovalWorkflowService:
             is_active=True,
             min_amount__lte=amount,
         )
-        
+
         for rule in rules.order_by('-min_amount'):
             if rule.max_amount is None or rule.max_amount >= amount:
                 return rule
-        
+
         return None
 
     @classmethod
@@ -112,16 +110,16 @@ class ApprovalWorkflowService:
         """Check if a rule allows auto-approval for this user."""
         if not rule.approval_levels:
             return True
-        
+
         if not rule.auto_approve_roles:
             return False
-        
+
         user_roles = list(user.groups.values_list('name', flat=True))
-        
+
         for role in rule.auto_approve_roles:
             if role in user_roles:
                 return True
-        
+
         return False
 
     @classmethod
@@ -136,7 +134,7 @@ class ApprovalWorkflowService:
     ) -> ApprovalInstance:
         """
         Submit a document for approval.
-        
+
         Args:
             document_type: Type of document
             document_id: Document ID
@@ -144,14 +142,14 @@ class ApprovalWorkflowService:
             user: User submitting
             reference_number: Document reference
             description: Document description
-            
+
         Returns:
             ApprovalInstance for tracking
         """
         check_result = cls.check_approval_required(
             document_type, amount, user, document_id
         )
-        
+
         instance = ApprovalInstance.objects.create(
             document_type=document_type,
             document_id=document_id,
@@ -164,10 +162,10 @@ class ApprovalWorkflowService:
             status='PENDING' if check_result.requires_approval else 'APPROVED',
             approvals=[],
         )
-        
+
         if check_result.is_auto_approvable:
             cls._record_auto_approval(instance, user)
-        
+
         return instance
 
     @classmethod
@@ -196,13 +194,13 @@ class ApprovalWorkflowService:
     ) -> ApprovalActionResult:
         """
         Approve a document at the current level.
-        
+
         Args:
             instance_id: ApprovalInstance ID
             user: User approving
             level: Specific level to approve (optional)
             comment: Approval comment
-            
+
         Returns:
             ApprovalActionResult with action outcome
         """
@@ -217,7 +215,7 @@ class ApprovalWorkflowService:
                 next_level=None,
                 is_fully_approved=False,
             )
-        
+
         if instance.status != 'PENDING':
             return ApprovalActionResult(
                 success=False,
@@ -227,9 +225,57 @@ class ApprovalWorkflowService:
                 next_level=instance.current_level,
                 is_fully_approved=False,
             )
-        
+
+        # ── S1-08 — Maker-Checker segregation of duties ──────────────────
+        # The user who submitted the document cannot approve their own work.
+        # Bypass allowed ONLY for superuser (emergency override path).
+        submitter_id = getattr(instance, 'submitted_by_id', None)
+        if submitter_id and submitter_id == user.id and not getattr(user, 'is_superuser', False):
+            return ApprovalActionResult(
+                success=False,
+                action='APPROVE',
+                new_status=instance.status,
+                message=(
+                    'Maker-checker violation: the submitter of a document '
+                    'cannot approve it. A different user must approve.'
+                ),
+                next_level=instance.current_level,
+                is_fully_approved=False,
+            )
+
         target_level = level or (instance.current_level + 1)
-        
+
+        # ── S1-08 — Idempotency guard ────────────────────────────────────
+        # Reject duplicate approval attempts at the same level by the same
+        # user, and reject any user approving the same level twice. This
+        # prevents a single user from clearing a multi-level workflow by
+        # pressing "Approve" N times.
+        existing = instance.approvals or []
+        for prior in existing:
+            try:
+                if int(prior.get('level', -1)) == int(target_level) and prior.get('action') == 'APPROVE':
+                    if prior.get('user_id') == user.id:
+                        return ApprovalActionResult(
+                            success=False, action='APPROVE',
+                            new_status=instance.status,
+                            message=f'You have already approved level {target_level}.',
+                            next_level=instance.current_level,
+                            is_fully_approved=False,
+                        )
+                    # Someone else already cleared this level — this is fine
+                    # as a duplicate only if the level was supposed to be
+                    # cleared once. We treat it as "already approved" and
+                    # advance instead of stacking.
+                    return ApprovalActionResult(
+                        success=False, action='APPROVE',
+                        new_status=instance.status,
+                        message=f'Level {target_level} has already been approved.',
+                        next_level=instance.current_level,
+                        is_fully_approved=False,
+                    )
+            except (TypeError, ValueError):
+                continue
+
         instance.approvals.append({
             'level': target_level,
             'user_id': user.id,
@@ -238,16 +284,22 @@ class ApprovalWorkflowService:
             'timestamp': timezone.now().isoformat(),
             'comment': comment,
         })
-        
+
         instance.current_level = target_level
-        
+
         if target_level >= instance.max_level:
             instance.status = 'APPROVED'
             instance.completed_at = timezone.now()
             instance.completed_by = user
-            
+
+            # S1-08 — persist BEFORE executing downstream document action so
+            # the ApprovalInstance reflects the final state even if the
+            # document action fails. Previously save() was skipped on the
+            # max-level branch, leaving `status='PENDING'` in the database.
+            instance.save()
+
             cls._execute_document_action(instance)
-            
+
             return ApprovalActionResult(
                 success=True,
                 action='APPROVE',
@@ -256,9 +308,9 @@ class ApprovalWorkflowService:
                 next_level=None,
                 is_fully_approved=True,
             )
-        
+
         instance.save()
-        
+
         return ApprovalActionResult(
             success=True,
             action='APPROVE',
@@ -277,12 +329,12 @@ class ApprovalWorkflowService:
     ) -> ApprovalActionResult:
         """
         Reject a document.
-        
+
         Args:
             instance_id: ApprovalInstance ID
             user: User rejecting
             reason: Rejection reason
-            
+
         Returns:
             ApprovalActionResult with action outcome
         """
@@ -297,7 +349,7 @@ class ApprovalWorkflowService:
                 next_level=None,
                 is_fully_approved=False,
             )
-        
+
         if instance.status != 'PENDING':
             return ApprovalActionResult(
                 success=False,
@@ -307,7 +359,7 @@ class ApprovalWorkflowService:
                 next_level=instance.current_level,
                 is_fully_approved=False,
             )
-        
+
         instance.approvals.append({
             'level': instance.current_level,
             'user_id': user.id,
@@ -316,15 +368,15 @@ class ApprovalWorkflowService:
             'timestamp': timezone.now().isoformat(),
             'reason': reason,
         })
-        
+
         instance.status = 'REJECTED'
         instance.rejection_reason = reason
         instance.completed_at = timezone.now()
         instance.completed_by = user
         instance.save()
-        
+
         cls._execute_rejection_action(instance)
-        
+
         return ApprovalActionResult(
             success=True,
             action='REJECT',
@@ -353,23 +405,23 @@ class ApprovalWorkflowService:
     ) -> List[ApprovalInstance]:
         """
         Get pending approvals, optionally filtered.
-        
+
         Args:
             user: Filter by approver (optional)
             document_type: Filter by document type (optional)
             level: Filter by current level (optional)
-            
+
         Returns:
             List of ApprovalInstance objects
         """
         queryset = ApprovalInstance.objects.filter(status='PENDING')
-        
+
         if document_type:
             queryset = queryset.filter(document_type=document_type)
-        
+
         if level is not None:
             queryset = queryset.filter(current_level=level)
-        
+
         return list(queryset.order_by('-submitted_at'))
 
     @classmethod
@@ -380,11 +432,11 @@ class ApprovalWorkflowService:
     ) -> Optional[Dict[str, Any]]:
         """
         Get the approval status for a document.
-        
+
         Args:
             document_type: Type of document
             document_id: Document ID
-            
+
         Returns:
             Dictionary with approval status or None
         """
@@ -395,7 +447,7 @@ class ApprovalWorkflowService:
             )
         except ApprovalInstance.DoesNotExist:
             return None
-        
+
         return {
             'status': instance.status,
             'current_level': instance.current_level,

@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Trash2, FileText, Layers, Info, LayoutGrid, Package, CreditCard, ShieldCheck } from 'lucide-react';
-import { useVendors, useCreatePO, usePurchaseRequests, useBankAccounts, usePurchaseOrder } from './hooks/useProcurement';
+import { useQuery } from '@tanstack/react-query';
+import { Plus, Trash2, FileText, Layers, Info, LayoutGrid, Package, CreditCard, ShieldCheck, Wallet, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import apiClient from '../../api/client';
+import { useVendors, useCreatePO, usePurchaseRequest, usePurchaseRequests, useBankAccounts, usePurchaseOrder } from './hooks/useProcurement';
 import { useDimensions } from '../accounting/hooks/useJournal';
-import { useCostCenters } from '../accounting/hooks/useCostCenters';
+import { useMDAs } from '../accounting/hooks/useBudgetDimensions';
 import { useFixedAssets, useTaxCodes } from '../accounting/hooks/useAccountingEnhancements';
 import { useItems } from '../inventory/hooks/useInventory';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -20,6 +22,8 @@ interface POLine {
     account: string;
     asset: string;
     item: string;
+    product_type: string;
+    product_category: string;
 }
 
 const POForm = () => {
@@ -27,7 +31,7 @@ const POForm = () => {
     const { prId, id } = useParams<{ prId?: string; id?: string }>();
     const { data: vendors } = useVendors();
     const { data: dims, isLoading: dimsLoading } = useDimensions();
-    const { data: costCenters } = useCostCenters({ is_active: true });
+    const { data: mdas } = useMDAs({ is_active: true });
     const { formatCurrency, currencySymbol } = useCurrency();
     const createPO = useCreatePO();
     const { data: assets } = useFixedAssets({ status: 'Active' });
@@ -39,20 +43,22 @@ const POForm = () => {
     // When viewing an existing PO (route: /procurement/orders/:id)
     const { data: existingPO } = usePurchaseOrder(id ? Number(id) : null);
 
-    // Fetch PRs to find the one being converted
-    const { data: prsData } = usePurchaseRequests();
-    const sourcePR = useMemo(() => {
-        if (!prId || !prsData) return null;
-        const list = prsData?.results || prsData || [];
-        return list.find((pr: any) => String(pr.id) === prId) || null;
-    }, [prId, prsData]);
+    // ── Source PR selection ────────────────────────────────────────
+    // When the URL contains a prId (came from "Convert PR to PO"), pre-select
+    // it. Otherwise the user can pick an Approved PR from a dropdown to adopt
+    // its line items + dimensions.
+    const [selectedPRId, setSelectedPRId] = useState<string>(prId || '');
+    const { data: sourcePR } = usePurchaseRequest(selectedPRId ? Number(selectedPRId) : null);
+
+    // Approved PRs list — only Approved PRs can be converted to a PO
+    const { data: approvedPRsData } = usePurchaseRequests({ status: 'Approved', page_size: 100 });
+    const approvedPRs = approvedPRsData?.results || approvedPRsData || [];
 
     const [header, setHeader] = useState({
-        po_number: '',
         vendor: '',
         order_date: new Date().toISOString().split('T')[0],
         expected_delivery_date: '',
-        cost_center: '',
+        mda: '',
         fund: '',
         function: '',
         program: '',
@@ -63,10 +69,11 @@ const POForm = () => {
     });
 
     const [lines, setLines] = useState<POLine[]>([
-        { id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '' },
+        { id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '', product_type: '', product_category: '' },
     ]);
 
     const [formError, setFormError] = useState('');
+    const [createdPO, setCreatedPO] = useState<{ po_number: string; id: number } | null>(null);
 
     // Down Payment state — declared early; dpAmount computed AFTER totalOrder below
     const [dpEnabled, setDpEnabled] = useState(false);
@@ -78,16 +85,21 @@ const POForm = () => {
         notes: '',
     });
 
-    // Pre-fill from PR when converting
+    // ── Pre-fill from source PR when converting ────────────────────────
+    // Adopts the header dimensions (MDA, Fund, Function, Program, Geo) and
+    // every line (description, qty, est. price, GL account, asset link,
+    // inventory item, product type/category) directly from the PR.
+    // The user still picks the Vendor, expected delivery, tax code, and
+    // optional down-payment — those are the only fields NOT inherited.
     useEffect(() => {
         if (sourcePR) {
             setHeader(prev => ({
                 ...prev,
+                mda: sourcePR.mda ? String(sourcePR.mda) : '',
                 fund: sourcePR.fund ? String(sourcePR.fund) : '',
                 function: sourcePR.function ? String(sourcePR.function) : '',
                 program: sourcePR.program ? String(sourcePR.program) : '',
                 geo: sourcePR.geo ? String(sourcePR.geo) : '',
-                cost_center: sourcePR.cost_center ? String(sourcePR.cost_center) : '',
             }));
             if (sourcePR.lines?.length) {
                 setLines(sourcePR.lines.map((l: any) => ({
@@ -98,10 +110,62 @@ const POForm = () => {
                     account: l.account ? String(l.account) : '',
                     asset: l.asset ? String(l.asset) : '',
                     item: l.item ? String(l.item) : '',
+                    product_type: l.product_type ? String(l.product_type) : '',
+                    product_category: l.product_category ? String(l.product_category) : '',
+                })));
+            }
+        } else if (selectedPRId === '') {
+            // User cleared the PR selection — reset dimensions and lines so
+            // they can enter a free-standing PO without a source PR.
+            setHeader(prev => ({
+                ...prev,
+                mda: '', fund: '', function: '', program: '', geo: '',
+            }));
+            setLines([{
+                id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0',
+                account: '', asset: '', item: '', product_type: '', product_category: '',
+            }]);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sourcePR, selectedPRId]);
+
+    // ── Load existing PO into form state when viewing /procurement/orders/:id ──
+    // The route reuses POForm to display an existing record. Without this effect
+    // the fetched `existingPO` would never reach the rendered fields.
+    useEffect(() => {
+        if (existingPO) {
+            setHeader({
+                vendor: existingPO.vendor ? String(existingPO.vendor) : '',
+                order_date: existingPO.order_date || new Date().toISOString().split('T')[0],
+                expected_delivery_date: existingPO.expected_delivery_date || '',
+                mda: existingPO.mda ? String(existingPO.mda) : '',
+                fund: existingPO.fund ? String(existingPO.fund) : '',
+                function: existingPO.function ? String(existingPO.function) : '',
+                program: existingPO.program ? String(existingPO.program) : '',
+                geo: existingPO.geo ? String(existingPO.geo) : '',
+                tax_code: existingPO.tax_code ? String(existingPO.tax_code) : '',
+                tax_rate: String(existingPO.tax_rate || '0'),
+                wht_exempt: existingPO.wht_exempt ?? false,
+            });
+            // Sync the source-PR selector if this PO was created from a PR
+            if (existingPO.purchase_request) {
+                setSelectedPRId(String(existingPO.purchase_request));
+            }
+            if (existingPO.lines?.length) {
+                setLines(existingPO.lines.map((l: any) => ({
+                    id: crypto.randomUUID(),
+                    item_description: l.item_description || '',
+                    quantity: String(l.quantity || 1),
+                    unit_price: String(l.unit_price || 0),
+                    account: l.account ? String(l.account) : '',
+                    asset: l.asset ? String(l.asset) : '',
+                    item: l.item ? String(l.item) : '',
+                    product_type: l.product_type ? String(l.product_type) : '',
+                    product_category: l.product_category ? String(l.product_category) : '',
                 })));
             }
         }
-    }, [sourcePR]);
+    }, [existingPO]);
 
     const totalOrder = useMemo(() => {
         return lines.reduce((sum, l) => {
@@ -124,6 +188,38 @@ const POForm = () => {
         return val;
     }, [dpEnabled, dp.calc_type, dp.calc_value, totalOrder]);
 
+    // ── Budget Appropriation Lookup ─────────────────────────────
+    // Uses the 3 control pillars (MDA + Economic Account + Fund) to find the
+    // active appropriation this PO will commit against. Refetches when any
+    // pillar changes; account comes from the first line with an account set.
+    const firstLineAccount = lines.find(l => l.account)?.account || '';
+    const budgetLookupKey = ['po-budget-lookup', header.mda, header.fund, firstLineAccount];
+    const { data: appropriationInfo, isLoading: appropLoading } = useQuery<any>({
+        queryKey: budgetLookupKey,
+        queryFn: async () => {
+            if (!header.mda || !header.fund) return null;
+            try {
+                const res = await apiClient.get('/budget/appropriations/lookup/', {
+                    params: {
+                        mda: header.mda,
+                        fund: header.fund,
+                        ...(firstLineAccount ? { account: firstLineAccount } : {}),
+                    },
+                });
+                return res.data;
+            } catch (err: any) {
+                return err.response?.data || { found: false, error: 'No matching appropriation' };
+            }
+        },
+        enabled: !!(header.mda && header.fund),
+    });
+
+    // Budget breach warning: total order exceeds available balance
+    const availableBalance = appropriationInfo?.found
+        ? parseFloat(appropriationInfo.available_balance || '0')
+        : null;
+    const exceedsBudget = availableBalance !== null && totalOrder > availableBalance;
+
     // Auto-populate WHT exempt from selected vendor
     useEffect(() => {
         if (!header.vendor) return;
@@ -140,7 +236,7 @@ const POForm = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [header.tax_code, taxCodesList]);
 
-    const addLine = () => setLines([...lines, { id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '' }]);
+    const addLine = () => setLines([...lines, { id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '', product_type: '', product_category: '' }]);
     const removeLine = (index: number) => setLines(lines.filter((_, i) => i !== index));
 
     const updateLine = (index: number, field: keyof POLine, value: string) => {
@@ -159,13 +255,13 @@ const POForm = () => {
         e.preventDefault();
         setFormError('');
 
+        // po_number is auto-generated server-side
         const payload: any = {
-            po_number: header.po_number,
             vendor: Number(header.vendor),
             order_date: header.order_date,
             status: 'Draft',
             ...(header.expected_delivery_date ? { expected_delivery_date: header.expected_delivery_date } : {}),
-            ...(prId ? { purchase_request: Number(prId) } : {}),
+            ...(selectedPRId ? { purchase_request: Number(selectedPRId) } : {}),
             lines: lines.map(l => ({
                 item_description: l.item_description,
                 quantity: parseFloat(l.quantity),
@@ -173,7 +269,10 @@ const POForm = () => {
                 account: Number(l.account),
                 ...(l.asset ? { asset: Number(l.asset) } : {}),
                 ...(l.item ? { item: Number(l.item) } : {}),
+                ...(l.product_type ? { product_type: Number(l.product_type) } : {}),
+                ...(l.product_category ? { product_category: Number(l.product_category) } : {}),
             })),
+            mda: header.mda ? Number(header.mda) : null,
             fund: header.fund ? Number(header.fund) : null,
             function: header.function ? Number(header.function) : null,
             program: header.program ? Number(header.program) : null,
@@ -195,8 +294,8 @@ const POForm = () => {
         };
 
         try {
-            await createPO.mutateAsync(payload);
-            navigate('/procurement/orders');
+            const result = await createPO.mutateAsync(payload);
+            setCreatedPO({ po_number: result.po_number, id: result.id });
         } catch (err: any) {
             const data = err.response?.data;
             if (data?.detail) {
@@ -250,13 +349,21 @@ const POForm = () => {
         <AccountingLayout>
             <form onSubmit={handleSubmit}>
                 <PageHeader
-                    title={sourcePR ? 'Convert PR to Purchase Order' : 'Generate Purchase Order'}
-                    subtitle={sourcePR
-                        ? `Converting requisition ${sourcePR.request_number} to a purchase order.`
-                        : 'Create a purchase order with dimension tagging.'}
+                    title={
+                        existingPO
+                            ? `Purchase Order ${existingPO.po_number}`
+                            : sourcePR ? 'Convert PR to Purchase Order' : 'Generate Purchase Order'
+                    }
+                    subtitle={
+                        existingPO
+                            ? `Status: ${existingPO.status}${existingPO.vendor_name ? ' · Vendor: ' + existingPO.vendor_name : ''}`
+                            : sourcePR
+                                ? `Adopting requisition ${sourcePR.request_number} into a purchase order.`
+                                : 'Create a purchase order — optionally select a Purchase Requisition to adopt.'
+                    }
                     icon={<Package size={22} />}
                     onBack={() => navigate('/procurement/orders')}
-                    actions={
+                    actions={createdPO ? null : (
                         <>
                             {existingPO && ['Approved', 'Posted'].includes(existingPO.status) && (
                                 <button
@@ -284,21 +391,35 @@ const POForm = () => {
                                 </button>
                             )}
                         </>
-                    }
+                    )}
                 />
 
-                {/* Source PR Banner */}
-                {sourcePR && (
+                {/* Source PR Banner — shows what was adopted vs what the user still needs to choose */}
+                {sourcePR && !createdPO && (
                     <div style={{
-                        padding: '0.75rem 1rem', background: 'rgba(79, 70, 229, 0.08)', border: '1px solid rgba(79, 70, 229, 0.2)',
-                        borderRadius: '8px', marginBottom: '1.5rem', fontSize: 'var(--text-sm)',
-                        display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#4f46e5',
+                        padding: '1rem 1.25rem',
+                        background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.06), rgba(124, 58, 237, 0.08))',
+                        border: '1px solid rgba(79, 70, 229, 0.25)',
+                        borderRadius: '10px', marginBottom: '1.5rem',
                     }}>
-                        <Package size={16} />
-                        <span>Source: <strong>{sourcePR.request_number}</strong> — {sourcePR.description}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', fontWeight: 600, padding: '0.2rem 0.5rem', borderRadius: '4px', background: 'rgba(79, 70, 229, 0.15)' }}>
-                            {sourcePR.priority} Priority
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+                            <Package size={17} color="#4f46e5" />
+                            <span style={{ fontSize: 'var(--text-sm)', color: '#4f46e5', fontWeight: 700 }}>
+                                Converting from {sourcePR.request_number}
+                            </span>
+                            {sourcePR.priority && (
+                                <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '4px', background: 'rgba(79, 70, 229, 0.15)', color: '#4f46e5', textTransform: 'uppercase' }}>
+                                    {sourcePR.priority}
+                                </span>
+                            )}
+                            <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                                {sourcePR.lines?.length || 0} line item{(sourcePR.lines?.length || 0) === 1 ? '' : 's'} adopted
+                            </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                            Line items, dimensions, and GL accounts are pre-filled from the PR.
+                            Select the <strong>Vendor</strong>, review <strong>expected delivery</strong>, <strong>tax</strong>, and optional <strong>down payment</strong>.
+                        </p>
                     </div>
                 )}
 
@@ -308,8 +429,67 @@ const POForm = () => {
                     </div>
                 )}
 
-                {/* Layout */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1.5rem', alignItems: 'start' }}>
+                {/* ── Success Confirmation ───────────────────────────── */}
+                {createdPO && (
+                    <div style={{ maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
+                        <div className="card" style={{ padding: '2.5rem 2rem' }}>
+                            <div style={{
+                                width: 64, height: 64, borderRadius: '50%', margin: '0 auto 1.25rem',
+                                background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
+                                border: '3px solid #a7f3d0',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            </div>
+                            <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 800, color: 'var(--color-text)', marginBottom: '0.5rem' }}>
+                                Purchase Order Created
+                            </h2>
+                            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: '1.5rem' }}>
+                                Your purchase order has been saved as Draft.
+                            </p>
+                            <div style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                                padding: '0.75rem 1.5rem', borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                                color: '#fff', marginBottom: '1.5rem',
+                            }}>
+                                <Package size={18} />
+                                <span style={{ fontSize: 'var(--text-lg)', fontWeight: 800, letterSpacing: '0.02em' }}>
+                                    {createdPO.po_number}
+                                </span>
+                            </div>
+                            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginBottom: '2rem' }}>
+                                Use this number to track and reference this purchase order.
+                            </p>
+                            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                                <button type="button" onClick={() => navigate('/procurement/orders')}
+                                    className="btn btn-outline" style={{ padding: '0.6rem 1.5rem', fontWeight: 600 }}>
+                                    View All Orders
+                                </button>
+                                <button type="button" onClick={() => {
+                                    setCreatedPO(null);
+                                    setSelectedPRId('');
+                                    setHeader({
+                                        vendor: '', order_date: new Date().toISOString().split('T')[0],
+                                        expected_delivery_date: '', mda: '', fund: '', function: '', program: '', geo: '',
+                                        tax_code: '', tax_rate: '0', wht_exempt: false,
+                                    });
+                                    setLines([{ id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '', product_type: '', product_category: '' }]);
+                                    setDpEnabled(false);
+                                    if (prId) navigate('/procurement/orders/new');
+                                }}
+                                    className="btn btn-primary" style={{ padding: '0.6rem 1.5rem', fontWeight: 600 }}>
+                                    <Plus size={16} /> Create New PO
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Layout — hidden after successful submission */}
+                {!createdPO && <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: '1.5rem', alignItems: 'start' }}>
 
                     {/* LEFT / MAIN COLUMN */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -322,13 +502,46 @@ const POForm = () => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                                {/* PO Number + Order Date */}
+                                {/* Source PR (optional) + Order Date — replaces the old PO Number slot */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1rem' }}>
                                     <div>
-                                        <label style={labelStyle}>PO Number<span className="required-mark"> *</span></label>
-                                        <input style={inputStyle} type="text" placeholder={`PO-${new Date().getFullYear()}-XXXX`}
-                                            value={header.po_number}
-                                            onChange={e => setHeader({ ...header, po_number: e.target.value })} required />
+                                        <label style={labelStyle}>
+                                            Source Purchase Requisition <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                                        </label>
+                                        {prId ? (
+                                            // URL-based conversion — show the locked PR
+                                            <div style={{
+                                                ...inputStyle,
+                                                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                                background: 'rgba(79,70,229,0.04)',
+                                                color: 'var(--color-text)',
+                                                cursor: 'default',
+                                            }}>
+                                                <span style={{
+                                                    fontSize: 'var(--text-xs)', fontWeight: 700,
+                                                    background: 'rgba(79,70,229,0.15)', color: '#4f46e5',
+                                                    padding: '0.1rem 0.45rem', borderRadius: '4px',
+                                                    letterSpacing: '0.03em',
+                                                }}>FROM PR</span>
+                                                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                                                    {sourcePR?.request_number || '—'}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <select
+                                                style={selectStyle}
+                                                value={selectedPRId}
+                                                onChange={e => setSelectedPRId(e.target.value)}
+                                            >
+                                                <option value="">— None (free-standing PO) —</option>
+                                                {approvedPRs.map((pr: any) => (
+                                                    <option key={pr.id} value={pr.id}>
+                                                        {pr.request_number} — {pr.description?.substring(0, 50) || 'No description'}
+                                                        {pr.lines?.length ? ` (${pr.lines.length} item${pr.lines.length === 1 ? '' : 's'})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
                                     </div>
                                     <div>
                                         <label style={labelStyle}>Order Date<span className="required-mark"> *</span></label>
@@ -341,8 +554,22 @@ const POForm = () => {
                                 {/* Vendor + Expected Delivery */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1rem' }}>
                                     <div>
-                                        <label style={labelStyle}>Vendor / Supplier<span className="required-mark"> *</span></label>
-                                        <select style={selectStyle} value={header.vendor}
+                                        <label style={{
+                                            ...labelStyle,
+                                            color: sourcePR && !header.vendor ? '#4f46e5' : labelStyle.color,
+                                        }}>
+                                            Vendor / Supplier<span className="required-mark"> *</span>
+                                            {sourcePR && !header.vendor && (
+                                                <span style={{ marginLeft: 6, fontSize: '0.65rem', fontWeight: 700, color: '#4f46e5' }}>
+                                                    ← pick this next
+                                                </span>
+                                            )}
+                                        </label>
+                                        <select style={{
+                                            ...selectStyle,
+                                            borderColor: sourcePR && !header.vendor ? '#4f46e5' : (selectStyle.borderColor || '#e2e8f0'),
+                                            boxShadow: sourcePR && !header.vendor ? '0 0 0 3px rgba(79, 70, 229, 0.15)' : 'none',
+                                        }} value={header.vendor}
                                             onChange={e => setHeader({ ...header, vendor: e.target.value })} required>
                                             <option value="">Select Vendor</option>
                                             {vendors?.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -356,14 +583,25 @@ const POForm = () => {
                                     </div>
                                 </div>
 
-                                {/* Cost Center */}
+                                {/* MDA — adopted from PR when converting, locked to preserve budget trail */}
                                 <div>
-                                    <label style={labelStyle}>Cost Center</label>
-                                    <select style={selectStyle} value={header.cost_center}
-                                        onChange={e => setHeader({ ...header, cost_center: e.target.value })}>
-                                        <option value="">Select Cost Center</option>
-                                        {costCenters?.map((cc: any) => (
-                                            <option key={cc.id} value={cc.id}>{cc.code} - {cc.name}</option>
+                                    <label style={labelStyle}>
+                                        MDA (Administrative Segment) *
+                                        {sourcePR && header.mda && (
+                                            <span style={{ marginLeft: 6, fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                                                (adopted from PR)
+                                            </span>
+                                        )}
+                                    </label>
+                                    <select style={{
+                                        ...selectStyle,
+                                        ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}),
+                                    }} value={header.mda}
+                                        disabled={!!sourcePR}
+                                        onChange={e => setHeader({ ...header, mda: e.target.value })} required>
+                                        <option value="">Select MDA</option>
+                                        {(mdas || []).map((m: any) => (
+                                            <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -614,17 +852,25 @@ const POForm = () => {
                     {/* RIGHT COLUMN */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-                            {/* Dimensions Card */}
+                            {/* Dimensions Card — locked when adopted from a PR (preserves budget trail) */}
                             <div className="card" style={{ padding: '1.75rem' }}>
-                                <div style={sectionHeaderStyle}>
-                                    <span style={iconBoxStyle}><Layers size={16} color="#4f46e5" /></span>
-                                    Dimensions
+                                <div style={{ ...sectionHeaderStyle, justifyContent: 'space-between' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <span style={iconBoxStyle}><Layers size={16} color="#4f46e5" /></span>
+                                        Dimensions
+                                    </span>
+                                    {sourcePR && (
+                                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                                            Adopted from PR
+                                        </span>
+                                    )}
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                                     <div>
                                         <label style={labelStyle}>Fund<span className="required-mark"> *</span></label>
-                                        <select style={selectStyle} value={header.fund}
+                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.fund}
+                                            disabled={!!sourcePR}
                                             onChange={e => setHeader({ ...header, fund: e.target.value })} required>
                                             <option value="">Select Fund</option>
                                             {dims?.funds?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
@@ -632,7 +878,8 @@ const POForm = () => {
                                     </div>
                                     <div>
                                         <label style={labelStyle}>Function<span className="required-mark"> *</span></label>
-                                        <select style={selectStyle} value={header.function}
+                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.function}
+                                            disabled={!!sourcePR}
                                             onChange={e => setHeader({ ...header, function: e.target.value })} required>
                                             <option value="">Select Function</option>
                                             {dims?.functions?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
@@ -640,7 +887,8 @@ const POForm = () => {
                                     </div>
                                     <div>
                                         <label style={labelStyle}>Program<span className="required-mark"> *</span></label>
-                                        <select style={selectStyle} value={header.program}
+                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.program}
+                                            disabled={!!sourcePR}
                                             onChange={e => setHeader({ ...header, program: e.target.value })} required>
                                             <option value="">Select Program</option>
                                             {dims?.programs?.map((p: any) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
@@ -648,13 +896,88 @@ const POForm = () => {
                                     </div>
                                     <div>
                                         <label style={labelStyle}>Geography (Geo)<span className="required-mark"> *</span></label>
-                                        <select style={selectStyle} value={header.geo}
+                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.geo}
+                                            disabled={!!sourcePR}
                                             onChange={e => setHeader({ ...header, geo: e.target.value })} required>
                                             <option value="">Select Geo</option>
                                             {dims?.geos?.map((g: any) => <option key={g.id} value={g.id}>{g.code} - {g.name}</option>)}
                                         </select>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* ── Budget Appropriation Card ───────────────────── */}
+                            <div className="card" style={{ padding: '1.25rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                    <span style={iconBoxStyle}><Wallet size={16} color="#4f46e5" /></span>
+                                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-text)' }}>
+                                        Budget Appropriation
+                                    </span>
+                                </div>
+                                {!header.mda || !header.fund ? (
+                                    <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
+                                        Select MDA and Fund to check available budget.
+                                    </p>
+                                ) : appropLoading ? (
+                                    <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
+                                        Looking up appropriation…
+                                    </p>
+                                ) : appropriationInfo?.found ? (
+                                    <>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>
+                                            {appropriationInfo.mda} — {appropriationInfo.account}
+                                        </div>
+                                        <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+                                            Fund: {appropriationInfo.fund}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.75rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: 'var(--color-text-muted)' }}>Approved</span>
+                                                <span style={{ fontWeight: 600 }}>{formatCurrency(parseFloat(appropriationInfo.amount_approved))}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: 'var(--color-text-muted)' }}>Committed (existing POs)</span>
+                                                <span style={{ fontWeight: 600, color: '#d97706' }}>{formatCurrency(parseFloat(appropriationInfo.total_committed))}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: 'var(--color-text-muted)' }}>Expended</span>
+                                                <span style={{ fontWeight: 600, color: '#b91c1c' }}>{formatCurrency(parseFloat(appropriationInfo.total_expended))}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: '0.4rem', marginTop: '0.2rem' }}>
+                                                <span style={{ color: 'var(--color-text)', fontWeight: 600 }}>Available</span>
+                                                <span style={{ fontWeight: 700, color: '#15803d' }}>{formatCurrency(availableBalance ?? 0)}</span>
+                                            </div>
+                                        </div>
+                                        {totalOrder > 0 && (
+                                            <div style={{
+                                                marginTop: '0.85rem', padding: '0.65rem 0.75rem', borderRadius: '8px',
+                                                background: exceedsBudget ? 'rgba(185,28,28,0.08)' : 'rgba(21,128,61,0.08)',
+                                                border: `1px solid ${exceedsBudget ? 'rgba(185,28,28,0.25)' : 'rgba(21,128,61,0.25)'}`,
+                                                fontSize: '0.7rem',
+                                                display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
+                                                color: exceedsBudget ? '#991b1b' : '#14532d',
+                                            }}>
+                                                {exceedsBudget ? <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> : <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: 1 }} />}
+                                                <span>
+                                                    {exceedsBudget
+                                                        ? `This PO of ${formatCurrency(totalOrder)} exceeds the available balance by ${formatCurrency(totalOrder - (availableBalance ?? 0))}.`
+                                                        : `This PO of ${formatCurrency(totalOrder)} will commit against the available balance.`}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div style={{
+                                        padding: '0.65rem 0.75rem', borderRadius: '8px',
+                                        background: 'rgba(217,119,6,0.08)',
+                                        border: '1px solid rgba(217,119,6,0.25)',
+                                        fontSize: '0.7rem', color: '#92400e',
+                                        display: 'flex', alignItems: 'flex-start', gap: '0.4rem',
+                                    }}>
+                                        <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                                        <span>{appropriationInfo?.error || 'No active appropriation found for this MDA/Fund combination.'}</span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Summary Card */}
@@ -747,7 +1070,7 @@ const POForm = () => {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>}
             </form>
         </AccountingLayout>
     );

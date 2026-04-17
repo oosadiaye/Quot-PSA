@@ -8,8 +8,8 @@ Provides automated bank reconciliation matching:
 """
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, Any, List
+from dataclasses import dataclass
 from django.db import transaction
 from django.contrib.auth.models import User
 from accounting.models import BankStatement, BankStatementLine
@@ -65,7 +65,7 @@ class BankReconciliationService:
     ) -> BankStatement:
         """
         Import a bank statement with all its lines.
-        
+
         Args:
             bank_account_id: Bank account ID
             statement_data: List of transaction dictionaries
@@ -77,7 +77,7 @@ class BankReconciliationService:
             opening_balance: Opening balance
             closing_balance: Closing balance
             file_name: Original file name
-            
+
         Returns:
             BankStatement instance
         """
@@ -94,7 +94,7 @@ class BankReconciliationService:
                 file_name=file_name,
                 status='IMPORTED',
             )
-            
+
             for idx, line_data in enumerate(statement_data, 1):
                 BankStatementLine.objects.create(
                     statement=statement,
@@ -108,10 +108,10 @@ class BankReconciliationService:
                     balance=Decimal(str(line_data.get('balance', 0))),
                     transaction_type=line_data.get('type', ''),
                 )
-            
+
             statement.status = 'PROCESSING'
             statement.save()
-            
+
             return statement
 
     @classmethod
@@ -122,21 +122,21 @@ class BankReconciliationService:
     ) -> List[MatchCandidate]:
         """
         Find potential matches for a statement line.
-        
+
         Args:
             statement_line: Bank statement line
             bank_account_id: Bank account ID
-            
+
         Returns:
             List of MatchCandidate sorted by score
         """
         from accounting.models import Payment, Receipt
-        
+
         candidates = []
         amount = statement_line.amount
-        
+
         is_credit = statement_line.is_credit
-        
+
         if is_credit:
             payments = Payment.objects.filter(
                 bank_account_id=bank_account_id,
@@ -146,7 +146,7 @@ class BankReconciliationService:
                 payment_date__gte=statement_line.transaction_date - timedelta(days=cls.MATCH_TOLERANCE_DAYS),
                 payment_date__lte=statement_line.transaction_date + timedelta(days=cls.MATCH_TOLERANCE_DAYS),
             )
-            
+
             for payment in payments:
                 score = cls._calculate_match_score(
                     statement_line,
@@ -163,7 +163,7 @@ class BankReconciliationService:
                     match_score=score,
                     match_type='EXACT' if score >= 1.0 else 'CANDIDATE',
                 ))
-        
+
         else:
             receipts = Receipt.objects.filter(
                 bank_account_id=bank_account_id,
@@ -173,7 +173,7 @@ class BankReconciliationService:
                 receipt_date__gte=statement_line.transaction_date - timedelta(days=cls.MATCH_TOLERANCE_DAYS),
                 receipt_date__lte=statement_line.transaction_date + timedelta(days=cls.MATCH_TOLERANCE_DAYS),
             )
-            
+
             for receipt in receipts:
                 score = cls._calculate_match_score(
                     statement_line,
@@ -190,7 +190,7 @@ class BankReconciliationService:
                     match_score=score,
                     match_type='EXACT' if score >= 1.0 else 'CANDIDATE',
                 ))
-        
+
         candidates.sort(key=lambda x: x.match_score, reverse=True)
         return candidates
 
@@ -204,20 +204,20 @@ class BankReconciliationService:
     ) -> float:
         """Calculate match score between statement and GL transaction."""
         score = 0.0
-        
+
         if amount == statement_line.amount:
             score += 0.5
-        
+
         date_diff = abs((statement_line.transaction_date - transaction_date).days)
         if date_diff == 0:
             score += 0.3
         elif date_diff <= cls.MATCH_TOLERANCE_DAYS:
             score += 0.3 * (1 - date_diff / cls.MATCH_TOLERANCE_DAYS)
-        
+
         if reference and statement_line.reference:
             if reference.lower() in statement_line.reference.lower():
                 score += 0.2
-        
+
         return min(score, 1.0)
 
     @classmethod
@@ -228,11 +228,11 @@ class BankReconciliationService:
     ) -> ReconciliationResult:
         """
         Automatically match all lines in a statement.
-        
+
         Args:
             statement_id: BankStatement ID
             match_threshold: Minimum score to auto-match
-            
+
         Returns:
             ReconciliationResult with matching statistics
         """
@@ -240,28 +240,28 @@ class BankReconciliationService:
             statement = BankStatement.objects.get(id=statement_id)
         except BankStatement.DoesNotExist:
             raise ValueError(f"Statement {statement_id} not found")
-        
+
         matched_lines = 0
         matches = []
         matched_debit = Decimal('0')
         matched_credit = Decimal('0')
-        
+
         for line in statement.lines.filter(match_status='UNMATCHED'):
             candidates = cls.find_match_candidates(line, statement.bank_account_id)
-            
+
             if candidates and candidates[0].match_score >= match_threshold:
                 best_match = candidates[0]
-                
+
                 line.match_status = 'MATCHED'
                 line.matched_transaction_type = best_match.transaction_type
                 line.matched_transaction_id = best_match.transaction_id
                 line.matched_date = datetime.now()
                 line.save()
-                
+
                 matched_lines += 1
                 matched_debit += line.debit_amount
                 matched_credit += line.credit_amount
-                
+
                 matches.append({
                     'line_id': line.id,
                     'transaction_type': best_match.transaction_type,
@@ -269,10 +269,10 @@ class BankReconciliationService:
                     'score': best_match.match_score,
                     'type': best_match.match_type,
                 })
-        
+
         total_debit = sum(line.debit_amount for line in statement.lines.all())
         total_credit = sum(line.credit_amount for line in statement.lines.all())
-        
+
         return ReconciliationResult(
             statement_id=statement_id,
             total_lines=statement.lines.count(),
@@ -297,24 +297,24 @@ class BankReconciliationService:
     ) -> BankStatementLine:
         """
         Manually match a statement line to a GL transaction.
-        
+
         Args:
             line_id: BankStatementLine ID
             transaction_type: Type of GL transaction
             transaction_id: GL transaction ID
             user: User performing the match
-            
+
         Returns:
             Updated BankStatementLine
         """
         line = BankStatementLine.objects.get(id=line_id)
-        
+
         line.match_status = 'MANUAL'
         line.matched_transaction_type = transaction_type
         line.matched_transaction_id = transaction_id
         line.matched_date = datetime.now()
         line.save()
-        
+
         return line
 
     @classmethod
@@ -346,25 +346,25 @@ class BankReconciliationService:
     ) -> 'BankReconciliation':
         """Create a formal bank reconciliation record."""
         from accounting.models import BankReconciliation as BRModel
-        
+
         statement = BankStatement.objects.get(id=statement_id)
-        
+
         matched_debit = sum(
-            line.debit_amount 
+            line.debit_amount
             for line in statement.lines.filter(match_status__in=['MATCHED', 'MANUAL'])
         )
         matched_credit = sum(
-            line.credit_amount 
+            line.credit_amount
             for line in statement.lines.filter(match_status__in=['MATCHED', 'MANUAL'])
         )
-        
+
         if statement_balance is None:
             statement_balance = statement.closing_balance
-        
+
         calculated_book = matched_debit - matched_credit
-        
+
         difference = statement_balance - calculated_book - deposits_in_transit + outstanding_checks - bank_charges - other_adjustments
-        
+
         reconciliation = BRModel.objects.create(
             bank_account=statement.bank_account,
             statement_date=statement.statement_date,
@@ -378,7 +378,7 @@ class BankReconciliationService:
             reconciled_by=user,
             status='Draft',
         )
-        
+
         return reconciliation
 
     @classmethod
@@ -390,17 +390,17 @@ class BankReconciliationService:
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Get all unmatched items for a bank account.
-        
+
         Args:
             bank_account_id: Bank account ID
             start_date: Filter start date
             end_date: Filter end date
-            
+
         Returns:
             Dictionary with deposits_in_transit and outstanding_checks
         """
         from accounting.models import Payment, Receipt
-        
+
         payments = Payment.objects.filter(
             bank_account_id=bank_account_id,
             status='Posted',
@@ -409,25 +409,25 @@ class BankReconciliationService:
             bank_account_id=bank_account_id,
             status='Posted',
         )
-        
+
         if start_date:
             payments = payments.filter(payment_date__gte=start_date)
             receipts = receipts.filter(receipt_date__gte=start_date)
         if end_date:
             payments = payments.filter(payment_date__lte=end_date)
             receipts = receipts.filter(receipt_date__lte=end_date)
-        
+
         matched_payment_ids = BankStatementLine.objects.filter(
             bank_account__bank_account_id=bank_account_id,
             matched_transaction_type='PAYMENT',
             match_status__in=['MATCHED', 'MANUAL']
         ).values_list('matched_transaction_id', flat=True)
-        
+
         matched_receipt_ids = BankStatementLine.objects.filter(
             matched_transaction_type='RECEIPT',
             match_status__in=['MATCHED', 'MANUAL']
         ).values_list('matched_transaction_id', flat=True)
-        
+
         outstanding_checks = [
             {
                 'id': p.id,
@@ -438,7 +438,7 @@ class BankReconciliationService:
             }
             for p in payments.exclude(id__in=matched_payment_ids)
         ]
-        
+
         deposits_in_transit = [
             {
                 'id': r.id,
@@ -449,7 +449,7 @@ class BankReconciliationService:
             }
             for r in receipts.exclude(id__in=matched_receipt_ids)
         ]
-        
+
         return {
             'outstanding_checks': outstanding_checks,
             'deposits_in_transit': deposits_in_transit,

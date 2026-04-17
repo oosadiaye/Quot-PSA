@@ -1,4 +1,4 @@
-# DTSG ERP Implementation Task Flow
+# QUOT ERP Implementation Task Flow
 ## Comprehensive Sequential Implementation Plan
 
 ---
@@ -747,7 +747,7 @@ class ProcurementFlowTestCase(TestCase):
 
 ### Task 31: Production Settings Configuration
 **Status**: PENDING
-- File: `dtsg_erp/settings_production.py`
+- File: `quot_pse/settings_production.py`
 - Create production settings with:
   - DEBUG = False
   - ALLOWED_HOSTS configuration

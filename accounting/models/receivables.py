@@ -1,7 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from django.db import models, transaction
-from django.utils import timezone
+from django.db import models
 from django.core.validators import MinValueValidator
 from core.models import AuditBaseModel, ImmutableModelMixin
 from django.contrib.auth.models import User
@@ -38,8 +37,19 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     currency = models.ForeignKey('accounting.Currency', on_delete=models.PROTECT, null=True, blank=True)
     status = models.CharField(max_length=20, choices=[
+        # Lifecycle for AP Vendor Invoices:
+        #   Draft    – created, 3-pillar budget validation passed at save time
+        #   Approved – transient state during approve_invoice action
+        #              (fliped by the view; usually never visible in the list
+        #              because post_invoice runs immediately after)
+        #   Posted   – GL journal created (DR Expense / CR AP), AP recognised,
+        #              appropriation's Expended column reflects this invoice.
+        #              Awaiting payment voucher from Treasury.
+        #   Partially Paid / Paid – payment voucher applied (treasury)
+        #   Void – cancelled/reversed
         ('Draft', 'Draft'),
         ('Approved', 'Approved'),
+        ('Posted', 'Posted'),
         ('Partially Paid', 'Partially Paid'),
         ('Paid', 'Paid'),
         ('Void', 'Void'),
@@ -73,6 +83,9 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
 
     class Meta:
         ordering = ['-invoice_date', '-invoice_number']
+        indexes = [
+            models.Index(fields=['status', 'invoice_date'], name='vi_status_date_idx'),
+        ]
 
     @property
     def balance_due(self):
@@ -123,6 +136,18 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     journal_entry = models.ForeignKey('accounting.JournalHeader', on_delete=models.SET_NULL, null=True, blank=True)
     bank_account = models.ForeignKey('accounting.BankAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='outgoing_payments')
     vendor = models.ForeignKey('procurement.Vendor', on_delete=models.PROTECT, null=True, blank=True, related_name='payments')
+    # Optional back-link to the Payment Voucher (PV) that authorised this
+    # payment. When AccountingSettings.require_pv_before_payment is True
+    # the PaymentSerializer makes this mandatory — the PV becomes the
+    # authoritative "authority to pay" document and every outgoing cash
+    # must reference one. When the flag is False the field stays
+    # nullable and direct vendor-invoice payments remain possible.
+    payment_voucher = models.ForeignKey(
+        'accounting.PaymentVoucherGov', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='cash_payments',
+        help_text='PV that authorises this payment. Required when '
+                  'require_pv_before_payment setting is True.',
+    )
     is_advance = models.BooleanField(default=False)
     advance_type = models.CharField(max_length=20, choices=ADVANCE_TYPE_CHOICES, blank=True, default='')
     advance_remaining = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -158,10 +183,13 @@ class CustomerInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     invoice_number = models.CharField(max_length=50, unique=True, default='')
     reference = models.CharField(max_length=100, blank=True, default='')
     description = models.TextField(blank=True, default='')
-    customer = models.ForeignKey('sales.Customer', on_delete=models.PROTECT, related_name='invoices', null=True, blank=True)
+    # Government context: "customer" = revenue payer / debtor
+    customer_name = models.CharField(max_length=200, blank=True, default='',
+        help_text="Payer/debtor name (replaces FK to deleted sales.Customer)")
+    customer_tin = models.CharField(max_length=20, blank=True, default='',
+        help_text="Tax Identification Number")
     invoice_date = models.DateField(default=date.today)
     due_date = models.DateField(default=date.today)
-    sales_order = models.ForeignKey('sales.SalesOrder', on_delete=models.SET_NULL, null=True, blank=True)
     mda = models.ForeignKey('accounting.MDA', on_delete=models.PROTECT, null=True, blank=True)
     fund = models.ForeignKey('accounting.Fund', on_delete=models.PROTECT, null=True, blank=True)
     function = models.ForeignKey('accounting.Function', on_delete=models.PROTECT, null=True, blank=True)
@@ -208,6 +236,9 @@ class CustomerInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
 
     class Meta:
         ordering = ['-invoice_date', '-invoice_number']
+        indexes = [
+            models.Index(fields=['status', 'invoice_date'], name='ci_status_date_idx'),
+        ]
 
     @property
     def balance_due(self):
@@ -257,7 +288,8 @@ class Receipt(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     ], default='Draft')
     journal_entry = models.ForeignKey('accounting.JournalHeader', on_delete=models.SET_NULL, null=True, blank=True)
     bank_account = models.ForeignKey('accounting.BankAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='incoming_payments')
-    customer = models.ForeignKey('sales.Customer', on_delete=models.PROTECT, null=True, blank=True, related_name='receipts')
+    customer_name = models.CharField(max_length=200, blank=True, default='',
+        help_text="Payer name (replaces FK to deleted sales.Customer)")
     is_advance = models.BooleanField(default=False)
     advance_type = models.CharField(max_length=20, choices=ADVANCE_TYPE_CHOICES, blank=True, default='')
     advance_remaining = models.DecimalField(max_digits=15, decimal_places=2, default=0)

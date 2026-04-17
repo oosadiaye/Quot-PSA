@@ -1,12 +1,12 @@
 from rest_framework import serializers
-from .models import UnifiedBudget, UnifiedBudgetEncumbrance, UnifiedBudgetVariance, UnifiedBudgetAmendment
+from .models import UnifiedBudget, UnifiedBudgetEncumbrance, UnifiedBudgetVariance, UnifiedBudgetAmendment, RevenueBudget
 
 
 class UnifiedBudgetVarianceSerializer(serializers.ModelSerializer):
     budget_code = serializers.ReadOnlyField(source='budget.budget_code')
     period_variance_percent = serializers.ReadOnlyField()
     ytd_variance_percent = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = UnifiedBudgetVariance
         fields = [
@@ -20,7 +20,7 @@ class UnifiedBudgetVarianceSerializer(serializers.ModelSerializer):
 class UnifiedBudgetEncumbranceSerializer(serializers.ModelSerializer):
     budget_code = serializers.ReadOnlyField(source='budget.budget_code')
     remaining_amount = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = UnifiedBudgetEncumbrance
         fields = [
@@ -34,7 +34,7 @@ class UnifiedBudgetAmendmentSerializer(serializers.ModelSerializer):
     budget_code = serializers.ReadOnlyField(source='budget.budget_code')
     requested_by_name = serializers.ReadOnlyField(source='requested_by.username')
     approved_by_name = serializers.ReadOnlyField(source='approved_by.username')
-    
+
     class Meta:
         model = UnifiedBudgetAmendment
         fields = [
@@ -55,7 +55,7 @@ class UnifiedBudgetSerializer(serializers.ModelSerializer):
     utilization_rate = serializers.ReadOnlyField()
     variance_amount = serializers.ReadOnlyField()
     variance_percent = serializers.ReadOnlyField()
-    
+
     mda_name = serializers.ReadOnlyField(source='mda.name')
     cost_center_name = serializers.ReadOnlyField(source='cost_center.name')
     fund_name = serializers.ReadOnlyField(source='fund.name')
@@ -64,7 +64,7 @@ class UnifiedBudgetSerializer(serializers.ModelSerializer):
     geo_name = serializers.ReadOnlyField(source='geo.name')
     account_code = serializers.ReadOnlyField(source='account.code')
     account_name = serializers.ReadOnlyField(source='account.name')
-    
+
     class Meta:
         model = UnifiedBudget
         fields = [
@@ -87,3 +87,128 @@ class UnifiedBudgetSerializer(serializers.ModelSerializer):
 BudgetVarianceSerializer = UnifiedBudgetVarianceSerializer
 BudgetLineSerializer = UnifiedBudgetEncumbranceSerializer
 BudgetAllocationSerializer = UnifiedBudgetSerializer
+
+
+# ─── Government Appropriation & Warrant (Quot PSE Phase 3) ───────────
+
+from .models import Appropriation, Warrant
+
+
+class AppropriationSerializer(serializers.ModelSerializer):
+    # ── Segment codes (for audit / cross-reference) ──────────
+    administrative_code = serializers.CharField(source='administrative.code', read_only=True)
+    administrative_name = serializers.CharField(source='administrative.name', read_only=True)
+    economic_code = serializers.CharField(source='economic.code', read_only=True)
+    economic_name = serializers.CharField(source='economic.name', read_only=True)
+    functional_code = serializers.CharField(source='functional.code', read_only=True)
+    functional_name = serializers.CharField(source='functional.name', read_only=True)
+    programme_code = serializers.CharField(source='programme.code', read_only=True)
+    programme_name = serializers.CharField(source='programme.name', read_only=True)
+    fund_code = serializers.CharField(source='fund.code', read_only=True)
+    fund_name = serializers.CharField(source='fund.name', read_only=True)
+    geographic_code = serializers.CharField(source='geographic.code', read_only=True)
+    geographic_name = serializers.CharField(source='geographic.name', read_only=True)
+
+    fiscal_year_label = serializers.SerializerMethodField()
+    total_warrants_released = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    total_committed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    total_expended = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    available_balance = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    execution_rate = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = Appropriation
+        fields = [
+            'id', 'fiscal_year', 'fiscal_year_label',
+            'administrative', 'administrative_code', 'administrative_name',
+            'economic', 'economic_code', 'economic_name',
+            'functional', 'functional_code', 'functional_name',
+            'programme', 'programme_code', 'programme_name',
+            'fund', 'fund_code', 'fund_name',
+            'geographic', 'geographic_code', 'geographic_name',
+            'amount_approved', 'appropriation_type', 'status',
+            'law_reference', 'enactment_date', 'description', 'notes',
+            'total_warrants_released', 'total_committed',
+            'total_expended', 'available_balance', 'execution_rate',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_fiscal_year_label(self, obj: Appropriation) -> str:
+        return str(obj.fiscal_year) if obj.fiscal_year else ''
+
+
+class WarrantSerializer(serializers.ModelSerializer):
+    appropriation_mda = serializers.CharField(
+        source='appropriation.administrative.name', read_only=True,
+    )
+    appropriation_account = serializers.CharField(
+        source='appropriation.economic.name', read_only=True,
+    )
+    attachment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Warrant
+        fields = [
+            'id', 'appropriation', 'appropriation_mda', 'appropriation_account',
+            'quarter', 'amount_released', 'release_date',
+            'authority_reference', 'issued_by', 'status',
+            'attachment', 'attachment_url', 'notes',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'attachment_url']
+
+    def get_attachment_url(self, obj: Warrant) -> str | None:
+        if obj.attachment:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.attachment.url)
+            return obj.attachment.url
+        return None
+
+
+class RevenueBudgetSerializer(serializers.ModelSerializer):
+    administrative_name = serializers.CharField(
+        source='administrative.name', read_only=True,
+    )
+    economic_name = serializers.CharField(
+        source='economic.name', read_only=True,
+    )
+    fund_name = serializers.CharField(
+        source='fund.name', read_only=True,
+    )
+    actual_collected = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    variance = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    performance_rate = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = RevenueBudget
+        fields = [
+            'id', 'fiscal_year', 'administrative', 'administrative_name',
+            'economic', 'economic_name', 'fund', 'fund_name',
+            'estimated_amount', 'monthly_spread', 'status',
+            'actual_collected', 'variance', 'performance_rate',
+            'description', 'notes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'actual_collected', 'variance', 'performance_rate']
+
+
+class BudgetValidationRequestSerializer(serializers.Serializer):
+    """For the pre-expenditure validation endpoint."""
+    administrative_id = serializers.IntegerField()
+    economic_id = serializers.IntegerField()
+    fund_id = serializers.IntegerField()
+    fiscal_year_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=20, decimal_places=2)

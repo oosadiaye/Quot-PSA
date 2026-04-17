@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
-    UnifiedBudget, UnifiedBudgetEncumbrance, 
-    UnifiedBudgetVariance, UnifiedBudgetAmendment
+    UnifiedBudget, UnifiedBudgetEncumbrance,
+    UnifiedBudgetVariance, UnifiedBudgetAmendment,
+    Appropriation, Warrant,
 )
 
 @admin.register(UnifiedBudget)
@@ -61,3 +62,37 @@ class UnifiedBudgetAmendmentAdmin(admin.ModelAdmin):
     list_filter = ['amendment_type', 'status', 'amendment_number']
     search_fields = ['amendment_number', 'reason']
     readonly_fields = ['created_at', 'approved_date']
+
+
+# ─── Government Appropriation & Warrant ──────────────────────────────
+
+@admin.register(Appropriation)
+class AppropriationAdmin(admin.ModelAdmin):
+    list_display = ['fiscal_year', 'get_mda', 'get_account', 'amount_approved',
+                    'appropriation_type', 'status']
+    list_filter = ['status', 'appropriation_type', 'fiscal_year']
+    search_fields = ['administrative__name', 'economic__name', 'description']
+    list_select_related = ['fiscal_year', 'administrative', 'economic', 'fund']
+    raw_id_fields = ['administrative', 'economic', 'functional', 'programme', 'fund']
+    ordering = ['fiscal_year', 'administrative__code']
+
+    @admin.display(description='MDA')
+    def get_mda(self, obj):
+        return obj.administrative.name if obj.administrative else '-'
+
+    @admin.display(description='Account')
+    def get_account(self, obj):
+        return obj.economic.name if obj.economic else '-'
+
+
+@admin.register(Warrant)
+class WarrantAdmin(admin.ModelAdmin):
+    list_display = ['get_mda', 'quarter', 'amount_released', 'release_date', 'status']
+    list_filter = ['status', 'quarter']
+    list_select_related = ['appropriation__administrative']
+    raw_id_fields = ['appropriation']
+    ordering = ['appropriation', 'quarter']
+
+    @admin.display(description='MDA')
+    def get_mda(self, obj):
+        return obj.appropriation.administrative.name if obj.appropriation else '-'

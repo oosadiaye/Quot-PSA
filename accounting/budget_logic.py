@@ -1,5 +1,4 @@
 from decimal import Decimal
-from django.db.models import Sum
 from .models import Budget, BudgetCheckLog, BudgetPeriod
 
 
@@ -16,11 +15,16 @@ def get_active_budget(dimensions, account, date, tenant=None):
     """
     Find the active budget for a given set of dimensions, account, and date.
     dimensions: dict with 'fund', 'function', 'program', 'geo', 'mda'
+
+    Budget check uses only the 3 control dimensions:
+      MDA (Administrative) + Economic Code (account) + Fund
+
+    Function, Programme, and Geo are mandatory on transactions for
+    government performance reporting but do NOT gate budget approval.
     """
-    # If dimensions are disabled or dimensions dict is empty, skip dimension-based lookup
     if tenant and not is_dimensions_enabled_for_budget(tenant):
         return None
-    
+
     if not dimensions or not any(dimensions.values()):
         return None
 
@@ -30,26 +34,30 @@ def get_active_budget(dimensions, account, date, tenant=None):
         end_date__gte=date,
         status='ACTIVE'
     ).first()
-    
+
     if not period:
-        # Fallback to any period if no ACTIVE one found for the date
         period = BudgetPeriod.objects.filter(
             start_date__lte=date,
             end_date__gte=date
         ).first()
-        
+
     if not period:
         return None
-        
-    return Budget.objects.filter(
-        period=period,
-        account=account,
-        mda=dimensions.get('mda'),
-        fund=dimensions.get('fund'),
-        function=dimensions.get('function'),
-        program=dimensions.get('program'),
-        geo=dimensions.get('geo')
-    ).first()
+
+    # Budget control = MDA + Account (Economic Code) + Fund only
+    mda = dimensions.get('mda')
+    fund = dimensions.get('fund')
+
+    filters = {
+        'period': period,
+        'account': account,
+    }
+    if mda:
+        filters['mda'] = mda
+    if fund:
+        filters['fund'] = fund
+
+    return Budget.objects.filter(**filters).first()
 
 def check_budget_availability(dimensions, account, amount, date, transaction_type, transaction_id, user=None, tenant=None):
     """
@@ -58,25 +66,28 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
     Returns: (is_allowed: bool, message: str)
     """
     from django.db import transaction
-    
+
     # If dimensions are disabled or dimensions are not provided, skip budget check
     if tenant and not is_dimensions_enabled_for_budget(tenant):
         return True, "Dimensions module disabled. Budget check skipped."
-    
+
     if not dimensions or not any(dimensions.values()):
         return True, "No dimensions provided. Budget check skipped."
 
     with transaction.atomic():
-        budget = Budget.objects.select_for_update().filter(
-            period__start_date__lte=date,
-            period__end_date__gte=date,
-            account=account,
-            mda=dimensions.get('mda'),
-            fund=dimensions.get('fund'),
-            function=dimensions.get('function'),
-            program=dimensions.get('program'),
-            geo=dimensions.get('geo')
-        ).first()
+        # Budget control = MDA + Account (Economic Code) + Fund only
+        # Function, Programme, Geo are for reporting, not budget gating
+        filters = {
+            'period__start_date__lte': date,
+            'period__end_date__gte': date,
+            'account': account,
+        }
+        if dimensions.get('mda'):
+            filters['mda'] = dimensions['mda']
+        if dimensions.get('fund'):
+            filters['fund'] = dimensions['fund']
+
+        budget = Budget.objects.select_for_update().filter(**filters).first()
 
         if not budget:
             # PF-16: When no budget exists, respect the account's control level.
@@ -99,3 +110,112 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
         )
 
     return is_available, message
+
+
+def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
+    """Verify a transaction amount fits within the released-warrant ceiling
+    for the matching Appropriation.
+
+    Public-sector accounting requires TWO independent budget controls:
+      1. **Appropriation** — the legislatively approved annual budget.
+      2. **Warrant / AIE (Authority to Incur Expenditure)** — the
+         quarterly cash release that *actually* makes that appropriation
+         spendable. An MDA may have ₦2M appropriated but only ₦500K
+         warranted for Q2 — they cannot commit beyond the ₦500K.
+
+    ``check_budget_availability()`` (above) only validates against
+    appropriation/UnifiedBudget allocations. This helper adds the second
+    control layer.
+
+    Args:
+        dimensions: dict with 'mda', 'fund' keys
+        account: legacy ``accounting.Account`` instance (Economic Code)
+        amount: ``Decimal`` — the transaction amount being checked
+        exclude_po: ``PurchaseOrder`` to EXCLUDE from existing-commitments
+            sum, used when re-checking an already-approved PO during
+            invoice posting (we don't want to double-count its own
+            commitment that was already booked at PO approval).
+
+    Returns:
+        (allowed: bool, message: str, balance_info: dict)
+
+        balance_info has: warrants_released, already_consumed,
+        available_warrant — useful for surfacing exact numbers in the
+        error toast.
+    """
+    from budget.models import Appropriation
+    from accounting.models.ncoa import (
+        AdministrativeSegment, EconomicSegment, FundSegment,
+    )
+
+    mda  = dimensions.get('mda')  if dimensions else None
+    fund = dimensions.get('fund') if dimensions else None
+    if not (mda and fund and account):
+        return True, "Warrant check skipped (incomplete dimensions).", {}
+
+    # Resolve legacy → NCoA segments via the legacy_* OneToOne bridges.
+    admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
+    econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
+    fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
+    if not (admin_seg and econ_seg and fund_seg):
+        return True, "Warrant check skipped (no NCoA bridge yet).", {}
+
+    # Walk the economic parent chain so a leaf-coded transaction (e.g.
+    # 23100100 Acquisition of Land) can validate against an
+    # appropriation set at a parent level (e.g. 23000000 Capital
+    # Expenditure). Mirrors create_commitment_for_po() lookup.
+    candidates = [econ_seg]
+    cursor = econ_seg.parent
+    while cursor is not None:
+        candidates.append(cursor)
+        cursor = cursor.parent
+
+    appro = Appropriation.objects.filter(
+        administrative=admin_seg,
+        economic__in=candidates,
+        fund=fund_seg,
+        status='ACTIVE',
+    ).first()
+    if not appro:
+        # No matching appropriation — let check_budget_availability handle the
+        # "no budget" message. Warrant check has nothing to validate against.
+        return True, "Warrant check skipped (no matching appropriation).", {}
+
+    warrants_released = appro.total_warrants_released or Decimal('0')
+
+    # Sum existing committed + expended against this appropriation.
+    # Optionally exclude one PO's commitment (used at invoice-post time
+    # to avoid double-counting the PO that's about to be invoice-verified).
+    committed = appro.total_committed or Decimal('0')
+    expended  = appro.total_expended  or Decimal('0')
+    if exclude_po is not None:
+        existing_link = appro.commitments.filter(purchase_order=exclude_po).first()
+        if existing_link:
+            committed -= (existing_link.committed_amount or Decimal('0'))
+            committed = max(committed, Decimal('0'))
+
+    already_consumed = committed + expended
+    available_warrant = warrants_released - already_consumed
+
+    info = {
+        'appropriation_id': appro.pk,
+        'appropriation_label': (
+            f"{appro.administrative.code}/{appro.economic.code}/{appro.fund.code}"
+        ),
+        'warrants_released': warrants_released,
+        'already_consumed': already_consumed,
+        'available_warrant': available_warrant,
+        'requested': amount,
+    }
+
+    if amount > available_warrant:
+        msg = (
+            f"Warrant ceiling exceeded for {info['appropriation_label']}: "
+            f"requested ₦{amount:,.2f} but only ₦{max(available_warrant, Decimal('0')):,.2f} "
+            f"is currently available against ₦{warrants_released:,.2f} of warrants released "
+            f"(₦{already_consumed:,.2f} already committed/expended). "
+            f"Issue an additional warrant before proceeding."
+        )
+        return False, msg, info
+
+    return True, "OK — within warrant ceiling.", info

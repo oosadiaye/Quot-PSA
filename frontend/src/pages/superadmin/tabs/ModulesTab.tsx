@@ -2,8 +2,7 @@ import { Card, Table, Tag, Button, Space, Switch, Alert, Progress, Typography, L
 import {
   AppstoreOutlined, ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SettingOutlined,
   AccountBookOutlined, DollarOutlined, ShoppingCartOutlined, DatabaseOutlined,
-  ShopOutlined, TeamOutlined, ToolOutlined, SafetyCertificateOutlined, BranchesOutlined,
-  ExperimentOutlined, CustomerServiceOutlined
+  TeamOutlined, BranchesOutlined
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -23,20 +22,13 @@ const MODULE_ICONS: Record<string, React.ReactNode> = {
   budget: <DollarOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
   procurement: <ShoppingCartOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
   inventory: <DatabaseOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
-  sales: <ShopOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
   hrm: <TeamOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
-  production: <ToolOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
-  quality: <SafetyCertificateOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
-  service: <CustomerServiceOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
   workflow: <BranchesOutlined style={{ fontSize: 'var(--text-lg)', color: '#fff' }} />,
 };
 
 const MODULE_DEPENDENCIES: Record<string, string[]> = {
   budget: ['accounting', 'dimensions'],
   procurement: ['accounting', 'inventory'],
-  sales: ['accounting', 'inventory'],
-  production: ['inventory'],
-  quality: ['inventory'],
 };
 
 const ModulesTab = () => {

@@ -278,7 +278,7 @@ const Register = () => {
                     padding: '28px', maxWidth: '380px'
                 }}>
                     <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.9)', lineHeight: 1.7, marginBottom: '20px', fontStyle: 'italic' }}>
-                        "DTSG ERP transformed how we handle procurement and accounting. Our month-end close time dropped from 5 days to just 1."
+                        "QUOT ERP transformed how we handle procurement and accounting. Our month-end close time dropped from 5 days to just 1."
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{

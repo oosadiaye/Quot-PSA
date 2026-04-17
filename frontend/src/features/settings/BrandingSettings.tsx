@@ -1,14 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
-import Sidebar from '../../components/Sidebar';
-import BackButton from '../../components/BackButton';
+import SettingsLayout from './SettingsLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import {
     Building, CheckCircle, AlertTriangle, Upload, Trash2,
     Phone, Mail, Globe, MapPin, Image,
 } from 'lucide-react';
-import '../accounting/styles/glassmorphism.css';
 
 interface BrandingData {
     name: string;
@@ -46,6 +44,40 @@ const useUpdateBranding = () => {
     });
 };
 
+// ─── Shared style tokens ────────────────────────────────────────────────────
+
+const cardStyle: React.CSSProperties = {
+    background: 'white',
+    borderRadius: '20px',
+    padding: '28px 32px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
+};
+
+const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: '0.6px',
+    marginBottom: '8px',
+};
+
+const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 14px',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: '12px',
+    background: '#f8fafc',
+    color: '#0f172a',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+    boxSizing: 'border-box',
+};
+
 // ─── Reusable input ─────────────────────────────────────────────────────────
 
 function Field({
@@ -60,34 +92,31 @@ function Field({
     multiline?: boolean;
 }) {
     const shared: React.CSSProperties = {
-        width: '100%',
-        padding: '0.625rem 0.75rem',
-        paddingLeft: Icon ? '2.25rem' : '0.75rem',
-        border: '1px solid var(--color-border)',
-        borderRadius: '8px',
-        background: 'var(--color-surface)',
-        color: 'var(--color-text)',
-        fontSize: 'var(--text-sm)',
-        fontFamily: 'inherit',
-        outline: 'none',
-        transition: 'border-color 0.2s',
+        ...inputStyle,
+        paddingLeft: Icon ? '38px' : '14px',
+    };
+
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        e.target.style.borderColor = '#6366f1';
+        e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)';
+    };
+
+    const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        e.target.style.borderColor = '#e2e8f0';
+        e.target.style.boxShadow = 'none';
     };
 
     return (
-        <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-                display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
-                color: 'var(--color-text-muted)', marginBottom: '0.35rem',
-                textTransform: 'uppercase', letterSpacing: '0.5px',
-            }}>
+        <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>
                 {label}
             </label>
             <div style={{ position: 'relative' }}>
                 {Icon && (
                     <Icon size={16} style={{
-                        position: 'absolute', left: '0.65rem', top: multiline ? '0.7rem' : '50%',
+                        position: 'absolute', left: '12px', top: multiline ? '12px' : '50%',
                         transform: multiline ? undefined : 'translateY(-50%)',
-                        color: 'var(--color-text-muted)', pointerEvents: 'none',
+                        color: '#94a3b8', pointerEvents: 'none',
                     }} />
                 )}
                 {multiline ? (
@@ -97,8 +126,8 @@ function Field({
                         placeholder={placeholder}
                         rows={3}
                         style={{ ...shared, resize: 'vertical' }}
-                        onFocus={e => e.target.style.borderColor = 'var(--color-primary)'}
-                        onBlur={e => e.target.style.borderColor = 'var(--color-border)'}
+                        onFocus={handleFocus}
+                        onBlur={handleBlur}
                     />
                 ) : (
                     <input
@@ -107,11 +136,35 @@ function Field({
                         onChange={e => onChange(e.target.value)}
                         placeholder={placeholder}
                         style={shared}
-                        onFocus={e => e.target.style.borderColor = 'var(--color-primary)'}
-                        onBlur={e => e.target.style.borderColor = 'var(--color-border)'}
+                        onFocus={handleFocus}
+                        onBlur={handleBlur}
                     />
                 )}
             </div>
+        </div>
+    );
+}
+
+// ─── Section header with gradient icon badge ────────────────────────────────
+
+function SectionHeader({ icon: Icon, title, color }: {
+    icon: React.ElementType;
+    title: string;
+    color: string;
+}) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+            <div style={{
+                width: '32px', height: '32px', borderRadius: '10px',
+                background: `linear-gradient(135deg, ${color}, ${color}dd)`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 3px 8px ${color}33`,
+            }}>
+                <Icon size={16} color="white" />
+            </div>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                {title}
+            </h2>
         </div>
     );
 }
@@ -194,164 +247,170 @@ export default function BrandingSettings() {
     if (isLoading) return <LoadingScreen message="Loading branding settings..." />;
 
     return (
-        <div style={{ display: 'flex' }}>
-            <Sidebar />
-            <div style={{ flex: 1, marginLeft: '260px', minHeight: '100vh', background: 'var(--color-background)' }}>
-
-                {/* ── Page header */}
+        <SettingsLayout
+            title="Branding & Company Info"
+            breadcrumb="Branding"
+            icon={<Building size={22} color="white" />}
+            gradient="linear-gradient(135deg, #f59e0b, #d97706)"
+            gradientShadow="rgba(245, 158, 11, 0.25)"
+            subtitle="Organisation name, logo, and contact details that appear on invoices, reports, and documents."
+        >
+            {/* Status messages */}
+            {saveMsg && (
                 <div style={{
-                    padding: '1.5rem 3rem 1.25rem',
-                    borderBottom: '1px solid var(--color-border)',
-                    background: 'var(--color-surface)',
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '12px 18px', background: 'rgba(16,185,129,0.08)',
+                    color: '#059669', borderRadius: '16px', marginBottom: '24px',
+                    fontSize: '14px', fontWeight: 600,
+                    border: '1px solid rgba(16,185,129,0.15)',
                 }}>
-                    <BackButton />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem', marginTop: '0.5rem' }}>
-                        <Building size={22} style={{ color: 'var(--color-primary)' }} />
-                        <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                            Branding &amp; Company Info
-                        </h1>
-                    </div>
-                    <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                        Set your organisation name, logo, and contact details. These appear on invoices, reports, and documents.
-                    </p>
+                    <CheckCircle size={18} /> {saveMsg}
                 </div>
+            )}
+            {saveErr && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '12px 18px', background: 'rgba(239,68,68,0.06)',
+                    color: '#dc2626', borderRadius: '16px', marginBottom: '24px',
+                    fontSize: '14px', fontWeight: 600,
+                    border: '1px solid rgba(239,68,68,0.12)',
+                }}>
+                    <AlertTriangle size={18} /> {saveErr}
+                </div>
+            )}
 
-                <div style={{ padding: '2.5rem 3rem', maxWidth: '860px' }}>
+            {/* ── Section: Brand Identity ─────────────────────────── */}
+            <div style={{ marginBottom: '28px' }}>
+                <SectionHeader icon={Image} title="Brand Identity" color="#f59e0b" />
+                <div style={cardStyle}>
 
-                    {/* Status messages */}
-                    {saveMsg && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'rgba(16,185,129,0.1)', color: '#10b981', borderRadius: '8px', marginBottom: '1.5rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            <CheckCircle size={15} /> {saveMsg}
-                        </div>
-                    )}
-                    {saveErr && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: '8px', marginBottom: '1.5rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            <AlertTriangle size={15} /> {saveErr}
-                        </div>
-                    )}
-
-                    {/* ── Section: Identity ─────────────────────────────── */}
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <Image size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>Brand Identity</h2>
-                        </div>
-                        <div className="card" style={{ padding: '1.25rem' }}>
-
-                            {/* Logo upload */}
-                            <div style={{ marginBottom: '1.25rem' }}>
-                                <label style={{
-                                    display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
-                                    color: 'var(--color-text-muted)', marginBottom: '0.5rem',
-                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                }}>
-                                    Organisation Logo
-                                </label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    {/* Preview */}
-                                    <div style={{
-                                        width: '80px', height: '80px', borderRadius: '12px',
-                                        border: '2px dashed var(--color-border)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        overflow: 'hidden', background: 'var(--color-surface)', flexShrink: 0,
-                                    }}>
-                                        {logoPreview ? (
-                                            <img src={logoPreview} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                        ) : (
-                                            <Building size={28} style={{ color: 'var(--color-text-muted)', opacity: 0.4 }} />
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLogoSelect} style={{ display: 'none' }} />
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                                                padding: '0.5rem 1rem', border: '1px solid var(--color-border)',
-                                                borderRadius: '8px', background: 'var(--color-surface)',
-                                                color: 'var(--color-text)', fontSize: 'var(--text-sm)',
-                                                fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                                            }}
-                                        >
-                                            <Upload size={14} /> Upload Logo
-                                        </button>
-                                        {logoPreview && (
-                                            <button
-                                                onClick={handleRemoveLogo}
-                                                style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                                                    padding: '0.5rem 1rem', border: 'none', borderRadius: '8px',
-                                                    background: 'rgba(239,68,68,0.08)', color: '#ef4444',
-                                                    fontSize: 'var(--text-xs)', fontWeight: 600, cursor: 'pointer',
-                                                    fontFamily: 'inherit',
-                                                }}
-                                            >
-                                                <Trash2 size={13} /> Remove
-                                            </button>
-                                        )}
-                                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                                            PNG, JPG, or SVG. Max 2 MB.
-                                        </span>
-                                    </div>
-                                </div>
+                    {/* Logo upload */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={labelStyle}>
+                            Organisation Logo
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            {/* Preview */}
+                            <div style={{
+                                width: '84px', height: '84px', borderRadius: '16px',
+                                border: '2px dashed #cbd5e1',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                overflow: 'hidden', background: '#f8fafc', flexShrink: 0,
+                                transition: 'border-color 0.2s',
+                            }}>
+                                {logoPreview ? (
+                                    <img src={logoPreview} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                ) : (
+                                    <Building size={28} style={{ color: '#cbd5e1' }} />
+                                )}
                             </div>
-
-                            <Field label="Organisation Name" value={form.name} onChange={set('name')} placeholder="e.g. DTSG Holdings" icon={Building} />
-                            <Field label="Tagline / Slogan" value={form.tagline} onChange={set('tagline')} placeholder="e.g. Building the future" />
-                        </div>
-                    </div>
-
-                    {/* ── Section: Contact ──────────────────────────────── */}
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <Phone size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>Contact Information</h2>
-                        </div>
-                        <div className="card" style={{ padding: '1.25rem' }}>
-                            <Field label="Phone Number" value={form.phone} onChange={set('phone')} placeholder="+234 800 000 0000" icon={Phone} type="tel" />
-                            <Field label="Email Address" value={form.email} onChange={set('email')} placeholder="info@company.com" icon={Mail} type="email" />
-                            <Field label="Website" value={form.website} onChange={set('website')} placeholder="https://company.com" icon={Globe} type="url" />
-                        </div>
-                    </div>
-
-                    {/* ── Section: Address ──────────────────────────────── */}
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <MapPin size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>Address</h2>
-                        </div>
-                        <div className="card" style={{ padding: '1.25rem' }}>
-                            <Field label="Street Address" value={form.address} onChange={set('address')} placeholder="123 Business Avenue" icon={MapPin} multiline />
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
-                                <Field label="City" value={form.city} onChange={set('city')} placeholder="Lagos" />
-                                <Field label="State / Province" value={form.state} onChange={set('state')} placeholder="Lagos" />
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
-                                <Field label="Country" value={form.country} onChange={set('country')} placeholder="Nigeria" />
-                                <Field label="Postal / ZIP Code" value={form.postal_code} onChange={set('postal_code')} placeholder="100001" />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleLogoSelect} style={{ display: 'none' }} />
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                        padding: '8px 16px', border: '1.5px solid #e2e8f0',
+                                        borderRadius: '12px', background: 'white',
+                                        color: '#0f172a', fontSize: '13px',
+                                        fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.borderColor = '#6366f1';
+                                        e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.08)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.borderColor = '#e2e8f0';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }}
+                                >
+                                    <Upload size={14} /> Upload Logo
+                                </button>
+                                {logoPreview && (
+                                    <button
+                                        onClick={handleRemoveLogo}
+                                        style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                            padding: '8px 16px', border: 'none', borderRadius: '12px',
+                                            background: 'rgba(239,68,68,0.08)', color: '#ef4444',
+                                            fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                                            fontFamily: 'inherit', transition: 'background 0.2s',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.14)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                                    >
+                                        <Trash2 size={13} /> Remove
+                                    </button>
+                                )}
+                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                                    PNG, JPG, or SVG. Max 2 MB.
+                                </span>
                             </div>
                         </div>
                     </div>
 
-                    {/* ── Save button ───────────────────────────────────── */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <button
-                            onClick={handleSave}
-                            disabled={updateMutation.isPending}
-                            style={{
-                                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                                padding: '0.75rem 2rem', border: 'none', borderRadius: '10px',
-                                background: 'var(--color-primary)', color: 'white',
-                                fontSize: 'var(--text-sm)', fontWeight: 700, cursor: 'pointer',
-                                fontFamily: 'inherit', letterSpacing: '0.3px',
-                                opacity: updateMutation.isPending ? 0.7 : 1,
-                            }}
-                        >
-                            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
-                        </button>
+                    <Field label="Organisation Name" value={form.name} onChange={set('name')} placeholder="e.g. DTSG Holdings" icon={Building} />
+                    <Field label="Tagline / Slogan" value={form.tagline} onChange={set('tagline')} placeholder="e.g. Building the future" />
+                </div>
+            </div>
+
+            {/* ── Section: Contact Information ──────────────────── */}
+            <div style={{ marginBottom: '28px' }}>
+                <SectionHeader icon={Phone} title="Contact Information" color="#6366f1" />
+                <div style={cardStyle}>
+                    <Field label="Phone Number" value={form.phone} onChange={set('phone')} placeholder="+234 800 000 0000" icon={Phone} type="tel" />
+                    <Field label="Email Address" value={form.email} onChange={set('email')} placeholder="info@company.com" icon={Mail} type="email" />
+                    <Field label="Website" value={form.website} onChange={set('website')} placeholder="https://company.com" icon={Globe} type="url" />
+                </div>
+            </div>
+
+            {/* ── Section: Address ──────────────────────────────── */}
+            <div style={{ marginBottom: '28px' }}>
+                <SectionHeader icon={MapPin} title="Address" color="#10b981" />
+                <div style={cardStyle}>
+                    <Field label="Street Address" value={form.address} onChange={set('address')} placeholder="123 Business Avenue" icon={MapPin} multiline />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                        <Field label="City" value={form.city} onChange={set('city')} placeholder="Lagos" />
+                        <Field label="State / Province" value={form.state} onChange={set('state')} placeholder="Lagos" />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                        <Field label="Country" value={form.country} onChange={set('country')} placeholder="Nigeria" />
+                        <Field label="Postal / ZIP Code" value={form.postal_code} onChange={set('postal_code')} placeholder="100001" />
                     </div>
                 </div>
             </div>
-        </div>
+
+            {/* ── Save button ───────────────────────────────────── */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                    onClick={handleSave}
+                    disabled={updateMutation.isPending}
+                    style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '8px',
+                        padding: '12px 32px', border: 'none', borderRadius: '12px',
+                        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                        color: 'white', fontSize: '14px', fontWeight: 700,
+                        cursor: updateMutation.isPending ? 'not-allowed' : 'pointer',
+                        fontFamily: 'inherit', letterSpacing: '0.3px',
+                        opacity: updateMutation.isPending ? 0.7 : 1,
+                        boxShadow: '0 4px 12px rgba(245,158,11,0.3)',
+                        transition: 'transform 0.15s, box-shadow 0.15s',
+                    }}
+                    onMouseEnter={e => {
+                        if (!updateMutation.isPending) {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(245,158,11,0.35)';
+                        }
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(245,158,11,0.3)';
+                    }}
+                >
+                    {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+        </SettingsLayout>
     );
 }

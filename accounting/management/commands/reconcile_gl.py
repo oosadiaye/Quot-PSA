@@ -30,7 +30,7 @@ class Command(BaseCommand):
                 JOIN accounting_account a ON l.account_id = a.id
                 WHERE h.status = 'Posted'
                 AND l.account_id NOT IN (
-                    SELECT DISTINCT account_id FROM accounting_glbalance 
+                    SELECT DISTINCT account_id FROM accounting_glbalance
                     WHERE account_id IS NOT NULL
                 )
             ''')
@@ -63,10 +63,10 @@ class Command(BaseCommand):
             # Create missing GL balances
             with transaction.atomic():
                 sql = '''
-                INSERT INTO accounting_glbalance 
-                    (fiscal_year, period, account_id, debit_balance, credit_balance, 
+                INSERT INTO accounting_glbalance
+                    (fiscal_year, period, account_id, debit_balance, credit_balance,
                      function_id, fund_id, geo_id, program_id)
-                SELECT 
+                SELECT
                     EXTRACT(YEAR FROM h.posting_date)::integer as fiscal_year,
                     EXTRACT(MONTH FROM h.posting_date)::integer as period,
                     l.account_id,
@@ -80,10 +80,10 @@ class Command(BaseCommand):
                 JOIN accounting_journalheader h ON l.header_id = h.id
                 WHERE h.status = 'Posted'
                 AND l.account_id NOT IN (
-                    SELECT DISTINCT account_id FROM accounting_glbalance 
+                    SELECT DISTINCT account_id FROM accounting_glbalance
                     WHERE account_id IS NOT NULL
                 )
-                GROUP BY 
+                GROUP BY
                     EXTRACT(YEAR FROM h.posting_date)::integer,
                     EXTRACT(MONTH FROM h.posting_date)::integer,
                     l.account_id, h.function_id, h.fund_id, h.geo_id, h.program_id
@@ -100,7 +100,7 @@ class Command(BaseCommand):
                 JOIN accounting_journalheader h ON l.header_id = h.id
                 WHERE h.status = 'Posted'
                 AND l.account_id NOT IN (
-                    SELECT DISTINCT account_id FROM accounting_glbalance 
+                    SELECT DISTINCT account_id FROM accounting_glbalance
                     WHERE account_id IS NOT NULL
                 )
             ''')

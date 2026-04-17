@@ -1,40 +1,80 @@
 from datetime import datetime
 
 from .common import (
-    viewsets, status, Response, action, DjangoFilterBackend,
-    transaction, Decimal, AccountingPagination,
+    viewsets, status, Response, action, transaction, Decimal, AccountingPagination,
 )
 from ..models import (
-    FixedAsset, JournalHeader, JournalLine, GLBalance, DepreciationSchedule,
+    FixedAsset, JournalHeader, JournalLine, DepreciationSchedule,
     AssetClass, AssetConfiguration, AssetCategory, AssetLocation,
     AssetInsurance, AssetMaintenance, AssetTransfer,
-    AssetDepreciationSchedule, AssetRevaluationRun, AssetRevaluationDetail,
-    AssetDisposal, AssetImpairment, Account, TransactionSequence,
+    AssetDepreciationSchedule, AssetRevaluationRun, AssetDisposal, AssetImpairment, Account, TransactionSequence,
 )
 from ..serializers import (
     FixedAssetSerializer,
     AssetClassSerializer, AssetConfigurationSerializer, AssetCategorySerializer,
     AssetLocationSerializer, AssetInsuranceSerializer, AssetMaintenanceSerializer,
     AssetTransferSerializer, AssetDepreciationScheduleSerializer,
-    AssetRevaluationRunSerializer, AssetRevaluationDetailSerializer, AssetDisposalSerializer, AssetImpairmentSerializer,
+    AssetRevaluationRunSerializer, AssetDisposalSerializer, AssetImpairmentSerializer,
 )
+from core.mixins import OrganizationFilterMixin
 
 
-class FixedAssetViewSet(viewsets.ModelViewSet):
+class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    """Fixed Asset management — MDA mandatory, budget check on acquisition."""
+    org_filter_field = 'mda'
     queryset = FixedAsset.objects.all().select_related(
-        'fund', 'function', 'program', 'geo',
+        'mda', 'fund', 'function', 'program', 'geo',
         'asset_account', 'depreciation_expense_account', 'accumulated_depreciation_account'
     )
     serializer_class = FixedAssetSerializer
-    filterset_fields = ['status', 'asset_category']
+    filterset_fields = ['status', 'asset_category', 'mda']
+    search_fields = ['asset_number', 'name', 'description']
 
     @action(detail=True, methods=['post'])
     def acquire(self, request, pk=None):
-        """PF-9: Post asset acquisition to GL (Dr Fixed Asset / Cr Cash or AP)."""
+        """Post asset acquisition to GL — validates capital budget first.
+
+        Budget check: asset acquisition consumes capital appropriation
+        (Economic code 3xxxxxxx). MDA + Fund + Account must have active
+        appropriation with sufficient balance.
+        """
         asset = self.get_object()
 
         if not asset.asset_account:
             return Response({"error": "Asset account not configured on this asset."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not asset.mda:
+            return Response({"error": "MDA is required for asset acquisition. Assign this asset to an MDA first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Budget Validation (capital budget check) ──────────────
+        if asset.mda and asset.asset_account and asset.fund:
+            try:
+                from budget.services import BudgetValidationService, BudgetExceededError
+                from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+                from accounting.models.advanced import FiscalYear
+
+                admin_seg = AdministrativeSegment.objects.filter(legacy_mda=asset.mda).first()
+                econ_seg = EconomicSegment.objects.filter(legacy_account=asset.asset_account).first()
+                fund_seg = FundSegment.objects.filter(legacy_fund=asset.fund).first()
+                active_fy = FiscalYear.objects.filter(is_active=True).first()
+
+                if admin_seg and econ_seg and fund_seg and active_fy:
+                    try:
+                        BudgetValidationService.validate_expenditure(
+                            administrative_id=admin_seg.pk,
+                            economic_id=econ_seg.pk,
+                            fund_id=fund_seg.pk,
+                            fiscal_year_id=active_fy.pk,
+                            amount=asset.acquisition_cost,
+                            source='ASSET_ACQUISITION',
+                        )
+                    except BudgetExceededError as e:
+                        return Response(
+                            {"error": f"Capital budget validation failed: {str(e)}"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            except ImportError:
+                pass  # Budget module not available
 
         # Determine credit account: use Cash or AP from request or settings
         from django.conf import settings as django_settings
@@ -429,7 +469,7 @@ class AssetClassViewSet(viewsets.ModelViewSet):
         'depreciation_expense_account', 'disposal_gain_account', 'disposal_loss_account'
     )
     serializer_class = AssetClassSerializer
-    filterset_fields = ['is_active']
+    filterset_fields = ['depreciation_method']
     search_fields = ['name', 'code']
 
 
@@ -474,19 +514,19 @@ class AssetTransferViewSet(viewsets.ModelViewSet):
         'from_employee', 'to_employee', 'approved_by'
     )
     serializer_class = AssetTransferSerializer
-    filterset_fields = ['asset', 'status']
+    filterset_fields = ['asset', 'transfer_date']
 
 
 class AssetDepreciationScheduleViewSet(viewsets.ModelViewSet):
     queryset = AssetDepreciationSchedule.objects.all().select_related('asset', 'period')
     serializer_class = AssetDepreciationScheduleSerializer
-    filterset_fields = ['asset', 'period', 'is_posted']
+    filterset_fields = ['asset', 'period_date', 'is_posted']
 
 
 class AssetRevaluationViewSet(viewsets.ModelViewSet):
-    queryset = AssetRevaluationRun.objects.all().select_related('asset', 'approved_by')
+    queryset = AssetRevaluationRun.objects.all().select_related('approved_by')
     serializer_class = AssetRevaluationRunSerializer
-    filterset_fields = ['asset', 'status']
+    filterset_fields = ['status', 'revaluation_method']
 
 
 class AssetDisposalViewSet(viewsets.ModelViewSet):

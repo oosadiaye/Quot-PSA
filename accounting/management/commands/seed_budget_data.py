@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django_tenants.utils import tenant_context
 from tenants.models import Client
-from accounting.models import BudgetPeriod, Budget, MDA, Account, Fund, Function, Program, Geo
+from accounting.models import BudgetPeriod, Budget, MDA, Account
 from decimal import Decimal
 import datetime
 
@@ -32,18 +32,18 @@ class Command(BaseCommand):
                     'status': 'ACTIVE'
                 }
             )
-            
+
             if not created and period.status != 'ACTIVE':
                 period.status = 'ACTIVE'
                 period.save()
-            
+
             self.stdout.write(f"  ✓ Budget Period: {period} (Status: {period.status})")
 
             # 2. Ensure some budgets exist
             mda = MDA.objects.first()
             if not mda:
                 mda = MDA.objects.create(code='HQ', name='Headquarters', mda_type='MINISTRY')
-            
+
             # Use Expense accounts
             accounts = Account.objects.filter(account_type='Expense')[:5]
             if not accounts:

@@ -7,7 +7,7 @@ import {
   ShopOutlined, PlusOutlined, SwapOutlined, CalendarOutlined, StopOutlined,
   PlayCircleOutlined, MoreOutlined, DeleteOutlined, EditOutlined, SearchOutlined,
   LoginOutlined, AppstoreOutlined, UserOutlined, InfoCircleOutlined,
-  ReloadOutlined,
+  ReloadOutlined, KeyOutlined,
 } from '@ant-design/icons';
 import { useState, useMemo, useEffect } from 'react';
 import {
@@ -168,6 +168,44 @@ const TenantsTab = () => {
     }
   };
 
+  const handleResetPassword = (tenant: Tenant) => {
+    Modal.confirm({
+      title: `Reset password for "${tenant.name}"?`,
+      content: 'A new temporary password will be generated and emailed to the tenant admin.',
+      okText: 'Reset Password',
+      okType: 'primary',
+      icon: <KeyOutlined style={{ color: '#d97706' }} />,
+      onOk: async () => {
+        try {
+          const result = await tenantAction.mutateAsync({
+            tenantId: tenant.id,
+            action: 'reset_password',
+          });
+          Modal.success({
+            title: 'Password Reset Successful',
+            width: 480,
+            content: (
+              <Descriptions column={1} size="small" style={{ marginTop: 12 }}>
+                <Descriptions.Item label="Username">{result.username}</Descriptions.Item>
+                <Descriptions.Item label="Email">{result.email}</Descriptions.Item>
+                <Descriptions.Item label="Temporary Password">
+                  <Text code copyable strong>{result.temp_password}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Email Sent">
+                  <Tag color={result.email_sent ? 'green' : 'red'}>
+                    {result.email_sent ? 'Yes' : 'Failed'}
+                  </Tag>
+                </Descriptions.Item>
+              </Descriptions>
+            ),
+          });
+        } catch {
+          message.error('Failed to reset password');
+        }
+      },
+    });
+  };
+
   const openDetail = (tenant: Tenant) => {
     setTenantDetail(tenant);
     setDrawerVisible(true);
@@ -265,6 +303,7 @@ const TenantsTab = () => {
           { key: 'change_plan', label: 'Change Plan', icon: <SwapOutlined /> },
           { key: 'extend', label: 'Extend Subscription', icon: <CalendarOutlined /> },
           { key: 'impersonate', label: 'Login As Admin', icon: <LoginOutlined /> },
+          { key: 'reset_password', label: 'Reset Password', icon: <KeyOutlined /> },
           { type: 'divider' as const },
           record.status === 'suspended'
             ? { key: 'activate', label: 'Activate', icon: <PlayCircleOutlined /> }
@@ -298,6 +337,9 @@ const TenantsTab = () => {
                       break;
                     case 'impersonate':
                       handleImpersonate(record);
+                      break;
+                    case 'reset_password':
+                      handleResetPassword(record);
                       break;
                     case 'suspend':
                       handleAction(record.id, 'suspend');
@@ -485,6 +527,16 @@ const TenantsTab = () => {
                           Extend
                         </Button>
                       </Space.Compact>
+
+                      <Button
+                        block
+                        icon={<KeyOutlined />}
+                        style={{ background: '#fffbeb', borderColor: '#fbbf24', color: '#92400e' }}
+                        onClick={() => handleResetPassword(tenantDetail)}
+                        loading={tenantAction.isPending}
+                      >
+                        Reset Admin Password
+                      </Button>
 
                       <Row gutter={12}>
                         <Col span={12}>

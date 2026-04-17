@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { BarChart3, Download, RefreshCw } from 'lucide-react';
+import { BarChart3, Download, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useTrialBalance } from '../hooks/useFinancialReports';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
 import { useCurrency } from '../../../context/CurrencyContext';
-import '../styles/glassmorphism.css';
 
 export default function TrialBalance() {
     const { formatCurrency } = useCurrency();
@@ -16,10 +15,10 @@ export default function TrialBalance() {
 
     const { data, isLoading, error, refetch } = useTrialBalance({ fiscal_year: fiscalYear, period });
 
-    const accounts: any[] = data?.results ?? data ?? [];
+    const accounts: any[] = data?.accounts ?? data?.results ?? (Array.isArray(data) ? data : []);
 
-    const totalDebits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.debit_balance ?? 0), 0);
-    const totalCredits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.credit_balance ?? 0), 0);
+    const totalDebits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.debit_balance ?? a.total_debit ?? 0), 0);
+    const totalCredits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.credit_balance ?? a.total_credit ?? 0), 0);
     const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
     const handleExport = () => {
@@ -45,6 +44,15 @@ export default function TrialBalance() {
         a.click();
     };
 
+    const inputStyle: React.CSSProperties = {
+        padding: '6px 10px',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: '#1e293b',
+    };
+
     return (
         <AccountingLayout>
             <PageHeader
@@ -53,99 +61,205 @@ export default function TrialBalance() {
                 icon={<BarChart3 className="w-6 h-6" />}
             />
 
-            {/* Filters */}
-            <div className="glass-card p-4 mb-6 flex flex-wrap gap-4 items-end">
-                <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Fiscal Year</label>
-                    <input
-                        type="number"
-                        value={fiscalYear}
-                        onChange={e => setFiscalYear(Number(e.target.value))}
-                        className="glass-input w-28"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Period (Month)</label>
-                    <select
-                        value={period}
-                        onChange={e => setPeriod(Number(e.target.value))}
-                        className="glass-input"
-                    >
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                            <option key={m} value={m}>
-                                {new Date(2000, m - 1).toLocaleString('default', { month: 'long' })} ({m})
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                <button onClick={() => refetch()} className="glass-btn flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4" /> Refresh
+            {/* Filters — horizontal row */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                background: '#fff', borderRadius: '12px', padding: '10px 20px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
+                flexWrap: 'wrap',
+            }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Fiscal Year</span>
+                <input
+                    type="number"
+                    value={fiscalYear}
+                    onChange={e => setFiscalYear(Number(e.target.value))}
+                    style={{ ...inputStyle, width: '80px' }}
+                />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>Period</span>
+                <select
+                    value={period}
+                    onChange={e => setPeriod(Number(e.target.value))}
+                    style={{ ...inputStyle, width: '150px' }}
+                >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <option key={m} value={m}>
+                            {new Date(2000, m - 1).toLocaleString('default', { month: 'long' })} ({m})
+                        </option>
+                    ))}
+                </select>
+                <button onClick={() => refetch()} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
+                    background: '#f8fafc', fontSize: '13px', fontWeight: 600, color: '#475569',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                    <RefreshCw size={14} /> Refresh
                 </button>
-                <button onClick={handleExport} className="glass-btn flex items-center gap-2 ml-auto">
-                    <Download className="w-4 h-4" /> Export CSV
+                <div style={{ flex: 1 }} />
+                <button onClick={handleExport} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    padding: '6px 12px', border: 'none', borderRadius: '8px',
+                    background: '#1e293b', fontSize: '13px', fontWeight: 600, color: '#fff',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                    <Download size={14} /> Export CSV
                 </button>
             </div>
 
-            {/* Balance status */}
+            {/* Balance status banner */}
             {!isLoading && accounts.length > 0 && (
-                <div className={`mb-4 px-4 py-2 rounded-lg text-sm font-medium ${
-                    isBalanced ? 'bg-green-900/30 text-green-300 border border-green-700' : 'bg-red-900/30 text-red-300 border border-red-700'
-                }`}>
-                    {isBalanced
-                        ? '✓ Trial Balance is balanced'
-                        : `⚠ Out of balance by ${formatCurrency(Math.abs(totalDebits - totalCredits))}`}
+                <div style={{
+                    marginBottom: '16px', padding: '12px 20px', borderRadius: '12px',
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    background: isBalanced ? '#ecfdf5' : '#fef2f2',
+                    border: `1.5px solid ${isBalanced ? '#a7f3d0' : '#fecaca'}`,
+                }}>
+                    {isBalanced ? (
+                        <CheckCircle size={20} style={{ color: '#059669', flexShrink: 0 }} />
+                    ) : (
+                        <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    )}
+                    <span style={{
+                        fontSize: '13px', fontWeight: 600,
+                        color: isBalanced ? '#059669' : '#dc2626',
+                    }}>
+                        {isBalanced
+                            ? 'Trial Balance is balanced'
+                            : `Out of balance by ${formatCurrency(Math.abs(totalDebits - totalCredits))}`}
+                    </span>
+                </div>
+            )}
+
+            {/* Summary cards */}
+            {!isLoading && accounts.length > 0 && (
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                    <div style={{
+                        flex: '1 1 180px', padding: '14px 18px', borderRadius: '10px',
+                        border: '1.5px solid #bae6fd', background: '#f0f9ff',
+                        display: 'flex', flexDirection: 'column', gap: '4px',
+                    }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Total Debits
+                        </span>
+                        <span style={{ fontSize: '18px', fontWeight: 700, color: '#0284c7' }}>
+                            {formatCurrency(totalDebits)}
+                        </span>
+                    </div>
+                    <div style={{
+                        flex: '1 1 180px', padding: '14px 18px', borderRadius: '10px',
+                        border: '1.5px solid #ddd6fe', background: '#f5f3ff',
+                        display: 'flex', flexDirection: 'column', gap: '4px',
+                    }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Total Credits
+                        </span>
+                        <span style={{ fontSize: '18px', fontWeight: 700, color: '#7c3aed' }}>
+                            {formatCurrency(totalCredits)}
+                        </span>
+                    </div>
+                    <div style={{
+                        flex: '1 1 180px', padding: '14px 18px', borderRadius: '10px',
+                        border: `1.5px solid ${isBalanced ? '#a7f3d0' : '#fecaca'}`,
+                        background: isBalanced ? '#ecfdf5' : '#fef2f2',
+                        display: 'flex', flexDirection: 'column', gap: '4px',
+                    }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Difference
+                        </span>
+                        <span style={{ fontSize: '18px', fontWeight: 700, color: isBalanced ? '#059669' : '#dc2626' }}>
+                            {isBalanced ? 'Balanced' : formatCurrency(Math.abs(totalDebits - totalCredits))}
+                        </span>
+                    </div>
                 </div>
             )}
 
             {/* Table */}
-            <div className="glass-card overflow-x-auto">
+            <div style={{
+                background: '#fff', borderRadius: '12px', overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                border: '1.5px solid #e2e8f0',
+            }}>
                 {isLoading ? (
-                    <div className="p-8 text-center text-gray-400">Loading trial balance…</div>
+                    <div style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading trial balance…</div>
                 ) : error ? (
-                    <div className="p-8 text-center text-red-400">Failed to load trial balance.</div>
+                    <div style={{ padding: '48px', textAlign: 'center', color: '#ef4444' }}>Failed to load trial balance.</div>
                 ) : accounts.length === 0 ? (
-                    <div className="p-8 text-center text-gray-400">No data for selected period.</div>
+                    <div style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>No data for selected period.</div>
                 ) : (
-                    <table className="w-full text-sm">
+                    <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                         <thead>
-                            <tr className="border-b border-white/10 text-gray-400 text-left">
-                                <th className="px-4 py-3">Code</th>
-                                <th className="px-4 py-3">Account Name</th>
-                                <th className="px-4 py-3">Type</th>
-                                <th className="px-4 py-3 text-right">Debit</th>
-                                <th className="px-4 py-3 text-right">Credit</th>
-                                <th className="px-4 py-3 text-right">Net</th>
+                            <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                <th style={{ padding: '12px 16px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Code</th>
+                                <th style={{ padding: '12px 16px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Account Name</th>
+                                <th style={{ padding: '12px 16px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</th>
+                                <th style={{ padding: '12px 16px', textAlign: 'right', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Debit</th>
+                                <th style={{ padding: '12px 16px', textAlign: 'right', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Credit</th>
+                                <th style={{ padding: '12px 16px', textAlign: 'right', color: '#64748b', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net</th>
                             </tr>
                         </thead>
                         <tbody>
                             {accounts.map((a: any, i: number) => {
-                                const dr = parseFloat(a.debit_balance ?? 0);
-                                const cr = parseFloat(a.credit_balance ?? 0);
+                                const dr = parseFloat(a.debit_balance ?? a.total_debit ?? 0);
+                                const cr = parseFloat(a.credit_balance ?? a.total_credit ?? 0);
                                 const net = dr - cr;
                                 return (
-                                    <tr key={a.account_code ?? a.account?.code ?? i} className="border-b border-white/5 hover:bg-white/5 text-gray-200">
-                                        <td className="px-4 py-2 font-mono text-blue-300">{a.account_code ?? a.account?.code}</td>
-                                        <td className="px-4 py-2">{a.account_name ?? a.account?.name}</td>
-                                        <td className="px-4 py-2 text-gray-400">{a.account_type}</td>
-                                        <td className="px-4 py-2 text-right">{dr > 0 ? formatCurrency(dr) : '—'}</td>
-                                        <td className="px-4 py-2 text-right">{cr > 0 ? formatCurrency(cr) : '—'}</td>
-                                        <td className={`px-4 py-2 text-right font-medium ${net >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                                            {formatCurrency(Math.abs(net))} {net < 0 ? 'Cr' : 'Dr'}
+                                    <tr key={a.account_code ?? a.account?.code ?? i}
+                                        style={{ borderBottom: '1px solid #f1f5f9' }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                    >
+                                        <td style={{ padding: '10px 16px', fontFamily: 'monospace', color: '#3b82f6', fontWeight: 600 }}>
+                                            {a.account_code ?? a.account?.code}
+                                        </td>
+                                        <td style={{ padding: '10px 16px', color: '#1e293b' }}>{a.account_name ?? a.account?.name}</td>
+                                        <td style={{ padding: '10px 16px' }}>
+                                            <span style={{
+                                                padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 600,
+                                                background: a.account_type === 'Asset' ? '#dbeafe' :
+                                                    a.account_type === 'Liability' ? '#fce7f3' :
+                                                    a.account_type === 'Equity' ? '#f3e8ff' :
+                                                    a.account_type === 'Income' ? '#dcfce7' :
+                                                    a.account_type === 'Expense' ? '#fef3c7' : '#f1f5f9',
+                                                color: a.account_type === 'Asset' ? '#1d4ed8' :
+                                                    a.account_type === 'Liability' ? '#be185d' :
+                                                    a.account_type === 'Equity' ? '#7c3aed' :
+                                                    a.account_type === 'Income' ? '#16a34a' :
+                                                    a.account_type === 'Expense' ? '#d97706' : '#64748b',
+                                            }}>
+                                                {a.account_type}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '10px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#1e293b' }}>
+                                            {dr > 0 ? formatCurrency(dr) : '—'}
+                                        </td>
+                                        <td style={{ padding: '10px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#1e293b' }}>
+                                            {cr > 0 ? formatCurrency(cr) : '—'}
+                                        </td>
+                                        <td style={{
+                                            padding: '10px 16px', textAlign: 'right',
+                                            fontWeight: 600, fontFamily: 'monospace',
+                                            color: net >= 0 ? '#059669' : '#dc2626',
+                                        }}>
+                                            {net >= 0 ? '+' : '−'}{formatCurrency(Math.abs(net))} {net < 0 ? 'Cr' : 'Dr'}
                                         </td>
                                     </tr>
                                 );
                             })}
                         </tbody>
                         <tfoot>
-                            <tr className="border-t border-white/20 text-white font-semibold">
-                                <td className="px-4 py-3" colSpan={3}>TOTALS</td>
-                                <td className="px-4 py-3 text-right">{formatCurrency(totalDebits)}</td>
-                                <td className="px-4 py-3 text-right">{formatCurrency(totalCredits)}</td>
-                                <td className="px-4 py-3 text-right">
+                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                <td style={{ padding: '14px 16px', fontWeight: 700, color: '#1e293b' }} colSpan={3}>TOTALS</td>
+                                <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace', color: '#0284c7' }}>
+                                    {formatCurrency(totalDebits)}
+                                </td>
+                                <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace', color: '#7c3aed' }}>
+                                    {formatCurrency(totalCredits)}
+                                </td>
+                                <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>
                                     {isBalanced ? (
-                                        <span className="text-green-300">Balanced</span>
+                                        <span style={{ color: '#059669' }}>Balanced</span>
                                     ) : (
-                                        <span className="text-red-300">{formatCurrency(Math.abs(totalDebits - totalCredits))} diff</span>
+                                        <span style={{ color: '#dc2626' }}>{formatCurrency(Math.abs(totalDebits - totalCredits))} diff</span>
                                     )}
                                 </td>
                             </tr>

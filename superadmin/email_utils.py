@@ -56,8 +56,8 @@ def send_test_email(to_email):
     from_email = _get_from_email()
 
     email = EmailMessage(
-        subject='DTSG ERP - SMTP Test',
-        body='This is a test email from DTSG ERP platform. '
+        subject='QUOT ERP - SMTP Test',
+        body='This is a test email from QUOT ERP platform. '
              'Your SMTP configuration is working correctly.',
         from_email=from_email,
         to=[to_email],
@@ -88,7 +88,7 @@ def send_tenant_smtp_test(smtp_config, to_email):
     )
 
     email = EmailMessage(
-        subject='DTSG ERP - Tenant SMTP Test',
+        subject='QUOT ERP - Tenant SMTP Test',
         body='This is a test email from your tenant SMTP configuration. It is working correctly.',
         from_email=from_email,
         to=[to_email],

@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
             name='SuperAdminSettings',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('organization_name', models.CharField(default='DTSG ERP', max_length=200)),
+                ('organization_name', models.CharField(default='QUOT ERP', max_length=200)),
                 ('default_timezone', models.CharField(default='Africa/Lagos', max_length=50)),
                 ('default_currency', models.CharField(default='NGN', max_length=10)),
                 ('maintenance_mode', models.BooleanField(default=False)),

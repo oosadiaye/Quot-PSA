@@ -4,8 +4,7 @@ from rest_framework.decorators import action, api_view, permission_classes as pe
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsApprover
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Sum, F, Q
+from django.db.models import Sum, F
 from django.db.models.functions import Coalesce
 from django.db import transaction
 from decimal import Decimal
@@ -14,20 +13,14 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from .models import (
     Fund, Function, Program, Geo, Account, JournalHeader, JournalLine,
-    Currency, GLBalance, VendorInvoice, Payment, PaymentAllocation,
-    CustomerInvoice, Receipt, ReceiptAllocation, FixedAsset,
+    Currency, GLBalance, VendorInvoice, Payment, CustomerInvoice, Receipt, FixedAsset,
     MDA, BudgetPeriod, Budget, BudgetEncumbrance, BudgetAmendment, BudgetTransfer,
     BudgetCheckLog, BudgetForecast, BudgetAnomaly,
     BankAccount, Checkbook, Check, BankReconciliation,
     CashFlowCategory, CashFlowForecast,
     TaxRegistration, TaxExemption, TaxReturn, WithholdingTax, TaxCode,
-    CostCenter, ProfitCenter, CostAllocationRule, JournalLineCostCenter,
-    InterCompany, InterCompanyAccountMapping, InterCompanyTransaction, InterCompanyElimination,
-    FinancialReportTemplate, FinancialReport, ReportColumnConfig,
-    AccountingDocument, DocumentSignature,
-    ConsolidationGroup, Consolidation,
-    DeferredRevenue, DeferredExpense, AmortizationSchedule,
-    Lease, LeasePayment,
+    CostCenter, ProfitCenter, CostAllocationRule, InterCompany, InterCompanyTransaction, FinancialReportTemplate, FinancialReport, AccountingDocument, ConsolidationGroup, Consolidation,
+    DeferredRevenue, DeferredExpense, Lease, LeasePayment,
     TreasuryForecast, Investment, Loan, LoanRepayment,
     ExchangeRateHistory, ForeignCurrencyRevaluation,
     FiscalPeriod, PeriodCloseCheck, FiscalYear, PeriodAccess,
@@ -35,16 +28,15 @@ from .models import (
     AssetMaintenance, AssetTransfer, AssetDepreciationSchedule, AssetRevaluation,
     AssetDisposal, AssetImpairment,
     JournalReversal,
-    RecurringJournal, RecurringJournalLine, RecurringJournalRun,
-    Accrual, Deferral, DeferralRecognition,
-    PeriodStatus, YearEndClosing, CurrencyRevaluation, RetainedEarnings,
+    RecurringJournal, RecurringJournalRun,
+    Accrual, Deferral, PeriodStatus, YearEndClosing, CurrencyRevaluation, RetainedEarnings,
     AccountingSettings,
     Company, InterCompanyConfig, InterCompanyInvoice,
     InterCompanyTransfer, InterCompanyAllocation, InterCompanyCashTransfer,
     ConsolidationRun,
 )
 from .serializers import (
-    FundSerializer, FunctionSerializer, ProgramSerializer, 
+    FundSerializer, FunctionSerializer, ProgramSerializer,
     GeoSerializer, AccountSerializer, JournalHeaderSerializer,
     CurrencySerializer, VendorInvoiceSerializer, PaymentSerializer,
     CustomerInvoiceSerializer, ReceiptSerializer, FixedAssetSerializer,
@@ -55,7 +47,6 @@ from .serializers import (
     CashFlowCategorySerializer, CashFlowForecastSerializer,
     TaxRegistrationSerializer, TaxExemptionSerializer, TaxReturnSerializer, WithholdingTaxSerializer, TaxCodeSerializer,
     CostCenterSerializer, ProfitCenterSerializer, CostAllocationRuleSerializer,
-    JournalLineCostCenterSerializer,
     InterCompanySerializer, InterCompanyTransactionSerializer,
     FinancialReportTemplateSerializer, FinancialReportSerializer,
     AccountingDocumentSerializer,
@@ -68,11 +59,9 @@ from .serializers import (
     AssetClassSerializer, AssetCategorySerializer, AssetConfigurationSerializer, AssetLocationSerializer, AssetInsuranceSerializer,
     AssetMaintenanceSerializer, AssetTransferSerializer, AssetDepreciationScheduleSerializer,
     AssetRevaluationSerializer, AssetDisposalSerializer, AssetImpairmentSerializer,
-    JournalReversalSerializer,
     BudgetForecastSerializer, BudgetAnomalySerializer,
-    RecurringJournalSerializer, RecurringJournalLineSerializer, RecurringJournalRunSerializer,
-    AccrualSerializer, DeferralSerializer, DeferralRecognitionSerializer,
-    PeriodStatusSerializer, YearEndClosingSerializer, RetainedEarningsSerializer,
+    RecurringJournalSerializer, RecurringJournalRunSerializer,
+    AccrualSerializer, DeferralSerializer, PeriodStatusSerializer, YearEndClosingSerializer, RetainedEarningsSerializer,
     CurrencyRevaluationSerializer,
     CompanySerializer, InterCompanyConfigSerializer, InterCompanyInvoiceSerializer,
     InterCompanyTransferSerializer, InterCompanyAllocationSerializer, InterCompanyCashTransferSerializer,
@@ -544,12 +533,11 @@ class JournalViewSet(viewsets.ModelViewSet):
     def _post_to_gl(self, journal, user):
         """Post journal entries to GL balances in real-time."""
         from django.db import transaction
-        from django.db.models import Sum
-        
+
         with transaction.atomic():
             fiscal_year = journal.posting_date.year
             period = journal.posting_date.month
-            
+
             for line in journal.lines.all():
                 gl_balance, created = GLBalance.objects.get_or_create(
                     account=line.account,
@@ -564,56 +552,56 @@ class JournalViewSet(viewsets.ModelViewSet):
                         'credit_balance': Decimal('0.00')
                     }
                 )
-                
+
                 account_type = line.account.account_type
                 debit = Decimal(str(line.debit)) if line.debit else Decimal('0.00')
                 credit = Decimal(str(line.credit)) if line.credit else Decimal('0.00')
-                
+
                 if account_type in ['Asset', 'Expense']:
                     gl_balance.debit_balance += debit
                     gl_balance.credit_balance += credit
                 else:
                     gl_balance.credit_balance += credit
                     gl_balance.debit_balance += debit
-                
+
                 gl_balance.save()
 
     @action(detail=True, methods=['post'])
     def post_journal(self, request, pk=None):
         """Post journal entry to GL balances in real-time."""
         journal = self.get_object()
-        
+
         if journal.status == 'Posted':
             return Response(
-                {"error": "Journal is already posted."}, 
+                {"error": "Journal is already posted."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # Validate journal is balanced
         total_debit = journal.lines.aggregate(total=Sum('debit'))['total'] or 0
         total_credit = journal.lines.aggregate(total=Sum('credit'))['total'] or 0
-        
+
         if total_debit != total_credit:
             return Response(
                 {"error": f"Cannot post unbalanced journal. Debits: {total_debit}, Credits: {total_credit}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # Validate journal has lines
         if not journal.lines.exists():
             return Response(
                 {"error": "Cannot post journal with no lines."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
             # Post to GL
             self._post_to_gl(journal, request.user)
-            
+
             # Update status
             journal.status = 'Posted'
             journal.save()
-            
+
             return Response({
                 "status": "Journal posted successfully.",
                 "journal_id": journal.id,
@@ -628,25 +616,24 @@ class JournalViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def unpost_journal(self, request, pk=None):
         """Unpost journal entry and reverse GL balances."""
-        from .models import JournalReversal
-        
+
         journal = self.get_object()
-        
+
         if journal.status != 'Posted':
             return Response(
                 {"error": "Only posted journals can be unposted."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         reason = request.data.get('reason', 'Manual unpost')
         reversal_type = request.data.get('reversal_type', 'Unpost')
-        
+
         try:
             fiscal_year = journal.posting_date.year
             period = journal.posting_date.month
-            
+
             reversed_balances = []
-            
+
             with transaction.atomic():
                 for line in journal.lines.all():
                     gl_balance = GLBalance.objects.filter(
@@ -658,17 +645,17 @@ class JournalViewSet(viewsets.ModelViewSet):
                         fiscal_year=fiscal_year,
                         period=period
                     ).first()
-                    
+
                     if gl_balance:
                         old_debit = gl_balance.debit_balance
                         old_credit = gl_balance.credit_balance
-                        
+
                         if line.debit > 0:
                             gl_balance.debit_balance -= line.debit
                         if line.credit > 0:
                             gl_balance.credit_balance -= line.credit
                         gl_balance.save()
-                        
+
                         reversed_balances.append({
                             'account': str(line.account),
                             'old_debit': str(old_debit),
@@ -676,10 +663,10 @@ class JournalViewSet(viewsets.ModelViewSet):
                             'new_debit': str(gl_balance.debit_balance),
                             'new_credit': str(gl_balance.credit_balance)
                         })
-                
+
                 journal.status = 'Approved'
                 journal.save()
-                
+
                 JournalReversal.objects.create(
                     original_journal=journal,
                     reversal_type=reversal_type,
@@ -687,7 +674,7 @@ class JournalViewSet(viewsets.ModelViewSet):
                     reversed_by=request.user,
                     gl_balances_reversed=reversed_balances
                 )
-            
+
             return Response({"status": "Journal unposted successfully."})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -695,20 +682,19 @@ class JournalViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def trial_balance(self, request):
         """Get trial balance for a period."""
-        from django.db.models import Sum
-        
+
         fiscal_year = int(request.query_params.get('year', timezone.now().year))
         period = int(request.query_params.get('period', timezone.now().month))
-        
+
         balances = GLBalance.objects.filter(
             fiscal_year=fiscal_year,
             period=period
         ).select_related('account').order_by('account__code')
-        
+
         data = []
         total_debit = 0
         total_credit = 0
-        
+
         for bal in balances:
             net = bal.debit_balance - bal.credit_balance
             if net >= 0:
@@ -717,7 +703,7 @@ class JournalViewSet(viewsets.ModelViewSet):
             else:
                 debit = 0
                 credit = abs(net)
-            
+
             data.append({
                 'account_code': bal.account.code,
                 'account_name': bal.account.name,
@@ -727,7 +713,7 @@ class JournalViewSet(viewsets.ModelViewSet):
             })
             total_debit += debit
             total_credit += credit
-        
+
         return Response({
             'fiscal_year': fiscal_year,
             'period': period,
@@ -740,37 +726,36 @@ class JournalViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def gl_report(self, request):
         """Get general ledger report."""
-        from django.db.models import Sum
-        
+
         account_id = request.query_params.get('account')
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
-        
+
         if not account_id:
             return Response({"error": "account parameter required"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         journals = JournalHeader.objects.filter(
             lines__account_id=account_id,
             status='Posted'
         )
-        
+
         if start_date:
             journals = journals.filter(posting_date__gte=start_date)
         if end_date:
             journals = journals.filter(posting_date__lte=end_date)
-        
+
         journals = journals.distinct().prefetch_related('lines')
-        
+
         data = []
         running_balance = 0
-        
+
         for journal in journals:
             for line in journal.lines.filter(account_id=account_id):
                 debit = line.debit or 0
                 credit = line.credit or 0
                 movement = debit - credit
                 running_balance += movement
-                
+
                 data.append({
                     'date': journal.posting_date,
                     'reference': journal.reference_number,
@@ -779,7 +764,7 @@ class JournalViewSet(viewsets.ModelViewSet):
                     'credit': credit,
                     'balance': running_balance
                 })
-        
+
         return Response({
             'account_id': account_id,
             'entries': data,
@@ -999,21 +984,20 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
         """Get accounts payable aging report"""
-        from datetime import timedelta
         from django.utils import timezone
-        
+
         as_of_date = request.query_params.get('as_of_date')
         if as_of_date:
             from datetime import datetime
             as_of_date = datetime.strptime(as_of_date, '%Y-%m-%d').date()
         else:
             as_of_date = timezone.now().date()
-        
+
         invoices = VendorInvoice.objects.filter(
             status__in=['Approved', 'Partially Paid'],
             invoice_date__lte=as_of_date
         ).select_related('vendor')
-        
+
         aging_data = {}
         for invoice in invoices:
             vendor_id = invoice.vendor.id
@@ -1028,10 +1012,10 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                     'days_91_plus': Decimal('0'),
                     'total_due': Decimal('0')
                 }
-            
+
             balance = invoice.balance_due
             days_overdue = (as_of_date - invoice.due_date).days
-            
+
             if days_overdue <= 0:
                 aging_data[vendor_id]['current'] += balance
             elif days_overdue <= 30:
@@ -1042,15 +1026,15 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 aging_data[vendor_id]['days_61_90'] += balance
             else:
                 aging_data[vendor_id]['days_91_plus'] += balance
-            
+
             aging_data[vendor_id]['total_due'] += balance
-        
+
         total_current = sum(d['current'] for d in aging_data.values())
         total_1_30 = sum(d['days_1_30'] for d in aging_data.values())
         total_31_60 = sum(d['days_31_60'] for d in aging_data.values())
         total_61_90 = sum(d['days_61_90'] for d in aging_data.values())
         total_91_plus = sum(d['days_91_plus'] for d in aging_data.values())
-        
+
         return Response({
             'as_of_date': as_of_date,
             'vendors': list(aging_data.values()),
@@ -1213,15 +1197,15 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
     def _post_to_gl(self, invoice, user):
         """Post customer invoice to GL in real-time."""
         from django.conf import settings
-        
+
         fiscal_year = invoice.invoice_date.year
         period = invoice.invoice_date.month
-        
+
         default_gl = getattr(settings, 'DEFAULT_GL_ACCOUNTS', {})
-        
+
         ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
         ar_account = Account.objects.filter(code=ar_code).first()
-        
+
         with transaction.atomic():
             if ar_account:
                 gl_bal, _ = GLBalance.objects.get_or_create(
@@ -1236,7 +1220,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 )
                 gl_bal.debit_balance += invoice.total_amount
                 gl_bal.save()
-            
+
             rev_code = default_gl.get('SALES_REVENUE', '40100000')
             revenue_account = Account.objects.filter(code=rev_code).first()
             if revenue_account:
@@ -1259,7 +1243,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         if invoice.status != 'Draft':
             return Response({"error": "Only draft invoices can be sent."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             invoice.status = 'Sent'
             invoice.save()
@@ -1271,16 +1255,16 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
     def post_invoice(self, request, pk=None):
         """Post customer invoice to GL in real-time."""
         invoice = self.get_object()
-        
+
         if invoice.status == 'Posted':
             return Response({"error": "Invoice already posted."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             self._post_to_gl(invoice, request.user)
-            
+
             invoice.status = 'Posted'
             invoice.save()
-            
+
             return Response({
                 "status": "Invoice posted to GL successfully.",
                 "invoice_id": invoice.id,
@@ -1294,21 +1278,20 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
         """Get accounts receivable aging report"""
-        from datetime import timedelta
         from django.utils import timezone
-        
+
         as_of_date = request.query_params.get('as_of_date')
         if as_of_date:
             from datetime import datetime
             as_of_date = datetime.strptime(as_of_date, '%Y-%m-%d').date()
         else:
             as_of_date = timezone.now().date()
-        
+
         invoices = CustomerInvoice.objects.filter(
             status__in=['Sent', 'Partially Paid', 'Overdue'],
             invoice_date__lte=as_of_date
         ).select_related('customer')
-        
+
         aging_data = {}
         for invoice in invoices:
             customer_id = invoice.customer.id
@@ -1323,10 +1306,10 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                     'days_91_plus': Decimal('0'),
                     'total_due': Decimal('0')
                 }
-            
+
             balance = invoice.balance_due
             days_overdue = (as_of_date - invoice.due_date).days
-            
+
             if days_overdue <= 0:
                 aging_data[customer_id]['current'] += balance
             elif days_overdue <= 30:
@@ -1337,15 +1320,15 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 aging_data[customer_id]['days_61_90'] += balance
             else:
                 aging_data[customer_id]['days_91_plus'] += balance
-            
+
             aging_data[customer_id]['total_due'] += balance
-        
+
         total_current = sum(d['current'] for d in aging_data.values())
         total_1_30 = sum(d['days_1_30'] for d in aging_data.values())
         total_31_60 = sum(d['days_31_60'] for d in aging_data.values())
         total_61_90 = sum(d['days_61_90'] for d in aging_data.values())
         total_91_plus = sum(d['days_91_plus'] for d in aging_data.values())
-        
+
         return Response({
             'as_of_date': as_of_date,
             'customers': list(aging_data.values()),
@@ -1670,7 +1653,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
     serializer_class = BudgetSerializer
     filterset_fields = ['period', 'mda', 'account', 'fund', 'function', 'program', 'geo', 'control_level']
     search_fields = ['budget_code', 'notes']
-    
+
     @action(detail=True, methods=['post'])
     def check_availability(self, request, pk=None):
         """Check budget availability for a transaction"""
@@ -1678,9 +1661,9 @@ class BudgetViewSet(viewsets.ModelViewSet):
         amount = Decimal(str(request.data.get('amount', 0)))
         transaction_type = request.data.get('transaction_type', 'JOURNAL')
         transaction_id = request.data.get('transaction_id', 0)
-        
+
         is_available, message, available = budget.check_availability(amount)
-        
+
         # Log the check
         BudgetCheckLog.objects.create(
             budget=budget,
@@ -1690,7 +1673,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
             available_amount=available,
             check_result='PASSED' if is_available else ('WARNING' if budget.control_level == 'WARNING' else 'BLOCKED')
         )
-        
+
         return Response({
             'is_available': is_available,
             'message': message,
@@ -1705,23 +1688,23 @@ class BudgetViewSet(viewsets.ModelViewSet):
         period_id = request.query_params.get('period')
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         budgets = self.get_queryset().filter(period_id=period_id)
-        
+
         total_allocated = budgets.aggregate(total=Sum('allocated_amount'))['total'] or Decimal('0.00')
         total_revised = budgets.aggregate(total=Sum(Coalesce('revised_amount', 'allocated_amount')))['total'] or Decimal('0.00')
-        
+
         # Calculate totals from properties/related items
         total_encumbered = Decimal('0.00')
         total_expended = Decimal('0.00')
-        
+
         for budget in budgets:
             total_encumbered += budget.encumbered_amount
             total_expended += budget.expended_amount
-            
+
         total_available = total_revised - total_encumbered - total_expended
         utilization_rate = (total_encumbered + total_expended) / total_revised * 100 if total_revised > 0 else 0
-        
+
         return Response({
             'total_allocated': total_allocated,
             'total_revised': total_revised,
@@ -1737,7 +1720,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
         period_id = request.query_params.get('period')
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         # Group by account type
         utilization_data = []
         account_types = [
@@ -1747,21 +1730,21 @@ class BudgetViewSet(viewsets.ModelViewSet):
             ('RECURRENT', 'Recurrent Expenditure'),
             ('OTHER', 'Other Expenditure')
         ]
-        
+
         for type_code, type_display in account_types:
             type_budgets = self.get_queryset().filter(period_id=period_id, account__account_type=type_code)
-            
+
             allocated = type_budgets.aggregate(total=Sum(Coalesce('revised_amount', 'allocated_amount')))['total'] or Decimal('0.00')
             encumbered = Decimal('0.00')
             expended = Decimal('0.00')
-            
+
             for b in type_budgets:
                 encumbered += b.encumbered_amount
                 expended += b.expended_amount
-                
+
             used = encumbered + expended
             percent = (used / allocated * 100) if allocated > 0 else 0
-            
+
             utilization_data.append({
                 'account_type': type_code,
                 'account_type_display': type_display,
@@ -1770,7 +1753,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
                 'expended': expended,
                 'utilization_percentage': round(percent, 2)
             })
-            
+
         return Response(utilization_data)
 
     @action(detail=False, methods=['get'])
@@ -1779,10 +1762,10 @@ class BudgetViewSet(viewsets.ModelViewSet):
         period_id = request.query_params.get('period')
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         budgets = self.get_queryset().filter(period_id=period_id)
         alerts = []
-        
+
         for budget in budgets:
             utilization = budget.utilization_rate
             if utilization >= 95:
@@ -1805,7 +1788,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
                     'message': f"Warning: Budget {budget.budget_code} is {utilization}% utilized.",
                     'utilization': round(utilization, 2)
                 })
-                
+
         return Response(alerts)
 
     @action(detail=False, methods=['get'])
@@ -1813,12 +1796,12 @@ class BudgetViewSet(viewsets.ModelViewSet):
         """Get top spending budgets for a period"""
         period_id = request.query_params.get('period')
         limit = int(request.query_params.get('limit', 10))
-        
+
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         budgets = self.get_queryset().filter(period_id=period_id)
-        
+
         spending_list = []
         for budget in budgets:
             used = budget.expended_amount + budget.encumbered_amount
@@ -1832,26 +1815,25 @@ class BudgetViewSet(viewsets.ModelViewSet):
                 'used': used,
                 'utilization_percentage': round(budget.utilization_rate, 2)
             })
-            
+
         # Sort by used amount descending
         spending_list.sort(key=lambda x: x['used'], reverse=True)
-        
+
         return Response(spending_list[:limit])
-    
+
     @action(detail=False, methods=['get'])
     def variance_analysis(self, request):
         """Get budget vs actual variance analysis - Optimized with aggregation"""
-        from django.db.models import DecimalField
 
         period_id = request.query_params.get('period')
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         # Optimized: Use select_related to reduce queries
         budgets = self.get_queryset().filter(
             period_id=period_id
         ).select_related('account', 'mda', 'fund', 'function', 'program', 'geo')
-        
+
         # Pre-fetch encumbrance totals in one query
         from .models import BudgetEncumbrance
         encumbrance_totals = BudgetEncumbrance.objects.filter(
@@ -1861,17 +1843,17 @@ class BudgetViewSet(viewsets.ModelViewSet):
             total=Sum(F('amount') - F('liquidated_amount'))
         )
         encumbrance_map = {e['budget_id']: e['total'] or Decimal('0') for e in encumbrance_totals}
-        
+
         analysis = []
         for budget in budgets:
             allocated = budget.revised_amount if budget.revised_amount else budget.allocated_amount
             encumbered = encumbrance_map.get(budget.id, Decimal('0'))
-            
+
             # Calculate expended from property (this still has a query but less critical)
             expended = budget.expended_amount
             available = allocated - encumbered - expended
             variance_pct = (available / allocated * 100) if allocated else 0
-            
+
             analysis.append({
                 'id': budget.id,
                 'budget_code': budget.budget_code,
@@ -1886,9 +1868,9 @@ class BudgetViewSet(viewsets.ModelViewSet):
                 'variance_percentage': round(variance_pct, 2),
                 'utilization_rate': round(((encumbered + expended) / allocated * 100) if allocated else 0, 2)
             })
-        
+
         return Response(analysis)
-    
+
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):
         """Download a CSV template for budget imports."""
@@ -1915,19 +1897,19 @@ class BudgetViewSet(viewsets.ModelViewSet):
         """Import budgets from Excel/CSV"""
         file = request.FILES.get('file')
         period_id = request.data.get('period_id')
-        
+
         if not file or not period_id:
             return Response({"error": "file and period_id are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         try:
             if file.name.endswith('.xlsx'):
                 df = pd.read_excel(file)
             else:
                 df = pd.read_csv(file)
-            
+
             created_count = 0
             errors = []
-            
+
             for index, row in df.iterrows():
                 try:
                     Budget.objects.create(
@@ -1946,7 +1928,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
                     created_count += 1
                 except Exception as e:
                     errors.append(f"Row {index + 2}: {str(e)}")
-            
+
             return Response({
                 'success': True,
                 'created': created_count,
@@ -1954,33 +1936,33 @@ class BudgetViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=False, methods=['get'])
     def predictive_analysis(self, request):
         """AI-powered predictive budget analysis"""
         period_id = request.query_params.get('period')
         if not period_id:
             return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         budgets = self.get_queryset().filter(period_id=period_id)
-        
+
         predictions = []
         for budget in budgets:
             days_elapsed = (datetime.now().date() - budget.period.start_date).days
             total_days = (budget.period.end_date - budget.period.start_date).days
-            
+
             if days_elapsed > 0:
                 daily_burn_rate = budget.expended_amount / Decimal(str(days_elapsed))
                 projected_total = daily_burn_rate * Decimal(str(total_days))
-                
+
                 allocated = budget.revised_amount if budget.revised_amount else budget.allocated_amount
-                
+
                 if daily_burn_rate > 0:
                     days_to_exhaustion = budget.available_amount / daily_burn_rate
                     exhaustion_date = datetime.now().date() + timedelta(days=int(days_to_exhaustion))
                 else:
                     exhaustion_date = None
-                
+
                 predictions.append({
                     'budget_id': budget.id,
                     'budget_code': budget.budget_code,
@@ -1992,7 +1974,7 @@ class BudgetViewSet(viewsets.ModelViewSet):
                     'projected_exhaustion_date': exhaustion_date,
                     'risk_level': 'HIGH' if projected_total > allocated else 'MEDIUM' if projected_total > allocated * Decimal('0.9') else 'LOW'
                 })
-        
+
         return Response(predictions)
 
 class BudgetEncumbranceViewSet(viewsets.ModelViewSet):
@@ -2012,7 +1994,7 @@ class BudgetAmendmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(requested_by=self.request.user)
-        
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         amendment = self.get_object()
@@ -2046,7 +2028,7 @@ class BudgetTransferViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(requested_by=self.request.user)
-        
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         transfer = self.get_object()
@@ -2478,7 +2460,8 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):
         """Download a CSV template for exchange rate imports."""
-        import io, csv
+        import io
+        import csv
         from django.http import HttpResponse
 
         output = io.StringIO()
@@ -2568,7 +2551,8 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='export')
     def export_data(self, request):
         """Export exchange rates as CSV."""
-        import io, csv
+        import io
+        import csv
         from django.http import HttpResponse
 
         output = io.StringIO()
@@ -2661,7 +2645,6 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reopen(self, request, pk=None):
-        from django.utils import timezone
         period = self.get_object()
         reason = request.data.get('reason', '')
         period.is_closed = False
@@ -2674,7 +2657,6 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def grant_access(self, request, pk=None):
-        from django.utils import timezone
         period = self.get_object()
         user_id = request.data.get('user_id')
         access_type = request.data.get('access_type', 'Temporary')
@@ -2843,7 +2825,7 @@ class PeriodCloseCheckViewSet(viewsets.ModelViewSet):
 
 class AssetClassViewSet(viewsets.ModelViewSet):
     queryset = AssetClass.objects.all().select_related(
-        'asset_account', 'accumulated_depreciation_account', 
+        'asset_account', 'accumulated_depreciation_account',
         'depreciation_expense_account', 'disposal_gain_account', 'disposal_loss_account'
     )
     serializer_class = AssetClassSerializer
@@ -2888,7 +2870,7 @@ class AssetMaintenanceViewSet(viewsets.ModelViewSet):
 
 class AssetTransferViewSet(viewsets.ModelViewSet):
     queryset = AssetTransfer.objects.all().select_related(
-        'asset', 'from_location', 'to_location', 
+        'asset', 'from_location', 'to_location',
         'from_employee', 'to_employee', 'approved_by'
     )
     serializer_class = AssetTransferSerializer
@@ -2947,7 +2929,7 @@ class RecurringJournalViewSet(viewsets.ModelViewSet):
         """Generate a single journal from template immediately"""
         from .advanced_services import RecurringJournalService
         template = self.get_object()
-        
+
         try:
             journal = RecurringJournalService.generate_single_journal(template, request.user)
             return Response({
@@ -2963,15 +2945,15 @@ class RecurringJournalViewSet(viewsets.ModelViewSet):
         """Generate a single journal from template"""
         from .advanced_services import RecurringJournalService
         template = self.get_object()
-        
+
         today = timezone.now().date()
         result = RecurringJournalService.generate_journals()
-        
+
         if template.code in result.get('generated', []):
             return Response({'status': 'Journal generated successfully'})
         elif result.get('errors'):
             return Response({'error': result['errors']}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         return Response({'status': 'No journals generated'})
 
 
@@ -2997,7 +2979,7 @@ class AccrualViewSet(viewsets.ModelViewSet):
         """Post an accrual to create a journal entry"""
         from .advanced_services import AccrualDeferralService
         accrual = self.get_object()
-        
+
         try:
             journal = AccrualDeferralService.post_accrual(accrual, request.user)
             return Response({
@@ -3013,7 +2995,7 @@ class AccrualViewSet(viewsets.ModelViewSet):
         """Reverse an accrual"""
         from .advanced_services import AccrualDeferralService
         accrual = self.get_object()
-        
+
         try:
             journal = AccrualDeferralService.reverse_accrual(accrual, request.user)
             return Response({
@@ -3029,11 +3011,11 @@ class AccrualViewSet(viewsets.ModelViewSet):
         """Reverse all due accruals for a period"""
         from .advanced_services import AccrualDeferralService
         from .models import BudgetPeriod
-        
+
         period_id = request.data.get('period_id')
         if not period_id:
             return Response({'error': 'period_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             period = BudgetPeriod.objects.get(pk=period_id)
             count = AccrualDeferralService.reverse_accruals(period)
@@ -3052,11 +3034,11 @@ class DeferralViewSet(viewsets.ModelViewSet):
         """Recognize deferrals for a period"""
         from .advanced_services import AccrualDeferralService
         from .models import BudgetPeriod
-        
+
         period_id = request.data.get('period_id')
         if not period_id:
             return Response({'error': 'period_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             period = BudgetPeriod.objects.get(pk=period_id)
             count = AccrualDeferralService.recognize_deferrals(period)
@@ -3075,7 +3057,7 @@ class PeriodStatusViewSet(viewsets.ModelViewSet):
         """Close a period"""
         from .advanced_services import PeriodClosingService
         status_obj = self.get_object()
-        
+
         try:
             result = PeriodClosingService.close_period(status_obj.period, request.user)
             return Response(PeriodStatusSerializer(result).data)
@@ -3087,7 +3069,7 @@ class PeriodStatusViewSet(viewsets.ModelViewSet):
         """Reopen a period"""
         from .advanced_services import PeriodClosingService
         status_obj = self.get_object()
-        
+
         try:
             result = PeriodClosingService.open_period(status_obj.period, request.user)
             return Response(PeriodStatusSerializer(result).data)
@@ -3099,9 +3081,9 @@ class PeriodStatusViewSet(viewsets.ModelViewSet):
         """Lock a period"""
         from .advanced_services import PeriodClosingService
         status_obj = self.get_object()
-        
+
         reason = request.data.get('reason', 'Manual lock')
-        
+
         try:
             result = PeriodClosingService.lock_period(status_obj.period, request.user, reason)
             return Response(PeriodStatusSerializer(result).data)
@@ -3118,11 +3100,11 @@ class YearEndClosingViewSet(viewsets.ModelViewSet):
     def close_year(self, request):
         """Close a fiscal year"""
         from .advanced_services import YearEndClosingService
-        
+
         fiscal_year = request.data.get('fiscal_year')
         if not fiscal_year:
             return Response({'error': 'fiscal_year is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             result = YearEndClosingService.close_year(int(fiscal_year), request.user)
             return Response(YearEndClosingSerializer(result).data)
@@ -3146,17 +3128,17 @@ class CurrencyRevaluationViewSet(viewsets.ModelViewSet):
         """Perform currency revaluation"""
         from .advanced_services import CurrencyRevaluationService
         from .models import Currency
-        
+
         currency_id = request.data.get('currency_id')
         exchange_rate = request.data.get('exchange_rate')
-        
+
         if not currency_id or not exchange_rate:
             return Response({'error': 'currency_id and exchange_rate are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             currency = Currency.objects.get(pk=currency_id)
             result = CurrencyRevaluationService.revaluate(
-                currency, 
+                currency,
                 Decimal(str(exchange_rate)),
                 timezone.now().date(),
                 request.user
@@ -3172,19 +3154,19 @@ class BalanceSheetViewSet(viewsets.ViewSet):
         """Generate Balance Sheet report"""
         from .reports import FinancialReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = FinancialReportService.generate_balance_sheet(start, end)
             return Response(report)
@@ -3198,19 +3180,19 @@ class IncomeStatementViewSet(viewsets.ViewSet):
         """Generate Income Statement report"""
         from .reports import FinancialReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = FinancialReportService.generate_income_statement(start, end)
             return Response(report)
@@ -3224,20 +3206,20 @@ class CashFlowStatementViewSet(viewsets.ViewSet):
         """Generate Cash Flow Statement report"""
         from .reports import FinancialReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
         method = request.data.get('method', 'direct')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             if method == 'indirect':
                 report = FinancialReportService.generate_cash_flow_indirect(start, end)
@@ -3253,14 +3235,14 @@ class BudgetVsActualViewSet(viewsets.ViewSet):
     def create(self, request):
         """Generate Budget vs Actual report"""
         from .reports import BudgetReportService
-        
+
         budget_period_id = request.data.get('budget_period_id')
         fund_id = request.data.get('fund_id')
         mda_id = request.data.get('mda_id')
-        
+
         if not budget_period_id:
             return Response({'error': 'budget_period_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = BudgetReportService.generate_budget_vs_actual(
                 budget_period_id=budget_period_id,
@@ -3277,13 +3259,13 @@ class BudgetPerformanceViewSet(viewsets.ViewSet):
     def create(self, request):
         """Generate Budget Performance report"""
         from .reports import BudgetReportService
-        
+
         fiscal_year = request.data.get('fiscal_year')
         fund_id = request.data.get('fund_id')
-        
+
         if not fiscal_year:
             return Response({'error': 'fiscal_year is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = BudgetReportService.generate_budget_performance(
                 fiscal_year=int(fiscal_year),
@@ -3300,20 +3282,20 @@ class CostCenterReportViewSet(viewsets.ViewSet):
         """Generate Cost Center report"""
         from .reports import CostCenterReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
         cost_center_id = request.data.get('cost_center_id')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = CostCenterReportService.generate_cost_center_report(
                 start_date=start,
@@ -3331,21 +3313,21 @@ class IFRSComparisonViewSet(viewsets.ViewSet):
         """Generate IFRS Comparison report"""
         from .reports import IFRSReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
         fiscal_year = request.data.get('fiscal_year')
-        
+
         if not start_date or not end_date or not fiscal_year:
             return Response({'error': 'start_date, end_date, and fiscal_year are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
             year = int(fiscal_year)
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = IFRSReportService.generate_ifrs_comparison_report(
                 start_date=start,
@@ -3363,20 +3345,20 @@ class GeneralLedgerViewSet(viewsets.ViewSet):
         """Generate General Ledger report"""
         from .reports import GeneralLedgerReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
         account_code = request.data.get('account_code')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = GeneralLedgerReportService.generate_general_ledger(
                 start_date=start,
@@ -3394,19 +3376,19 @@ class TrialBalanceViewSet(viewsets.ViewSet):
         """Generate Trial Balance report"""
         from .reports import TrialBalanceReportService
         from datetime import datetime
-        
+
         end_date = request.data.get('end_date')
         start_date = request.data.get('start_date', '1900-01-01')
-        
+
         if not end_date:
             return Response({'error': 'end_date is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = TrialBalanceReportService.generate_trial_balance(start, end)
             return Response(report)
@@ -3419,9 +3401,9 @@ class InventoryStockValuationViewSet(viewsets.ViewSet):
     def create(self, request):
         """Generate Inventory Stock Valuation report"""
         from .reports import InventoryReportService
-        
+
         warehouse_id = request.data.get('warehouse_id')
-        
+
         try:
             report = InventoryReportService.generate_stock_valuation(warehouse_id)
             return Response(report)
@@ -3434,7 +3416,7 @@ class InventoryLowStockViewSet(viewsets.ViewSet):
     def list(self, request):
         """Generate Low Stock Alert report"""
         from .reports import InventoryReportService
-        
+
         try:
             report = InventoryReportService.generate_low_stock_report()
             return Response(report)
@@ -3448,19 +3430,19 @@ class InventoryMovementViewSet(viewsets.ViewSet):
         """Generate Stock Movement report"""
         from .reports import InventoryReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = InventoryReportService.generate_stock_movement(start, end)
             return Response(report)
@@ -3473,7 +3455,7 @@ class HRHeadcountViewSet(viewsets.ViewSet):
     def list(self, request):
         """Generate Headcount Report"""
         from .reports import HRReportService
-        
+
         try:
             report = HRReportService.generate_headcount_report()
             return Response(report)
@@ -3486,13 +3468,13 @@ class HRPayrollSummaryViewSet(viewsets.ViewSet):
     def create(self, request):
         """Generate Payroll Summary Report"""
         from .reports import HRReportService
-        
+
         month = request.data.get('month')
         year = request.data.get('year')
-        
+
         if not month or not year:
             return Response({'error': 'month and year are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = HRReportService.generate_payroll_summary(int(month), int(year))
             return Response(report)
@@ -3506,19 +3488,19 @@ class SalesSummaryViewSet(viewsets.ViewSet):
         """Generate Sales Summary Report"""
         from .reports import SalesReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = SalesReportService.generate_sales_summary(start, end)
             return Response(report)
@@ -3531,7 +3513,7 @@ class SalesCustomersViewSet(viewsets.ViewSet):
     def list(self, request):
         """Generate Customers Report"""
         from .reports import SalesReportService
-        
+
         try:
             report = SalesReportService.generate_customers_report()
             return Response(report)
@@ -3545,19 +3527,19 @@ class ProcurementSummaryViewSet(viewsets.ViewSet):
         """Generate Purchase Summary Report"""
         from .reports import ProcurementReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = ProcurementReportService.generate_purchase_summary(start, end)
             return Response(report)
@@ -3570,7 +3552,7 @@ class ProcurementVendorsViewSet(viewsets.ViewSet):
     def list(self, request):
         """Generate Vendors Report"""
         from .reports import ProcurementReportService
-        
+
         try:
             report = ProcurementReportService.generate_vendors_report()
             return Response(report)
@@ -3584,19 +3566,19 @@ class ProductionSummaryViewSet(viewsets.ViewSet):
         """Generate Production Summary Report"""
         from .reports import ProductionReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = ProductionReportService.generate_production_summary(start, end)
             return Response(report)
@@ -3610,19 +3592,19 @@ class ProductionMaterialConsumptionViewSet(viewsets.ViewSet):
         """Generate Material Consumption Report"""
         from .reports import ProductionReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = ProductionReportService.generate_material_consumption(start, end)
             return Response(report)
@@ -3636,19 +3618,19 @@ class ProductionCostReportViewSet(viewsets.ViewSet):
         """Generate Production Cost & Profitability Report"""
         from .reports import ProductionReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = ProductionReportService.generate_production_cost_report(start, end)
             return Response(report)
@@ -3662,19 +3644,19 @@ class ProductProfitabilityViewSet(viewsets.ViewSet):
         """Generate Product Profitability Analysis Report"""
         from .reports import ProductionReportService
         from datetime import datetime
-        
+
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        
+
         if not start_date or not end_date:
             return Response({'error': 'start_date and end_date are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             start = datetime.strptime(start_date, '%Y-%m-%d').date()
             end = datetime.strptime(end_date, '%Y-%m-%d').date()
         except ValueError:
             return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             report = ProductionReportService.generate_product_profitability(start, end)
             return Response(report)

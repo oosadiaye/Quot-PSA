@@ -1,5 +1,4 @@
 import logging
-from decimal import Decimal
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
@@ -9,6 +8,7 @@ from .models import (
     VendorCreditNote, VendorDebitNote, PurchaseReturn, PurchaseReturnLine,
     DownPaymentRequest,
 )
+from accounting.models import MDA
 
 
 class PositiveDecimalMixin:
@@ -46,21 +46,31 @@ class VendorSerializer(serializers.ModelSerializer):
     on_time_delivery_rate = serializers.ReadOnlyField()
     current_balance = serializers.DecimalField(max_digits=19, decimal_places=2, read_only=True, default=0)
     category_name = serializers.CharField(source='category.name', read_only=True)
+    is_registration_valid = serializers.BooleanField(read_only=True)
+    registration_status = serializers.CharField(read_only=True)
+    fiscal_year_name = serializers.CharField(source='registration_fiscal_year.name', read_only=True, default='')
 
     class Meta:
         model = Vendor
         fields = [
             'id', 'name', 'code', 'category', 'category_name',
             'tax_id', 'address', 'email', 'phone',
-            'is_active', 'total_orders', 'on_time_deliveries', 'quality_score',
+            'is_active',
+            'registration_number', 'registration_fiscal_year', 'fiscal_year_name',
+            'registration_date', 'expiry_date',
+            'is_registration_valid', 'registration_status',
+            'bank_name', 'bank_account_number', 'bank_sort_code',
+            'total_orders', 'on_time_deliveries', 'quality_score',
             'total_purchase_value', 'performance_rating', 'on_time_delivery_rate',
             'current_balance',
             'withholding_tax_code', 'wht_exempt',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by',
+                            'is_registration_valid', 'registration_status', 'fiscal_year_name']
 
 class PurchaseRequestLineSerializer(PositiveDecimalMixin, serializers.ModelSerializer):
+    account_code = serializers.CharField(source='account.code', read_only=True, allow_null=True)
     account_name = serializers.CharField(source='account.name', read_only=True, allow_null=True)
     asset_name = serializers.CharField(source='asset.name', read_only=True, default='')
     item_name = serializers.CharField(source='item.name', read_only=True, allow_null=True)
@@ -72,7 +82,7 @@ class PurchaseRequestLineSerializer(PositiveDecimalMixin, serializers.ModelSeria
         model = PurchaseRequestLine
         fields = [
             'id', 'item_description', 'quantity', 'estimated_unit_price',
-            'account', 'account_name', 'asset', 'asset_name',
+            'account', 'account_code', 'account_name', 'asset', 'asset_name',
             'item', 'item_name', 'product_type', 'product_type_name',
             'product_category', 'product_category_name',
             'total_estimated_price',
@@ -89,6 +99,28 @@ class PurchaseRequestLineSerializer(PositiveDecimalMixin, serializers.ModelSeria
 class PurchaseRequestSerializer(serializers.ModelSerializer):
     lines = PurchaseRequestLineSerializer(many=True)
     mda_name = serializers.ReadOnlyField(source='mda.name', allow_null=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from accounting.serializers import is_dimensions_enabled
+        dims_enabled = is_dimensions_enabled(self.context)
+        if dims_enabled:
+            # Budget control pillars — MDA + Fund required
+            for field in ['mda', 'fund']:
+                if field in self.fields:
+                    self.fields[field].required = True
+                    self.fields[field].allow_null = False
+            # Reporting dimensions — required for IPSAS reports
+            for field in ['function', 'program', 'geo']:
+                if field in self.fields:
+                    self.fields[field].required = True
+                    self.fields[field].allow_null = False
+        else:
+            for field in ['mda', 'fund', 'function', 'program', 'geo']:
+                if field in self.fields:
+                    self.fields[field].required = False
+                    self.fields[field].allow_null = True
+
     fund_name = serializers.ReadOnlyField(source='fund.name')
     function_name = serializers.ReadOnlyField(source='function.name')
     program_name = serializers.ReadOnlyField(source='program.name')
@@ -109,13 +141,12 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
     def validate(self, data):
         # P2P-H5: PR Budget Period Date Validation
         # Ensure PR dates fall within budget period
-        from django.utils import timezone
-        
+
         requested_date = data.get('requested_date')
-        
+
         try:
             from accounting.models import BudgetPeriod
-            
+
             if requested_date:
                 period = BudgetPeriod.get_period_for_date(requested_date)
                 if period:
@@ -129,7 +160,7 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
                     })
         except ImportError:
             pass  # BudgetPeriod model not available
-        
+
         return data
 
     def create(self, validated_data):
@@ -164,6 +195,28 @@ class PurchaseOrderLineSerializer(PositiveDecimalMixin, serializers.ModelSeriali
 class PurchaseOrderSerializer(serializers.ModelSerializer):
     lines = PurchaseOrderLineSerializer(many=True)
     vendor_name = serializers.ReadOnlyField(source='vendor.name')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from accounting.serializers import is_dimensions_enabled
+        dims_enabled = is_dimensions_enabled(self.context)
+        if dims_enabled:
+            for field in ['mda', 'fund']:
+                if field in self.fields:
+                    self.fields[field].required = True
+                    self.fields[field].allow_null = False
+            for field in ['function', 'program', 'geo']:
+                if field in self.fields:
+                    self.fields[field].required = True
+                    self.fields[field].allow_null = False
+        else:
+            for field in ['mda', 'fund', 'function', 'program', 'geo']:
+                if field in self.fields:
+                    self.fields[field].required = False
+                    self.fields[field].allow_null = True
+
+    mda_name = serializers.ReadOnlyField(source='mda.name', allow_null=True)
+    mda_code = serializers.ReadOnlyField(source='mda.code', allow_null=True)
     fund_name = serializers.ReadOnlyField(source='fund.name')
     function_name = serializers.ReadOnlyField(source='function.name')
     program_name = serializers.ReadOnlyField(source='program.name')
@@ -184,40 +237,51 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             'expected_delivery_date', 'delivery_address', 'delivery_contact', 'payment_terms',
             'tax_rate', 'tax_amount', 'subtotal', 'total_amount', 'notes', 'terms_and_conditions',
             'tax_code', 'wht_exempt',
-            'status', 'mda', 'fund', 'fund_name', 'function', 'function_name',
+            'status', 'mda', 'mda_name', 'mda_code',
+            'fund', 'fund_name', 'function', 'function_name',
             'program', 'program_name', 'geo', 'geo_name', 'lines',
             'has_active_grns',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'has_active_grns', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'po_number', 'has_active_grns', 'created_at', 'updated_at']
 
     def validate(self, data):
+        # ── Vendor registration validity check ──────────────────
+        vendor = data.get('vendor')
+        if vendor and hasattr(vendor, 'is_registration_valid'):
+            if not vendor.is_registration_valid:
+                raise serializers.ValidationError({
+                    'vendor': f"Vendor '{vendor.name}' registration has expired "
+                              f"(expiry: {vendor.expiry_date}). "
+                              f"Renew the vendor's registration before creating a Purchase Order."
+                })
+
         order_date = data.get('order_date')
         expected_delivery_date = data.get('expected_delivery_date')
         if order_date and expected_delivery_date and expected_delivery_date < order_date:
             raise serializers.ValidationError({
                 'expected_delivery_date': "Expected delivery date cannot be before order date."
             })
-        
+
         # P2P-H2: Require Approved PR for PO
         purchase_request = data.get('purchase_request')
         if purchase_request and purchase_request.status != 'Approved':
             raise serializers.ValidationError({
                 'purchase_request': f"Purchase Request must be in 'Approved' status. Current status: '{purchase_request.status}'"
             })
-        
+
         # P2P-H6: PO vs PR Price Validation
         lines = data.get('lines', [])
         if lines and purchase_request:
             try:
                 from .models import PurchaseRequestLine
                 pr_lines = {pl.item_description: pl for pl in purchase_request.lines.all()}
-                
+
                 for idx, line in enumerate(lines):
                     unit_price = line.get('unit_price')
                     item_desc = line.get('item_description')
                     po_line = line.get('po_line')
-                    
+
                     if po_line and unit_price is not None and item_desc in pr_lines:
                         pr_line = pr_lines[item_desc]
                         if pr_line.estimated_unit_price and unit_price > pr_line.estimated_unit_price:
@@ -236,10 +300,14 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # PO header save runs first (PK is needed before lines can FK to it).
+        # Lines are then created. Finally we save the PO again so its
+        # `save()` recomputes tax_amount from the now-existing lines.
         lines_data = validated_data.pop('lines')
         order = PurchaseOrder.objects.create(**validated_data)
         for line_data in lines_data:
             PurchaseOrderLine.objects.create(po=order, **line_data)
+        order.save()  # second save: now self.pk exists, calculate_tax() can iterate self.lines
         return order
 
 
@@ -295,17 +363,40 @@ class GoodsReceivedNoteLineSerializer(serializers.ModelSerializer):
 class GoodsReceivedNoteSerializer(serializers.ModelSerializer):
     lines = GoodsReceivedNoteLineSerializer(many=True)
     po_number = serializers.ReadOnlyField(source='purchase_order.po_number')
+
+    # MDA is the new primary receiving dimension. Optional on input — when
+    # missing, the model's save() hook copies it from the PO. Pass it
+    # explicitly when you want defense-in-depth (the validate() block then
+    # checks PO-vs-MDA consistency).
+    mda = serializers.PrimaryKeyRelatedField(
+        queryset=MDA.objects.all(),
+        required=False, allow_null=True,
+    )
+    mda_name = serializers.ReadOnlyField(source='mda.name')
+    mda_code = serializers.ReadOnlyField(source='mda.code')
+
+    # Warehouse is auto-resolved from the MDA in the model's save() hook
+    # (see inventory.services.get_default_warehouse_for_mda). The UI no
+    # longer asks for it, but list/detail responses still surface it for
+    # downstream inventory drilldowns.
+    warehouse = serializers.PrimaryKeyRelatedField(read_only=True)
     warehouse_name = serializers.ReadOnlyField(source='warehouse.name')
 
     class Meta:
         model = GoodsReceivedNote
         fields = [
             'id', 'grn_number', 'purchase_order', 'po_number',
-            'received_date', 'received_by', 'warehouse', 'warehouse_name',
+            'received_date', 'received_by',
+            'mda', 'mda_name', 'mda_code',
+            'warehouse', 'warehouse_name',
             'status', 'notes', 'lines',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'grn_number', 'created_at', 'updated_at', 'created_by', 'updated_by', 'status']
+        read_only_fields = [
+            'id', 'grn_number',
+            'warehouse', 'warehouse_name',
+            'created_at', 'updated_at', 'created_by', 'updated_by', 'status',
+        ]
 
     def validate(self, data):
         received_date = data.get('received_date')
@@ -313,6 +404,19 @@ class GoodsReceivedNoteSerializer(serializers.ModelSerializer):
         if received_date and purchase_order and received_date < purchase_order.order_date:
             raise serializers.ValidationError({
                 'received_date': "Received date cannot be before the purchase order date."
+            })
+
+        # Cross-field check: when both mda and purchase_order are supplied,
+        # they must agree. The model's clean() repeats this check at the
+        # ORM layer; doing it here surfaces a friendlier 400 to the API.
+        mda = data.get('mda')
+        if mda and purchase_order and purchase_order.mda_id and mda.pk != purchase_order.mda_id:
+            raise serializers.ValidationError({
+                'mda': (
+                    f"GRN MDA ({mda.code}) must match the Purchase Order's "
+                    f"MDA. PO {purchase_order.po_number} is assigned to "
+                    f"a different MDA."
+                )
             })
         return data
 
@@ -326,36 +430,6 @@ class GoodsReceivedNoteSerializer(serializers.ModelSerializer):
             # to objects.create() raises TypeError.
             line_data.pop('item_description', None)  # defensive: strip if somehow present
             GoodsReceivedNoteLine.objects.create(grn=grn, **line_data)
-        
-        # P2P-H4: Auto-trigger QI on GRN receipt
-        try:
-            from django.utils.crypto import get_random_string
-            from quality.models import QualityInspection, InspectionLine
-            
-            inspection_number = f"QI-{grn.grn_number}-{get_random_string(4, allowed_chars='0123456789')}"
-            
-            inspection = QualityInspection.objects.create(
-                inspection_number=inspection_number,
-                inspection_type='Incoming',
-                reference_type='GRN',
-                reference_number=grn.grn_number,
-                inspection_date=grn.received_date,
-                status='Pending',
-                goods_received_note=grn,
-                notes='Auto-created quality inspection on GRN receipt'
-            )
-            
-            for line_data in lines_data:
-                po_line = line_data.get('po_line')
-                if po_line and po_line.item:
-                    InspectionLine.objects.create(
-                        inspection=inspection,
-                        parameter=f"Quantity Check - {po_line.item.name}",
-                        specification=f"Expected: {line_data.get('quantity_received', po_line.quantity)}",
-                        result='Pending'
-                    )
-        except ImportError as exc:
-            logger.warning("Quality module unavailable, skipping auto inspection creation for GRN %s: %s", grn.grn_number, exc)
 
         return grn
 
@@ -568,3 +642,52 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
             purchase_return.update_total()
 
         return purchase_return
+
+
+# ─── BPP Due Process Serializers (Quot PSE Phase 5) ──────────────────
+
+from procurement.models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
+
+
+class ProcurementThresholdSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcurementThreshold
+        fields = [
+            'id', 'category', 'authority_level', 'min_amount', 'max_amount',
+            'requires_bpp_no', 'fiscal_year', 'is_active',
+        ]
+        read_only_fields = ['id']
+
+
+class CertificateOfNoObjectionSerializer(serializers.ModelSerializer):
+    purchase_order_number = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CertificateOfNoObjection
+        fields = [
+            'id', 'purchase_order', 'purchase_order_number',
+            'certificate_number', 'issued_date', 'expiry_date',
+            'authority_level', 'issuing_officer', 'is_valid',
+            'amount_covered', 'scope_description', 'conditions',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_purchase_order_number(self, obj) -> str:
+        return str(obj.purchase_order) if obj.purchase_order else ''
+
+
+class ProcurementBudgetLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcurementBudgetLink
+        fields = [
+            'id', 'purchase_order', 'appropriation',
+            'committed_amount', 'ncoa_code', 'committed_at', 'status',
+        ]
+        read_only_fields = ['id', 'committed_at']
+
+
+class ThresholdCheckSerializer(serializers.Serializer):
+    """Input for checking procurement approval authority level."""
+    amount = serializers.DecimalField(max_digits=20, decimal_places=2)
+    category = serializers.ChoiceField(choices=['GOODS_SERVICES', 'WORKS', 'CONSULTANCY'])

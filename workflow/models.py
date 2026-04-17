@@ -16,14 +16,16 @@ class GlobalApprovalSettings(AuditBaseModel):
         ('GoodsReceivedNote', 'Goods Received Notes'),
         ('InvoiceVerification', 'Invoice Verification (3-Way Match)'),
         ('PurchaseReturn', 'Purchase Returns'),
-        # ── Other modules ─────────────────────────────────────────────────────
-        ('SalesOrder', 'Sales Orders'),
-        ('ProductionOrder', 'Production Orders'),
-        ('QualityInspection', 'Quality Inspections'),
+        # ── Government IFMIS workflows ────────────────────────────────────────
+        ('PaymentVoucher', 'Payment Vouchers'),
+        ('Appropriation', 'Budget Appropriations'),
+        ('Warrant', 'Cash Release Warrants'),
+        ('RevenueWriteOff', 'Revenue Write-Offs'),
+        ('AssetDisposal', 'Asset Disposals'),
         ('Budget', 'Budgets'),
         ('JournalEntry', 'Journal Entries'),
         ('LeaveRequest', 'Leave Requests'),
-        ('Maintenance', 'Maintenance'),
+        ('PayrollRun', 'Payroll Runs'),
     ]
     
     APPROVAL_MODE_CHOICES = [
@@ -74,29 +76,43 @@ class GlobalApprovalSettings(AuditBaseModel):
 
 
 class ApprovalGroup(AuditBaseModel):
-    """Group of approvers for a specific approval level"""
+    """Group of approvers for a specific approval level."""
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     members = models.ManyToManyField('auth.User', related_name='approval_groups')
-    
+
+    # MDA-scoped: null = global group, set = MDA-specific approver group
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='approval_groups',
+        help_text='MDA-scoped group; null = global group',
+    )
+
     # Approval limits
     min_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     max_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    
+
     is_active = models.BooleanField(default=True)
-    
+
     def __str__(self):
         return self.name
 
 
 class ApprovalTemplate(AuditBaseModel):
-    """Template for approval workflows"""
+    """Template for approval workflows."""
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    
+
     # Target model
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    
+
+    # MDA-scoped: null = global template, set = MDA-specific approval chain
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='approval_templates',
+        help_text='MDA-scoped template; null = global template',
+    )
+
     # Approval sequence
     APPROVAL_TYPES = [
         ('Sequential', 'Sequential - One after another'),
@@ -104,12 +120,12 @@ class ApprovalTemplate(AuditBaseModel):
         ('Any', 'Any - One approval enough'),
     ]
     approval_type = models.CharField(max_length=20, choices=APPROVAL_TYPES, default='Sequential')
-    
+
     # Steps
     steps = models.ManyToManyField(ApprovalGroup, through='ApprovalTemplateStep')
-    
+
     is_active = models.BooleanField(default=True)
-    
+
     def __str__(self):
         return f"{self.name} ({self.content_type})"
 

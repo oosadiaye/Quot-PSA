@@ -10,6 +10,8 @@ export interface UserPermissions {
     is_superuser?: boolean;
     groups: string[];
     permissions: string[];
+    tenant_role?: string | null;
+    tenant_permissions?: string[];
 }
 
 /** Read user data stored in localStorage during login as a fallback. */
@@ -62,7 +64,8 @@ export const hasPermission = (user: UserPermissions | undefined | null, permissi
     // Superuser bypass — all real permissions granted
     if (user.is_superuser) return true;
 
-    // Tenant admin bypass — tenant admins should see all module menus
+    // Tenant admin bypass — check API response first, then localStorage
+    if (user.tenant_role === 'admin') return true;
     try {
         const tenantInfoStr = localStorage.getItem('tenantInfo');
         if (tenantInfoStr) {
@@ -71,7 +74,11 @@ export const hasPermission = (user: UserPermissions | undefined | null, permissi
         }
     } catch { /* ignore parse errors */ }
 
-    // Check tenant-scoped permissions (from select-tenant response)
+    // Check tenant-scoped permissions (from API response first, then localStorage)
+    if (user.tenant_permissions && Array.isArray(user.tenant_permissions)) {
+        if (user.tenant_permissions.includes('__all__')) return true;
+        if (user.tenant_permissions.includes(permissionCodename)) return true;
+    }
     try {
         const tenantPermsStr = localStorage.getItem('tenantPermissions');
         if (tenantPermsStr) {

@@ -12,9 +12,12 @@ export default function StatusBadge({ status, className = '' }: StatusBadgeProps
             'Pending': 'badge-draft',
             'Approved': 'badge-approved',
             'Sent': 'badge-approved',
+            // Posted = GL journal created, AP recognised, awaiting payment.
+            // Uses badge-approved (blue) rather than badge-paid (green) so
+            // it's visually distinct from a fully-settled invoice.
+            'Posted': 'badge-approved',
             'Partially Paid': 'badge-partial',
             'Paid': 'badge-paid',
-            'Posted': 'badge-paid',
             'Void': 'badge-void',
             'Rejected': 'badge-void',
             'Overdue': 'badge-void',

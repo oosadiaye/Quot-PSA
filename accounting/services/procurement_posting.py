@@ -139,23 +139,80 @@ class ProcurementPostingService(BasePostingService):
         # Update GL balances
         ProcurementPostingService._update_gl_balances(journal)
 
+        # ── Commitment link: safety net in case the Approved-status hook
+        # was bypassed (e.g. legacy data migrated into 'Posted' directly).
+        # ``create_commitment_for_po`` is idempotent — if a link already
+        # exists it just refreshes the committed amount.
+        #
+        # S1-10 — ``BudgetExceededError`` MUST propagate so the PO post
+        # fails when the appropriation ceiling would be breached. The old
+        # blanket ``except Exception: log.warning`` swallowed this error
+        # and silently allowed over-commitment. We now let the ceiling
+        # error bubble up while still tolerating non-critical failures
+        # (missing NCoA bridges, etc.) so the GL post isn't aborted by
+        # a configuration issue.
+        try:
+            create_commitment_for_po(po, grand_total)
+        except Exception as exc:
+            # Ceiling breaches MUST abort posting.
+            from budget.services import BudgetExceededError
+            if isinstance(exc, BudgetExceededError):
+                raise
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to create ProcurementBudgetLink for PO %s: %s",
+                po.po_number, exc,
+            )
+
         return journal
+
+    @staticmethod
+    def _create_budget_commitment(po, committed_amount):
+        """Deprecated alias — delegates to ``procurement_commitments.create_commitment_for_po``.
+
+        Kept for backward compatibility with the GL-posting call site.
+        New callers (e.g. the PO model's status-transition hook) should
+        use ``create_commitment_for_po`` from the commitments module
+        directly so the same logic runs for any "Approved" → commitment
+        trigger, not only "Posted" → GL entry.
+        """
+        from accounting.services.procurement_commitments import create_commitment_for_po
+        return create_commitment_for_po(po, committed_amount)
+
+    # NOTE: Commitment helpers (create_commitment_for_po,
+    # cancel_commitment_for_po, mark_commitment_invoiced_for_po) live in
+    # ``accounting/services/procurement_commitments.py`` so model save()
+    # hooks can import them without pulling in the whole service class.
 
     @staticmethod
     @transaction.atomic
     def post_goods_received_note(grn):
         """
-        Post a Goods Received Note to the GL.
+        Post a Goods Received Note to the GL — IPSAS three-way match.
 
         P2P accounting logic:
-        - PO Posted first: DR Inventory / CR AP was already recorded at PO posting.
-          GRN only confirms physical receipt — no additional GL entry needed.
-          Returns None.
-        - PO not yet Posted: GRN is the first real accrual event.
-          Creates DR Inventory / CR AP.
+
+        - **PO Posted first** (legacy/inventoried path): DR Inventory / CR AP
+          was already recorded at PO posting. GRN here only confirms physical
+          receipt — no additional GL entry. Returns ``None``.
+
+        - **PO not yet Posted** (canonical 3-way match):
+            * DR Expense / Asset / Inventory  (per po_line — see priority below)
+            * CR GR/IR Clearing                                  (liability)
+
+          Debit-account priority per line:
+            1. Inventoriable item  → ``item.inventory_account``
+                                     → ``product_type.inventory_account``
+                                     → ``DEFAULT_GL_ACCOUNTS['INVENTORY']``
+            2. Fixed asset PO line → ``po_line.asset.gl_account``
+            3. Service / direct expense → ``po_line.account`` (always set)
+
+        The credit (GR/IR Clearing) is parked until the vendor invoice clears
+        it via ``post_vendor_invoice`` — at which point AP is recognised and
+        the budget commitment moves INVOICED → CLOSED.
 
         Args:
-            grn: GoodsReceivedNote instance
+            grn: GoodsReceivedNote instance (must be in 'Posted' status)
 
         Returns:
             JournalHeader or None
@@ -198,41 +255,81 @@ class ProcurementPostingService(BasePostingService):
             source_document_id=grn.pk,
         )
 
+        # IPSAS three-way match — debit side selection priority:
+        #   1. Inventoriable items: DR Inventory account (item.inventory_account
+        #      → product_type.inventory_account → DEFAULT_GL_ACCOUNTS['INVENTORY'])
+        #   2. Fixed-asset POs: DR the asset's GL account (capitalised on receipt)
+        #   3. Service / direct-expense lines: DR po_line.account (the expense
+        #      account chosen when the PO line was raised)
+        # In all three cases we credit GR/IR Clearing — the liability that
+        # parks the value until the vendor invoice clears it.
         total_received = Decimal('0.00')
+        skipped_lines = []
         for grn_line in grn.lines.all():
             po_line = grn_line.po_line
-            if not po_line or not po_line.item:
+            if not po_line:
+                skipped_lines.append(grn_line.pk)
                 continue
 
-            item = po_line.item
             quantity = grn_line.quantity_received
             unit_cost = po_line.unit_price
             line_total = quantity * unit_cost
+            if line_total <= 0:
+                continue
+
+            # Resolve debit account — see priority order above.
+            debit_account = None
+            memo_label = po_line.item_description or 'Goods/Services'
+
+            if po_line.item:
+                item = po_line.item
+                debit_account = item.inventory_account
+                if not debit_account and item.product_type:
+                    debit_account = item.product_type.inventory_account
+                if not debit_account:
+                    debit_account = get_gl_account('INVENTORY', 'Asset', 'Inventory')
+                memo_label = f"{item.sku} x {quantity}"
+            elif po_line.asset and getattr(po_line.asset, 'gl_account', None):
+                debit_account = po_line.asset.gl_account
+                memo_label = f"FA {po_line.asset} x {quantity}"
+
+            # Fall back to the PO line's chosen GL account (always set — see
+            # PurchaseOrderLine.account = ForeignKey(Account, on_delete=PROTECT)).
+            if not debit_account:
+                debit_account = po_line.account
+
+            if not debit_account:
+                # Should be unreachable, but keep the journal balanced rather
+                # than silently posting an asymmetric entry.
+                skipped_lines.append(grn_line.pk)
+                continue
+
             total_received += line_total
+            JournalLine.objects.create(
+                header=journal,
+                account=debit_account,
+                debit=line_total,
+                credit=Decimal('0.00'),
+                memo=f"GRN {grn.grn_number}: {memo_label}",
+            )
 
-            inventory_account = item.inventory_account
-            if not inventory_account and item.product_type:
-                inventory_account = item.product_type.inventory_account
-            if not inventory_account:
-                inventory_account = get_gl_account('INVENTORY', 'Asset', 'Inventory')
-
-            if inventory_account:
-                JournalLine.objects.create(
-                    header=journal,
-                    account=inventory_account,
-                    debit=line_total,
-                    credit=Decimal('0.00'),
-                    memo=f"GRN {grn.grn_number}: {item.sku} x {quantity}"
-                )
-
-        # Credit GR/IR Clearing (3-way match — AP recognised at invoice matching)
+        # Credit GR/IR Clearing (3-way match — AP recognised at invoice matching).
+        # The credit total equals the sum of debits to keep the journal balanced.
         if total_received > 0:
             JournalLine.objects.create(
                 header=journal,
                 account=grn_ir_account,
                 debit=Decimal('0.00'),
                 credit=total_received,
-                memo=f"GR/IR Clearing from GRN {grn.grn_number}"
+                memo=f"GR/IR Clearing from GRN {grn.grn_number}",
+            )
+
+        if skipped_lines:
+            import logging
+            logging.getLogger(__name__).warning(
+                "GRN %s posted but %d line(s) had no resolvable debit account "
+                "and were skipped: %s",
+                grn.grn_number, len(skipped_lines), skipped_lines,
             )
 
         ProcurementPostingService._validate_journal_balanced(journal)

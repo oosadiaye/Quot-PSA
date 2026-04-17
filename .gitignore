@@ -58,3 +58,18 @@ auth_state.txt
 users_tenants_roles.txt
 error_page.html
 nul
+
+# Session / dev captures (never commit)
+auth_state.txt
+users_tenants_roles.txt
+error_page.html
+*_page.html
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/

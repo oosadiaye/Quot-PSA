@@ -22,11 +22,7 @@ const MODULE_META: Record<string, { title: string; icon: string; color: string }
   budget:      { title: 'Budget Management',    icon: '💰', color: '#52c41a' },
   procurement: { title: 'Procurement',          icon: '🛒', color: '#fa8c16' },
   inventory:   { title: 'Inventory',            icon: '📦', color: '#13c2c2' },
-  sales:       { title: 'Sales Management',     icon: '📈', color: '#f5222d' },
   hrm:         { title: 'Human Resources',      icon: '👥', color: '#eb2f96' },
-  production:  { title: 'Production',           icon: '🏭', color: '#faad14' },
-  quality:     { title: 'Quality Management',   icon: '✅', color: '#52c41a' },
-  service:     { title: 'Service Management',   icon: '🔧', color: '#1677ff' },
   workflow:    { title: 'Workflow & Approvals', icon: '🔀', color: '#722ed1' },
 };
 

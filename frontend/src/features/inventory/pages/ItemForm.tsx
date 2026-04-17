@@ -43,14 +43,6 @@ const ItemForm = () => {
     const assetAccounts = useMemo(() => allAccounts.filter(a => a.account_type === 'Asset' && a.is_active), [allAccounts]);
     const expenseAccounts = useMemo(() => allAccounts.filter(a => a.account_type === 'Expense' && a.is_active), [allAccounts]);
 
-    const { data: bomsData } = useQuery({
-        queryKey: ['production-boms'],
-        queryFn: () => apiClient.get('/production/bills-of-materials/', { params: { page_size: 9999 } })
-            .then(res => { const d = res.data; return Array.isArray(d) ? d : Array.isArray(d?.results) ? d.results : []; }),
-        staleTime: 5 * 60 * 1000,
-    });
-    const boms = useMemo(() => (Array.isArray(bomsData) ? bomsData : []), [bomsData]);
-
     const [formData, setFormData] = useState({
         sku: '',
         name: '',
@@ -70,7 +62,6 @@ const ItemForm = () => {
         is_active: true,
         inventory_account: '',
         expense_account: '',
-        production_bom: '',
     });
 
     useEffect(() => {

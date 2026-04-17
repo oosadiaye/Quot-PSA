@@ -28,7 +28,7 @@ COUNTRY_LANGUAGE_MAP: Dict[str, str] = {
     'TG': 'fr',  # Togo - French
     'BJ': 'fr',  # Benin - French
     'NE': 'fr',  # Niger - French
-    
+
     # Europe
     'GB': 'en',  # United Kingdom - English
     'IE': 'en',  # Ireland - English
@@ -57,7 +57,7 @@ COUNTRY_LANGUAGE_MAP: Dict[str, str] = {
     'FI': 'fi',  # Finland - Finnish
     'CZ': 'cs',  # Czech - Czech
     'HU': 'hu',  # Hungary - Hungarian
-    
+
     # Asia
     'CN': 'zh',  # China - Chinese
     'HK': 'zh',  # Hong Kong - Chinese
@@ -78,7 +78,7 @@ COUNTRY_LANGUAGE_MAP: Dict[str, str] = {
     'IL': 'he',  # Israel - Hebrew
     'TR': 'tr',  # Turkey - Turkish
     'PK': 'ur',  # Pakistan - Urdu
-    
+
     # Americas
     'US': 'en',  # United States - English
     'CA': 'en',  # Canada - English
@@ -145,11 +145,11 @@ def get_country_from_ip(ip: str) -> Optional[str]:
     """
     if is_local_ip(ip):
         return None  # Cannot determine country from local IP
-    
+
     try:
         import urllib.request
         import json
-        
+
         url = f"http://ip-api.com/json/{ip}?fields=countryCode"
         with urllib.request.urlopen(url, timeout=3) as response:
             data = json.loads(response.read().decode())
@@ -157,7 +157,7 @@ def get_country_from_ip(ip: str) -> Optional[str]:
                 return data.get('countryCode')
     except Exception as e:
         logger.debug(f"IP geolocation failed for {ip}: {e}")
-    
+
     return None
 
 
@@ -168,13 +168,13 @@ def detect_language_from_ip(request) -> str:
     """
     ip = get_client_ip(request)
     country = get_country_from_ip(ip)
-    
+
     if country:
         language = COUNTRY_LANGUAGE_MAP.get(country)
         if language:
             logger.debug(f"Language detected from IP {ip} (country: {country}): {language}")
             return language
-    
+
     logger.debug(f"Could not detect language from IP {ip}, using default")
     return DEFAULT_LANGUAGE
 
@@ -186,9 +186,9 @@ def detect_language_from_email(email: str) -> Optional[str]:
     """
     if not email or '@' not in email:
         return None
-    
+
     domain = email.split('@')[1].lower()
-    
+
     # Common country-specific email domains
     country_domains = {
         '.ng': 'en',  # Nigeria
@@ -202,51 +202,51 @@ def detect_language_from_email(email: str) -> Optional[str]:
         '.ca': 'en',  # Canada
         '.ie': 'en',  # Ireland
         '.in': 'en',  # India
-        
+
         '.fr': 'fr',  # France
         '.be': 'fr',  # Belgium
         '.ci': 'fr',  # Ivory Coast
         '.sn': 'fr',  # Senegal
         '.cm': 'fr',  # Cameroon
         '.ht': 'fr',  # Haiti
-        
+
         '.de': 'de',  # Germany
         '.at': 'de',  # Austria
         '.ch': 'de',  # Switzerland
-        
+
         '.es': 'es',  # Spain
         '.mx': 'es',  # Mexico
         '.ar': 'es',  # Argentina
         '.co': 'es',  # Colombia
         '.pe': 'es',  # Peru
         '.cl': 'es',  # Chile
-        
+
         '.br': 'pt',  # Brazil
         '.pt': 'pt',  # Portugal
-        
+
         '.it': 'it',  # Italy
-        
+
         '.nl': 'nl',  # Netherlands
-        
+
         '.cn': 'zh',  # China
         '.com.cn': 'zh',
-        
+
         '.jp': 'ja',  # Japan
-        
+
         '.kr': 'ko',  # Korea
-        
+
         '.ru': 'ru',  # Russia
-        
+
         '.ae': 'ar',  # UAE
         '.sa': 'ar',  # Saudi Arabia
         '.eg': 'ar',  # Egypt
         '.ma': 'ar',  # Morocco
     }
-    
+
     for suffix, lang in country_domains.items():
         if domain.endswith(suffix):
             return lang
-    
+
     return None
 
 
@@ -258,7 +258,7 @@ def detect_language(request, user=None) -> str:
     # 1. Check if user has saved preference
     if user and hasattr(user, 'preferred_language') and user.preferred_language:
         return user.preferred_language
-    
+
     # 2. Check request headers (browser language)
     accept_language = request.META.get('HTTP_ACCEPT_LANGUAGE', '')
     if accept_language:
@@ -266,18 +266,18 @@ def detect_language(request, user=None) -> str:
         first_lang = accept_language.split(',')[0].split('-')[0].lower()
         if first_lang in SUPPORTED_LANGUAGES:
             return first_lang
-    
+
     # 3. Try email domain
     if user and user.email:
         email_lang = detect_language_from_email(user.email)
         if email_lang:
             return email_lang
-    
+
     # 4. Try IP geolocation
     ip_lang = detect_language_from_ip(request)
     if ip_lang:
         return ip_lang
-    
+
     return DEFAULT_LANGUAGE
 
 

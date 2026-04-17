@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quot PSE — End-User Training Guide</title>
+<meta name="description" content="Step-by-step training guide for Quot PSE end users — Budget Officers, Account Officers, Procurement Officers, and Accountant-General staff." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+
+<style>
+:root{
+  --navy:#1a237e; --navy-dark:#0f1759;
+  --green:#008751; --green-dark:#006d41;
+  --amber:#b45309; --red:#b91c1c;
+  --ink:#0b1320; --muted:#4a5568; --muted-light:#94a3b8;
+  --surface:#f6f8fb; --surface-2:#eef1f6;
+  --border:rgba(26,35,126,0.10);
+  --code-bg:#111827; --code-text:#e5e7eb;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+a{color:var(--navy)}
+
+/* ─ Layout ───────────────────────────────────────────────── */
+.layout{display:grid;grid-template-columns:280px 1fr;min-height:100vh}
+.sidebar{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  background:linear-gradient(180deg,var(--navy),var(--navy-dark));
+  color:#fff;padding:24px 18px 80px;
+}
+.main{padding:40px 56px 120px;max-width:960px}
+
+/* ─ Sidebar ──────────────────────────────────────────────── */
+.brand{display:flex;align-items:center;gap:10px;padding:8px 10px 20px;border-bottom:1px solid rgba(255,255,255,0.12);margin-bottom:16px}
+.brand-logo{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;border:1px solid rgba(255,255,255,0.18)}
+.brand-name{font-family:'Manrope',sans-serif;font-weight:800;font-size:15px;line-height:1}
+.brand-sub{font-size:9px;color:#6ee6a8;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-top:3px}
+.sidebar h4{font-family:'Manrope',sans-serif;font-size:10px;font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:1px;text-transform:uppercase;margin:16px 10px 8px}
+.sidebar ol,.sidebar ul{list-style:none;padding:0;margin:0}
+.sidebar a{display:block;color:rgba(255,255,255,0.8);text-decoration:none;font-size:13px;padding:7px 10px;border-radius:6px;transition:all 0.15s}
+.sidebar a:hover{background:rgba(255,255,255,0.08);color:#fff}
+.sidebar a.sub{padding-left:24px;font-size:12px;color:rgba(255,255,255,0.65)}
+.sidebar a.sub:hover{color:#fff}
+
+/* ─ Main content ─────────────────────────────────────────── */
+.main h1{font-family:'Manrope',sans-serif;font-size:38px;font-weight:800;letter-spacing:-0.025em;line-height:1.1;margin:0 0 12px}
+.main h2{font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:56px 0 12px;padding-top:16px;border-top:2px solid var(--border)}
+.main h3{font-family:'Manrope',sans-serif;font-size:19px;font-weight:700;margin:32px 0 10px}
+.main h4{font-family:'Manrope',sans-serif;font-size:15px;font-weight:700;margin:22px 0 8px}
+.main p{margin:0 0 14px;color:var(--ink)}
+.lead{font-size:17px;color:var(--muted);line-height:1.65;margin-bottom:22px}
+
+.badge-row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:0.3px}
+.badge-green{background:rgba(0,135,81,0.1);color:var(--green-dark)}
+.badge-navy{background:rgba(26,35,126,0.08);color:var(--navy)}
+.badge-amber{background:rgba(180,83,9,0.10);color:var(--amber)}
+.badge-red{background:rgba(185,28,28,0.10);color:var(--red)}
+
+/* ─ Step-by-step lists ───────────────────────────────────── */
+ol.steps{counter-reset:step;list-style:none;padding:0;margin:16px 0 22px}
+ol.steps > li{counter-increment:step;position:relative;padding:14px 16px 14px 54px;background:#fff;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;font-size:14.5px;line-height:1.6}
+ol.steps > li::before{
+  content:counter(step);position:absolute;left:14px;top:14px;
+  width:28px;height:28px;border-radius:50%;
+  background:var(--navy);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Manrope',sans-serif;font-weight:700;font-size:13px;
+}
+ol.steps > li strong{color:var(--navy)}
+ol.steps code{background:var(--surface-2);padding:1px 6px;border-radius:4px;font-size:12.5px;font-family:'JetBrains Mono',monospace;color:var(--navy)}
+ol.steps .sub{font-size:12.5px;color:var(--muted);margin-top:4px;display:block}
+
+/* ─ Callouts ─────────────────────────────────────────────── */
+.callout{padding:14px 18px;border-radius:10px;margin:16px 0;border-left:4px solid;font-size:14px;line-height:1.65}
+.callout strong{font-weight:700}
+.tip{background:rgba(0,135,81,0.06);border-color:var(--green)}
+.tip strong{color:var(--green-dark)}
+.warn{background:rgba(180,83,9,0.06);border-color:var(--amber)}
+.warn strong{color:var(--amber)}
+.danger{background:rgba(185,28,28,0.06);border-color:var(--red)}
+.danger strong{color:var(--red)}
+.info{background:rgba(26,35,126,0.05);border-color:var(--navy)}
+.info strong{color:var(--navy)}
+
+/* ─ UI mockup — shows "what you'll see" ──────────────────── */
+.mockup{
+  background:#fff;border:1px solid var(--border);border-radius:10px;
+  padding:0;margin:16px 0 22px;overflow:hidden;
+  box-shadow:0 2px 8px rgba(0,0,0,0.04);
+}
+.mockup-caption{font-size:12px;color:var(--muted);text-align:center;font-style:italic;padding:8px 12px;background:var(--surface);border-top:1px solid var(--border)}
+.mockup svg{display:block;width:100%;height:auto}
+
+/* ─ Inline code blocks ───────────────────────────────────── */
+.kbd{display:inline-block;padding:2px 7px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--navy);font-weight:600}
+
+/* ─ Flow wrappers for Mermaid ───────────────────────────── */
+.flow{background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px 14px;margin:16px 0 22px;overflow:auto}
+.flow .mermaid{font-family:'Inter',sans-serif}
+
+/* ─ Role table ───────────────────────────────────────────── */
+table.role{width:100%;border-collapse:collapse;margin:16px 0 22px;font-size:13.5px}
+table.role th,table.role td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+table.role th{background:var(--surface);font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.4px;text-transform:uppercase}
+
+/* ─ FAQ ──────────────────────────────────────────────────── */
+.faq{margin:14px 0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.faq details{border-bottom:1px solid var(--border)}
+.faq details:last-child{border-bottom:none}
+.faq summary{padding:14px 18px;cursor:pointer;font-weight:600;font-size:14px;color:var(--navy);list-style:none;display:flex;justify-content:space-between;align-items:center;background:#fff}
+.faq summary::after{content:'+';font-size:20px;color:var(--muted);font-weight:300}
+.faq details[open] summary{background:var(--surface);border-bottom:1px solid var(--border)}
+.faq details[open] summary::after{content:'−'}
+.faq .faq-body{padding:12px 18px 18px;font-size:14px;color:var(--muted);line-height:1.65;background:#fff}
+
+/* ─ Section hero ─────────────────────────────────────────── */
+.sec-hero{background:linear-gradient(135deg,var(--navy),var(--navy-dark));color:#fff;padding:32px 32px;border-radius:14px;margin:0 0 24px;position:relative;overflow:hidden}
+.sec-hero::after{content:'';position:absolute;top:-40px;right:-40px;width:180px;height:180px;border-radius:50%;background:rgba(0,135,81,0.18)}
+.sec-hero > *{position:relative;z-index:1}
+.sec-hero .tag{display:inline-block;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,0.12);font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:12px}
+.sec-hero h2{font-size:28px;margin:0 0 8px;border:none;padding:0;color:#fff}
+.sec-hero p{color:rgba(255,255,255,0.85);margin:0;max-width:640px}
+
+/* ─ Responsive ───────────────────────────────────────────── */
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto;min-height:auto}
+  .main{padding:24px 20px 80px}
+}
+@media print{
+  .sidebar,.toolbar{display:none}
+  .layout{grid-template-columns:1fr}
+  .main{max-width:none;padding:20px}
+  @page{size:A4 portrait;margin:18mm}
+}
+
+.toolbar{position:fixed;top:14px;right:14px;z-index:999;background:#fff;border-radius:8px;padding:6px 10px;display:flex;gap:8px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.15)}
+.toolbar button{padding:6px 12px;font-size:12px;font-weight:600;border-radius:6px;border:none;cursor:pointer;background:var(--navy);color:#fff;font-family:inherit}
+.toolbar button.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy)}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span style="font-size:11px;color:var(--muted);font-weight:600">Training Guide v1</span>
+  <button onclick="window.print()">🖨 Print</button>
+  <button class="ghost" onclick="location.href='/'">← Home</button>
+</div>
+
+<div class="layout">
+
+<!-- ══ SIDEBAR NAV ══════════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-logo">🏛</div>
+    <div>
+      <div class="brand-name">Quot PSE</div>
+      <div class="brand-sub">Training Guide</div>
+    </div>
+  </div>
+
+  <h4>Getting started</h4>
+  <ul>
+    <li><a href="#welcome">Welcome &amp; audience</a></li>
+    <li><a href="#login">First login</a></li>
+    <li><a href="#ui-tour">Dashboard &amp; UI tour</a></li>
+    <li><a href="#common">Common UI patterns</a></li>
+  </ul>
+
+  <h4>Modules</h4>
+  <ul>
+    <li><a href="#budget">1. Budget &amp; Appropriation</a></li>
+    <li><a href="#accounting">2. GL &amp; Accounting</a></li>
+    <li><a href="#treasury">3. Treasury &amp; TSA</a></li>
+    <li><a href="#ncoa">4. NCoA Classification</a></li>
+    <li><a href="#procurement">5. Procurement</a></li>
+    <li><a href="#hr">6. HR &amp; Payroll</a></li>
+    <li><a href="#stores">7. Government Stores</a></li>
+    <li><a href="#workflow">8. Workflow &amp; Approvals</a></li>
+    <li><a href="#statutory">9. Statutory Reporting</a></li>
+    <li><a href="#ipsas">10. IPSAS Reports</a></li>
+    <li><a href="#audit">11. Audit &amp; Data Quality</a></li>
+  </ul>
+
+  <h4>Settings &amp; admin</h4>
+  <ul>
+    <li><a href="#settings">Tenant settings</a></li>
+    <li><a href="#users">User management</a></li>
+  </ul>
+
+  <h4>Reference</h4>
+  <ul>
+    <li><a href="#faq">Troubleshooting &amp; FAQ</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ul>
+</aside>
+
+<!-- ══ MAIN CONTENT ═════════════════════════════════════════ -->
+<main class="main">
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- WELCOME                                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="welcome">
+  <span class="badge badge-green">End-User Training Guide · v1 · 2026</span>
+  <h1>Quot PSE — Training Guide</h1>
+  <p class="lead">
+    This guide walks you through every task you'll perform on Quot PSE, from
+    signing in on day one to filing your first IPSAS monthly pack. It is
+    structured by module, and within each module by the specific workflow
+    you're likely to run.
+  </p>
+
+  <h3>Who this guide is for</h3>
+  <table class="role">
+    <thead><tr><th>Role</th><th>Primary modules</th><th>Chapters to focus on</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Budget &amp; Appropriation Manager</strong></td><td>Budget, IPSAS Reports</td><td>1 · 10</td></tr>
+      <tr><td><strong>Budget Officer</strong></td><td>Budget, Workflow</td><td>1 · 8</td></tr>
+      <tr><td><strong>Accountant-General</strong></td><td>All — with sign-off authority</td><td>All, especially 2 · 8 · 10 · 11</td></tr>
+      <tr><td><strong>Account Officer</strong></td><td>GL, Treasury, Workflow</td><td>2 · 3 · 8</td></tr>
+      <tr><td><strong>Procurement Manager / Officer</strong></td><td>Procurement, Stores, Workflow</td><td>5 · 7 · 8</td></tr>
+      <tr><td><strong>HR / Payroll Officer</strong></td><td>HR &amp; Payroll, Statutory</td><td>6 · 9</td></tr>
+      <tr><td><strong>Auditor / Internal Audit</strong></td><td>Audit, Data Quality, IPSAS</td><td>10 · 11</td></tr>
+      <tr><td><strong>Tenant Admin</strong></td><td>Settings, User Management</td><td>Settings · Users</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <strong>💡 Tip:</strong> You don't need to read cover-to-cover. Use the
+    sidebar to jump straight to the workflow you need — each walkthrough is
+    self-contained with prerequisites listed up front.
+  </div>
+
+  <h3>How to read each walkthrough</h3>
+  <p>Every walkthrough follows the same shape so you always know where to look:</p>
+  <ol class="steps">
+    <li><strong>Purpose</strong> — what the task achieves in business terms.<span class="sub">e.g. "Release a warrant so downstream MDAs can draw cash."</span></li>
+    <li><strong>Prerequisites</strong> — what must be true before you start.<span class="sub">Roles, data that needs to exist, period status.</span></li>
+    <li><strong>Steps</strong> — numbered actions in the UI.<span class="sub">Exactly what to click, what to type, what to expect.</span></li>
+    <li><strong>What you'll see</strong> — a mockup of the screen.<span class="sub">So you can confirm you're on the right page.</span></li>
+    <li><strong>Tips &amp; warnings</strong> — things that trip up new users.<span class="sub">Green = helpful; amber = be careful; red = will block you.</span></li>
+  </ol>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- FIRST LOGIN                                                  -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="login">Getting started — First login</h2>
+
+<p class="lead">
+  Your tenant administrator will create your account and email you a
+  temporary password. Your first task is to sign in, change that password,
+  and confirm you can see the dashboard.
+</p>
+
+<h3>Sign in to your tenant</h3>
+<ol class="steps">
+  <li>Open your browser and go to <code>https://<em>your-state</em>.quotpse.ng</code>.<span class="sub">Your State-specific URL was given to you at provisioning. For Delta State it would be <code>delta.quotpse.ng</code>.</span></li>
+  <li>Enter the <strong>username or email</strong> you were given.</li>
+  <li>Enter the <strong>temporary password</strong> from your welcome email.</li>
+  <li>Click <strong>Sign In</strong>. You'll land on the dashboard.</li>
+  <li>Open the <strong>My Account</strong> menu (bottom-left of sidebar) → <strong>Change Password</strong>.</li>
+  <li>Set a new password of at least 12 characters with a mix of letters, numbers and a symbol.</li>
+</ol>
+
+<div class="mockup">
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="360" fill="#f6f8fb"/>
+  <rect x="260" y="50" width="400" height="260" rx="12" fill="#fff" stroke="#1a237e" stroke-opacity="0.12"/>
+  <text x="460" y="90" text-anchor="middle" font-family="Manrope" font-weight="700" font-size="18" fill="#0b1320">Welcome back</text>
+  <text x="460" y="110" text-anchor="middle" font-family="Inter" font-size="11" fill="#4a5568">Sign in to your account to continue</text>
+  <text x="290" y="146" font-family="Inter" font-size="9" font-weight="700" fill="#4a5568" letter-spacing="0.8">USERNAME OR EMAIL</text>
+  <rect x="290" y="152" width="340" height="34" rx="6" fill="#f6f8fb" stroke="#1a237e" stroke-opacity="0.14"/>
+  <text x="300" y="174" font-family="Inter" font-size="12" fill="#94a3b8">Enter your username or email</text>
+  <text x="290" y="208" font-family="Inter" font-size="9" font-weight="700" fill="#4a5568" letter-spacing="0.8">PASSWORD</text>
+  <rect x="290" y="214" width="340" height="34" rx="6" fill="#f6f8fb" stroke="#1a237e" stroke-opacity="0.14"/>
+  <text x="300" y="236" font-family="Inter" font-size="12" fill="#94a3b8">Enter your password</text>
+  <rect x="290" y="270" width="340" height="36" rx="6" fill="#1a237e"/>
+  <text x="460" y="294" text-anchor="middle" font-family="Inter" font-weight="700" font-size="13" fill="#fff">Sign In</text>
+  <!-- Left column -->
+  <text x="60" y="170" font-family="Manrope" font-weight="800" font-size="20" fill="#1a237e">QUOT PSE</text>
+  <text x="60" y="196" font-family="Inter" font-size="11" fill="#4a5568">Nigeria Public-Sector IFMIS</text>
+  <rect x="60" y="220" width="4" height="80" fill="#008751"/>
+  <text x="76" y="240" font-family="Inter" font-size="10" fill="#4a5568">Enterprise-grade security</text>
+  <text x="76" y="258" font-family="Inter" font-size="10" fill="#4a5568">Multi-tenant architecture</text>
+  <text x="76" y="276" font-family="Inter" font-size="10" fill="#4a5568">IPSAS-compliant reporting</text>
+</svg>
+<div class="mockup-caption">Login screen — the brand lockup appears on the left, the sign-in form on the right.</div>
+</div>
+
+<div class="callout warn">
+  <strong>⚠ If login fails:</strong> check you're on the correct tenant URL
+  (each State has its own subdomain). "Wrong password" after 5 tries will
+  temporarily lock your account — wait 10 minutes or contact your admin.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- DASHBOARD TOUR                                               -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="ui-tour">The dashboard &amp; sidebar — your home base</h2>
+
+<p>After login you land on the <strong>Government Financial Dashboard</strong>. It gives you four headline numbers at the top and visual summaries below.</p>
+
+<div class="mockup">
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="420" fill="#f6f8fb"/>
+  <!-- Sidebar -->
+  <rect x="0" y="0" width="180" height="420" fill="#1a237e"/>
+  <text x="18" y="30" font-family="Manrope" font-weight="800" font-size="13" fill="#fff">QUOT PSE</text>
+  <text x="18" y="44" font-family="Inter" font-size="8" fill="#6ee6a8" letter-spacing="0.6">IFMIS</text>
+  <g font-family="Inter" font-size="10" fill="#ffffff" opacity="0.85">
+    <text x="18" y="80">Dashboard</text>
+    <text x="18" y="104">General Ledger</text>
+    <text x="18" y="128">Budget &amp; Appropriation</text>
+    <text x="18" y="152">Treasury &amp; Banking</text>
+    <text x="18" y="176">NCoA Classification</text>
+    <text x="18" y="200">Procurement</text>
+    <text x="18" y="224">Human Resources</text>
+    <text x="18" y="248">IPSAS Reporting</text>
+    <text x="18" y="272">Data Quality</text>
+    <text x="18" y="296">Audit Trail</text>
+    <text x="18" y="320">Approvals</text>
+    <text x="18" y="344">Workflow</text>
+    <text x="18" y="368">Settings</text>
+  </g>
+  <!-- Main -->
+  <text x="200" y="40" font-family="Manrope" font-weight="700" font-size="16" fill="#0b1320">Government Financial Dashboard</text>
+  <text x="200" y="56" font-family="Inter" font-size="10" fill="#4a5568">State Government — IFMIS Executive Overview</text>
+  <!-- KPI cards -->
+  <g>
+    <rect x="200" y="72" width="120" height="60" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+    <text x="210" y="88" font-family="Inter" font-size="8" font-weight="700" fill="#4a5568" letter-spacing="0.5">TSA CASH POSITION</text>
+    <text x="210" y="110" font-family="Manrope" font-weight="700" font-size="16" fill="#1a237e">₦17.84B</text>
+    <text x="210" y="124" font-family="Inter" font-size="8" fill="#4a5568">11 accounts</text>
+  </g>
+  <g>
+    <rect x="328" y="72" width="120" height="60" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+    <text x="338" y="88" font-family="Inter" font-size="8" font-weight="700" fill="#4a5568" letter-spacing="0.5">REVENUE (YTD)</text>
+    <text x="338" y="110" font-family="Manrope" font-weight="700" font-size="16" fill="#008751">₦212.8M</text>
+    <text x="338" y="124" font-family="Inter" font-size="8" fill="#4a5568">6 revenue heads</text>
+  </g>
+  <g>
+    <rect x="456" y="72" width="120" height="60" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+    <text x="466" y="88" font-family="Inter" font-size="8" font-weight="700" fill="#4a5568" letter-spacing="0.5">BUDGET EXECUTION</text>
+    <text x="466" y="110" font-family="Manrope" font-weight="700" font-size="16" fill="#1a237e">43.8%</text>
+    <text x="466" y="124" font-family="Inter" font-size="8" fill="#4a5568">₦530M of ₦1.21B</text>
+  </g>
+  <g>
+    <rect x="584" y="72" width="120" height="60" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+    <text x="594" y="88" font-family="Inter" font-size="8" font-weight="700" fill="#4a5568" letter-spacing="0.5">PENDING APPROVALS</text>
+    <text x="594" y="110" font-family="Manrope" font-weight="700" font-size="16" fill="#b45309">7</text>
+    <text x="594" y="124" font-family="Inter" font-size="8" fill="#4a5568">PVs, POs, Journals</text>
+  </g>
+  <!-- Chart area -->
+  <rect x="200" y="148" width="502" height="140" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+  <text x="214" y="166" font-family="Manrope" font-weight="700" font-size="11" fill="#0b1320">Budget Execution by MDA</text>
+  <g>
+    <rect x="214" y="184" width="300" height="8" rx="2" fill="#eef1f6"/>
+    <rect x="214" y="184" width="180" height="8" rx="2" fill="#008751"/>
+    <text x="214" y="180" font-family="Inter" font-size="9" fill="#4a5568">Min. of Education · 60%</text>
+  </g>
+  <g>
+    <rect x="214" y="208" width="300" height="8" rx="2" fill="#eef1f6"/>
+    <rect x="214" y="208" width="140" height="8" rx="2" fill="#1a237e"/>
+    <text x="214" y="204" font-family="Inter" font-size="9" fill="#4a5568">Min. of Health · 47%</text>
+  </g>
+  <g>
+    <rect x="214" y="232" width="300" height="8" rx="2" fill="#eef1f6"/>
+    <rect x="214" y="232" width="100" height="8" rx="2" fill="#b45309"/>
+    <text x="214" y="228" font-family="Inter" font-size="9" fill="#4a5568">Min. of Works · 33%</text>
+  </g>
+  <g>
+    <rect x="214" y="256" width="300" height="8" rx="2" fill="#eef1f6"/>
+    <rect x="214" y="256" width="70" height="8" rx="2" fill="#4a5568"/>
+    <text x="214" y="252" font-family="Inter" font-size="9" fill="#4a5568">Min. of Agric · 23%</text>
+  </g>
+  <!-- Quick actions -->
+  <rect x="200" y="304" width="502" height="90" rx="8" fill="#fff" stroke="#1a237e" stroke-opacity="0.1"/>
+  <text x="214" y="322" font-family="Manrope" font-weight="700" font-size="11" fill="#0b1320">Quick Actions</text>
+  <rect x="214" y="336" width="110" height="42" rx="6" fill="#1a237e" fill-opacity="0.06"/>
+  <text x="269" y="356" text-anchor="middle" font-family="Inter" font-size="10" font-weight="600" fill="#1a237e">New Journal</text>
+  <text x="269" y="370" text-anchor="middle" font-family="Inter" font-size="8" fill="#4a5568">Create entry</text>
+  <rect x="330" y="336" width="110" height="42" rx="6" fill="#1a237e" fill-opacity="0.06"/>
+  <text x="385" y="356" text-anchor="middle" font-family="Inter" font-size="10" font-weight="600" fill="#1a237e">Payment Voucher</text>
+  <rect x="446" y="336" width="110" height="42" rx="6" fill="#008751" fill-opacity="0.10"/>
+  <text x="501" y="356" text-anchor="middle" font-family="Inter" font-size="10" font-weight="600" fill="#008751">Approval Inbox</text>
+  <rect x="562" y="336" width="110" height="42" rx="6" fill="#1a237e" fill-opacity="0.06"/>
+  <text x="617" y="356" text-anchor="middle" font-family="Inter" font-size="10" font-weight="600" fill="#1a237e">Budget Execution</text>
+</svg>
+<div class="mockup-caption">The dashboard — KPIs on top, visual summaries below, Quick Actions row at the bottom.</div>
+</div>
+
+<h3>Anatomy of every screen</h3>
+<ol class="steps">
+  <li><strong>Sidebar (left)</strong> — module navigation. Click a module name to expand sub-items, or click again to navigate to its main page.</li>
+  <li><strong>Breadcrumb + page header (top)</strong> — shows where you are. The <strong>Back</strong> button always returns to the previous list page.</li>
+  <li><strong>Content area (center)</strong> — the table, form or report you're working on.</li>
+  <li><strong>Notification bell (top-right on some pages)</strong> — shows unread alerts. Click to see recent items.</li>
+  <li><strong>My Account / Sign Out (bottom-left)</strong> — profile, password change, sign out.</li>
+</ol>
+
+<h2 id="common">Common UI patterns</h2>
+
+<p>These patterns appear on almost every module — once you learn them here, you know them everywhere.</p>
+
+<div class="badge-row">
+  <span class="badge badge-navy">List + detail drawer</span>
+  <span class="badge badge-navy">New + form</span>
+  <span class="badge badge-navy">Status pill</span>
+  <span class="badge badge-navy">Approval chain</span>
+  <span class="badge badge-navy">Export menu</span>
+</div>
+
+<h4>1. List + detail drawer</h4>
+<p>Most modules open to a table of rows (Appropriations, Journals, POs…). Click a row to open a side drawer with full details, related actions (Approve, Post, Reverse), and an audit history.</p>
+
+<h4>2. New + form</h4>
+<p>The <strong>New ____</strong> button (top-right on every list page) opens a form. Required fields are marked with <span style="color:var(--red);font-weight:700">*</span>. Forms save as <strong>Draft</strong> so you can come back later.</p>
+
+<h4>3. Status pills</h4>
+<p>A coloured pill shows the current state of every document:</p>
+<div class="badge-row">
+  <span class="badge badge-navy">DRAFT</span>
+  <span class="badge badge-amber">PENDING</span>
+  <span class="badge badge-green">APPROVED / POSTED / ACTIVE</span>
+  <span class="badge badge-red">REJECTED / CLOSED / VOID</span>
+</div>
+
+<h4>4. Export menu</h4>
+<p>Every report page has an <strong>Export</strong> button with four formats: <span class="kbd">JSON</span> <span class="kbd">HTML</span> <span class="kbd">XLSX</span> <span class="kbd">PDF</span>.</p>
+
+<div class="callout tip">
+  <strong>💡 Tip — universal keyboard shortcuts:</strong>
+  <span class="kbd">Esc</span> closes drawers · <span class="kbd">/</span> focuses search ·
+  <span class="kbd">Enter</span> submits forms · <span class="kbd">Ctrl/Cmd + K</span> opens
+  the global search (where available).
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 1: BUDGET & APPROPRIATION                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="budget">
+<div class="sec-hero">
+  <span class="tag">Module 01</span>
+  <h2>Budget &amp; Appropriation</h2>
+  <p>The legal gateway for every naira spent. You'll use it to create Appropriations for the fiscal year, route them through the House of Assembly workflow, release monthly warrants, and monitor execution.</p>
+</div>
+
+<p><strong>Who uses it:</strong>
+  <span class="badge badge-green">Budget &amp; Appropriation Manager</span>
+  <span class="badge badge-green">Budget Officer</span>
+  <span class="badge badge-navy">Accountant-General (sign-off)</span>
+</p>
+
+<h3>Walkthrough 1 — Create a new Appropriation</h3>
+
+<p><strong>Purpose:</strong> record an appropriation line from the Appropriation Act so the downstream MDAs can draw against it.</p>
+
+<p><strong>Prerequisites:</strong></p>
+<ul>
+  <li>A <strong>Fiscal Year</strong> must be open (Settings → Fiscal Year).</li>
+  <li>NCoA segments must be seeded (Administrative / Economic / Fund at minimum).</li>
+  <li>You have the <em>Budget Officer</em> or <em>Budget Manager</em> role.</li>
+</ul>
+
+<ol class="steps">
+  <li>Open <strong>Budget &amp; Appropriation → Appropriations</strong> from the sidebar.</li>
+  <li>Click <strong>New Appropriation</strong> (top-right).</li>
+  <li>In the <strong>Budget Header</strong> panel, pick the <strong>Fiscal Year</strong>, <strong>Administrative (MDA)</strong> and <strong>Fund Source</strong>.<span class="sub">Administrative is searchable — start typing the MDA name, e.g. "Educ…".</span></li>
+  <li>Leave <strong>Appropriation Type</strong> as <em>Original Appropriation</em> for the first pass. Set <strong>Law Reference</strong> (e.g. <code>Appropriation Act 2026</code>) and <strong>Enactment Date</strong>.</li>
+  <li>Scroll to <strong>Budget Lines</strong>. On the first line pick an <strong>Economic Code</strong> (e.g. <code>22010100 — Salary</code>), then <strong>Function</strong> (COFOG) and <strong>Programme</strong> if required.</li>
+  <li>Type the <strong>Amount (NGN)</strong> and a short description.</li>
+  <li>Click <strong>Add Line</strong> to enter more lines as needed. The total at the bottom must equal the approved figure on the Appropriation Act.</li>
+  <li>Click <strong>Save Line(s)</strong>. The status will be <strong>DRAFT</strong>.</li>
+  <li>Open the saved row and click <strong>Submit to Legislature</strong> to advance it to <strong>SUBMITTED</strong> status. From there, your approver chain runs through <em>APPROVED → ENACTED → ACTIVE</em>.</li>
+</ol>
+
+<div class="flow">
+<div class="mermaid">
+flowchart LR
+  A[DRAFT] --> B[SUBMITTED]
+  B --> C[APPROVED]
+  C --> D[ENACTED]
+  D --> E([ACTIVE])
+  E --> F[CLOSED]
+  classDef s fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef a fill:#008751,stroke:#006d41,color:#fff
+  class A,B,C,D,F s
+  class E a
+</div>
+</div>
+
+<div class="callout warn">
+  <strong>⚠ Hard stop — economic code class:</strong> the Budget Lines table
+  enforces classification rules. Expenditure codes (<code>2x</code>) and
+  Asset codes (<code>3x</code>) are <em>hard stops</em> — you cannot
+  over-commit. Revenue codes (<code>1x</code>) are statistical targets
+  only; actuals can exceed them.
+</div>
+
+<h3>Walkthrough 2 — Release a Warrant / AIE</h3>
+
+<p><strong>Purpose:</strong> issue the monthly drawing authority against an Active appropriation.</p>
+
+<ol class="steps">
+  <li>Open <strong>Budget &amp; Appropriation → Warrants / AIE</strong>.</li>
+  <li>Click <strong>New Warrant</strong>.</li>
+  <li>Pick the parent <strong>Appropriation</strong> row. The system will show the ceiling and amount already released to date.</li>
+  <li>Enter <strong>Amount Requested</strong> and <strong>Warrant Date</strong>.</li>
+  <li>Attach supporting documents (PDF scan of the Governor's warrant) — drag into the upload zone.</li>
+  <li>Click <strong>Submit for Approval</strong>.</li>
+  <li>Once approved up to the Accountant-General level, the warrant flips to <strong>RELEASED</strong>. Downstream Procurement and Treasury can now draw.</li>
+</ol>
+
+<h3>Walkthrough 3 — Run the Budget Execution Report</h3>
+
+<ol class="steps">
+  <li>Open <strong>Budget &amp; Appropriation → Execution Report</strong>.</li>
+  <li>Pick the <strong>Fiscal Year</strong> at the top.</li>
+  <li>(Optional) Filter by Administrative, Fund, or Economic segment.</li>
+  <li>The report shows, per row: <strong>Approved</strong>, <strong>Committed</strong>, <strong>Expended</strong>, <strong>Available</strong>, and <strong>Execution %</strong>.</li>
+  <li>Click the <strong>Export</strong> button to download XLSX or PDF for distribution.</li>
+</ol>
+
+<div class="callout tip">
+  <strong>💡 Tip:</strong> the committed/expended numbers refresh instantly
+  after every PO approval or vendor invoice — no overnight batch.
+</div>
+
+<h4>Common issues</h4>
+<div class="faq">
+<details><summary>Budget-exceeded error when approving a PO</summary>
+  <div class="faq-body">The appropriation has insufficient available balance. Options: (a) raise a Supplementary Appropriation, (b) do a Virement from another appropriation with surplus, or (c) reduce the PO amount.</div>
+</details>
+<details><summary>Totals on the dashboard don't match the Execution Report</summary>
+  <div class="faq-body">Your cached totals are stale. A Tenant Admin should run <code>resync_appropriation_totals</code> from the command palette, or wait for the next transaction — totals refresh automatically on any commit / close event.</div>
+</details>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 2: ACCOUNTING                                         -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="accounting">
+<div class="sec-hero">
+  <span class="tag">Module 02</span>
+  <h2>General Ledger &amp; Accounting (IPSAS)</h2>
+  <p>The double-entry ledger at the heart of Quot PSE. Every transaction from every other module ends up here as a balanced journal.</p>
+</div>
+
+<p><strong>Who uses it:</strong>
+  <span class="badge badge-green">Accountant-General</span>
+  <span class="badge badge-green">Account Officer</span>
+</p>
+
+<h3>Walkthrough 1 — Raise a manual journal</h3>
+
+<p><strong>Purpose:</strong> record a correction, reclassification or non-system event in the GL.</p>
+
+<p><strong>Prerequisites:</strong> the fiscal period for <code>posting_date</code> must be <strong>OPEN</strong>.</p>
+
+<ol class="steps">
+  <li>Open <strong>General Ledger</strong> from the sidebar.</li>
+  <li>Click <strong>New Journal</strong>.</li>
+  <li>Fill the header: <strong>Posting Date</strong>, <strong>MDA</strong>, <strong>Fund</strong>, <strong>Description</strong>, <strong>Reference Number</strong> (optional).</li>
+  <li>In the <strong>Lines</strong> grid, add at least two rows:<span class="sub">One debit line, one credit line. Each line must have either a debit amount OR a credit amount — never both, never zero.</span></li>
+  <li>Pick the <strong>Account</strong> (NCoA Economic segment) and the full <strong>NCoA Code</strong> for each line.</li>
+  <li>(Optional) Set a <strong>Cost Center</strong> (MDA) if the line should be allocated to a specific department.</li>
+  <li>Verify the footer shows <strong>Debits = Credits</strong>. Save.</li>
+  <li>The journal is in <strong>Draft</strong> status. Open it and click <strong>Route for Approval</strong>.</li>
+</ol>
+
+<div class="callout danger">
+  <strong>🛑 DB-level guarantee:</strong> the database rejects any line
+  where both debit and credit are set, or where both are zero. You
+  physically cannot save an unbalanced journal.
+</div>
+
+<h3>Walkthrough 2 — Post a journal to the GL</h3>
+
+<p><strong>Who:</strong> Accountant-General (or delegated posting approver). <strong>Purpose:</strong> make the journal real in the GL balances.</p>
+
+<ol class="steps">
+  <li>Open the <strong>Approval Inbox</strong> (sidebar → Approvals → Inbox).</li>
+  <li>Locate the Journal row. Click to open.</li>
+  <li>Review the lines, the period status, and the total. The system will have pre-run the balance check.</li>
+  <li>Click <strong>Post Journal</strong>.</li>
+  <li>You'll see a confirmation dialog listing the period, total debit and total credit. Click <strong>Confirm Post</strong>.</li>
+  <li>On success, the journal status flips to <strong>Posted</strong>, GL balances update, and cached IPSAS reports for this fiscal year are invalidated so the next dashboard refresh is fresh.</li>
+</ol>
+
+<h3>Walkthrough 3 — Post a direct vendor invoice (no PO)</h3>
+
+<p>For utilities, rent, recurring services where there's no purchase order upstream.</p>
+
+<ol class="steps">
+  <li>Go to <strong>General Ledger → Accounts Payable</strong> → <strong>New Invoice</strong>.</li>
+  <li>Pick the <strong>Vendor</strong>, enter <strong>Invoice Number</strong> and <strong>Invoice Date</strong>.</li>
+  <li>In the <strong>Lines</strong> grid, pick the expense <strong>Account</strong> (e.g. <code>22020100 — Utility services</code>), enter the amount, and optionally a <strong>WHT</strong> rate (5% for contracts, 10% for consultancy).</li>
+  <li>Save as Draft, then click <strong>Post Invoice</strong>. The service creates a Dr Expense / Cr AP journal and routes it for approval.</li>
+  <li>Once posted, the expense lands in the GL and the Appropriation's <em>expended</em> total updates.</li>
+</ol>
+
+<h3>Walkthrough 4 — Run bank reconciliation</h3>
+
+<ol class="steps">
+  <li>Open <strong>General Ledger → Bank &amp; Cash</strong>.</li>
+  <li>Pick the bank account to reconcile.</li>
+  <li>Click <strong>New Reconciliation Run</strong>.</li>
+  <li>Upload the bank statement CSV or enter the closing balance as per the statement and the as-of-date.</li>
+  <li>The screen shows two columns: GL lines vs Bank lines. Drag to match, or use <strong>Auto-match</strong> for exact amount+date pairs.</li>
+  <li>Anything unmatched becomes a <strong>reconciling item</strong>. Resolve each one with a comment.</li>
+  <li>Click <strong>Complete Reconciliation</strong>. The run is archived and all matched lines are marked reconciled.</li>
+</ol>
+
+<div class="callout tip">
+  <strong>💡 Tip:</strong> run reconciliation end-of-day on clearing
+  accounts and at least weekly on operating accounts. Period close blocks
+  if any account has an unreconciled statement older than 30 days.
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 3: TREASURY                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="treasury">
+<div class="sec-hero">
+  <span class="tag">Module 03</span>
+  <h2>Treasury &amp; Banking (TSA)</h2>
+  <p>Consolidates cash across every bank account into a single TSA view. Tag FAAC inflows, track clearing, and run cash-flow forecasts against the warrant schedule.</p>
+</div>
+
+<h3>Walkthrough 1 — View the TSA cash position</h3>
+<ol class="steps">
+  <li>Open <strong>Treasury &amp; Banking (TSA)</strong>.</li>
+  <li>The top cards group cash by category: <strong>Main TSA</strong>, <strong>Revenue</strong>, <strong>Holding</strong>, <strong>Sub-Account</strong>, <strong>Consolidated</strong>.</li>
+  <li>Click any card to expand into the individual account list.</li>
+  <li>For each account you see: <em>Account name · GL code · Currency · Current balance · Last reconciliation date</em>.</li>
+</ol>
+
+<h3>Walkthrough 2 — Record a FAAC allocation receipt</h3>
+<ol class="steps">
+  <li>Open <strong>General Ledger → Accounts Receivable → Incoming Payments</strong>.</li>
+  <li>Click <strong>New Receipt</strong>.</li>
+  <li>Set the <strong>Receipt Type</strong> to <strong>FAAC Statutory</strong> (or <em>FAAC VAT</em> / <em>Derivation</em> / <em>Excess Crude</em> as appropriate).</li>
+  <li>Pick the <strong>Bank Account</strong> that received the funds.</li>
+  <li>Enter the <strong>Amount</strong> and the <strong>Value Date</strong> from the bank advice.</li>
+  <li>Save. The receipt auto-posts a Dr Bank / Cr FAAC Revenue journal, and the TSA cash card reflects the change instantly.</li>
+</ol>
+
+<h3>Walkthrough 3 — Register a new bank account</h3>
+<ol class="steps">
+  <li>Open <strong>Settings → Bank Accounts</strong>.</li>
+  <li>Click <strong>Add Account</strong>.</li>
+  <li>Set <strong>Type</strong> (Bank / Cash / Petty Cash / Imprest).</li>
+  <li>Pick the matching <strong>GL Account</strong> (typically under <code>10100xxx — Cash and Bank</code>).</li>
+  <li>Enter <strong>Account Number</strong>, <strong>Bank Name</strong>, <strong>Currency</strong>, <strong>TSA Category</strong>, and <strong>Opening Balance</strong>.</li>
+  <li>Save. The account now appears on the Treasury dashboard.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 4: NCOA                                               -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="ncoa">
+<div class="sec-hero">
+  <span class="tag">Module 04</span>
+  <h2>NCoA Classification</h2>
+  <p>The 6-segment National Chart of Accounts that every journal line, appropriation and budget entry is coded against.</p>
+</div>
+
+<h3>Understanding the 6 segments</h3>
+<table class="role">
+  <thead><tr><th>Segment</th><th>Width</th><th>Example</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Administrative</strong></td><td>8</td><td><code>01100100</code></td><td>Which MDA (Ministry, Dept, Agency) owns the transaction</td></tr>
+    <tr><td><strong>Economic</strong></td><td>8</td><td><code>22010100</code></td><td>Revenue / Expenditure / Asset class (like an IFRS account)</td></tr>
+    <tr><td><strong>Functional</strong></td><td>8</td><td><code>70110000</code></td><td>COFOG service area (Education, Health, Defence…)</td></tr>
+    <tr><td><strong>Programme</strong></td><td>14</td><td><code>01010000000000</code></td><td>Policy programme (e.g. Universal Basic Education)</td></tr>
+    <tr><td><strong>Fund</strong></td><td>5</td><td><code>01100</code></td><td>Source of funds (CRF / Capital / FAAC / Donor…)</td></tr>
+    <tr><td><strong>Geographic</strong></td><td>9</td><td><code>050100010</code></td><td>Zone · State · LGA (optional)</td></tr>
+  </tbody>
+</table>
+
+<h3>Walkthrough — Browse &amp; add a new segment entry</h3>
+<ol class="steps">
+  <li>Open <strong>NCoA Classification → Economic</strong> (or any segment) from the sidebar.</li>
+  <li>The table shows the hierarchy as a tree — click <strong>▸</strong> to expand.</li>
+  <li>To add a new child: select the parent row and click <strong>New</strong>.</li>
+  <li>Enter <strong>Code</strong>, <strong>Name</strong>, and <strong>Description</strong>.</li>
+  <li>Save. The new code immediately becomes available in journal entry, appropriation and budget dropdowns.</li>
+</ol>
+
+<div class="callout info">
+  <strong>ℹ Composite code:</strong> when a journal line is saved, Quot PSE
+  concatenates all six segments into a 52-digit string stored as
+  <code>ncoa_code</code>. This is what the OAGF Treasury returns file uses.
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 5: PROCUREMENT                                        -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="procurement">
+<div class="sec-hero">
+  <span class="tag">Module 05</span>
+  <h2>Procurement</h2>
+  <p>The full purchase cycle — from requisition to 3-way matched invoice — with commitment accounting that locks appropriation balance at PO approval.</p>
+</div>
+
+<h3>Walkthrough 1 — Register a vendor</h3>
+<ol class="steps">
+  <li>Open <strong>Procurement → Vendors</strong>.</li>
+  <li>Click <strong>Add New Vendor</strong>.</li>
+  <li>Enter <strong>Vendor Name</strong>, <strong>TIN</strong> (Tax ID), <strong>RC number</strong>, address, bank details.</li>
+  <li>Pick a <strong>Vendor Category</strong> (Contractor, Consultant, Supplier, Service Provider…).</li>
+  <li>Save. The vendor is in <strong>PENDING</strong> status until the registration fee is confirmed paid.</li>
+  <li>Go to <strong>Registration Invoice</strong>, generate an invoice, and record the payment. The vendor flips to <strong>ACTIVE</strong>.</li>
+</ol>
+
+<h3>Walkthrough 2 — Create a Purchase Requisition (PR)</h3>
+<ol class="steps">
+  <li>Open <strong>Procurement → Purchase Requisitions</strong> → <strong>New Requisition</strong>.</li>
+  <li>Enter <strong>Description</strong>, <strong>Priority</strong>, required <strong>Delivery Date</strong>.</li>
+  <li>In the <strong>Items</strong> grid: pick an Item (or enter free text), set Quantity, Unit Price, and Unit of Measure.</li>
+  <li>Pick the <strong>Appropriation</strong> this PR will draw from. The system shows the available balance.</li>
+  <li>Attach any supporting documents (specifications, quotes).</li>
+  <li>Click <strong>Submit for Approval</strong>. Status becomes <strong>PENDING</strong> and routes to your approver.</li>
+</ol>
+
+<h3>Walkthrough 3 — Convert approved PR to a Purchase Order</h3>
+<ol class="steps">
+  <li>From the approved PR detail page, click <strong>Convert to PO</strong>.</li>
+  <li>The PO form pre-fills vendor, lines, appropriation and amounts from the PR. Adjust if needed.</li>
+  <li>Pick the <strong>Delivery Location</strong> (warehouse / MDA).</li>
+  <li>Save as Draft, review, then click <strong>Submit for Approval</strong>.</li>
+  <li>When the Procurement Manager approves, the PO flips to <strong>APPROVED</strong> and a <strong>Commitment</strong> is created against the Appropriation — the appropriation's available balance drops by the PO amount.</li>
+</ol>
+
+<h3>Walkthrough 4 — Post a Goods Received Note (GRN)</h3>
+<ol class="steps">
+  <li>When goods arrive, go to <strong>Procurement → GRN → New GRN</strong>.</li>
+  <li>Pick the source <strong>PO</strong>. The lines pre-fill with quantities outstanding.</li>
+  <li>Enter <strong>Quantity Received</strong> per line (may be less than PO quantity for partial deliveries).</li>
+  <li>Pick the receiving <strong>Warehouse</strong>, and optionally <strong>Batch</strong>/<strong>Serial</strong> data for trackable items.</li>
+  <li>Save, then <strong>Post GRN</strong>. Stock is updated and the commitment flips from ACTIVE to INVOICED.</li>
+</ol>
+
+<h3>Walkthrough 5 — Three-way matching (invoice verification)</h3>
+<ol class="steps">
+  <li>When the vendor invoice arrives, go to <strong>Procurement → Invoice Verification → New Verification</strong>.</li>
+  <li>Pick the <strong>PO</strong>. The system fetches all GRNs and computes the matched quantity / value.</li>
+  <li>Enter the <strong>Vendor Invoice Number</strong>, <strong>Invoice Date</strong>, and <strong>Total Amount</strong>.</li>
+  <li>The 3-way check runs automatically:<span class="sub">✔ Quantity (Invoice ≤ GRN) · ✔ Price (Invoice unit price ≤ PO unit price) · ✔ Vendor match · ✔ NCoA code match.</span></li>
+  <li>If all four pass → status is <strong>MATCHED</strong>. Click <strong>Post to GL</strong>.</li>
+  <li>If any fail → status is <strong>VARIANCE</strong>. Add a comment explaining the variance and route for AG override.</li>
+</ol>
+
+<div class="flow">
+<div class="mermaid">
+flowchart LR
+  PR[PR Draft] --> PR_A[PR Approved]
+  PR_A --> PO[PO Draft]
+  PO --> PO_A[PO Approved]
+  PO_A --> COM([Commitment ACTIVE])
+  COM --> GRN[GRN Posted]
+  GRN --> INV([Commitment INVOICED])
+  INV --> VER[3-way verify]
+  VER --> CLO([Commitment CLOSED])
+  CLO --> GL[GL expense booked]
+  classDef s fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef a fill:#008751,stroke:#006d41,color:#fff
+  class PR,PR_A,PO,PO_A,GRN,VER s
+  class COM,INV,CLO,GL a
+</div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 6: HR & PAYROLL                                       -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="hr">
+<div class="sec-hero">
+  <span class="tag">Module 06</span>
+  <h2>HR &amp; Nigerian Payroll</h2>
+  <p>Employee directory, leave, attendance and a payroll engine that computes PAYE, Pension, NHF, NSITF and ITF per statute.</p>
+</div>
+
+<h3>Walkthrough 1 — Add a new employee</h3>
+<ol class="steps">
+  <li>Open <strong>Human Resources → Employee Directory</strong>.</li>
+  <li>Click <strong>New Employee</strong>.</li>
+  <li>Enter personal details: <strong>Full Name</strong>, <strong>DOB</strong>, <strong>Gender</strong>, <strong>NIN</strong>, <strong>Phone</strong>, <strong>Email</strong>.</li>
+  <li>Pick the <strong>Department</strong>, <strong>Position</strong>, <strong>Grade Level</strong>, and <strong>Step</strong>.</li>
+  <li>Set <strong>Date of First Appointment</strong>, <strong>Date of Current Appointment</strong>.</li>
+  <li>On the <strong>Payroll</strong> tab: enter <strong>Basic Salary</strong>, assign to <strong>Pension Scheme</strong> (PFA), enter <strong>PFA Code</strong>.</li>
+  <li>On the <strong>Bank</strong> tab: account name, number, sort code.</li>
+  <li>Save. The employee is <strong>ACTIVE</strong> and will be included in the next payroll run.</li>
+</ol>
+
+<h3>Walkthrough 2 — Run monthly payroll</h3>
+<ol class="steps">
+  <li>Open <strong>Human Resources → Payroll</strong>.</li>
+  <li>Click <strong>New Payroll Run</strong>.</li>
+  <li>Pick the <strong>Month</strong> and <strong>Year</strong>. Confirm the <strong>Fiscal Year</strong>.</li>
+  <li>Pick the employee scope (All · By Department · By Grade Level).</li>
+  <li>Click <strong>Calculate</strong>. The engine computes, per employee: Basic, Allowances, Gross, then deducts PAYE (progressive bands), Pension (8%), NHF (2.5%), Union dues, Loan instalments → Net.</li>
+  <li>Review the preview. Click <strong>Approve &amp; Post</strong> to create the GL journal (Dr Salary expense / Cr Net payable / Cr Statutory payables).</li>
+  <li>Trigger <strong>Disbursement</strong> to queue the bank upload file (.csv) for your bank's bulk-payment portal.</li>
+</ol>
+
+<div class="callout tip">
+  <strong>💡 Tip:</strong> the PAYE computation uses the current year's PIT
+  Act bands. Your tenant admin can review the bands under
+  <strong>Settings → Tax</strong> before each run.
+</div>
+
+<h3>Walkthrough 3 — Social benefit batch pay (pensioners, widows)</h3>
+<ol class="steps">
+  <li>Open <strong>Human Resources → Social Benefits</strong>.</li>
+  <li>Pick the benefit scheme (e.g. <em>Pensioners under the Pension Act</em>).</li>
+  <li>Click <strong>New Batch</strong>. Pick the pay period.</li>
+  <li>The beneficiaries list loads with amount per head. Review and edit individual amounts if required.</li>
+  <li>Click <strong>Approve &amp; Post</strong>. A single aggregated journal posts to the GL, and a bank-upload file is generated.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 7: STORES                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="stores">
+<div class="sec-hero">
+  <span class="tag">Module 07</span>
+  <h2>Government Stores</h2>
+  <p>Per-MDA store ledger. GRN receipts flow in here automatically; issues to departments hit the store ledger and the expense GL in a single transaction.</p>
+</div>
+
+<h3>Walkthrough 1 — Add a new item</h3>
+<ol class="steps">
+  <li>Open <strong>Government Stores → Items → New Item</strong>.</li>
+  <li>Enter <strong>Name</strong>, <strong>SKU</strong>, <strong>Description</strong>.</li>
+  <li>Pick <strong>Product Type</strong> (Good / Service / Asset), <strong>Category</strong>, <strong>Unit of Measure</strong>.</li>
+  <li>Pick the <strong>Valuation Method</strong> (FIFO / Weighted Average).</li>
+  <li>Pick the <strong>Inventory GL Account</strong> and <strong>Expense GL Account</strong>.</li>
+  <li>Set <strong>Reorder Point</strong> and <strong>Reorder Quantity</strong> if you want low-stock alerts.</li>
+  <li>Save.</li>
+</ol>
+
+<h3>Walkthrough 2 — Issue stock to a department</h3>
+<ol class="steps">
+  <li>Open <strong>Government Stores → Issues → New Issue</strong>.</li>
+  <li>Pick the issuing <strong>Warehouse</strong> and the receiving <strong>MDA / Department</strong>.</li>
+  <li>Add item lines with quantity.</li>
+  <li>Click <strong>Post Issue</strong>. Stock drops; a Dr Expense / Cr Inventory journal posts automatically.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 8: WORKFLOW & APPROVALS                               -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="workflow">
+<div class="sec-hero">
+  <span class="tag">Module 08</span>
+  <h2>Workflow &amp; Approvals</h2>
+  <p>One approval matrix drives every document. Your Approval Inbox shows everything that needs your action across all modules.</p>
+</div>
+
+<h3>Walkthrough 1 — Act on items in your Approval Inbox</h3>
+<ol class="steps">
+  <li>Open <strong>Workflow → Approval Inbox</strong>.</li>
+  <li>Filter by <strong>Document Type</strong> (Journal, PO, Warrant, PV, Invoice…) or <strong>Urgency</strong> if needed.</li>
+  <li>Click a row to open the detail drawer with full context (lines, attachments, approval chain so far).</li>
+  <li>Click <strong>Approve</strong> → add an optional comment → confirm.</li>
+  <li>Or click <strong>Reject</strong> → comment is required → the document goes back to the initiator.</li>
+  <li>The item disappears from your inbox and appears in the next approver's inbox (or is posted if you were the final approver).</li>
+</ol>
+
+<h3>Walkthrough 2 — Set up out-of-office delegation</h3>
+<ol class="steps">
+  <li>Open <strong>Workflow → Delegations → New Delegation</strong>.</li>
+  <li>Pick the <strong>Delegate</strong> user.</li>
+  <li>Set the <strong>Start Date</strong> and <strong>End Date</strong>.</li>
+  <li>(Optional) Scope the delegation to specific document types.</li>
+  <li>Save. While active, all your pending approvals will also appear in the delegate's inbox.</li>
+</ol>
+
+<h3>Walkthrough 3 — Request a dual-control override</h3>
+<p><strong>When:</strong> exceptional cases like a genuinely back-dated journal, a post-period adjustment, or a PO approval beyond the appropriation ceiling that has legitimate supplementary-in-flight justification.</p>
+<ol class="steps">
+  <li>On the document drawer, click <strong>Request Override</strong>.</li>
+  <li>Enter the <strong>Reason</strong> (required — shown permanently in the audit log).</li>
+  <li>Pick the <strong>Second Approver</strong> — must be a different AG-level user.</li>
+  <li>Submit. The second AG receives an urgent notification.</li>
+  <li>When the second AG approves, the override is recorded, the document posts, and both signatures are stamped on the Override Audit page.</li>
+</ol>
+
+<div class="callout danger">
+  <strong>🛑 Overrides are permanent:</strong> every override is in the
+  immutable audit log. Don't use them routinely — auditors look at the
+  frequency of overrides as a control-environment indicator.
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 9: STATUTORY REPORTING                                -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="statutory">
+<div class="sec-hero">
+  <span class="tag">Module 09</span>
+  <h2>Statutory Reporting</h2>
+  <p>XSD-validated XML exports for FIRS (WHT, VAT) and PENCOM (pension schedule). What you download is what the regulator portal accepts.</p>
+</div>
+
+<h3>Walkthrough — File monthly FIRS WHT</h3>
+<ol class="steps">
+  <li>Open <strong>General Ledger → Statutory → FIRS WHT</strong>.</li>
+  <li>Pick the <strong>Period Year</strong> and <strong>Period Month</strong>.</li>
+  <li>Click <strong>Generate Schedule</strong>. The system aggregates every WHT-bearing invoice / PV posted in the period into line items.</li>
+  <li>Review the schedule. Each row shows: <em>Payee Name · TIN · Invoice # · Gross · WHT Rate · WHT Amount · Nature of Payment</em>.</li>
+  <li>Pick <strong>Return Type</strong> (Original / Amended) and enter <strong>Prepared By</strong>.</li>
+  <li>Click <strong>Export XML</strong>. The file downloads as <code>FIRS-WHT-&lt;state&gt;-&lt;YYYYMM&gt;.xml</code>.</li>
+  <li>The file is XSD-validated before download. If anything fails validation you'll see a blocking error with the offending row.</li>
+  <li>Upload the XML to the FIRS TaxPro portal. Record the acknowledgement number back in Quot PSE under <strong>Filings</strong>.</li>
+</ol>
+
+<p>The flow for <strong>VAT</strong> and <strong>PENCOM</strong> follows the same 8-step pattern with schema-specific fields.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 10: IPSAS                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="ipsas">
+<div class="sec-hero">
+  <span class="tag">Module 10</span>
+  <h2>IPSAS Financial Statements</h2>
+  <p>The monthly management pack. Every report is live from the GL with prior-year comparatives and export buttons.</p>
+</div>
+
+<h3>The five primary statements</h3>
+<ol class="steps">
+  <li><strong>Statement of Financial Position (SoFP)</strong> — IPSAS 1 balance sheet with Current and Non-Current Assets / Liabilities.</li>
+  <li><strong>Statement of Financial Performance (SoFPerf)</strong> — IPSAS 1 income &amp; expense.</li>
+  <li><strong>Cash Flow Statement</strong> — IPSAS 2, direct method.</li>
+  <li><strong>Statement of Changes in Net Assets</strong> — opening net assets + surplus/deficit + transfers → closing.</li>
+  <li><strong>Notes to the Financial Statements</strong> — minimum disclosure set with links to the GL rows that feed each note.</li>
+</ol>
+
+<h3>Walkthrough — Generate and export the monthly management pack</h3>
+<ol class="steps">
+  <li>Open <strong>IPSAS Reporting → Statement of Financial Position</strong>.</li>
+  <li>Pick the <strong>Fiscal Year</strong> and the <strong>Period</strong> (month). Leave <strong>Comparative</strong> ticked to show prior-year figures.</li>
+  <li>The report loads from the Redis cache if it's been generated in the last 10 minutes, otherwise it computes live (1-3 seconds on typical tenants).</li>
+  <li>Click <strong>Export → XLSX</strong> to download for the AG's signature pack.</li>
+  <li>Repeat for the remaining four statements. Tick <strong>Persist Snapshot</strong> on each so auditors can retrieve the exact filed version later.</li>
+</ol>
+
+<div class="callout info">
+  <strong>ℹ Cache behaviour:</strong> reports auto-invalidate when any journal posts or reverses in that fiscal year, so you never see stale numbers. If in doubt, force-refresh with <span class="kbd">Ctrl+Shift+R</span>.
+</div>
+
+<h3>Dimensional reports</h3>
+<p>Beyond the primary statements, you can run:</p>
+<ul>
+  <li><strong>Budget vs Actual Comparison</strong> (IPSAS 24) — three-column variance report</li>
+  <li><strong>Programme Performance Report</strong> — execution by NCoA Programme segment</li>
+  <li><strong>Functional Classification (COFOG)</strong> — execution by Function</li>
+  <li><strong>Geographic Distribution</strong> — execution by LGA / Zone</li>
+  <li><strong>Revenue Performance</strong> — actuals vs revenue budget by Revenue Head</li>
+</ul>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODULE 11: AUDIT                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="audit">
+<div class="sec-hero">
+  <span class="tag">Module 11</span>
+  <h2>Audit, Data Quality &amp; Override Audit</h2>
+  <p>Three complementary views of platform integrity. Auditors live here.</p>
+</div>
+
+<h3>Walkthrough 1 — Browse the Audit Trail</h3>
+<ol class="steps">
+  <li>Open <strong>Audit Trail</strong> from the sidebar.</li>
+  <li>Filter by <strong>User</strong>, <strong>Module</strong>, <strong>Action</strong> (Create / Update / Delete / Post) or <strong>Date range</strong>.</li>
+  <li>Click any row to see the before/after JSON diff of the change.</li>
+</ol>
+
+<h3>Walkthrough 2 — Review Override Audit</h3>
+<ol class="steps">
+  <li>Open <strong>Override Audit</strong> from the sidebar.</li>
+  <li>The table lists every dual-control override with: <em>Document · Date · Primary approver · Secondary approver · Reason</em>.</li>
+  <li>Export to XLSX for quarterly audit committee reporting.</li>
+</ol>
+
+<h3>Walkthrough 3 — Triage Data Quality issues</h3>
+<ol class="steps">
+  <li>Open <strong>Data Quality</strong>.</li>
+  <li>The dashboard shows categorised issue counts: <em>Missing NCoA codes</em>, <em>Unbalanced journals</em> (draft only), <em>Closed-period posting attempts</em>, <em>Orphan commitments</em>, <em>Stale bank reconciliations</em>.</li>
+  <li>Click any category to see the affected rows and <strong>Fix</strong> links that take you straight to the source document.</li>
+</ol>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SETTINGS                                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="settings">
+<h2>Tenant settings</h2>
+
+<p>The settings pages are only accessible to <strong>Tenant Admin</strong>
+users. They configure the behaviour of the entire tenant and the values
+every other module reads from.</p>
+
+<h3>Fiscal Year management</h3>
+<ol class="steps">
+  <li>Open <strong>Settings → Fiscal Year Management</strong>.</li>
+  <li>Click <strong>New Fiscal Year</strong>.</li>
+  <li>Set <strong>Year</strong> (e.g. <code>2027</code>), <strong>Start Date</strong> (typically 1 Jan), <strong>End Date</strong> (31 Dec), and <strong>Status</strong> (usually <em>Planning</em> then advance to <em>Active</em> on Jan 1).</li>
+  <li>The system auto-creates 12 monthly <strong>Fiscal Periods</strong>. You can re-scope them (e.g. to quarters) before any transactions are posted.</li>
+</ol>
+
+<h3>Accounting Settings</h3>
+<p>Configure default GL accounts used by automated postings (AP, AR, VAT, WHT, Pension, NHF, Cash, Accumulated Fund, etc.). Wrong defaults are the #1 cause of "journal failed to post" errors on downstream modules.</p>
+
+<h3>Tax setup</h3>
+<p>PAYE bands, VAT rate, WHT rates per nature-of-payment. Review before the start of each fiscal year.</p>
+
+<h3>Bank Accounts</h3>
+<p>Register every physical bank / cash / petty-cash account here first. Reference them from GL, Treasury and Payroll.</p>
+
+<h3>Brand Identity</h3>
+<p>Upload your State's logo, set the primary &amp; accent colours, and the sidebar + emails + exported PDFs will pick them up automatically.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- USER MANAGEMENT                                              -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="users">
+<h2>User management</h2>
+
+<p>The <strong>Tenant Admin</strong> role invites users, assigns roles, and can suspend/reset credentials.</p>
+
+<h3>Walkthrough — Invite a new user</h3>
+<ol class="steps">
+  <li>Open <strong>User Management</strong>.</li>
+  <li>Click <strong>Invite User</strong>.</li>
+  <li>Enter their <strong>Name</strong>, <strong>Email</strong>, and the <strong>Role</strong> (Budget Officer, Account Officer, etc.).</li>
+  <li>Optionally assign them to specific <strong>MDAs / Departments</strong> to scope what they can see.</li>
+  <li>Click <strong>Send Invite</strong>. An email goes out with the tenant URL and a temporary password.</li>
+</ol>
+
+<h3>Baseline roles shipped</h3>
+<div class="badge-row">
+  <span class="badge badge-navy">Budget &amp; Appropriation Manager</span>
+  <span class="badge badge-navy">Budget Officer</span>
+  <span class="badge badge-navy">Accountant-General</span>
+  <span class="badge badge-navy">Account Officer</span>
+  <span class="badge badge-navy">Procurement Manager</span>
+  <span class="badge badge-navy">Procurement Officer</span>
+  <span class="badge badge-navy">HR / Payroll Officer</span>
+  <span class="badge badge-navy">Internal Auditor</span>
+  <span class="badge badge-navy">Tenant Admin</span>
+</div>
+<p>Each role is a pre-configured permission set. The Tenant Admin can also build custom roles if your State's segregation of duties needs additional granularity.</p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- FAQ                                                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="faq">
+<h2>Troubleshooting &amp; FAQ</h2>
+
+<div class="faq">
+<details><summary>I can't post a journal — "period is CLOSED"</summary>
+  <div class="faq-body">Your Accountant-General closed that period. Either re-date the journal to the current open period, or request a dual-control override (use sparingly; see Module 8).</div>
+</details>
+<details><summary>My approval doesn't advance the document</summary>
+  <div class="faq-body">(1) Check the approval matrix — there may be a level above yours required for this amount tier. (2) Check you aren't the initiator of the document; SOD blocks self-approval.</div>
+</details>
+<details><summary>Dashboard numbers look stale</summary>
+  <div class="faq-body">Hard refresh with <span class="kbd">Ctrl+Shift+R</span>. If still stale, open <strong>Data Quality</strong> — any red-status item blocks accurate aggregates. Tenant Admin can trigger <code>resync_appropriation_totals</code> from the admin console.</div>
+</details>
+<details><summary>Journal won't balance even though debits = credits</summary>
+  <div class="faq-body">Check for rounding — each line amount must have exactly 2 decimal places. The grid sometimes displays a rounded value but stores a longer decimal. Re-enter suspicious lines.</div>
+</details>
+<details><summary>The IPSAS report looks different from what I expected</summary>
+  <div class="faq-body">Most "wrong" reports are caused by mis-coded journals — an expense posted to a revenue account, or the wrong Function. Open <strong>Data Quality → Missing NCoA codes</strong> first; 80% of the time the error is there.</div>
+</details>
+<details><summary>My bulk import said "tenant not found"</summary>
+  <div class="faq-body">The CSV was uploaded to the wrong tenant URL. Confirm you're on the correct State subdomain before importing.</div>
+</details>
+<details><summary>PO approval says "budget exceeded" but there's budget left</summary>
+  <div class="faq-body">The appropriation likely has an open Supplementary in the pipeline that hasn't yet been ENACTED. Check the Appropriation detail → Pending amendments tab.</div>
+</details>
+<details><summary>FIRS rejected my XML</summary>
+  <div class="faq-body">Open the schedule again, click <strong>Validate XML</strong>. The XSD-validation errors show the exact row + field. Usually it's a missing TIN on one invoice.</div>
+</details>
+<details><summary>Notification bell won't update</summary>
+  <div class="faq-body">The bell polls every 30 seconds. If it's been longer than 2 minutes, sign out and back in — your session token may have expired.</div>
+</details>
+<details><summary>Where is my data stored?</summary>
+  <div class="faq-body">In a dedicated PostgreSQL schema for your State, hosted in a Nigeria availability zone. Cross-tenant access is impossible at the database layer.</div>
+</details>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- GLOSSARY                                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<section id="glossary">
+<h2>Glossary</h2>
+
+<table class="role">
+  <tbody>
+    <tr><td><strong>AG</strong></td><td>Accountant-General of the State. The apex finance officer who signs IPSAS statements.</td></tr>
+    <tr><td><strong>AIE</strong></td><td>Authority to Incur Expenditure — a warrant instrument authorising an MDA to draw against an appropriation.</td></tr>
+    <tr><td><strong>Appropriation</strong></td><td>The legal spending authority created by the House of Assembly via the annual Appropriation Act.</td></tr>
+    <tr><td><strong>Commitment</strong></td><td>An encumbrance created when a PO is approved, reducing the available balance on the parent appropriation.</td></tr>
+    <tr><td><strong>COFOG</strong></td><td>UN Classification of Functions of Government — the 10 top-level function codes used on the NCoA Functional segment.</td></tr>
+    <tr><td><strong>CRF</strong></td><td>Consolidated Revenue Fund — the main operating fund of a State.</td></tr>
+    <tr><td><strong>FAAC</strong></td><td>Federation Account Allocation Committee — the monthly distribution of federal revenue to States and LGAs.</td></tr>
+    <tr><td><strong>FIRS</strong></td><td>Federal Inland Revenue Service — the federal tax authority.</td></tr>
+    <tr><td><strong>GRN</strong></td><td>Goods Received Note — the document confirming receipt of goods against a PO.</td></tr>
+    <tr><td><strong>IFMIS</strong></td><td>Integrated Financial Management Information System — the umbrella term for systems like Quot PSE.</td></tr>
+    <tr><td><strong>IGR</strong></td><td>Internally Generated Revenue — non-federal State revenue (PAYE, fees, levies).</td></tr>
+    <tr><td><strong>IPSAS</strong></td><td>International Public Sector Accounting Standards.</td></tr>
+    <tr><td><strong>MDA</strong></td><td>Ministry, Department, or Agency — any administrative unit of the State.</td></tr>
+    <tr><td><strong>NCoA</strong></td><td>National Chart of Accounts — the 6-segment federal classification schema.</td></tr>
+    <tr><td><strong>PENCOM</strong></td><td>National Pension Commission.</td></tr>
+    <tr><td><strong>PFA</strong></td><td>Pension Fund Administrator — the entity managing an employee's Retirement Savings Account.</td></tr>
+    <tr><td><strong>PFM Act</strong></td><td>Public Finance Management Act — the umbrella law governing public-sector finance.</td></tr>
+    <tr><td><strong>PV</strong></td><td>Payment Voucher — authorises disbursement of cash after the invoice is verified.</td></tr>
+    <tr><td><strong>SOD</strong></td><td>Segregation of Duties — the control rule that the user creating a document cannot also approve it.</td></tr>
+    <tr><td><strong>Supplementary</strong></td><td>A budget amendment that adds money to an existing appropriation (requires House of Assembly approval).</td></tr>
+    <tr><td><strong>TSA</strong></td><td>Treasury Single Account — consolidating all State cash accounts into a single view.</td></tr>
+    <tr><td><strong>Virement</strong></td><td>A budget amendment that moves money between appropriations (zero-sum within the total budget).</td></tr>
+    <tr><td><strong>Warrant</strong></td><td>The AG's authorisation for a specific cash draw against an active appropriation.</td></tr>
+    <tr><td><strong>WHT</strong></td><td>Withholding Tax — tax deducted at source on contracts, consultancy, rent, etc.</td></tr>
+  </tbody>
+</table>
+
+<p style="text-align:center;margin-top:40px;padding-top:24px;border-top:1px solid var(--border);color:var(--muted);font-size:13px">
+  &copy; 2026 Quot PSE &middot; End-User Training Guide v1 &middot;
+  Questions? <a href="mailto:support@quotpse.ng">support@quotpse.ng</a>
+</p>
+</section>
+
+</main>
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#1a237e',
+    primaryTextColor: '#ffffff',
+    primaryBorderColor: '#0f1759',
+    lineColor: '#1a237e',
+    secondaryColor: '#008751',
+    tertiaryColor: '#f6f8fb',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '12px',
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', useMaxWidth: true },
+  securityLevel: 'loose',
+});
+</script>
+
+</body>
+</html>

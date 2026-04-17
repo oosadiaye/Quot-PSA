@@ -182,14 +182,7 @@ class Item(AuditBaseModel):
         help_text='Default vendor used when automatically generating Purchase Orders from reorder alerts.',
     )
 
-    # P2FG-H3: BOM to Inventory Link
-    production_bom = models.ForeignKey(
-        'production.BillOfMaterials',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='finished_items',
-        help_text='Link to Bill of Materials for production'
-    )
+    # Production BOM link removed — Quot PSE is public sector (no manufacturing)
 
     class Meta:
         verbose_name = 'Product'
@@ -725,10 +718,9 @@ class ItemSerialNumber(AuditBaseModel):
     purchase_date = models.DateField(blank=True, null=True)
     purchase_price = models.DecimalField(max_digits=19, decimal_places=4, blank=True, null=True)
     sale_date = models.DateField(blank=True, null=True)
-    sales_order_line = models.ForeignKey(
-        'sales.SalesOrderLine', models.SET_NULL,
-        blank=True, null=True, related_name='serial_numbers'
-    )
+    # Sales FK removed — Quot PSE is public sector (no sales orders)
+    issue_reference = models.CharField(max_length=100, blank=True, default='',
+        help_text="Issue/distribution reference number")
     warranty_start = models.DateField(blank=True, null=True)
     warranty_end = models.DateField(blank=True, null=True)
     current_location = models.CharField(max_length=255, blank=True, default='')
@@ -780,7 +772,9 @@ class Reservation(AuditBaseModel):
         ('Cancelled', 'Cancelled'),
     ]
 
-    sales_order_line = models.ForeignKey('sales.SalesOrderLine', on_delete=models.CASCADE, related_name='reservations')
+    # Government context: reservations linked to procurement/requisition, not sales
+    requisition_reference = models.CharField(max_length=100, blank=True, default='',
+        help_text="Purchase requisition or issue reference")
     item = models.ForeignKey(Item, on_delete=models.PROTECT, related_name='reservations')
     warehouse = models.ForeignKey('Warehouse', on_delete=models.PROTECT, related_name='reservations')
     quantity = models.DecimalField(max_digits=12, decimal_places=4)
@@ -798,3 +792,16 @@ class Reservation(AuditBaseModel):
 
     def __str__(self):
         return f"Reservation {self.id} - {self.item.name} ({self.quantity})"
+
+
+class UnitOfMeasure(models.Model):
+    """Standardised unit of measure — referenced by Item.unit_of_measure."""
+    code = models.CharField(max_length=10, unique=True)
+    name = models.CharField(max_length=50)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"

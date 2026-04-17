@@ -149,7 +149,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     and the email omits the password line.
     """
     frontend_url = django_settings.FRONTEND_URL
-    subject = f"Welcome to DTSG ERP - {tenant.name} Organization Created"
+    subject = f"Welcome to QUOT ERP - {tenant.name} Organization Created"
 
     password_line = (
         f"Temporary Password: {temp_password}\n" if temp_password
@@ -159,7 +159,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
 
-Your organization "{tenant.name}" has been successfully created on DTSG ERP Platform.
+Your organization "{tenant.name}" has been successfully created on QUOT ERP Platform.
 
 Login Details:
 --------------
@@ -178,7 +178,7 @@ Important Next Steps:
 If you have any questions, please contact support.
 
 Best regards,
-DTSG ERP Administration
+QUOT ERP Administration
     """
     try:
         send_mail(
@@ -190,6 +190,41 @@ DTSG ERP Administration
         return True
     except Exception as e:
         logger.error('Email send failed for tenant %s: %s', tenant.schema_name, e)
+        return False
+
+
+def send_password_reset_email(tenant, admin_user, temp_password):
+    """Notify tenant admin that their password has been reset by superadmin."""
+    frontend_url = django_settings.FRONTEND_URL
+    subject = f"Password Reset - {tenant.name} | QUOT ERP"
+    message = f"""
+Dear {admin_user.first_name or admin_user.username},
+
+Your password for "{tenant.name}" on QUOT ERP has been reset by the platform administrator.
+
+New Login Details:
+------------------
+Portal URL: {frontend_url}
+Username: {admin_user.username}
+Temporary Password: {temp_password}
+
+IMPORTANT: Please login and change your password immediately.
+
+If you did not request this change, please contact support.
+
+Best regards,
+QUOT ERP Administration
+    """
+    try:
+        send_mail(
+            subject, message,
+            getattr(django_settings, 'DEFAULT_FROM_EMAIL', 'noreply@dtsg.test'),
+            [admin_user.email],
+            fail_silently=False,
+        )
+        return True
+    except Exception as e:
+        logger.error('Password reset email failed for tenant %s: %s', tenant.schema_name, e)
         return False
 
 
@@ -213,7 +248,7 @@ New Plan: {new_plan.name}
 If you did not initiate this change, please contact support immediately.
 
 Best regards,
-DTSG ERP Administration
+QUOT ERP Administration
     """
 
     # Resolve tenant admin email
@@ -304,6 +339,13 @@ def tenant_signup(request):
     plan_type = data.get('plan_type', '')
     business_category = data.get('business_category', 'other')
 
+    # Government configuration (Quot PSE)
+    government_tier = data.get('government_tier', '')   # STATE or LGA
+    state_nbs_code = data.get('state_nbs_code', '')     # NBS 2-digit code
+    state_name = data.get('state_name', '')
+    lga_code = data.get('lga_code', '')
+    lga_name = data.get('lga_name', '')
+
     # Validate password strength (match frontend rules: >= 8 chars, 1 upper, 1 digit, 1 special)
     if len(admin_password) < 8:
         return Response({'error': 'Password must be at least 8 characters.'}, status=400)
@@ -355,6 +397,11 @@ def tenant_signup(request):
                 name=org_name,
                 schema_name=schema_name,
                 business_category=business_category,
+                government_tier=government_tier,
+                state_nbs_code=state_nbs_code,
+                state_name=state_name,
+                lga_code=lga_code,
+                lga_name=lga_name,
             )
 
             # Add domain
@@ -364,7 +411,7 @@ def tenant_signup(request):
             # Create admin user in PUBLIC schema (centralized auth)
             with schema_context('public'):
                 admin_user = User.objects.create_user(
-                    username=admin_username,
+                    username=admin_username.lower(),
                     email=admin_email,
                     password=admin_password,
                     first_name=first_name,
@@ -409,6 +456,17 @@ def tenant_signup(request):
                                 'is_active': True,
                             },
                         )
+
+            # Seed tenant defaults: warehouse, asset categories, UOMs, base currency
+            try:
+                from core.management.commands.seed_tenant_defaults import seed_defaults
+                with schema_context(schema_name):
+                    seed_defaults(tenant_name=org_name)
+            except Exception as defaults_err:
+                logger.warning(
+                    'Tenant defaults seeding failed for %s: %s',
+                    schema_name, defaults_err, exc_info=True,
+                )
 
             # Seed industry-specific defaults (CoA, BOMs, categories, work centers)
             if business_category and business_category != 'other':
@@ -650,7 +708,7 @@ def tenant_list(request):
             # Always create admin user — auto-generated credentials if not provided
             with schema_context('public'):
                 admin_user = User.objects.create_user(
-                    username=admin_username,
+                    username=admin_username.lower(),
                     email=admin_email,
                     password=temp_password,
                     first_name='Admin',
@@ -761,8 +819,37 @@ def tenant_detail(request, tenant_id):
         )
         return Response(status=204)
 
-    if request.method == 'POST':  # Suspend/Activate/Extend
+    if request.method == 'POST':  # Suspend/Activate/Extend/ResetPassword
         action = request.data.get('action')
+
+        # Password reset — independent of subscription status
+        if action == 'reset_password':
+            admin_role = UserTenantRole.objects.filter(
+                tenant=tenant, role='admin', is_active=True,
+            ).select_related('user').first()
+            if not admin_role:
+                return Response({'error': 'No active admin user found for this tenant'}, status=404)
+
+            admin_user = admin_role.user
+            temp_password = generate_temp_password()
+            admin_user.set_password(temp_password)
+            admin_user.save(update_fields=['password'])
+
+            email_sent = send_password_reset_email(tenant, admin_user, temp_password)
+
+            security_logger.info(
+                'TENANT_PASSWORD_RESET: tenant_id=%s tenant=%s admin=%s by=%s email_sent=%s',
+                tenant.id, tenant.name, admin_user.username, request.user.username, email_sent,
+            )
+            return Response({
+                'status': 'password_reset',
+                'username': admin_user.username,
+                'email': admin_user.email,
+                'temp_password': temp_password,
+                'email_sent': email_sent,
+            })
+
+        # Subscription actions
         sub = getattr(tenant, 'subscription', None)
         if sub:
             if action == 'suspend':
@@ -1397,7 +1484,7 @@ def platform_settings(request):
             'smtp_use_tls': getattr(sa_settings, 'smtp_use_tls', True),
             'smtp_use_ssl': getattr(sa_settings, 'smtp_use_ssl', False),
             'smtp_from_email': getattr(sa_settings, 'smtp_from_email', ''),
-            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'DTSG ERP'),
+            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'QUOT ERP'),
             'support_email': getattr(sa_settings, 'support_email', ''),
             'smtp_enabled': getattr(sa_settings, 'smtp_enabled', False),
         })
@@ -1507,7 +1594,7 @@ def impersonate_user(request):
                     auto_email = f"admin{tenant.id}@{tenant.schema_name}.dtsg.test"
 
                 target_user = User.objects.create_user(
-                    username=auto_username,
+                    username=auto_username.lower(),
                     email=auto_email,
                     password=auto_password,
                     first_name='Admin',
@@ -2959,7 +3046,7 @@ def webhook_test(request, pk):
     payload = {
         'event': 'test.ping',
         'timestamp': timezone.now().isoformat(),
-        'data': {'message': 'Test webhook from DTSG ERP'},
+        'data': {'message': 'Test webhook from QUOT ERP'},
     }
 
     # Sign the payload

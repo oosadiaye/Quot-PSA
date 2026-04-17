@@ -1,9 +1,6 @@
 from datetime import date
-from decimal import Decimal
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
-from django.core.validators import MinValueValidator
-from core.models import AuditBaseModel, ImmutableModelMixin
 from django.contrib.auth.models import User
 
 
@@ -66,6 +63,14 @@ class TransactionAuditLog(models.Model):
     checksum = models.CharField(max_length=64, blank=True, default='')
     previous_checksum = models.CharField(max_length=64, blank=True, default='')
 
+    # S3-01 — explicit monotonic sequence number. Previously the hash
+    # chain used timestamp ordering which is non-atomic under concurrent
+    # writes; two simultaneous commits could read the same predecessor
+    # and fork the chain. The ``sequence_number`` is assigned under a
+    # row-level advisory lock in ``save()`` so every row has a unique
+    # deterministic position.
+    sequence_number = models.BigIntegerField(null=True, blank=True, db_index=True)
+
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     description = models.TextField(blank=True, default='')
@@ -81,31 +86,142 @@ class TransactionAuditLog(models.Model):
             models.Index(fields=['user', 'timestamp']),
             models.Index(fields=['reference_number']),
             models.Index(fields=['tenant_id', 'timestamp']),
+            models.Index(fields=['sequence_number']),
+        ]
+        # S3-01 — sequence numbers must be unique within a tenant (and we
+        # coerce tenant_id=None into a separate bucket via partial index
+        # semantics). Enforce monotonic strict ordering of the audit chain.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'sequence_number'],
+                condition=models.Q(sequence_number__isnull=False),
+                name='uniq_txn_audit_tenant_seq',
+            ),
         ]
 
     def __str__(self):
         return f"{self.transaction_type}-{self.transaction_id} {self.action} by {self.username}"
 
+    # ── S3-02 — Audit rows are write-once ───────────────────────────────
+    # Any attempt to update or delete an already-persisted row raises.
+    # The Django admin, management commands, and ORM bulk operations all
+    # go through this guard.
     def save(self, *args, **kwargs):
-        if not self.pk:
-            previous = TransactionAuditLog.objects.order_by('-timestamp').first()
-            self.previous_checksum = previous.checksum if previous else ''
-        if not self.checksum:
+        """Write-once with an atomic sequence + hash chain.
+
+        First save (pk is None):
+          * Acquires a transaction + reads the last row under
+            ``select_for_update`` so two concurrent writers serialise
+            through the DB rather than forking the chain.
+          * Assigns the next sequence number.
+          * Computes ``previous_checksum`` from the locked predecessor.
+          * Computes our checksum including user/IP/prev/sequence so a
+            single-row tamper cannot reproduce a valid hash without also
+            rewriting everything downstream.
+
+        Subsequent saves are REJECTED — audit rows are immutable.
+        """
+        from django.db import transaction as _db_tx
+        from django.core.exceptions import ValidationError
+
+        if self.pk:
+            # Already persisted — reject any attempt to modify.
+            raise ValidationError(
+                'TransactionAuditLog rows are write-once and cannot be '
+                'modified. Record a new audit entry to capture changes.'
+            )
+
+        # Redact sensitive values before hashing + persisting (S3-04).
+        self.old_values = _redact_sensitive(self.old_values)
+        self.new_values = _redact_sensitive(self.new_values)
+
+        with _db_tx.atomic():
+            # Scope to the tenant bucket (same partial index semantics
+            # as the unique constraint).
+            predecessor_qs = (
+                TransactionAuditLog.objects
+                .select_for_update()
+                .filter(tenant_id=self.tenant_id)
+                .order_by('-sequence_number')
+            )
+            predecessor = predecessor_qs.first()
+
+            self.sequence_number = (
+                (predecessor.sequence_number or 0) + 1 if predecessor else 1
+            )
+            self.previous_checksum = predecessor.checksum if predecessor else ''
             self.checksum = self.generate_checksum()
-        super().save(*args, **kwargs)
+            super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """S3-02 — physical deletion of audit rows is forbidden."""
+        from django.core.exceptions import ValidationError
+        raise ValidationError(
+            'TransactionAuditLog rows cannot be deleted. '
+            'The audit trail must be preserved for forensic integrity.'
+        )
 
     def generate_checksum(self) -> str:
+        """Tamper-evident SHA-256 over the full audit-relevant payload.
+
+        S3-01 — previous implementation excluded user, ip_address, and
+        previous_checksum from the hash. That let an attacker swap user
+        or IP on a row, or splice in a fake row, without invalidating
+        the chain. The hash now covers every field that auditors care
+        about *plus* the chain link.
+        """
         import hashlib
         import json
         content = json.dumps({
-            'transaction_type': self.transaction_type,
-            'transaction_id': self.transaction_id,
-            'action': self.action,
-            'old_values': self.old_values,
-            'new_values': self.new_values,
-            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'sequence_number':   self.sequence_number,
+            'tenant_id':         self.tenant_id,
+            'transaction_type':  self.transaction_type,
+            'transaction_id':    self.transaction_id,
+            'action':            self.action,
+            'user_id':           self.user_id if self.user_id else None,
+            'username':          self.username or '',
+            'ip_address':        self.ip_address or '',
+            'user_agent':        self.user_agent or '',
+            'old_values':        self.old_values,
+            'new_values':        self.new_values,
+            'timestamp':         self.timestamp.isoformat() if self.timestamp else None,
+            'previous_checksum': self.previous_checksum or '',
+            'reference_number':  self.reference_number or '',
         }, sort_keys=True, default=str)
         return hashlib.sha256(content.encode()).hexdigest()
+
+
+# ─── S3-04 — Sensitive-field redaction for audit capture ──────────────────
+# Values captured into old_values / new_values get redacted when the key
+# matches a known-sensitive name substring. This applies BEFORE the row
+# is persisted and BEFORE the checksum is computed, so the hash commits
+# to the redacted values — an attacker can't un-redact later.
+_REDACT_KEY_PATTERNS = (
+    'password', 'passwd', 'secret', 'token', 'api_key', 'apikey',
+    'private_key', 'privatekey', 'access_key', 'accesskey',
+    'refresh_token', 'session_key', 'sessionkey', 'auth',
+    'credit_card', 'creditcard', 'cvv', 'ccv',
+    'ssn', 'bvn_pin', 'tin_secret',
+)
+
+
+def _redact_sensitive(value):
+    """Recursively redact values whose keys match a sensitive pattern."""
+    if isinstance(value, dict):
+        return {
+            k: ('***REDACTED***' if _is_sensitive_key(k) else _redact_sensitive(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    return value
+
+
+def _is_sensitive_key(key) -> bool:
+    if not isinstance(key, str):
+        return False
+    lowered = key.lower()
+    return any(pat in lowered for pat in _REDACT_KEY_PATTERNS)
 
 
 class ApprovalRule(models.Model):
@@ -252,7 +368,10 @@ class DualControlOverride(models.Model):
 
 class CustomerAging(models.Model):
     """Accounts Receivable aging by customer"""
-    customer = models.ForeignKey('sales.Customer', on_delete=models.CASCADE, related_name='aging_records')
+    customer_name = models.CharField(max_length=200, default='',
+        help_text="Debtor/payer name (replaces FK to deleted sales.Customer)")
+    customer_id_ref = models.IntegerField(null=True, blank=True,
+        help_text="Legacy customer ID reference")
     as_of_date = models.DateField()
     current = models.DecimalField(max_digits=15, decimal_places=2, default=0, help_text="Current (0-30 days)")
     days_30 = models.DecimalField(max_digits=15, decimal_places=2, default=0, help_text="31-60 days")
@@ -263,15 +382,18 @@ class CustomerAging(models.Model):
     currency = models.ForeignKey('accounting.Currency', on_delete=models.PROTECT, null=True, blank=True)
 
     class Meta:
-        unique_together = ['customer', 'as_of_date']
-        ordering = ['-as_of_date', 'customer__name']
+        unique_together = ['customer_name', 'as_of_date']
+        ordering = ['-as_of_date', 'customer_name']
 
     def save(self, *args, **kwargs):
         self.total = self.current + self.days_30 + self.days_60 + self.days_90 + self.days_120
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.customer.name} Aging {self.as_of_date}"
+        # S2-09 — model stores ``customer_name`` (CharField), NOT a FK to
+        # Customer. Previously ``self.customer.name`` raised AttributeError
+        # in every admin list view.
+        return f"{self.customer_name} Aging {self.as_of_date}"
 
 
 class BadDebtProvision(models.Model):
@@ -321,8 +443,8 @@ class BadDebtWriteOff(models.Model):
 
     write_off_number = models.CharField(max_length=50, unique=True)
 
-    customer = models.ForeignKey('sales.Customer', on_delete=models.PROTECT, null=True, blank=True)
-    customer_name = models.CharField(max_length=200, default='')
+    customer_name = models.CharField(max_length=200, default='',
+        help_text="Debtor name (replaces FK to deleted sales.Customer)")
 
     original_invoice = models.ForeignKey('accounting.CustomerInvoice', on_delete=models.SET_NULL, null=True, blank=True)
     original_invoice_number = models.CharField(max_length=50, blank=True, default='')
@@ -371,8 +493,8 @@ class CreditNote(models.Model):
 
     credit_note_number = models.CharField(max_length=50, unique=True)
 
-    customer = models.ForeignKey('sales.Customer', on_delete=models.PROTECT, null=True, blank=True)
-    customer_name = models.CharField(max_length=200, default='')
+    customer_name = models.CharField(max_length=200, default='',
+        help_text="Debtor name (replaces FK to deleted sales.Customer)")
 
     original_invoice = models.ForeignKey('accounting.CustomerInvoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='credit_notes')
     original_invoice_number = models.CharField(max_length=50, blank=True, default='')

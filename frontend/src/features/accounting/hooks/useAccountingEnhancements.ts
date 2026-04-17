@@ -20,6 +20,8 @@ interface ExchangeRateFormData {
     from_currency: number;
     to_currency: number;
     rate_date: string;
+    rate_valid_from?: string;
+    rate_valid_to?: string | null;
     exchange_rate: string;
 }
 
@@ -35,6 +37,7 @@ interface CurrencyDefaultsPayload {
     default_currency_2?: number | null;
     default_currency_3?: number | null;
     default_currency_4?: number | null;
+    default_currency_5?: number | null;
 }
 
 interface InvoiceLineFormData {
@@ -217,6 +220,19 @@ export const useCreateExchangeRate = () => {
     return useMutation({
         mutationFn: async (rateData: ExchangeRateFormData) => {
             const { data } = await apiClient.post('/accounting/exchange-rates/', rateData);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['exchange-rates'] });
+        },
+    });
+};
+
+export const useUpdateExchangeRate = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, ...rateData }: ExchangeRateFormData & { id: number }) => {
+            const { data } = await apiClient.patch(`/accounting/exchange-rates/${id}/`, rateData);
             return data;
         },
         onSuccess: () => {

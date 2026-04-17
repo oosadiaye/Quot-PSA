@@ -1,7 +1,7 @@
-# DTSG ERP Integration Architecture
+# QUOT ERP Integration Architecture
 
 ## Document Purpose
-Enterprise integration strategy for DTSG ERP with major ERP systems and third-party applications.
+Enterprise integration strategy for QUOT ERP with major ERP systems and third-party applications.
 
 ---
 
@@ -1223,7 +1223,7 @@ urlpatterns = [
 **Registration in root urls.py** -- add to `v1_patterns` or create v2:
 
 ```python
-# In dtsg_erp/urls.py, add to v1_patterns:
+# In quot_pse/urls.py, add to v1_patterns:
 path('integrations/', include('integrations.urls')),
 ```
 
@@ -1803,13 +1803,13 @@ class IntegrationAPIKeyAuthentication(BaseAuthentication):
 - `GET/POST /api/v1/integrations/field-mappings/` -- mapping CRUD
 - `GET /api/v1/integrations/errors/` -- error log
 
-**Settings changes** (`dtsg_erp/settings.py`):
+**Settings changes** (`quot_pse/settings.py`):
 - Add `'integrations'` to `TENANT_APPS`
 - Add `IntegrationAPIKeyAuthentication` to `DEFAULT_AUTHENTICATION_CLASSES`
 - Add Celery Beat schedule for `run_scheduled_syncs`
 - Add `'cryptography'` to requirements.txt
 
-**Root URL change** (`dtsg_erp/urls.py`):
+**Root URL change** (`quot_pse/urls.py`):
 - Add `path('integrations/', include('integrations.urls'))` to `v1_patterns`
 
 ---
@@ -1930,7 +1930,7 @@ class IntegrationAPIKeyAuthentication(BaseAuthentication):
 ## APPENDIX A: settings.py Changes Summary
 
 ```python
-# Add to TENANT_APPS (in dtsg_erp/settings.py):
+# Add to TENANT_APPS (in quot_pse/settings.py):
 TENANT_APPS = [
     ...
     'integrations',

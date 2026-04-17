@@ -1,4 +1,6 @@
 from django.contrib import admin
+from .admin_ncoa import *  # noqa — imports all NCoA admin classes
+from .admin_treasury import *  # noqa — imports Treasury/Revenue admin classes
 from .models import (
     Fund, Function, Program, Geo, Account, MDA,
     JournalHeader, JournalLine, Currency,
@@ -14,7 +16,6 @@ from .models import (
     AssetCategory, AssetClass,
     AccountingSettings,
     ExchangeRateHistory,
-    Company, ConsolidationGroup,
 )
 
 @admin.register(Fund)
@@ -98,9 +99,9 @@ class ReceiptAllocationReadOnlyInline(admin.TabularInline):
 
 @admin.register(CustomerInvoice)
 class CustomerInvoiceAdmin(admin.ModelAdmin):
-    list_display = ['invoice_number', 'customer', 'invoice_date', 'total_amount', 'status']
+    list_display = ['invoice_number', 'customer_name', 'invoice_date', 'total_amount', 'status']
     list_filter = ['status']
-    search_fields = ['invoice_number', 'customer__name']
+    search_fields = ['invoice_number', 'customer_name']
     inlines = [ReceiptAllocationReadOnlyInline]
 
 class ReceiptAllocationInline(admin.TabularInline):
@@ -283,15 +284,4 @@ class ExchangeRateHistoryAdmin(admin.ModelAdmin):
     list_filter = ['from_currency', 'to_currency']
 
 
-@admin.register(Company)
-class CompanyAdmin(admin.ModelAdmin):
-    list_display = ['company_code', 'name', 'company_type', 'is_active']
-    list_filter = ['company_type', 'is_active']
-    search_fields = ['company_code', 'name']
-
-
-@admin.register(ConsolidationGroup)
-class ConsolidationGroupAdmin(admin.ModelAdmin):
-    list_display = ['name', 'consolidation_method', 'is_active']
-    list_filter = ['is_active', 'consolidation_method']
-    search_fields = ['name']
+# Company and ConsolidationGroup admin removed — public sector

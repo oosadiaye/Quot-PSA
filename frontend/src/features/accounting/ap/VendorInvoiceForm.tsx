@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
     Plus, Trash2, FileText, Layers, Paperclip,
     ReceiptText, ArrowLeftRight, CheckCircle, AlertCircle,
@@ -7,9 +8,13 @@ import { useCreateVendorInvoice, useTaxCodes, useWithholdingTaxes } from '../hoo
 import { useVendors } from '../../procurement/hooks/useProcurement';
 import { useDimensions } from '../hooks/useJournal';
 import { useIsDimensionsEnabled } from '../../../hooks/useTenantModules';
+import { useNCoASegments } from '../../../hooks/useGovForms';
+import { useAuth } from '../../../context/AuthContext';
 import { useCurrency } from '../../../context/CurrencyContext';
 import AccountingLayout from '../AccountingLayout';
 import BackButton from '../../../components/BackButton';
+import SearchableSelect from '../../../components/SearchableSelect';
+import apiClient from '../../../api/client';
 import '../styles/glassmorphism.css';
 
 type TabType = 'invoice' | 'credit_memo';
@@ -17,8 +22,11 @@ type TabType = 'invoice' | 'credit_memo';
 let _lineUid = 0;
 const nextLineUid = () => String(++_lineUid);
 
+type LineType = 'expense' | 'asset' | 'gl';
+
 interface InvoiceLine {
     _uid: string;
+    line_type: LineType;
     account: string;
     description: string;
     amount: string;
@@ -32,32 +40,59 @@ interface Props {
 }
 
 const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
+    const { hasRole } = useAuth();
+    // SoD: Credit Memo requires manager or admin role
+    // Users who create invoices (officer/user) cannot create credit memos
+    const canCreateCreditMemo = hasRole('manager');
+
     const { data: dims, isLoading: dimsLoading } = useDimensions();
     const { isEnabled: dimensionsEnabled } = useIsDimensionsEnabled();
+    const { data: segments } = useNCoASegments();
     const { formatCurrency, currencySymbol } = useCurrency();
     const createInvoice = useCreateVendorInvoice();
     const { data: vendors } = useVendors({ is_active: true });
     const { data: taxCodes } = useTaxCodes({ is_active: true });
     const { data: whtList } = useWithholdingTaxes({ is_active: true });
 
+    // Fetch fixed assets for the selected MDA (used in Asset line type)
     const [activeTab, setActiveTab] = useState<TabType>('invoice');
     const [header, setHeader] = useState({
+        mda: '',
         vendor: '', reference: '', description: '',
         invoice_date: new Date().toISOString().split('T')[0],
         due_date: '', vendor_credit_amount: '',
         fund: '', function: '', program: '', geo: '',
     });
     const [lines, setLines] = useState<InvoiceLine[]>([
-        { _uid: nextLineUid(), account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' },
+        { _uid: nextLineUid(), line_type: 'expense', account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' },
     ]);
     const [attachment, setAttachment] = useState<File | null>(null);
     const [formError, setFormError] = useState('');
 
-    // Only Expense-type accounts in line items
-    const expenseAccounts = useMemo(
-        () => dims?.accounts?.filter((a: any) => a.account_type === 'Expense') ?? [],
-        [dims?.accounts]
-    );
+    // Fetch fixed assets for the selected MDA
+    const { data: fixedAssets } = useQuery({
+        queryKey: ['fixed-assets-mda', header.mda],
+        queryFn: async () => {
+            const params: Record<string, string> = { status: 'Active', page_size: '500' };
+            if (header.mda) params.mda = header.mda;
+            const res = await apiClient.get('/accounting/fixed-assets/', { params });
+            const d = res.data;
+            return Array.isArray(d) ? d : d?.results || [];
+        },
+        enabled: !!header.mda,
+        staleTime: 60_000,
+    });
+
+    // Account lists filtered by type
+    const allAccounts = dims?.accounts ?? [];
+    const expenseAccounts = useMemo(() => allAccounts.filter((a: any) => a.account_type === 'Expense'), [allAccounts]);
+    const assetAccounts = useMemo(() => allAccounts.filter((a: any) => a.account_type === 'Asset'), [allAccounts]);
+    // GL = all accounts (for journal-style entries)
+    const getAccountsForLineType = (lt: LineType) => {
+        if (lt === 'expense') return expenseAccounts;
+        if (lt === 'asset') return assetAccounts;
+        return allAccounts; // 'gl' = any account
+    };
 
     // Totals — safe integer-cent arithmetic
     const { subtotal, taxTotal, whtTotal, grandTotal } = useMemo(() => {
@@ -82,15 +117,16 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
         };
     }, [lines, taxCodes, whtList]);
 
-    const addLine = () =>
-        setLines(prev => [...prev, { _uid: nextLineUid(), account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
+    const [addLineType, setAddLineType] = useState<LineType>('expense');
+    const addLine = (lt?: LineType) =>
+        setLines(prev => [...prev, { _uid: nextLineUid(), line_type: lt || addLineType, account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
     const removeLine = (idx: number) => setLines(prev => prev.filter((_, i) => i !== idx));
     const updateLine = (idx: number, field: keyof InvoiceLine, value: string) =>
         setLines(prev => { const n = [...prev]; n[idx][field] = value; return n; });
 
     const switchTab = (tab: TabType) => {
         setActiveTab(tab);
-        setLines([{ account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
+        setLines([{ _uid: nextLineUid(), line_type: 'expense', account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
         setFormError('');
         setHeader(h => ({ ...h, vendor_credit_amount: '' }));
     };
@@ -100,6 +136,7 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
         setFormError('');
 
         const jsonPayload: any = {
+            mda: header.mda ? Number(header.mda) : null,
             vendor: Number(header.vendor),
             reference: header.reference,
             description: header.description,
@@ -139,9 +176,23 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
             onSuccess();
         } catch (err: any) {
             const data = err.response?.data;
-            setFormError(data
-                ? (typeof data === 'string' ? data : Object.values(data).flat().join(' '))
-                : err.message || 'Failed to save document.');
+            // Priority: structured budget/warrant errors go first — they
+            // carry the full human-readable message in a known field.
+            // Fall back to the dump of all error fields for other cases.
+            const msg =
+                typeof data === 'string' ? data :
+                data?.budget ? (Array.isArray(data.budget) ? data.budget.join(' ') : data.budget) :
+                data?.error ? data.error :
+                data?.detail ? data.detail :
+                data && typeof data === 'object'
+                    ? Object.entries(data)
+                        .filter(([k]) => !['appropriation_exceeded', 'warrant_exceeded', 'no_appropriation',
+                                           'missing_dimensions', 'dimensions', 'appropriation_id',
+                                           'requested', 'available', 'deficit', 'warrant_info'].includes(k))
+                        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+                        .join(' | ')
+                    : err.message || 'Failed to save document.';
+            setFormError(msg || 'Failed to save document.');
         }
     };
 
@@ -208,9 +259,9 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                     overflow: 'hidden', flexShrink: 0,
                 }}>
                     {([
-                        { key: 'invoice' as TabType, label: 'Vendor Invoice', Icon: FileText },
-                        { key: 'credit_memo' as TabType, label: 'Credit Memo', Icon: ReceiptText },
-                    ]).map(({ key, label, Icon }) => (
+                        { key: 'invoice' as TabType, label: 'Vendor Invoice', Icon: FileText, restricted: false },
+                        { key: 'credit_memo' as TabType, label: 'Credit Memo', Icon: ReceiptText, restricted: !canCreateCreditMemo },
+                    ]).filter(t => !t.restricted).map(({ key, label, Icon }) => (
                         <button key={key} type="button" onClick={() => switchTab(key)} style={{
                             display: 'flex', alignItems: 'center', gap: '0.4rem',
                             padding: '0.45rem 1.1rem', border: 'none', cursor: 'pointer',
@@ -250,15 +301,22 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
             }}>
                 <ArrowLeftRight size={13} style={{ flexShrink: 0, color: isCreditMemo ? '#0d9488' : 'var(--color-primary)' }} />
                 {isCreditMemo
-                    ? <span><strong>Credit Memo</strong> — Dr AP (reduces vendor liability) · Cr Expense (reverses original charge). Only Expense GL accounts shown.</span>
-                    : <span><strong>Vendor Invoice</strong> — Dr Expense (records cost) · Cr AP (records vendor liability). Only Expense GL accounts shown.</span>}
+                    ? <span><strong>Credit Memo</strong> — Dr AP (reduces vendor liability) · Cr Expense/Asset (reverses original charge).</span>
+                    : <span><strong>Vendor Invoice</strong> — Dr Expense/Asset/GL Account · Cr AP (records vendor liability). Add lines by type: Expense, Asset, or GL Account.</span>}
             </div>
 
             {formError && (
                 <div style={{
-                    padding: '0.5rem 0.875rem', background: '#fee2e2', color: '#dc2626',
-                    borderRadius: '7px', marginBottom: '0.75rem', fontSize: 'var(--text-xs)', fontWeight: 500,
+                    padding: '0.7rem 0.95rem', background: '#fef2f2', color: '#991b1b',
+                    border: '1.5px solid #fecaca',
+                    borderRadius: '8px', marginBottom: '0.75rem',
+                    fontSize: 'var(--text-xs)', fontWeight: 500,
+                    whiteSpace: 'pre-wrap' as const,  // preserves \n in budget messages
+                    fontFamily: 'inherit',
                 }}>
+                    <div style={{ fontWeight: 700, marginBottom: '0.3rem', fontSize: 'var(--text-sm)' }}>
+                        ⚠ Budget Validation Failed
+                    </div>
                     {formError}
                 </div>
             )}
@@ -285,6 +343,20 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                     </p>
 
                     <div style={fieldGap}>
+
+                        {/* MDA — first field, mandatory */}
+                        <div>
+                            <label style={lbl}>Administrative (MDA) <span style={{ color: '#ef4444' }}>*</span></label>
+                            <SearchableSelect
+                                options={(segments?.administrative || []).map((s: any) => ({
+                                    value: String(s.id), label: `${s.code} - ${s.name}`, sublabel: s.mda_type || s.level,
+                                }))}
+                                value={header.mda}
+                                onChange={v => setHeader(h => ({ ...h, mda: v }))}
+                                placeholder="Type MDA name or code..."
+                                required
+                            />
+                        </div>
 
                         {/* Vendor */}
                         <div>
@@ -449,32 +521,22 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                 display: 'flex', alignItems: 'center', gap: '0.4rem',
                             }}>
                                 Line Items
-                                <span style={{
-                                    padding: '0.1rem 0.5rem', borderRadius: '20px',
-                                    background: 'rgba(25,30,106,0.08)', color: 'var(--color-primary)',
-                                    fontSize: '0.62rem', fontWeight: 700,
-                                }}>Expense accounts only</span>
                             </p>
-                            <button type="button" onClick={addLine}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '0.3rem',
-                                    background: 'none', border: 'none', cursor: 'pointer',
-                                    color: 'var(--color-primary)', fontSize: 'var(--text-xs)', fontWeight: 600,
-                                    padding: 0,
-                                }}>
-                                <Plus size={13} /> Add Line
-                            </button>
-                        </div>
-
-                        {expenseAccounts.length === 0 && (
-                            <div style={{
-                                padding: '0.5rem 0.75rem', borderRadius: '6px', marginBottom: '0.75rem',
-                                background: '#fef9c3', color: '#92400e', fontSize: 'var(--text-xs)',
-                                border: '1px solid #fde68a',
-                            }}>
-                                No Expense-type GL accounts found. Create accounts with type <strong>Expense</strong> in Chart of Accounts first.
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <button type="button" onClick={() => addLine('expense')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none', border: '1px solid var(--color-border)', borderRadius: '5px', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '0.62rem', fontWeight: 600, padding: '0.25rem 0.5rem' }}>
+                                    <Plus size={11} /> Expense
+                                </button>
+                                <button type="button" onClick={() => addLine('asset')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none', border: '1px solid var(--color-border)', borderRadius: '5px', cursor: 'pointer', color: '#0d9488', fontSize: '0.62rem', fontWeight: 600, padding: '0.25rem 0.5rem' }}>
+                                    <Plus size={11} /> Asset
+                                </button>
+                                <button type="button" onClick={() => addLine('gl')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none', border: '1px solid var(--color-border)', borderRadius: '5px', cursor: 'pointer', color: '#7c3aed', fontSize: '0.62rem', fontWeight: 600, padding: '0.25rem 0.5rem' }}>
+                                    <Plus size={11} /> GL Account
+                                </button>
                             </div>
-                        )}
+                        </div>
 
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '560px' }}>
@@ -482,11 +544,12 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                     <tr style={{ borderBottom: '1.5px solid var(--color-border)' }}>
                                         {[
                                             { label: '#', w: '28px' },
-                                            { label: 'Expense Account', w: '30%' },
+                                            { label: 'Type', w: '70px' },
+                                            { label: 'Account', w: '28%' },
                                             { label: 'Description', w: 'auto' },
                                             { label: 'Amount', w: '110px' },
-                                            { label: 'Tax', w: '110px' },
-                                            { label: 'WHT', w: '110px' },
+                                            { label: 'Tax', w: '100px' },
+                                            { label: 'WHT', w: '100px' },
                                             { label: '', w: '28px' },
                                         ].map(({ label, w }, i) => (
                                             <th key={i} style={{
@@ -501,22 +564,56 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {lines.map((line, idx) => (
+                                    {lines.map((line, idx) => {
+                                        const lineTypeColors: Record<LineType, { bg: string; color: string; label: string }> = {
+                                            expense: { bg: 'rgba(25,30,106,0.08)', color: 'var(--color-primary)', label: 'EXP' },
+                                            asset: { bg: 'rgba(13,148,136,0.08)', color: '#0d9488', label: 'AST' },
+                                            gl: { bg: 'rgba(124,58,237,0.08)', color: '#7c3aed', label: 'GL' },
+                                        };
+                                        const ltc = lineTypeColors[line.line_type] || lineTypeColors.expense;
+                                        const accts = getAccountsForLineType(line.line_type);
+                                        return (
                                         <tr key={line._uid} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                             {/* Row number */}
                                             <td style={{ padding: '0.3rem 0.4rem 0.3rem 0', color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', textAlign: 'center' }}>
                                                 {idx + 1}
                                             </td>
-                                            {/* Account */}
+                                            {/* Line Type badge */}
                                             <td style={{ padding: '0.3rem 0.3rem 0.3rem 0' }}>
-                                                <select style={{ ...inp, appearance: 'auto' as any, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem' }}
-                                                    value={line.account}
-                                                    onChange={e => updateLine(idx, 'account', e.target.value)} required>
-                                                    <option value="">Select…</option>
-                                                    {expenseAccounts.map((a: any) => (
-                                                        <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
-                                                    ))}
-                                                </select>
+                                                <span style={{
+                                                    display: 'inline-block', padding: '0.15rem 0.4rem', borderRadius: '4px',
+                                                    background: ltc.bg, color: ltc.color, fontWeight: 700,
+                                                    fontSize: '0.58rem', letterSpacing: '0.03em',
+                                                }}>{ltc.label}</span>
+                                            </td>
+                                            {/* Account — asset lines show fixed assets, others show GL accounts */}
+                                            <td style={{ padding: '0.3rem 0.3rem 0.3rem 0' }}>
+                                                {line.line_type === 'asset' ? (
+                                                    <select style={{ ...inp, appearance: 'auto' as any, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem', borderColor: !header.mda ? '#fbbf24' : '' }}
+                                                        value={line.account}
+                                                        onChange={e => {
+                                                            updateLine(idx, 'account', e.target.value);
+                                                            // Auto-fill description from asset name
+                                                            const asset = (fixedAssets || []).find((a: any) => String(a.id) === e.target.value);
+                                                            if (asset) updateLine(idx, 'description', `${asset.asset_number} — ${asset.name}`);
+                                                        }} required>
+                                                        <option value="">{header.mda ? 'Select asset…' : 'Select MDA first'}</option>
+                                                        {(fixedAssets || []).map((a: any) => (
+                                                            <option key={a.id} value={a.id}>
+                                                                {a.asset_number} — {a.name} ({a.asset_category})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <select style={{ ...inp, appearance: 'auto' as any, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem' }}
+                                                        value={line.account}
+                                                        onChange={e => updateLine(idx, 'account', e.target.value)} required>
+                                                        <option value="">Select…</option>
+                                                        {accts.map((a: any) => (
+                                                            <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
+                                                        ))}
+                                                    </select>
+                                                )}
                                             </td>
                                             {/* Description */}
                                             <td style={{ padding: '0.3rem' }}>
@@ -570,7 +667,8 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                                 )}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

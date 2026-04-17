@@ -26,6 +26,17 @@ apiClient.interceptors.request.use((config) => {
     if (tenantDomain && tenantDomain !== 'null' && tenantDomain !== 'undefined') {
       config.headers['X-Tenant-Domain'] = tenantDomain;
     }
+
+    // Inject active organization header for MDA-scoped requests
+    const orgRaw = localStorage.getItem('activeOrganization') ?? sessionStorage.getItem('activeOrganization');
+    if (orgRaw) {
+      try {
+        const org = JSON.parse(orgRaw);
+        if (org?.id) {
+          config.headers['X-Organization-Id'] = String(org.id);
+        }
+      } catch { /* ignore parse errors */ }
+    }
   }
 
   return config;

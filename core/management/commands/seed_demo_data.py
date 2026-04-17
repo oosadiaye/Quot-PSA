@@ -1,16 +1,12 @@
-from django.core.management.base import BaseManagementCommand
+from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django_tenants.utils import tenant_context
 from tenants.models import Client
-from procurement.models import Vendor, PurchaseOrder, PurchaseRequest
+from procurement.models import Vendor, PurchaseOrder
 from inventory.models import Item, Warehouse
-from sales.models import Customer, SalesOrder
-from service.models import ServiceAsset, ServiceTicket
-from accounting.models import Fund, Function, Program, Geo, Account
-import random
 from decimal import Decimal
 
-class Command(BaseManagementCommand):
+class Command(BaseCommand):
     help = 'Seeds the database with demo data for UAT.'
 
     def handle(self, *args, **kwargs):
@@ -34,7 +30,7 @@ class Command(BaseManagementCommand):
             for v_data in vendors:
                 v, _ = Vendor.objects.get_or_create(name=v_data['name'], defaults={'email': v_data['email']})
                 vendor_objs.append(v)
-                
+
             # 2. Master Data - Inventory
             warehouse, _ = Warehouse.objects.get_or_create(name='Main Warehouse', location='HQ Basement')
             items = [
@@ -45,33 +41,15 @@ class Command(BaseManagementCommand):
             item_objs = []
             for i_data in items:
                 i, created = Item.objects.get_or_create(sku=i_data['sku'], defaults={
-                    'name': i_data['name'], 
+                    'name': i_data['name'],
                     'description': 'Standard Issue',
                     'unit_price': i_data['unit_p'],
-                    'total_quantity': 10 if not created else 0, # Initial stock if checking logic manually elsewhere
+                    'total_quantity': 10 if not created else 0,
                     'average_cost': i_data['unit_p']
                 })
                 item_objs.append(i)
 
-            # 3. Master Data - Sales
-            customers = [
-                {'name': 'Dept of Transportation', 'email': 'procurement@dot.gov'},
-                {'name': 'City Hall Admin', 'email': 'admin@cityhall.gov'},
-            ]
-            cust_objs = []
-            for c_data in customers:
-                c, _ = Customer.objects.get_or_create(name=c_data['name'], defaults={'email': c_data['email'], 'phone': '555-0101'})
-                cust_objs.append(c)
-
-            # 4. Master Data - Service
-            assets = [
-                {'serial': 'SRV-HVAC-01', 'name': 'Server Room HVAC'},
-                {'serial': 'FLEET-V-102', 'name': 'Ford Transit Van'},
-            ]
-            for a_data in assets:
-                ServiceAsset.objects.get_or_create(serial_number=a_data['serial'], defaults={'name': a_data['name']})
-
-            # 5. Create Transactional Data - Purchase Orders
+            # 3. Create Transactional Data - Purchase Orders
             if not PurchaseOrder.objects.exists():
                 po = PurchaseOrder.objects.create(
                     vendor=vendor_objs[0],
@@ -81,15 +59,5 @@ class Command(BaseManagementCommand):
                     total_amount=Decimal('2400.00')
                 )
                 self.stdout.write(f"Created PO: {po.po_number}")
-
-            # 6. Create Transactional Data - Sales Orders
-            if not SalesOrder.objects.exists():
-                so = SalesOrder.objects.create(
-                    customer=cust_objs[0],
-                    order_date=timezone.now().date(),
-                    status='Draft',
-                    total_amount=Decimal('5000.00')
-                )
-                self.stdout.write(f"Created Sales Order: {so.order_number}")
 
             self.stdout.write(self.style.SUCCESS("Seeding Completed Successfully."))

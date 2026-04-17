@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quot PSE — Product Brochure</title>
+<meta name="description" content="Quot PSE — Nigeria's Public-Sector IFMIS. Built-in modules, features, and end-to-end process flows for State and Local Government finance." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+
+<style>
+:root{
+  --navy:#1a237e;
+  --navy-dark:#0f1759;
+  --green:#008751;
+  --green-dark:#006d41;
+  --ink:#0b1320;
+  --muted:#4a5568;
+  --surface:#f6f8fb;
+  --border:rgba(26,35,126,0.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#e9ecf2;color:var(--ink);font-family:'Inter',sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--navy);text-decoration:none}
+
+/* ─ Page layout — each .page is one A4 sheet ─────────────── */
+.page{
+  width:210mm;min-height:297mm;
+  background:#fff;margin:18px auto;
+  padding:20mm 18mm;
+  box-shadow:0 2px 12px rgba(0,0,0,0.08);
+  position:relative;page-break-after:always;break-after:page;
+}
+.page.cover{padding:0;overflow:hidden}
+
+/* ─ Typography ───────────────────────────────────────────── */
+h1,h2,h3,h4{font-family:'Manrope',sans-serif;letter-spacing:-0.015em;color:var(--ink);margin:0}
+h1{font-size:42pt;font-weight:800;line-height:1.05}
+h2{font-size:22pt;font-weight:700;line-height:1.15;margin-bottom:6mm}
+h3{font-size:13pt;font-weight:700;margin-bottom:3mm}
+h4{font-size:10.5pt;font-weight:700;margin-bottom:2mm}
+p{margin:0 0 3mm}
+
+.lead{font-size:11pt;color:var(--muted);line-height:1.65}
+.muted{color:var(--muted)}
+.small{font-size:8.5pt}
+.mono{font-family:'JetBrains Mono',monospace;font-size:8pt}
+
+/* ─ Utilities ────────────────────────────────────────────── */
+.row{display:grid;gap:6mm}
+.row-2{grid-template-columns:1fr 1fr}
+.row-3{grid-template-columns:1fr 1fr 1fr}
+.row-4{grid-template-columns:1fr 1fr 1fr 1fr}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:7.5pt;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+.pill-green{background:rgba(0,135,81,0.10);color:var(--green-dark)}
+.pill-navy{background:rgba(26,35,126,0.08);color:var(--navy)}
+.pill-amber{background:rgba(196,127,23,0.12);color:#9a6212}
+
+.rule{height:1px;background:var(--border);margin:5mm 0}
+
+ul.tight{margin:0;padding-left:5mm}
+ul.tight li{font-size:9.5pt;margin-bottom:1.2mm;color:var(--ink)}
+ul.tight li::marker{color:var(--green)}
+
+.section-label{font-size:7.5pt;font-weight:700;color:var(--green);letter-spacing:1.4px;text-transform:uppercase;margin-bottom:2mm}
+
+/* ─ Cover page ───────────────────────────────────────────── */
+.cover-hero{
+  height:100%;min-height:297mm;
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy-dark) 55%,#0a1240 100%);
+  color:#fff;padding:30mm 22mm 26mm;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between
+}
+.cover-hero::before,.cover-hero::after{content:'';position:absolute;border-radius:50%}
+.cover-hero::before{top:-80mm;right:-40mm;width:180mm;height:180mm;background:rgba(255,255,255,0.05)}
+.cover-hero::after{bottom:-60mm;left:-40mm;width:160mm;height:160mm;background:rgba(0,135,81,0.18)}
+.cover-hero > *{position:relative;z-index:1}
+.cover-brand{display:flex;align-items:center;gap:4mm}
+.cover-brand-badge{width:14mm;height:14mm;border-radius:3mm;background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:16pt}
+.cover-brand-text{font-family:'Manrope',sans-serif;font-weight:800;font-size:14pt;line-height:1}
+.cover-brand-sub{font-size:7pt;color:var(--green);font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-top:2mm}
+
+.cover-title{font-size:52pt;font-weight:800;letter-spacing:-0.03em;line-height:1;margin-bottom:6mm}
+.cover-title .accent{color:#6ee6a8}
+.cover-deck{font-size:14pt;color:rgba(255,255,255,0.82);line-height:1.55;max-width:160mm;margin-bottom:14mm}
+
+.cover-compliance{display:flex;flex-wrap:wrap;gap:3mm 4mm;max-width:170mm;margin-bottom:10mm}
+.cover-chip{padding:5px 12px;border-radius:99px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);font-size:8.5pt;font-weight:600;color:#fff}
+.cover-foot{display:flex;justify-content:space-between;align-items:flex-end;font-size:9pt;color:rgba(255,255,255,0.7)}
+
+/* ─ Cards ────────────────────────────────────────────────── */
+.card{background:var(--surface);border-radius:4mm;border:1px solid var(--border);padding:6mm;position:relative}
+.card.navy{background:linear-gradient(135deg,var(--navy),var(--navy-dark));color:#fff;border:none}
+.card.navy h3,.card.navy h4{color:#fff}
+.card.navy .muted{color:rgba(255,255,255,0.75)}
+.card .icon{width:10mm;height:10mm;border-radius:2.5mm;background:rgba(26,35,126,0.10);color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:14pt;margin-bottom:3mm}
+.card.green-icon .icon{background:rgba(0,135,81,0.12);color:var(--green-dark)}
+
+.module-card{display:flex;flex-direction:column;gap:3mm}
+.module-card h3{display:flex;align-items:center;gap:3mm}
+.module-card .meta{font-size:8pt;color:var(--muted);font-weight:600;letter-spacing:0.4px;text-transform:uppercase}
+
+/* ─ Process-flow blocks ──────────────────────────────────── */
+.flow-wrap{background:#fff;border:1px solid var(--border);border-radius:4mm;padding:5mm 4mm;margin:3mm 0 6mm}
+.flow-wrap .mermaid{font-family:'Inter',sans-serif}
+.flow-caption{font-size:8pt;color:var(--muted);margin-top:2mm;text-align:center;font-style:italic}
+
+/* ─ Compliance table ─────────────────────────────────────── */
+table.reg{width:100%;border-collapse:collapse;margin-top:4mm}
+table.reg th,table.reg td{text-align:left;padding:3mm 4mm;border-bottom:1px solid var(--border);font-size:9pt}
+table.reg th{background:var(--surface);font-size:8pt;font-weight:700;color:var(--muted);letter-spacing:0.4px;text-transform:uppercase}
+
+/* ─ Running header/footer on interior pages ──────────────── */
+.page:not(.cover)::before{
+  content:'Quot PSE · Nigeria Public-Sector IFMIS';
+  position:absolute;top:8mm;left:18mm;right:18mm;
+  font-size:7.5pt;font-weight:600;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;
+  padding-bottom:3mm;border-bottom:1px solid var(--border)
+}
+.page:not(.cover) .page-num{
+  position:absolute;bottom:8mm;left:18mm;right:18mm;
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:7.5pt;color:var(--muted);font-weight:500;padding-top:3mm;border-top:1px solid var(--border)
+}
+
+/* ─ Print styles ─────────────────────────────────────────── */
+@media print{
+  html,body{background:#fff}
+  .page{margin:0;box-shadow:none;width:auto;min-height:auto}
+  @page{size:A4 portrait;margin:0}
+  .no-print{display:none!important}
+}
+.toolbar{
+  position:fixed;top:14px;right:14px;z-index:999;
+  background:#fff;border-radius:8px;padding:8px 12px;display:flex;gap:8px;align-items:center;
+  box-shadow:0 4px 16px rgba(0,0,0,0.15)
+}
+.toolbar button{
+  padding:6px 12px;font-size:12px;font-weight:600;border-radius:6px;border:none;cursor:pointer;
+  background:var(--navy);color:#fff;font-family:inherit
+}
+.toolbar button.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy)}
+</style>
+</head>
+<body>
+
+<div class="toolbar no-print">
+  <span style="font-size:11px;color:var(--muted);font-weight:600">Quot PSE Brochure</span>
+  <button onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button class="ghost" onclick="location.href='/'">← Home</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     COVER
+════════════════════════════════════════════════════════════ -->
+<section class="page cover">
+  <div class="cover-hero">
+    <div>
+      <div class="cover-brand">
+        <div class="cover-brand-badge">🏛</div>
+        <div>
+          <div class="cover-brand-text">Quot PSE</div>
+          <div class="cover-brand-sub">Nigeria Public-Sector IFMIS</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:9pt;color:rgba(255,255,255,0.7);font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10mm">
+        Product Brochure · 2026
+      </div>
+      <h1 class="cover-title">
+        The modern IFMIS for<br/>
+        <span class="accent">States, LGAs &amp;<br/>Parastatals.</span>
+      </h1>
+      <p class="cover-deck">
+        A single platform that runs the full fiscal cycle — Appropriation Act
+        to audited IPSAS financial statements — for Nigerian State Governments,
+        all 774 Local Government Councils, and the parastatals that sit under
+        them. Built from first principles around the PFM Act, NCoA, TSA, FAAC,
+        FIRS, and PENCOM.
+      </p>
+
+      <div class="cover-compliance">
+        <span class="cover-chip">IPSAS Accrual</span>
+        <span class="cover-chip">NCoA 6-Segment</span>
+        <span class="cover-chip">TSA Compliant</span>
+        <span class="cover-chip">FAAC Ready</span>
+        <span class="cover-chip">FIRS WHT / VAT XML</span>
+        <span class="cover-chip">PENCOM Schedule</span>
+        <span class="cover-chip">OAGF Bulletin</span>
+      </div>
+    </div>
+
+    <div class="cover-foot">
+      <div>10 integrated modules · 9 IPSAS reports · 774 LGAs addressable</div>
+      <div>quotpse.ng</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PLATFORM OVERVIEW
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">01 · Platform Overview</div>
+  <h2>One platform. Ten modules. One fiscal backbone.</h2>
+  <p class="lead">
+    Quot PSE is a multi-tenant, schema-isolated IFMIS (Integrated Financial
+    Management Information System) purpose-built for Nigerian public-sector
+    finance. Every module reads and writes through a single General Ledger,
+    coded against the Federal National Chart of Accounts — so data flows
+    end-to-end from Appropriation Act to IPSAS financial statements without
+    reconciliation gymnastics.
+  </p>
+
+  <div class="rule"></div>
+
+  <div class="row row-3" style="margin-top:6mm">
+    <div class="card green-icon">
+      <div class="icon">⚖</div>
+      <h3>Regulation-first</h3>
+      <p class="muted small">
+        Appropriation Act enforcement, TSA sub-account discipline, FAAC inflow
+        tagging, statutory XML exports and IPSAS-accrual financial statements
+        are core — not modules you configure after the fact.
+      </p>
+    </div>
+    <div class="card">
+      <div class="icon">🧩</div>
+      <h3>Modular &amp; independent</h3>
+      <p class="muted small">
+        Switch on Budget + GL today; add Procurement or HR when you're ready.
+        Every module stands alone and shares the same ledger, audit trail,
+        approval matrix and NCoA coding.
+      </p>
+    </div>
+    <div class="card green-icon">
+      <div class="icon">🛡</div>
+      <h3>Audit-ready by default</h3>
+      <p class="muted small">
+        Segregation of Duties enforced at the database layer, dual-control
+        overrides require two AG signatures, and every state change is
+        append-only logged with full user and tenant context.
+      </p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:10mm">System architecture — at a glance</h3>
+  <div class="flow-wrap">
+    <div class="mermaid">
+graph LR
+  U["👤 Users<br/>(AG, Budget Officer,<br/>Procurement, HR)"] --> FE
+  FE["🖥 React + Vite<br/>Frontend SPA"] --> API
+  API["🐍 Django + DRF<br/>REST API + Auth"] --> DB[("🗄 PostgreSQL<br/>schema-per-tenant")]
+  API --> CACHE[("⚡ Redis<br/>report cache + sessions")]
+  API --> WORK["⏱ Celery<br/>async tasks"]
+  WORK --> DB
+  API --> XML["📄 XSD Exporters<br/>FIRS · PENCOM"]
+  API --> METRICS["📊 Prometheus<br/>+ Sentry"]
+  classDef user fill:#008751,stroke:#006d41,color:#fff
+  classDef fe fill:#1a237e,stroke:#0f1759,color:#fff
+  classDef be fill:#1a237e,stroke:#0f1759,color:#fff
+  classDef data fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  class U user
+  class FE fe
+  class API,WORK,XML,METRICS be
+  class DB,CACHE data
+    </div>
+    <div class="flow-caption">Multi-tenant: every State Government, LGA or Parastatal gets its own PostgreSQL schema — fully isolated books, shared public auth.</div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 2</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODULE CATALOGUE — PART 1: Budget & GL
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">02 · Module Catalogue</div>
+  <h2>The ten modules that power a State's fiscal year</h2>
+  <p class="lead">
+    Each module is a complete business capability. Open them in any order —
+    they converge on one GL, one NCoA, and one audit log.
+  </p>
+
+  <div class="rule"></div>
+
+  <!-- M1: Budget & Appropriation -->
+  <div class="card module-card" style="margin-top:4mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">⚖</span> Budget &amp; Appropriation</h3>
+        <div class="meta">Core module · Legislative authority</div>
+      </div>
+      <span class="pill pill-green">Core</span>
+    </div>
+    <p class="muted small">
+      The legal gateway to every naira spent. Tracks Original, Supplementary
+      and Virement appropriations through the House of Assembly lifecycle
+      (Draft → Submitted → Approved → Enacted → Active → Closed), enforces
+      hard ceilings at commit time, and exposes live execution reports by
+      MDA, Function, Programme, Fund and Geography.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Appropriation Act lifecycle with law-reference &amp; enactment date</li>
+        <li>Supplementary &amp; Virement workflow (zero-sum enforced)</li>
+        <li>Monthly warrant releases / AIE with ceiling controls</li>
+        <li>Revenue Budget targets per Revenue Head</li>
+      </ul>
+      <ul class="tight">
+        <li>Execution Report: Appropriation vs Actuals per MDA</li>
+        <li>Variance Analysis with IPSAS 24 narrative field</li>
+        <li>Original (as-enacted) snapshot preserved for audit</li>
+        <li>Live denormalised totals refreshed on every commit</li>
+      </ul>
+    </div>
+    <div class="flow-wrap" style="margin-top:2mm">
+      <div class="mermaid">
+flowchart LR
+  A[Draft] --> B[Submitted to<br/>Legislature]
+  B --> C[Approved]
+  C --> D[Enacted<br/>into Law]
+  D --> E([Active])
+  E --> F[Closed<br/>at FY-end]
+  E -. amendment .-> G[Supplementary]
+  E -. transfer .-> H[Virement]
+  G --> E
+  H --> E
+  classDef s fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef a fill:#008751,stroke:#006d41,color:#fff
+  class A,B,C,D,F,G,H s
+  class E a
+      </div>
+      <div class="flow-caption">Appropriation state machine — each transition requires approval matching the configured matrix.</div>
+    </div>
+  </div>
+
+  <!-- M2: GL & Accounting -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">📒</span> GL &amp; Accounting (IPSAS Accrual)</h3>
+        <div class="meta">Core module · Source of financial truth</div>
+      </div>
+      <span class="pill pill-green">Core</span>
+    </div>
+    <p class="muted small">
+      Full double-entry General Ledger coded against the 6-segment NCoA.
+      Enforces debit = credit at the database layer, rejects posting to
+      closed periods, and refreshes the IPSAS reports instantly when a
+      journal posts or reverses.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Journal Header + lines with DB-enforced balance constraint</li>
+        <li>Chart of Accounts (52-digit NCoA composite)</li>
+        <li>AP (Vendor Invoices) &amp; AR (Customer Invoices / Receipts)</li>
+        <li>Fixed Assets with depreciation &amp; revaluation</li>
+      </ul>
+      <ul class="tight">
+        <li>Bank &amp; Cash register, reconciliation runs</li>
+        <li>Period &amp; Fiscal-Year close service</li>
+        <li>Trial Balance, AP &amp; AR Aging, Customer &amp; Vendor Ledger</li>
+        <li>Immutable posted journals — reverse-and-repost pattern</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 3</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODULE CATALOGUE — PART 2: Treasury, NCoA
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">02 · Module Catalogue (continued)</div>
+
+  <!-- M3: Treasury / TSA -->
+  <div class="card module-card" style="margin-top:4mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">🏛</span> Treasury &amp; Banking (TSA)</h3>
+        <div class="meta">Core module · Treasury Single Account discipline</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      Consolidates cash across every operating account into a Treasury Single
+      Account view. Main TSA, Revenue, Holding, Sub-Account and Consolidated
+      categories are tracked in real time with automatic tagging for FAAC
+      Statutory, VAT, Excess Crude and Derivation inflows.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Live TSA cash position by category</li>
+        <li>Bank account register with currency &amp; GL tie-in</li>
+        <li>FAAC allocation intake &amp; tagging</li>
+      </ul>
+      <ul class="tight">
+        <li>Bank reconciliation runs with unmatched-item audit</li>
+        <li>Cash-flow forecasting against warrant schedule</li>
+        <li>Currency revaluation for foreign-denominated accounts</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M4: NCoA -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">🧬</span> NCoA Classification</h3>
+        <div class="meta">Federal Chart of Accounts · 6 segments</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      Every journal line, appropriation, PO, receipt and payslip is coded
+      against the six segments of the Nigerian National Chart of Accounts.
+      The composite NCoA code stitches them together into a single 52-digit
+      string that reconciles with the OAGF's schema.
+    </p>
+    <div class="flow-wrap">
+      <div class="mermaid">
+flowchart LR
+  ADM["📍 Administrative<br/>(MDA, Agency)"] --> CODE
+  ECO["💼 Economic<br/>(Revenue / Expenditure class)"] --> CODE
+  FUN["🎯 Functional<br/>(COFOG service area)"] --> CODE
+  PRG["📋 Programme<br/>(Policy programme)"] --> CODE
+  FND["💰 Fund<br/>(CRF / Capital / FAAC etc.)"] --> CODE
+  GEO["🗺 Geographic<br/>(Zone / State / LGA)"] --> CODE
+  CODE["📑 Composite<br/>NCoA Code<br/>(52 digits)"] --> GL[("General Ledger<br/>Posting")]
+  classDef s fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef hit fill:#1a237e,stroke:#0f1759,color:#fff
+  class ADM,ECO,FUN,PRG,FND,GEO s
+  class CODE,GL hit
+      </div>
+      <div class="flow-caption">A GL posting is never valid without all six NCoA segments resolved to their parent codes.</div>
+    </div>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Administrative, Economic, Functional, Programme, Fund, Geographic segments</li>
+        <li>Parent-child hierarchy with aggregation up the tree</li>
+      </ul>
+      <ul class="tight">
+        <li>CSV import / export aligned with OAGF bulletin format</li>
+        <li>Derived composite code automatically generated &amp; cached</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M5: Procurement -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">📦</span> Procurement</h3>
+        <div class="meta">3-way matching · commitment accounting</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      End-to-end purchase cycle with commitment accounting that reduces the
+      Appropriation ceiling at PO approval and releases it back as actual
+      expenditure when the vendor invoice is verified against the GRN.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Vendor master with registration-fee activation gate</li>
+        <li>Purchase Requisitions with multi-level approval</li>
+        <li>Purchase Orders auto-numbered, PR-linked</li>
+      </ul>
+      <ul class="tight">
+        <li>Goods Received Notes (GRN) with batch / serial tracking</li>
+        <li>Invoice Verification — 3-way match against PO + GRN</li>
+        <li>Vendor Performance, Returns, Categories</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 4</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODULE CATALOGUE — PART 3: Statutory, IPSAS, HR
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">02 · Module Catalogue (continued)</div>
+
+  <!-- M6: Statutory Reporting -->
+  <div class="card module-card" style="margin-top:4mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">📤</span> Statutory Reporting</h3>
+        <div class="meta">FIRS · PENCOM · OAGF</div>
+      </div>
+      <span class="pill pill-green">Compliance</span>
+    </div>
+    <p class="muted small">
+      Generates regulator-ready XML documents validated against the official
+      XSD schemas before export. No spreadsheet gymnastics, no silent schema
+      drift — what you upload is what the regulator accepts.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>FIRS Withholding Tax monthly return (XSD-validated)</li>
+        <li>FIRS VAT monthly return (Output / Input / Payable)</li>
+        <li>PENCOM pension contribution schedule per PFA</li>
+      </ul>
+      <ul class="tight">
+        <li>Nature-of-payment codes (Contract, Consultancy, Rent…)</li>
+        <li>Refund positions supported (negative VAT Payable)</li>
+        <li>Round-trip validated: build → XSD → ready to upload</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M7: IPSAS Reports -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">📊</span> IPSAS Financial Statements</h3>
+        <div class="meta">The monthly management pack</div>
+      </div>
+      <span class="pill pill-green">Core</span>
+    </div>
+    <p class="muted small">
+      Every IPSAS 1 primary statement plus the comparison and dimensional
+      reports that the OAGF checklist asks for — generated live from the GL,
+      with prior-year comparatives, JSON / HTML / XLSX / PDF export, and
+      ReportSnapshot persistence so auditors can reproduce the exact filed
+      version later.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Statement of Financial Position (IPSAS 1)</li>
+        <li>Statement of Financial Performance (IPSAS 1)</li>
+        <li>Cash Flow Statement (IPSAS 2, direct method)</li>
+        <li>Statement of Changes in Net Assets / Equity</li>
+        <li>Notes to the Financial Statements</li>
+      </ul>
+      <ul class="tight">
+        <li>Budget vs Actual Comparison (IPSAS 24)</li>
+        <li>Programme Performance Report</li>
+        <li>Functional Classification (COFOG)</li>
+        <li>Geographic Distribution Report</li>
+        <li>Revenue Performance Report</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M8: HR & Payroll -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">👥</span> HR &amp; Nigerian Payroll</h3>
+        <div class="meta">Civil-service grade-aligned</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      Employee, position and department management with a Nigerian payroll
+      engine that computes PAYE (progressive bands per the PIT Act), Pension
+      8% / 10%, NHF, NSITF and ITF deductions per statute. Includes a
+      social-benefit batch-pay workflow for pensioners and widows.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Employee directory, departments, positions</li>
+        <li>Leave, attendance, holidays, exit management</li>
+        <li>Payroll runs with auto-computed statutory deductions</li>
+      </ul>
+      <ul class="tight">
+        <li>Payslips with year-to-date totals</li>
+        <li>Pension scheme &amp; PFA enrolment tracking</li>
+        <li>Social-benefit batch payments (pensioners, widows, relief)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 5</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODULE CATALOGUE — PART 4: Stores, Workflow, Audit, SuperAdmin
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">02 · Module Catalogue (continued)</div>
+
+  <!-- M9: Government Stores -->
+  <div class="card module-card" style="margin-top:4mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">🏬</span> Government Stores</h3>
+        <div class="meta">Inventory ledger per MDA / Warehouse</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      Store ledger tracking items, stock on hand, movements, batches and
+      expiry — scoped per MDA warehouse. Receipts from procurement land here
+      automatically; issues to departments hit the store ledger and the
+      expense GL in the same transaction.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Item master with unit of measure &amp; valuation method</li>
+        <li>Stock on hand, reorder points, batch &amp; serial tracking</li>
+      </ul>
+      <ul class="tight">
+        <li>Stock movements, requisitions, inter-warehouse transfers</li>
+        <li>Expiry alerts, stock adjustment &amp; write-off workflow</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M10: Workflow / Approvals -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">🔁</span> Workflow &amp; Approvals</h3>
+        <div class="meta">Multi-level · SOD-enforced</div>
+      </div>
+      <span class="pill pill-navy">Included</span>
+    </div>
+    <p class="muted small">
+      A single configurable approval matrix governs journals, POs, invoices,
+      warrants and payroll. Approval rules are keyed to document type, amount
+      tiers, and the initiator's civil-service grade. Initiator ≠ approver is
+      enforced at the DB.
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>ApprovalRule + ApprovalLevel matrix (amount tiers)</li>
+        <li>Approval Inbox with bulk actions &amp; delegation</li>
+        <li>Out-of-office delegation with expiry dates</li>
+      </ul>
+      <ul class="tight">
+        <li>Approval Command Center (pending across modules)</li>
+        <li>DualControlOverride: two AG signatures on exceptions</li>
+        <li>Full approval chain captured on the document</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- M11: Audit -->
+  <div class="card module-card" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3><span class="icon" style="margin:0;display:inline-flex;width:9mm;height:9mm">🔍</span> Audit, Data Quality &amp; Override Audit</h3>
+        <div class="meta">Immutable · auditor-ready</div>
+      </div>
+      <span class="pill pill-amber">Assurance</span>
+    </div>
+    <p class="muted small">
+      Three complementary views of platform integrity: the <b>Audit Trail</b>
+      (every state change), the <b>Override Audit</b> (every dual-control
+      approval), and the <b>Data Quality dashboard</b> (proactive integrity
+      checks for missing NCoA codes, unbalanced journals and closed-period
+      breaches).
+    </p>
+    <div class="row row-2">
+      <ul class="tight">
+        <li>Append-only audit log with user + tenant context</li>
+        <li>Override Audit with dual signature &amp; reason</li>
+      </ul>
+      <ul class="tight">
+        <li>Data Quality dashboard with triage actions</li>
+        <li>ReportSnapshot — re-producible filed report versions</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SuperAdmin -->
+  <div class="card module-card navy" style="margin-top:6mm">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3>⚙ SuperAdmin Console</h3>
+        <div class="meta" style="color:rgba(255,255,255,0.7)">Platform-level (not State-level)</div>
+      </div>
+      <span class="pill" style="background:rgba(255,255,255,0.15);color:#fff">Operator</span>
+    </div>
+    <p class="muted small">
+      The tenant-provisioning and platform-ops console — used by the Quot
+      PSE operator team. Creates State / LGA / Parastatal tenants, issues
+      billing invoices, manages global policies (SMTP, webhooks, feature
+      flags), and supports impersonation for back-office troubleshooting.
+    </p>
+    <div class="row row-2">
+      <ul class="tight" style="color:rgba(255,255,255,0.9)">
+        <li>Tenant create / suspend / terminate</li>
+        <li>Billing: invoices, subscriptions, support tickets</li>
+      </ul>
+      <ul class="tight" style="color:rgba(255,255,255,0.9)">
+        <li>Tenant SMTP &amp; webhooks</li>
+        <li>Impersonation with audited session trail</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 6</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PROCESS FLOW 1 — END-TO-END BUDGET EXECUTION
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">03 · End-to-End Process Flows</div>
+  <h2>Flow 1 — Budget execution, from enactment to audited GL</h2>
+  <p class="lead">
+    This is the spine of public-sector finance. Follow the arrow of legal
+    authority from the House of Assembly all the way to a posted IPSAS
+    financial statement.
+  </p>
+
+  <div class="flow-wrap">
+    <div class="mermaid">
+flowchart TB
+  HOA[["🏛 State House of Assembly<br/>Enacts Appropriation Act"]] --> APP["📜 Appropriation<br/>(FY, MDA, Economic, Fund)"]
+  APP --> WAR["💰 Warrant / AIE<br/>Released monthly"]
+  WAR --> PR["📝 Purchase Requisition<br/>(initiator)"]
+  PR --> PR_APP{"✅ PR Approved?"}
+  PR_APP -- yes --> PO["📦 Purchase Order<br/>(auto-numbered)"]
+  PR_APP -- no --> REJ[["❌ Rejected"]]
+  PO --> COMMIT[["🔒 Commitment created<br/>appropriation ceiling ↓"]]
+  COMMIT --> GRN["📥 Goods Received Note"]
+  GRN --> VI["🧾 Vendor Invoice<br/>3-way match"]
+  VI --> JOUR["📒 GL Journal<br/>Dr Expense / Cr AP"]
+  JOUR --> PV["💳 Payment Voucher"]
+  PV --> PAY[["💸 Treasury Payment<br/>Cr Bank"]]
+  PAY --> CLOSE["🔁 Period Close"]
+  CLOSE --> IPSAS["📊 IPSAS Financial<br/>Statements"]
+  IPSAS --> AUDIT[["🔎 Auditor-General<br/>of the State"]]
+  classDef law fill:#008751,stroke:#006d41,color:#fff
+  classDef gate fill:#c47f17,stroke:#9a6212,color:#fff
+  classDef doc fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef terminal fill:#1a237e,stroke:#0f1759,color:#fff
+  class HOA,AUDIT law
+  class PR_APP gate
+  class APP,WAR,PR,PO,GRN,VI,JOUR,PV,CLOSE,IPSAS doc
+  class COMMIT,PAY,REJ terminal
+    </div>
+    <div class="flow-caption">
+      Commitment accounting is the key: the PO approval is when money is reserved against the Appropriation, not when the PV is paid.
+    </div>
+  </div>
+
+  <div class="row row-3" style="margin-top:5mm">
+    <div>
+      <h4>Legal authority</h4>
+      <p class="muted small">
+        Every spend must trace back to an Active Appropriation row; breaches
+        are blocked before a PO can be approved.
+      </p>
+    </div>
+    <div>
+      <h4>Real-time ceiling</h4>
+      <p class="muted small">
+        <span class="mono">cached_total_committed</span> + <span class="mono">cached_total_expended</span> are denormalised on Appropriation rows and refreshed on every lifecycle event.
+      </p>
+    </div>
+    <div>
+      <h4>Auditor trail</h4>
+      <p class="muted small">
+        The AuditLog captures who created the PR, approved the PO, posted
+        the VI, released the PV — with timestamps and tenant scope.
+      </p>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 7</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PROCESS FLOW 2 — 3-WAY MATCHING & COMMITMENT
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">03 · End-to-End Process Flows (cont.)</div>
+  <h2>Flow 2 — Procurement 3-way matching &amp; commitment lifecycle</h2>
+  <p class="lead">
+    The commitment record on each PO travels through four states. At every
+    transition the parent Appropriation's cached totals are refreshed so
+    dashboards never show stale balances.
+  </p>
+
+  <div class="flow-wrap">
+    <div class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> ACTIVE: PO Approved
+  ACTIVE --> INVOICED: GRN Posted
+  INVOICED --> CLOSED: Vendor Invoice<br/>3-way matched &amp; posted
+  ACTIVE --> CANCELLED: PO Cancelled
+  INVOICED --> CANCELLED: PO Cancelled
+  ACTIVE --> CLOSED: Direct invoice<br/>(no GRN)
+  CLOSED --> [*]
+  CANCELLED --> [*]
+
+  note right of ACTIVE
+    Counts toward<br/>
+    total_committed
+  end note
+  note right of INVOICED
+    Counts toward<br/>
+    total_committed
+  end note
+  note right of CLOSED
+    Counts toward<br/>
+    total_expended
+  end note
+    </div>
+    <div class="flow-caption">
+      ACTIVE and INVOICED both encumber the appropriation. Only CLOSED converts the commitment into actual expenditure.
+    </div>
+  </div>
+
+  <h3 style="margin-top:6mm">3-way matching arithmetic</h3>
+  <table class="reg">
+    <thead>
+      <tr><th>Check</th><th>Rule</th><th>Outcome on mismatch</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Quantity</td><td>GRN qty ≥ Invoice qty</td><td>Invoice rejected; buyer asked to confirm</td></tr>
+      <tr><td>Price</td><td>Invoice unit price ≤ PO unit price</td><td>Variance flagged; AG override required</td></tr>
+      <tr><td>Vendor</td><td>Invoice vendor = PO vendor</td><td>Hard block</td></tr>
+      <tr><td>NCoA code</td><td>PO &amp; Invoice share Economic code</td><td>Invoice re-coded or PO re-issued</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 8</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PROCESS FLOW 3 — APPROVAL WORKFLOW
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">03 · End-to-End Process Flows (cont.)</div>
+  <h2>Flow 3 — Approval workflow &amp; Segregation of Duties</h2>
+  <p class="lead">
+    One approval matrix drives every document type. The rule engine resolves
+    the approver chain at submission time based on document type, amount
+    tier, and the initiator's grade.
+  </p>
+
+  <div class="flow-wrap">
+    <div class="mermaid">
+flowchart TB
+  DOC["📄 Document created<br/>(Journal / PO / PV / Warrant)"] --> RULE{"🎯 Resolve rule<br/>(type, amount, grade)"}
+  RULE --> LVL1["👤 Level 1<br/>Officer"]
+  LVL1 --> L1_DEC{"✔"}
+  L1_DEC -- approve --> LVL2["👥 Level 2<br/>Director"]
+  L1_DEC -- reject --> REJ[["❌ Rejected<br/>(back to initiator)"]]
+  LVL2 --> L2_DEC{"✔"}
+  L2_DEC -- approve --> LVL3["🏛 Level 3<br/>Accountant-General"]
+  L2_DEC -- reject --> REJ
+  LVL3 --> L3_DEC{"✔"}
+  L3_DEC -- approve --> POSTED[["✅ Posted / Released"]]
+  L3_DEC -- reject --> REJ
+  L3_DEC -- exception --> DCO["🔐 Dual-Control Override"]
+  DCO --> DCO2["🔐 Second AG signs<br/>(reason logged)"]
+  DCO2 --> POSTED
+  classDef gate fill:#c47f17,stroke:#9a6212,color:#fff
+  classDef role fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef special fill:#008751,stroke:#006d41,color:#fff
+  classDef term fill:#1a237e,stroke:#0f1759,color:#fff
+  class RULE,L1_DEC,L2_DEC,L3_DEC gate
+  class LVL1,LVL2,LVL3 role
+  class DCO,DCO2 special
+  class POSTED,REJ term
+    </div>
+    <div class="flow-caption">
+      SOD guarantee: the user that initiates a document cannot also approve it at any level. Dual-control override needs two distinct AG-level users.
+    </div>
+  </div>
+
+  <h3 style="margin-top:6mm">Example matrix — Journal posting</h3>
+  <table class="reg">
+    <thead>
+      <tr><th>Document type</th><th>Amount tier</th><th>Level 1</th><th>Level 2</th><th>Level 3</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Journal</td><td>&lt; ₦500k</td><td>Account Officer</td><td>Accountant (Grade 12+)</td><td>—</td></tr>
+      <tr><td>Journal</td><td>₦500k – ₦5m</td><td>Account Officer</td><td>Accountant</td><td>Deputy AG</td></tr>
+      <tr><td>Journal</td><td>&gt; ₦5m</td><td>Account Officer</td><td>Accountant</td><td>Accountant-General</td></tr>
+      <tr><td>Override</td><td>any</td><td>—</td><td>—</td><td>AG + Deputy AG (dual-sign)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 9</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PROCESS FLOW 4 — PERIOD & YEAR-END CLOSE
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">03 · End-to-End Process Flows (cont.)</div>
+  <h2>Flow 4 — Period close &amp; year-end IPSAS filing</h2>
+  <p class="lead">
+    The close service enforces a tidy checklist: unmatched bank lines, draft
+    journals, open GRNs and closed-period breaches all block the close. The
+    fiscal-year close creates the closing journal (Revenue / Expense → Net
+    Income) and the opening journal for the next year.
+  </p>
+
+  <div class="flow-wrap">
+    <div class="mermaid">
+flowchart TB
+  OPEN([OPEN period]) --> DRAFT["📝 Draft journals<br/>in progress"]
+  DRAFT --> ROUTE["🔁 Route for approval"]
+  ROUTE --> POSTED["📒 Posted to GL"]
+  POSTED --> CHECKLIST{"📋 Close checklist"}
+  CHECKLIST -- all pass --> CLOSE_P["🔒 Close period"]
+  CHECKLIST -- fail --> FIX["⚠ Fix exceptions<br/>(unreconciled banks,<br/>open GRN, drafts)"]
+  FIX --> CHECKLIST
+  CLOSE_P --> REPORT["📊 Run IPSAS pack<br/>+ cache snapshot"]
+  REPORT --> SIGN["✍ AG signs off"]
+  SIGN --> ARCHIVE[["🗃 ReportSnapshot<br/>archived"]]
+  SIGN --> YE{{"📅 Year-end?"}}
+  YE -- no --> NEXTP([OPEN next period])
+  YE -- yes --> YECLOSE["🔚 Fiscal Year Close<br/>Closing + Opening journals"]
+  YECLOSE --> STATUTORY["📤 Statutory filings<br/>(FIRS, PENCOM, OAGF)"]
+  classDef s fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef act fill:#008751,stroke:#006d41,color:#fff
+  classDef gate fill:#c47f17,stroke:#9a6212,color:#fff
+  classDef term fill:#1a237e,stroke:#0f1759,color:#fff
+  class OPEN,NEXTP,DRAFT,ROUTE,POSTED,REPORT,FIX s
+  class SIGN,CLOSE_P,YECLOSE,STATUTORY act
+  class CHECKLIST,YE gate
+  class ARCHIVE term
+    </div>
+    <div class="flow-caption">
+      The close is idempotent: you can rerun the checklist as many times as needed. Only a manual "Close period" action advances the state.
+    </div>
+  </div>
+
+  <div class="row row-2" style="margin-top:4mm">
+    <div class="card">
+      <h4>Monthly checklist</h4>
+      <ul class="tight">
+        <li>All journals Posted (none Draft / Pending)</li>
+        <li>Bank reconciliation complete on each account</li>
+        <li>No open GRN without vendor invoice &gt; 14 days</li>
+        <li>No over-commitment exceeding active Appropriation</li>
+        <li>Data Quality dashboard: 0 critical issues</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Year-end checklist (additional)</h4>
+      <ul class="tight">
+        <li>Opening balances migrated for next FY</li>
+        <li>Closing journal posted (Revenue/Expense → Net Income)</li>
+        <li>Annual IPSAS pack filed &amp; signed</li>
+        <li>FIRS / PENCOM December returns uploaded</li>
+        <li>Backup verified &amp; DR drill ≤ 90 days old</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 10</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     PROCESS FLOW 5 — REVENUE COLLECTION + STATUTORY FILING
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">03 · End-to-End Process Flows (cont.)</div>
+  <h2>Flow 5 — Revenue collection (IGR) &amp; statutory filings</h2>
+  <p class="lead">
+    IGR and FAAC inflows are tagged at the receipt gate, so Treasury sees
+    the TSA categories update live and Statutory Reporting has the
+    classified data ready for the monthly FIRS / PENCOM submission.
+  </p>
+
+  <div class="flow-wrap">
+    <div class="mermaid">
+flowchart TB
+  subgraph INFLOW["💰 Revenue Intake"]
+    IGR["🏛 IGR collected<br/>(PAYE, Fees, Levies)"]
+    FAAC["📡 FAAC allocation<br/>(Statutory / VAT / Derivation)"]
+    GRANT["🎁 Development Partner<br/>Grants"]
+  end
+
+  IGR --> RH["📚 Revenue Head<br/>classification"]
+  FAAC --> RH
+  GRANT --> RH
+  RH --> RECEIPT["🧾 Receipt posted<br/>Dr Bank / Cr Revenue"]
+  RECEIPT --> TSA[("🏛 TSA Cash<br/>Position updated")]
+  RECEIPT --> BANK[("🏦 Bank account<br/>balance updated")]
+  RECEIPT --> GL[("📒 GL journal<br/>posted")]
+
+  GL --> CLASSIFY{"💼 WHT or VAT<br/>deducted?"}
+  CLASSIFY -- yes --> WHT_VAT["📝 Remittance<br/>schedule builds"]
+  CLASSIFY -- no --> SKIP[[" skip "]]
+  WHT_VAT --> MONTH_END{{"📅 Month-end"}}
+  MONTH_END --> XSD["🧪 XSD-validate<br/>XML export"]
+  XSD --> FIRS[["📤 FIRS portal upload<br/>WHT &amp; VAT"]]
+
+  subgraph PAYROLL["👥 Payroll run"]
+    PAYRUN["Monthly payroll"]
+    PEN["🏦 Pension 8% / 10%"]
+    PAYRUN --> PEN
+  end
+  PEN --> PENSCHED["📝 PENCOM schedule"]
+  MONTH_END --> PENSCHED
+  PENSCHED --> XSD2["🧪 XSD-validate"]
+  XSD2 --> PENCOM[["📤 PENCOM upload<br/>(via PFA)"]]
+  classDef src fill:#008751,stroke:#006d41,color:#fff
+  classDef proc fill:#f6f8fb,stroke:#1a237e,color:#0b1320
+  classDef final fill:#1a237e,stroke:#0f1759,color:#fff
+  classDef gate fill:#c47f17,stroke:#9a6212,color:#fff
+  class IGR,FAAC,GRANT,PAYRUN,PEN src
+  class RH,RECEIPT,WHT_VAT,XSD,XSD2,PENSCHED proc
+  class TSA,BANK,GL,FIRS,PENCOM final
+  class CLASSIFY,MONTH_END gate
+    </div>
+    <div class="flow-caption">
+      Same ledger, two regulators: the WHT / VAT schedule is built from AP transactions, the PENCOM schedule from the payroll run — both via XSD-validated XML.
+    </div>
+  </div>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 11</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     COMPLIANCE & SECURITY
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">04 · Compliance &amp; Security</div>
+  <h2>Regulatory fingerprint &amp; security posture</h2>
+
+  <div class="row row-2" style="margin-top:4mm">
+    <div>
+      <h3>Regulatory alignment</h3>
+      <table class="reg">
+        <thead><tr><th>Reg / Standard</th><th>How Quot PSE aligns</th></tr></thead>
+        <tbody>
+          <tr><td>IPSAS 1, 2, 24</td><td>Native SoFP, SoFPerf, Cash Flow, Budget-vs-Actual reports</td></tr>
+          <tr><td>IPSAS 17, 31</td><td>PPE &amp; intangible assets with depreciation / amortisation</td></tr>
+          <tr><td>IPSAS 19</td><td>Provisions &amp; contingent liabilities module</td></tr>
+          <tr><td>IPSAS 42</td><td>Social benefit &amp; pensioner batch pay</td></tr>
+          <tr><td>NCoA (OAGF)</td><td>6-segment coding on every GL posting</td></tr>
+          <tr><td>PFM Act</td><td>Appropriation-first enforcement &amp; warrant controls</td></tr>
+          <tr><td>FIRSCA 2007</td><td>WHT &amp; VAT XSD-validated XML filings</td></tr>
+          <tr><td>Pension Reform Act 2014</td><td>PENCOM schedule XML per PFA</td></tr>
+          <tr><td>PIT Act</td><td>Progressive-band PAYE in payroll engine</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3>Security &amp; reliability</h3>
+      <ul class="tight">
+        <li><b>Multi-tenant:</b> schema-per-tenant PostgreSQL — complete data isolation</li>
+        <li><b>SOD:</b> initiator ≠ approver enforced at DB level</li>
+        <li><b>Dual control:</b> two AG signatures on every override</li>
+        <li><b>Append-only audit log:</b> every state change captured</li>
+        <li><b>Immutable postings:</b> reverse-and-repost pattern; no silent edits</li>
+        <li><b>Rate limiting:</b> scoped throttles on login, writes, bulk import</li>
+        <li><b>JSON structured logs</b> + Sentry error capture</li>
+        <li><b>Prometheus metrics:</b> latency, error rate, queue depth</li>
+        <li><b>Redis-backed cache:</b> 10-min TTL for hot reports, fail-open</li>
+        <li><b>Encrypted backups:</b> nightly <span class="mono">pg_dump</span> per tenant, rotation + monthly snapshots</li>
+        <li><b>DR drill:</b> quarterly restore into staging (9-step runbook)</li>
+        <li><b>Openapi 3.1 schema:</b> Swagger + ReDoc for integrators</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin-top:8mm">Data residency</h3>
+  <p class="muted small" style="max-width:165mm">
+    Tenant data is resident in Nigeria. The Quot PSE platform runs on
+    infrastructure with local availability zones; backups never leave the
+    jurisdiction. Each tenant gets a dedicated PostgreSQL schema, and
+    cross-tenant data access is impossible at the database layer.
+  </p>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 12</span></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     ONBOARDING & CONTACT
+════════════════════════════════════════════════════════════ -->
+<section class="page">
+  <div class="section-label">05 · Onboarding &amp; Next Steps</div>
+  <h2>From contract signature to first IPSAS filing</h2>
+  <p class="lead">
+    A four-week standard track takes you from the day you sign to the day
+    your Accountant-General files a real IPSAS financial performance
+    statement out of Quot PSE.
+  </p>
+
+  <div class="row row-2" style="margin-top:4mm">
+    <div class="card">
+      <div class="pill pill-green" style="margin-bottom:3mm">Week 1</div>
+      <h4>Tenant provisioning</h4>
+      <ul class="tight">
+        <li>Dedicated PostgreSQL schema + domain</li>
+        <li>Accountant-General super-user created</li>
+        <li>Brand identity applied (logo, colours)</li>
+        <li>SMTP + notification fan-out live</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill pill-green" style="margin-bottom:3mm">Week 2</div>
+      <h4>NCoA &amp; opening balances</h4>
+      <ul class="tight">
+        <li>Your State's NCoA segments seeded</li>
+        <li>Legacy CoA cross-mapped to NCoA composite</li>
+        <li>Opening balance sheet migrated &amp; verified</li>
+        <li>Bank &amp; TSA accounts registered</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill pill-green" style="margin-bottom:3mm">Week 3</div>
+      <h4>Workflow &amp; SOD setup</h4>
+      <ul class="tight">
+        <li>Approval matrix mapped to Civil Service grades</li>
+        <li>ApprovalRule tiers configured per document type</li>
+        <li>Dual-control override signatories assigned</li>
+        <li>Role-based access applied to all users</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill pill-green" style="margin-bottom:3mm">Week 4</div>
+      <h4>Go-live training &amp; first filing</h4>
+      <ul class="tight">
+        <li>Budget, Accounting, Procurement teams trained</li>
+        <li>First-day AG-posted opening journal</li>
+        <li>First monthly IPSAS pack generated in-app</li>
+        <li>Post-go-live support rota established</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card navy" style="margin-top:10mm;padding:8mm">
+    <h3 style="color:#fff">Ready to start the conversation?</h3>
+    <p class="muted" style="color:rgba(255,255,255,0.85);margin-bottom:5mm">
+      We prefer conversations with an executive sponsor — typically the
+      Commissioner of Finance or the Accountant-General. We'll run a
+      1-hour demo tailored to your State's current pain points, and follow
+      up with a written proposal within 5 business days.
+    </p>
+    <table style="width:100%;color:#fff;font-size:9.5pt">
+      <tr>
+        <td style="padding:2mm 0;width:30%;color:rgba(255,255,255,0.7)">Website</td>
+        <td><b>quotpse.ng</b></td>
+      </tr>
+      <tr>
+        <td style="padding:2mm 0;color:rgba(255,255,255,0.7)">Sales</td>
+        <td><b>sales@quotpse.ng</b></td>
+      </tr>
+      <tr>
+        <td style="padding:2mm 0;color:rgba(255,255,255,0.7)">Support</td>
+        <td><b>support@quotpse.ng</b></td>
+      </tr>
+      <tr>
+        <td style="padding:2mm 0;color:rgba(255,255,255,0.7)">Documentation</td>
+        <td><b>docs.quotpse.ng · /api/docs/</b> (Swagger UI)</td>
+      </tr>
+    </table>
+  </div>
+
+  <p class="small muted" style="margin-top:10mm;text-align:center">
+    &copy; 2026 Quot PSE. All rights reserved.<br/>
+    Aligned with IPSAS · NCoA · PFM Act · Pension Reform Act 2014 · FIRSCA 2007.
+  </p>
+
+  <div class="page-num"><span>Quot PSE · 2026</span><span>Page 13</span></div>
+</section>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#1a237e',
+    primaryTextColor: '#ffffff',
+    primaryBorderColor: '#0f1759',
+    lineColor: '#1a237e',
+    secondaryColor: '#008751',
+    tertiaryColor: '#f6f8fb',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '12px',
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', useMaxWidth: true, diagramPadding: 8 },
+  stateDiagram: { useMaxWidth: true },
+  securityLevel: 'loose',
+});
+</script>
+
+</body>
+</html>

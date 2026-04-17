@@ -1,42 +1,55 @@
 import { useState } from 'react';
 import { Lock, CheckCircle, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
-import { usePeriodCloseChecklist, PeriodCloseChecklistItem } from '../hooks/useFinancialReports';
+import { usePeriodCloseChecklist } from '../hooks/useFinancialReports';
+import type { PeriodCloseChecklistItem } from '../hooks/useFinancialReports';
 import { useFiscalPeriods } from '../hooks/useFiscalYear';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
-import '../styles/glassmorphism.css';
 
-interface CheckItemProps {
+interface CheckCardProps {
     label: string;
     count: number;
     description: string;
 }
 
-function CheckItem({ label, count, description }: CheckItemProps) {
+function CheckCard({ label, count, description }: CheckCardProps) {
     const isPassed = count === 0;
     return (
-        <div className={`flex items-start gap-4 p-4 rounded-lg border ${
-            isPassed
-                ? 'border-green-700/40 bg-green-900/10'
-                : 'border-red-700/40 bg-red-900/10'
-        }`}>
-            <div className="mt-0.5">
+        <div style={{
+            flex: '1 1 180px',
+            minWidth: '180px',
+            padding: '16px',
+            borderRadius: '12px',
+            border: `1.5px solid ${isPassed ? '#a7f3d0' : '#fecaca'}`,
+            background: isPassed ? '#ecfdf5' : '#fef2f2',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 {isPassed ? (
-                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <CheckCircle size={20} style={{ color: '#059669' }} />
                 ) : (
-                    <XCircle className="w-5 h-5 text-red-400" />
+                    <XCircle size={20} style={{ color: '#dc2626' }} />
+                )}
+                {!isPassed && (
+                    <span style={{
+                        background: '#fee2e2', color: '#b91c1c',
+                        fontSize: '11px', fontWeight: 700,
+                        padding: '2px 8px', borderRadius: '999px',
+                    }}>
+                        {count}
+                    </span>
                 )}
             </div>
-            <div className="flex-1">
-                <div className="flex justify-between items-center">
-                    <span className={`font-medium ${isPassed ? 'text-green-300' : 'text-red-300'}`}>{label}</span>
-                    {!isPassed && (
-                        <span className="bg-red-800/50 text-red-200 text-xs font-bold px-2 py-0.5 rounded-full">
-                            {count} pending
-                        </span>
-                    )}
-                </div>
-                <p className="text-gray-400 text-sm mt-0.5">{description}</p>
+            <div style={{
+                fontSize: '13px', fontWeight: 700,
+                color: isPassed ? '#065f46' : '#991b1b',
+            }}>
+                {label}
+            </div>
+            <div style={{ fontSize: '11px', color: '#64748b', lineHeight: '1.4' }}>
+                {description}
             </div>
         </div>
     );
@@ -45,7 +58,6 @@ function CheckItem({ label, count, description }: CheckItemProps) {
 export default function PeriodClose() {
     const [selectedPeriodId, setSelectedPeriodId] = useState<number | null>(null);
 
-    // Use existing fiscal periods hook — filter to open periods only
     const { data: periodsData } = useFiscalPeriods({ status: 'Open' });
     const periods: any[] = Array.isArray(periodsData) ? periodsData : (periodsData?.results ?? []);
 
@@ -55,29 +67,29 @@ export default function PeriodClose() {
 
     const checkItems = items ? [
         {
-            label: 'Unposted Journal Entries',
+            label: 'Unposted Journals',
             count: items.unposted_journals,
-            description: 'All journal entries in Draft or Pending status must be posted or deleted before closing.',
+            description: 'Draft or Pending journal entries must be posted or deleted.',
         },
         {
-            label: 'Open GRNs Without Invoice',
+            label: 'Open GRNs',
             count: items.open_grn_without_invoice,
-            description: 'Goods received notes with no matched vendor invoice leave GR/IR clearing unresolved.',
+            description: 'GRNs with no matched vendor invoice leave GR/IR clearing open.',
         },
         {
             label: 'Unreconciled Payments',
             count: items.unreconciled_payments,
-            description: 'Posted vendor payments that have not been matched in a bank reconciliation.',
+            description: 'Vendor payments not yet matched in bank reconciliation.',
         },
         {
             label: 'Unreconciled Receipts',
             count: items.unreconciled_receipts,
-            description: 'Posted customer receipts that have not been matched in a bank reconciliation.',
+            description: 'Customer receipts not yet matched in bank reconciliation.',
         },
         {
-            label: 'Pending Approval Workflows',
+            label: 'Pending Approvals',
             count: items.pending_approvals,
-            description: 'Journal entries awaiting approval must be resolved (approved or rejected) before closing.',
+            description: 'Journal entries awaiting approval must be resolved.',
         },
     ] : [];
 
@@ -92,56 +104,92 @@ export default function PeriodClose() {
                 icon={<Lock className="w-6 h-6" />}
             />
 
-            <div className="glass-card p-4 mb-6 flex flex-wrap gap-4 items-end">
-                <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Fiscal Period</label>
-                    <select
-                        value={selectedPeriodId ?? ''}
-                        onChange={e => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
-                        className="glass-input w-full"
-                    >
-                        <option value="">— All open periods —</option>
-                        {periods.map((p: any) => (
-                            <option key={p.id} value={p.id}>{p.name ?? `${p.start_date} → ${p.end_date}`}</option>
-                        ))}
-                    </select>
-                </div>
-                <button onClick={() => refetch()} className="glass-btn flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4" /> Refresh
+            {/* Filters — horizontal */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                background: '#fff', borderRadius: '12px', padding: '10px 20px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
+            }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                    Fiscal Period
+                </span>
+                <select
+                    value={selectedPeriodId ?? ''}
+                    onChange={e => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
+                    style={{
+                        flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0',
+                        borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: '#1e293b',
+                        maxWidth: '320px',
+                    }}
+                >
+                    <option value="">— All open periods —</option>
+                    {periods.map((p: any) => (
+                        <option key={p.id} value={p.id}>{p.name ?? `${p.start_date} → ${p.end_date}`}</option>
+                    ))}
+                </select>
+                <button onClick={() => refetch()} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
+                    background: '#f8fafc', fontSize: '13px', fontWeight: 600, color: '#475569',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                    <RefreshCw size={14} /> Refresh
                 </button>
             </div>
 
             {isLoading ? (
-                <div className="glass-card p-8 text-center text-gray-400">Running pre-flight checks…</div>
+                <div style={{
+                    background: '#fff', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: '#94a3b8',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                }}>
+                    Running pre-flight checks…
+                </div>
             ) : !checklist ? (
-                <div className="glass-card p-8 text-center text-gray-400">Select a period to run the checklist.</div>
+                <div style={{
+                    background: '#fff', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: '#94a3b8',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                }}>
+                    Select a period to run the checklist.
+                </div>
             ) : (
                 <>
                     {/* Summary banner */}
-                    <div className={`mb-6 p-4 rounded-xl border flex items-center gap-4 ${
-                        allClear
-                            ? 'bg-green-900/20 border-green-700/50'
-                            : 'bg-yellow-900/20 border-yellow-700/50'
-                    }`}>
+                    <div style={{
+                        marginBottom: '20px', padding: '14px 20px', borderRadius: '12px',
+                        display: 'flex', alignItems: 'center', gap: '14px',
+                        border: `1.5px solid ${allClear ? '#a7f3d0' : '#fde68a'}`,
+                        background: allClear ? '#ecfdf5' : '#fffbeb',
+                    }}>
                         {allClear ? (
-                            <CheckCircle className="w-8 h-8 text-green-400 flex-shrink-0" />
+                            <CheckCircle size={28} style={{ color: '#059669', flexShrink: 0 }} />
                         ) : (
-                            <AlertTriangle className="w-8 h-8 text-yellow-400 flex-shrink-0" />
+                            <AlertTriangle size={28} style={{ color: '#d97706', flexShrink: 0 }} />
                         )}
                         <div>
-                            <div className={`font-bold text-lg ${allClear ? 'text-green-300' : 'text-yellow-300'}`}>
-                                {allClear ? 'All checks passed — period is clear to close' : `${totalIssues} issue${totalIssues !== 1 ? 's' : ''} must be resolved before closing`}
+                            <div style={{
+                                fontWeight: 700, fontSize: '15px',
+                                color: allClear ? '#065f46' : '#92400e',
+                            }}>
+                                {allClear
+                                    ? 'All checks passed — period is clear to close'
+                                    : `${totalIssues} issue${totalIssues !== 1 ? 's' : ''} must be resolved before closing`}
                             </div>
                             {checklist.period_name && (
-                                <div className="text-gray-400 text-sm">Period: {checklist.period_name}</div>
+                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                                    Period: {checklist.period_name}
+                                </div>
                             )}
                         </div>
                     </div>
 
-                    {/* Check items */}
-                    <div className="space-y-3">
+                    {/* Check items — horizontal card grid */}
+                    <div style={{
+                        display: 'flex', gap: '12px', flexWrap: 'wrap',
+                    }}>
                         {checkItems.map((item, i) => (
-                            <CheckItem key={i} {...item} />
+                            <CheckCard key={i} {...item} />
                         ))}
                     </div>
                 </>

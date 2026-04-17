@@ -133,7 +133,7 @@ In `production/views.py`, replace lines 282-295:
 
 ```bash
 cd "c:/Users/USER/Documents/Antigravity/DTSG erp"
-python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','dtsg_erp.settings'); django.setup(); from production.views import ProductionOrderViewSet; print('OK')"
+python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','quot_pse.settings'); django.setup(); from production.views import ProductionOrderViewSet; print('OK')"
 ```
 
 Expected: `OK`
@@ -246,7 +246,7 @@ Check that `from decimal import Decimal` is in the imports at the top of `produc
 - [ ] **Step 3: Verify it loads**
 
 ```bash
-python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','dtsg_erp.settings'); django.setup(); from production.views import ProductionOrderViewSet; print('backflush_materials' in dir(ProductionOrderViewSet)); print('OK')"
+python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','quot_pse.settings'); django.setup(); from production.views import ProductionOrderViewSet; print('backflush_materials' in dir(ProductionOrderViewSet)); print('OK')"
 ```
 
 Expected: `True` then `OK`
@@ -409,7 +409,7 @@ Check that `from django.db import transaction` is in the imports at the top of `
 - [ ] **Step 4: Verify endpoints load**
 
 ```bash
-python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','dtsg_erp.settings'); django.setup(); from inventory.views import ItemBatchViewSet; print('split' in dir(ItemBatchViewSet), 'transfer' in dir(ItemBatchViewSet))"
+python -c "import django; import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','quot_pse.settings'); django.setup(); from inventory.views import ItemBatchViewSet; print('split' in dir(ItemBatchViewSet), 'transfer' in dir(ItemBatchViewSet))"
 ```
 
 Expected: `True True`

@@ -7,11 +7,9 @@ Provides XBRL/iXBRL export for financial reports:
 - Trial Balance
 - Custom reports
 """
-import json
 from datetime import date, datetime
-from decimal import Decimal
-from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass, field, asdict
+from typing import Dict, Any, List, Tuple
+from dataclasses import dataclass, asdict
 from django.contrib.auth.models import User
 from accounting.models import XBRLReport
 
@@ -102,20 +100,20 @@ class XBRLExportService:
     ) -> Dict[str, Any]:
         """
         Get financial data for report generation.
-        
+
         Args:
             fiscal_year: Fiscal year
             period_start: Period start date
             period_end: Period end date
             report_type: Type of report
-            
+
         Returns:
             Dictionary with financial data
         """
         from accounting.models import GLBalance, Account
-        
+
         accounts = Account.objects.filter(is_active=True)
-        
+
         data = {}
         for concept_id, concept in cls.GAAP_TAXONOMY.items():
             if concept.period_type == 'instant':
@@ -130,14 +128,14 @@ class XBRLExportService:
                     fiscal_year=fiscal_year,
                     period__lte=period_end.month
                 )
-            
+
             if concept.balance_type == 'debit':
                 total = sum(b.debit_balance for b in balances)
             else:
                 total = sum(b.credit_balance for b in balances)
-            
+
             data[concept_id] = float(total)
-        
+
         return data
 
     @classmethod
@@ -149,43 +147,42 @@ class XBRLExportService:
     ) -> Tuple[str, int]:
         """
         Generate XBRL Balance Sheet.
-        
+
         Args:
             fiscal_year: Fiscal year
             period_end: End date of period
             user: User generating report
-            
+
         Returns:
             Tuple of (xbrl_content, file_size)
         """
-        from accounting.models import Company
-        
+
         context_id = f"CY{fiscal_year}"
-        
+
         data = cls.get_financial_data(
             fiscal_year,
             date(fiscal_year, 1, 1),
             period_end,
             'balance_sheet'
         )
-        
+
         xbrl = cls._generate_xbrl_header(
             report_type='BalanceSheet',
             fiscal_year=fiscal_year,
             period_end=period_end,
         )
-        
+
         xbrl += cls._generate_xbrl_context(context_id, period_end, 'instant')
         xbrl += cls._generate_xbrl_units()
-        
+
         for concept_id, concept in cls.GAAP_TAXONOMY.items():
             if concept_id in data and data[concept_id] != 0:
                 xbrl += cls._generate_xbrl_fact(
                     concept_id, data[concept_id], context_id
                 )
-        
+
         xbrl += '</xbrli:xbrl>\n</html>'
-        
+
         report = XBRLReport.objects.create(
             report_type='BalanceSheet',
             report_name=f'Balance Sheet FY{fiscal_year}',
@@ -196,7 +193,7 @@ class XBRLExportService:
             generated_by=user,
             file_size=len(xbrl.encode('utf-8')),
         )
-        
+
         return xbrl, len(xbrl.encode('utf-8'))
 
     @classmethod
@@ -208,31 +205,31 @@ class XBRLExportService:
     ) -> Tuple[str, int]:
         """Generate XBRL Income Statement."""
         context_id = f"FY{fiscal_year}"
-        
+
         data = cls.get_financial_data(
             fiscal_year,
             date(fiscal_year, 1, 1),
             period_end,
             'income_statement'
         )
-        
+
         xbrl = cls._generate_xbrl_header(
             report_type='IncomeStatement',
             fiscal_year=fiscal_year,
             period_end=period_end,
         )
-        
+
         xbrl += cls._generate_xbrl_context(context_id, period_end, 'duration')
         xbrl += cls._generate_xbrl_units()
-        
+
         for concept_id, concept in cls.GAAP_TAXONOMY.items():
             if concept_id in data and data[concept_id] != 0:
                 xbrl += cls._generate_xbrl_fact(
                     concept_id, data[concept_id], context_id
                 )
-        
+
         xbrl += '</xbrli:xbrl>\n</html>'
-        
+
         report = XBRLReport.objects.create(
             report_type='IncomeStatement',
             report_name=f'Income Statement FY{fiscal_year}',
@@ -243,7 +240,7 @@ class XBRLExportService:
             generated_by=user,
             file_size=len(xbrl.encode('utf-8')),
         )
-        
+
         return xbrl, len(xbrl.encode('utf-8'))
 
     @classmethod
@@ -254,37 +251,37 @@ class XBRLExportService:
         user: User = None
     ) -> Tuple[str, int]:
         """Generate XBRL Trial Balance."""
-        from accounting.models import GLBalance, Account
-        
+        from accounting.models import GLBalance
+
         context_id = f"P{period}FY{fiscal_year}"
-        
+
         xbrl = cls._generate_xbrl_header(
             report_type='TrialBalance',
             fiscal_year=fiscal_year,
             period_end=date(fiscal_year, period, 1),
         )
-        
+
         xbrl += cls._generate_xbrl_context(
-            context_id, 
-            date(fiscal_year, period, 1), 
+            context_id,
+            date(fiscal_year, period, 1),
             'duration'
         )
         xbrl += cls._generate_xbrl_units()
-        
+
         balances = GLBalance.objects.filter(
             fiscal_year=fiscal_year,
             period=period
         ).select_related('account')
-        
+
         for balance in balances:
             xbrl += cls._generate_xbrl_fact(
                 f"Account_{balance.account.code}",
                 float(balance.debit_balance - balance.credit_balance),
                 context_id
             )
-        
+
         xbrl += '</xbrli:xbrl>\n</html>'
-        
+
         report = XBRLReport.objects.create(
             report_type='TrialBalance',
             report_name=f'Trial Balance FY{fiscal_year} P{period}',
@@ -295,7 +292,7 @@ class XBRLExportService:
             generated_by=user,
             file_size=len(xbrl.encode('utf-8')),
         )
-        
+
         return xbrl, len(xbrl.encode('utf-8'))
 
     @classmethod
@@ -309,7 +306,7 @@ class XBRLExportService:
         return f'''<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink">
 <head>
-    <title>DTSG ERP - {report_type}</title>
+    <title>QUOT ERP - {report_type}</title>
     <meta charset="UTF-8"/>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
@@ -322,7 +319,7 @@ class XBRLExportService:
 </head>
 <body>
     <div class="header">
-        <h1>DTSG ERP Financial Report</h1>
+        <h1>QUOT ERP Financial Report</h1>
         <h2>{report_type}</h2>
         <p>Fiscal Year: {fiscal_year} | As of: {period_end}</p>
         <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
@@ -391,7 +388,7 @@ class XBRLExportService:
             value = abs(value)
         else:
             sign = ''
-        
+
         return f'''
     <dtsg:{concept_id} contextRef="{context_id}" decimals="2" unitRef="USD">{sign}{value:.2f}</dtsg:{concept_id}>
 '''
@@ -406,20 +403,20 @@ class XBRLExportService:
     ) -> Dict[str, Any]:
         """
         Export financial data to JSON format.
-        
+
         Args:
             fiscal_year: Fiscal year
             period_start: Period start
             period_end: Period end
             user: User exporting
-            
+
         Returns:
             Dictionary with financial data
         """
         data = cls.get_financial_data(
             fiscal_year, period_start, period_end, 'full_report'
         )
-        
+
         return {
             'report_metadata': {
                 'fiscal_year': fiscal_year,
@@ -432,7 +429,7 @@ class XBRLExportService:
             },
             'financial_data': data,
             'concepts': {
-                concept_id: asdict(concept) 
+                concept_id: asdict(concept)
                 for concept_id, concept in cls.GAAP_TAXONOMY.items()
             },
         }
@@ -445,12 +442,12 @@ class XBRLExportService:
     ) -> List[Dict[str, Any]]:
         """Get list of generated reports."""
         reports = XBRLReport.objects.all()
-        
+
         if report_type:
             reports = reports.filter(report_type=report_type)
         if fiscal_year:
             reports = reports.filter(fiscal_year=fiscal_year)
-        
+
         return [
             {
                 'id': r.id,
@@ -470,10 +467,10 @@ class XBRLExportService:
     def download_report(cls, report_id: int) -> Tuple[str, str]:
         """
         Get report content for download.
-        
+
         Args:
             report_id: XBRLReport ID
-            
+
         Returns:
             Tuple of (content, filename)
         """

@@ -1,10 +1,9 @@
-"""Accounting Services Package
+"""Accounting Services Package — Quot PSE (Public Sector Edition)
 
-This package contains business logic services for the accounting module.
-Each service handles a specific domain of accounting operations.
-
-Services:
+Services for government IFMIS financial operations:
     - journal_validation: Journal balance and validation logic
+    - ipsas_journal_service: IPSAS-compliant journal posting engine
+    - ncoa_service: NCoA code resolution and validation
     - tax_calculation: Automatic tax and WHT calculation
     - period_control: Unified period control across all modules
     - audit_trail: Comprehensive transaction audit logging
@@ -13,23 +12,20 @@ Services:
     - dual_control: Large transaction approval requirements
     - bank_reconciliation: Automated bank statement matching
     - currency_revaluation: Scheduled FX revaluation
-    - depreciation_service: Depreciation calculation and consolidation
+    - depreciation_service: Depreciation calculation
     - cost_allocation: Automatic cost distribution
     - xbrl_export: XBRL/iXBRL export for audit reporting
-    - asset_revaluation: Asset revaluation per IAS 16
+    - asset_revaluation: Asset revaluation per IPSAS 17
     - trial_balance: Trial balance report generator
     - aging_reports: AR/AP aging reports
     - vat_returns: VAT return processing
+    - gl_posting: GL balance update service
 
-Transaction Posting Domain Services:
-    - base_posting: Shared exception, get_gl_account(), and BasePostingService
-    - sales_posting: Sales Orders, Delivery Notes, Returns, Credit Notes, Receipts
-    - procurement_posting: Purchase Orders, GRN, Vendor Invoices, Payments, Returns
-    - inventory_posting: Stock Movements, Transfers, Stock Reconciliations
-    - production_posting: Production Orders, Material Issues/Receipts, Work Orders
-    - payroll_posting: Payroll Runs and Payroll Reversals
-    - service_posting: Service Tickets
-    - quality_posting: Quality Inspections and Non-Conformance Reports
+Transaction Posting:
+    - base_posting: Shared exception, get_gl_account(), BasePostingService
+    - procurement_posting: Purchase Orders, GRN, Vendor Invoices, Payments
+    - inventory_posting: Stock Movements, Transfers, Reconciliations
+    - payroll_posting: Payroll Runs and Reversals
 """
 
 from .journal_validation import JournalValidationService
@@ -48,17 +44,16 @@ from .asset_revaluation import AssetRevaluationRunService
 from .trial_balance import TrialBalanceService
 from .aging_reports import AgingReportService
 from .vat_returns import VATReturnService
-from .gl_posting import update_gl_from_journal, InterCompanyPostingService, ConsolidationService
+from .gl_posting import update_gl_from_journal
 
 # Transaction posting domain services
 from .base_posting import TransactionPostingError, get_gl_account, BasePostingService
-from .sales_posting import SalesPostingService
 from .procurement_posting import ProcurementPostingService
 from .inventory_posting import InventoryPostingService
-from .production_posting import ProductionPostingService
 from .payroll_posting import PayrollPostingService
-from .service_posting import ServicePostingService
-from .quality_posting import QualityPostingService
+
+# IPSAS & NCoA services (new for Quot PSE)
+from .ipsas_journal_service import IPSASJournalService, JournalPostingError
 
 __all__ = [
     'JournalValidationService',
@@ -78,17 +73,14 @@ __all__ = [
     'AgingReportService',
     'VATReturnService',
     'update_gl_from_journal',
-    'InterCompanyPostingService',
-    'ConsolidationService',
     # Transaction posting
     'TransactionPostingError',
     'get_gl_account',
     'BasePostingService',
-    'SalesPostingService',
     'ProcurementPostingService',
     'InventoryPostingService',
-    'ProductionPostingService',
     'PayrollPostingService',
-    'ServicePostingService',
-    'QualityPostingService',
+    # IPSAS
+    'IPSASJournalService',
+    'JournalPostingError',
 ]

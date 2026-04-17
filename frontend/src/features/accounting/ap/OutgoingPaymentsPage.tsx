@@ -7,7 +7,10 @@ import {
 import {
     usePayments, useCreatePayment, usePostPayment, useDeletePayment,
     useCreatePaymentAllocation, useVendorInvoices,
+    useAccountingSettings,
 } from '../hooks/useAccountingEnhancements';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../../../api/client';
 import {
     useVendors, useDownPaymentRequests, useProcessDownPayment,
     useInvoiceMatchings, useMatchInvoice,
@@ -33,6 +36,10 @@ const BLANK_PAYMENT = {
     vendor: '', payment_date: new Date().toISOString().slice(0, 10),
     total_amount: '', payment_method: 'Wire', bank_account: '',
     reference_number: '', invoice: '',
+    // Reference to the Payment Voucher that authorises this payment.
+    // Required when AccountingSettings.require_pv_before_payment is True;
+    // optional otherwise. Selecting a PV auto-fills the Vendor field.
+    payment_voucher: '',
 };
 const BLANK_ADVANCE = {
     vendor: '', payment_date: new Date().toISOString().slice(0, 10),
@@ -79,8 +86,18 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 }
 
 // ─── payment form modal ───────────────────────────────────────────────────────
-function PaymentFormModal({ vendors, bankAccounts, openInvoices, onSubmit, onClose, isLoading }: {
-    vendors: any[]; bankAccounts: any[]; openInvoices: any[];
+function PaymentFormModal({
+    vendors = [],
+    bankAccounts = [],
+    openInvoices = [],
+    paymentVouchers = [],
+    pvRequired = false,
+    onSubmit,
+    onClose,
+    isLoading,
+}: {
+    vendors?: any[]; bankAccounts?: any[]; openInvoices?: any[];
+    paymentVouchers?: any[]; pvRequired?: boolean;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     const [form, setForm] = useState({ ...BLANK_PAYMENT });
@@ -90,28 +107,113 @@ function PaymentFormModal({ vendors, bankAccounts, openInvoices, onSubmit, onClo
         (inv: any) => !form.vendor || String(inv.vendor) === form.vendor
     );
 
+    // When a PV is selected we want to auto-populate the Vendor (and, where
+    // sensible, the amount and narration). Similarly, selecting a Vendor
+    // first narrows the PV dropdown to only that vendor's approved PVs.
+    // Both paths converge on the same final state so the user can enter
+    // from either direction.
+    const filteredPVs = paymentVouchers.filter((pv: any) => {
+        if (!form.vendor) return true;
+        // PV's vendor linkage isn't a direct FK — it's captured via the
+        // underlying invoice's vendor. We fall back to matching by
+        // payee_name as a last resort so PVs raised without an invoice
+        // link still surface when the vendor name matches.
+        const vendorId = pv.vendor ?? pv.invoice_vendor;
+        if (vendorId) return String(vendorId) === String(form.vendor);
+        const vendor = vendors.find((v: any) => String(v.id) === String(form.vendor));
+        return vendor && pv.payee_name && pv.payee_name.toLowerCase() === vendor.name.toLowerCase();
+    });
+
+    const handlePvChange = (pvId: string) => {
+        set('payment_voucher', pvId);
+        if (!pvId) return;
+        const pv = paymentVouchers.find((p: any) => String(p.id) === pvId);
+        if (!pv) return;
+        // Resolve the PV's vendor: first via direct FK, then via the
+        // payee_name → vendors[] match.
+        let vendorId = pv.vendor ?? pv.invoice_vendor ?? '';
+        if (!vendorId && pv.payee_name) {
+            const match = vendors.find((v: any) =>
+                v.name && pv.payee_name && v.name.toLowerCase() === pv.payee_name.toLowerCase()
+            );
+            if (match) vendorId = String(match.id);
+        }
+        setForm(prev => ({
+            ...prev,
+            payment_voucher: pvId,
+            vendor: vendorId ? String(vendorId) : prev.vendor,
+            // Only overwrite amount/reference if the user hasn't edited them
+            total_amount: prev.total_amount || pv.net_amount || pv.gross_amount || '',
+            reference_number: prev.reference_number || pv.voucher_number || '',
+        }));
+    };
+
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 520, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 620, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Banknote size={20} color="#fff" />
                     </div>
                     <div>
                         <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>New Outgoing Payment</h3>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Process vendor payment</p>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+                            {pvRequired
+                                ? 'Select a Payment Voucher — PV is required by Accounting Settings'
+                                : 'Pick a vendor or a Payment Voucher (either works — selecting one auto-fills the other)'}
+                        </p>
                     </div>
                     <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); onSubmit(form); }}>
                     <div style={{ display: 'grid', gap: '14px' }}>
-                        <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Vendor *</label>
-                            <select style={sel} value={form.vendor} onChange={e => set('vendor', e.target.value)} required>
-                                <option value="">Select vendor…</option>
-                                {vendors?.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                            </select>
+                        {/* Vendor + PV in one horizontal row. Either path fills the other. */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                    Vendor {!pvRequired && <span style={{ color: '#ef4444' }}>*</span>}
+                                </label>
+                                <select
+                                    style={sel}
+                                    value={form.vendor}
+                                    onChange={e => set('vendor', e.target.value)}
+                                    required={!pvRequired}
+                                >
+                                    <option value="">Select vendor…</option>
+                                    {vendors?.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                    Payment Voucher {pvRequired && <span style={{ color: '#ef4444' }}>*</span>}
+                                    {!pvRequired && <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '11px' }}> (optional)</span>}
+                                </label>
+                                <select
+                                    style={sel}
+                                    value={form.payment_voucher}
+                                    onChange={e => handlePvChange(e.target.value)}
+                                    required={pvRequired}
+                                >
+                                    <option value="">{pvRequired ? 'Select PV…' : '— none —'}</option>
+                                    {filteredPVs.map((pv: any) => (
+                                        <option key={pv.id} value={pv.id}>
+                                            {pv.voucher_number} · {pv.payee_name || 'payee'} · {pv.net_amount ? parseFloat(pv.net_amount).toLocaleString() : '—'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
+                        {pvRequired && !form.payment_voucher && (
+                            <div style={{
+                                padding: '8px 12px', borderRadius: '6px',
+                                background: '#fef3c7', border: '1px solid #fde68a',
+                                color: '#92400e', fontSize: '12px',
+                            }}>
+                                ⚠ A Payment Voucher is required before an outgoing payment
+                                can be posted. If you don't have one yet, raise it on the
+                                Payment Vouchers screen first.
+                            </div>
+                        )}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
                                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Payment Date *</label>
@@ -270,6 +372,26 @@ export default function OutgoingPaymentsPage() {
     const { data: invoiceMatchings, isLoading: loadingMatchings } = useInvoiceMatchings({});
     const { data: downPaymentRequests, isLoading: loadingDPR } = useDownPaymentRequests({ status: 'Approved' });
 
+    // Tenant-level setting: whether a PV must back every outgoing payment.
+    // Read once and passed down to the PaymentFormModal so it can toggle
+    // the PV picker between optional and mandatory without re-fetching.
+    const { data: acctSettings } = useAccountingSettings();
+    const pvRequired: boolean = Boolean((acctSettings as any)?.require_pv_before_payment);
+
+    // Approved/draft PVs ready to be paid. Filters on status so finalised
+    // and voided vouchers don't pollute the picker. The viewset returns
+    // the full detail shape (payee_name, net_amount, voucher_number).
+    const { data: paymentVouchers = [] } = useQuery<any[]>({
+        queryKey: ['payment-vouchers', { status__in: 'DRAFT,APPROVED' }],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/payment-vouchers/', {
+                params: { status__in: 'DRAFT,APPROVED', page_size: 200 },
+            });
+            return data.results ?? data ?? [];
+        },
+        staleTime: 60_000,
+    });
+
     // ─── mutations ────────────────────────────────────────────────────────────
     const createPayment = useCreatePayment();
     const createAllocation = useCreatePaymentAllocation();
@@ -304,6 +426,10 @@ export default function OutgoingPaymentsPage() {
                 payment_method: form.payment_method,
                 bank_account: form.bank_account ? Number(form.bank_account) : undefined,
                 reference_number: form.reference_number || undefined,
+                // PV linkage — sent only when chosen. Backend enforces
+                // "required" based on tenant setting, so omitting a PV
+                // when it isn't mandatory produces no 400.
+                payment_voucher: form.payment_voucher ? Number(form.payment_voucher) : undefined,
             } as any);
             if (form.invoice) {
                 await createAllocation.mutateAsync({
@@ -736,6 +862,8 @@ export default function OutgoingPaymentsPage() {
                     vendors={vendors || []}
                     bankAccounts={bankAccounts || []}
                     openInvoices={openInvoices || []}
+                    paymentVouchers={paymentVouchers}
+                    pvRequired={pvRequired}
                     onSubmit={handleSubmitPayment}
                     onClose={() => setShowPaymentForm(false)}
                     isLoading={createPayment.isPending || createAllocation.isPending}

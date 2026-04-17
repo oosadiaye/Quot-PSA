@@ -1,7 +1,7 @@
 """
-Gunicorn configuration for DTSG ERP — Phase 1.
+Gunicorn configuration for QUOT ERP — Phase 1.
 
-Start: gunicorn dtsg_erp.wsgi:application -c deploy/gunicorn.conf.py
+Start: gunicorn quot_pse.wsgi:application -c deploy/gunicorn.conf.py
 """
 
 import multiprocessing

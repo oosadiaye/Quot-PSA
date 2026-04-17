@@ -47,14 +47,25 @@ export interface TrialBalanceParams {
 }
 
 export const useTrialBalance = (params: TrialBalanceParams = {}) => {
+    // Convert fiscal_year + period into start_date / end_date if not already provided
+    const resolvedParams = { ...params };
+    if (!resolvedParams.start_date && !resolvedParams.end_date && resolvedParams.fiscal_year) {
+        const year = resolvedParams.fiscal_year;
+        const month = resolvedParams.period ?? 12;
+        resolvedParams.start_date = `${year}-${String(month).padStart(2, '0')}-01`;
+        // End of month: create date for 1st of next month, subtract 1 day
+        const endDate = new Date(year, month, 0); // day 0 of next month = last day of current
+        resolvedParams.end_date = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+    }
+
     return useQuery({
-        queryKey: ['trial-balance', params],
+        queryKey: ['trial-balance', resolvedParams],
         queryFn: async () => {
-            const { data: envelope } = await apiClient.post('/accounting/reports/trial-balance/', params);
+            const { data: envelope } = await apiClient.post('/accounting/reports/trial-balance/', resolvedParams);
             return unwrap(envelope);
         },
         staleTime: REPORT_STALE_TIME,
-        enabled: Object.keys(params).length > 0,
+        enabled: !!(resolvedParams.start_date && resolvedParams.end_date),
     });
 };
 
@@ -153,8 +164,13 @@ export const usePeriodCloseChecklist = (fiscalPeriodId?: number | null) => {
         queryKey: ['period-close-checklist', fiscalPeriodId],
         queryFn: async () => {
             const params = fiscalPeriodId ? { fiscal_period_id: fiscalPeriodId } : {};
-            const { data: envelope } = await apiClient.get('/accounting/period-close/checklist/', { params });
-            return unwrap(envelope) as PeriodCloseChecklist;
+            const { data: envelope } = await apiClient.get('/accounting/period-close-checklist/', { params });
+            // PeriodCloseChecklistView returns an un-wrapped payload (not the
+            // standard api_response envelope), so accept both shapes.
+            if (envelope && typeof envelope === 'object' && 'data' in envelope && 'error' in envelope) {
+                return unwrap(envelope as { data: PeriodCloseChecklist; error: string | null; meta: Record<string, unknown> });
+            }
+            return envelope as PeriodCloseChecklist;
         },
         staleTime: 60 * 1000, // 1 minute — checklist should stay fresh
         enabled: true,

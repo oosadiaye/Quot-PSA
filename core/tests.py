@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.test import TestCase, RequestFactory
+from django.test import TestCase
 from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.authtoken.models import Token

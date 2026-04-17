@@ -1,10 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django_filters.rest_framework import DjangoFilterBackend
 from decimal import Decimal
 from django.utils import timezone
-from .common import AccountingPagination
 from ..models import (
     RecurringJournal, RecurringJournalRun,
     Accrual, Deferral,
@@ -256,7 +254,6 @@ class CurrencyRevaluationViewSet(viewsets.ModelViewSet):
     def revaluate(self, request):
         """Perform currency revaluation"""
         from ..advanced_services import CurrencyRevaluationService
-        from ..models import Currency
 
         currency_id = request.data.get('currency_id')
         exchange_rate = request.data.get('exchange_rate')

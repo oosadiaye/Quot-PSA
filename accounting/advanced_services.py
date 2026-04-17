@@ -15,7 +15,6 @@ from django.utils import timezone
 from django.db.models import Sum
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
-import random
 
 
 class AdvancedAccountingError(Exception):
@@ -31,8 +30,7 @@ class RecurringJournalService:
     def generate_journals():
         """Generate journal entries from all due recurring templates"""
         from accounting.models import (
-            RecurringJournal, RecurringJournalRun, JournalHeader, JournalLine,
-            GLBalance, TransactionSequence,
+            RecurringJournal, RecurringJournalRun,
         )
 
         today = timezone.now().date()
@@ -103,7 +101,7 @@ class RecurringJournalService:
     def _create_journal_from_template(template, posting_date):
         """Create a JournalHeader + JournalLines from a recurring template."""
         from accounting.models import (
-            JournalHeader, JournalLine, GLBalance, TransactionSequence,
+            JournalHeader, JournalLine, TransactionSequence,
         )
 
         ref = f"REC-{template.code}-{posting_date.strftime('%Y%m%d')}"
@@ -142,7 +140,6 @@ class RecurringJournalService:
     @staticmethod
     def _update_gl(journal):
         """Update GLBalance from journal lines."""
-        from accounting.models import GLBalance
 
         fiscal_year = journal.posting_date.year
         period = journal.posting_date.month
@@ -175,7 +172,7 @@ class AccrualDeferralService:
     @transaction.atomic
     def post_accrual(accrual, user):
         """Post an accrual entry to create its journal entry and update GL."""
-        from accounting.models import JournalHeader, JournalLine, GLBalance, TransactionSequence
+        from accounting.models import JournalHeader, JournalLine, TransactionSequence
 
         if accrual.is_posted:
             raise AdvancedAccountingError("Accrual is already posted")
@@ -476,7 +473,7 @@ class PeriodClosingService:
     @staticmethod
     def close_period(period, user):
         """Close a budget period"""
-        from accounting.models import PeriodStatus, JournalHeader, BudgetPeriod
+        from accounting.models import PeriodStatus, JournalHeader
 
         # Check for unposted journals in the period date range
         unposted = JournalHeader.objects.filter(
@@ -569,9 +566,8 @@ class YearEndClosingService:
         """Perform year-end closing"""
         from accounting.models import (
             YearEndClosing, RetainedEarnings, JournalHeader, JournalLine,
-            Account, GLBalance, BudgetPeriod, TransactionSequence,
+            Account, GLBalance, TransactionSequence,
         )
-        from accounting.transaction_posting import get_gl_account
 
         # Check if already closed
         if YearEndClosing.objects.filter(fiscal_year=fiscal_year, status='Posted').exists():
@@ -773,8 +769,7 @@ class CurrencyRevaluationService:
     def revaluate(currency, exchange_rate, revaluation_date, user):
         """Perform currency revaluation for all accounts denominated in this currency"""
         from accounting.models import (
-            CurrencyRevaluation, JournalHeader, JournalLine,
-            Account, GLBalance, TransactionSequence,
+            CurrencyRevaluation,
         )
 
         old_rate = currency.exchange_rate

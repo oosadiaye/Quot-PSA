@@ -1,7 +1,7 @@
 # HRM Module Specification
 
 ## Overview
-Human Resource Management module for DTSG ERP system. Manages employees, leave, attendance, payroll, recruitment, performance, training, and compliance.
+Human Resource Management module for QUOT ERP system. Manages employees, leave, attendance, payroll, recruitment, performance, training, and compliance.
 
 ## Routes
 

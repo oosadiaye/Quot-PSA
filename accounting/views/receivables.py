@@ -1,20 +1,19 @@
 from django.db.models import F
 from .common import (
-    viewsets, status, Response, action, DjangoFilterBackend,
-    transaction, Decimal, AccountingPagination, Sum,
+    viewsets, status, Response, action, transaction, Decimal, Sum,
 )
 from core.permissions import IsApprover
 from ..models import (
     CustomerInvoice, Receipt, ReceiptAllocation,
-    Account, JournalHeader, JournalLine, GLBalance, TransactionSequence,
+    Account, JournalHeader, JournalLine, TransactionSequence,
 )
 from ..serializers import CustomerInvoiceSerializer, ReceiptSerializer, ReceiptAllocationSerializer
 
 
 class CustomerInvoiceViewSet(viewsets.ModelViewSet):
-    queryset = CustomerInvoice.objects.all().select_related('customer', 'fund', 'function', 'program', 'geo', 'currency')
+    queryset = CustomerInvoice.objects.all().select_related('fund', 'function', 'program', 'geo', 'currency')
     serializer_class = CustomerInvoiceSerializer
-    filterset_fields = ['status', 'customer', 'invoice_date']
+    filterset_fields = ['status', 'customer_name', 'invoice_date']
 
     def perform_destroy(self, instance):
         if instance.status != 'Draft':
@@ -81,7 +80,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 account=revenue_account,
                 debit=Decimal('0.00'),
                 credit=amount,
-                memo=f"Revenue: {invoice.customer.name if invoice.customer else 'customer'}",
+                memo=f"Revenue: {invoice.customer_name or 'customer'}",
                 document_number=journal.document_number,
             )
 
@@ -114,6 +113,16 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         if invoice.status == 'Posted':
             return Response({"error": "Invoice already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # S1-06 — fiscal period gate.
+        try:
+            from accounting.services.base_posting import BasePostingService
+            BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc), "period_closed": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             self._post_to_gl(invoice, request.user)
 
@@ -145,6 +154,16 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
             return Response({"error": "This document is not a Credit Memo."}, status=status.HTTP_400_BAD_REQUEST)
         if invoice.status == 'Posted':
             return Response({"error": "Credit memo already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # S1-06 — fiscal period gate.
+        try:
+            from accounting.services.base_posting import BasePostingService
+            BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc), "period_closed": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         from django.conf import settings as django_settings
         default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
@@ -202,7 +221,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                     account=ar_account,
                     debit=Decimal('0.00'),
                     credit=amount,
-                    memo=f"CR Memo AR reduction: {invoice.customer.name if invoice.customer else ''}",
+                    memo=f"CR Memo AR reduction: {invoice.customer_name or ''}",
                     document_number=journal.document_number,
                 )
 
@@ -223,7 +242,6 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
         """Get accounts receivable aging report"""
-        from datetime import timedelta
         from django.utils import timezone
 
         as_of_date = request.query_params.get('as_of_date')
@@ -236,15 +254,15 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         invoices = CustomerInvoice.objects.filter(
             status__in=['Sent', 'Partially Paid', 'Overdue'],
             invoice_date__lte=as_of_date
-        ).select_related('customer')
+        )
 
         aging_data = {}
         for invoice in invoices:
-            customer_id = invoice.customer.id
+            customer_id = invoice.customer_name or f'inv-{invoice.id}'
             if customer_id not in aging_data:
                 aging_data[customer_id] = {
                     'customer_id': customer_id,
-                    'customer_name': invoice.customer.name,
+                    'customer_name': invoice.customer_name or 'Unknown',
                     'current': Decimal('0'),
                     'days_1_30': Decimal('0'),
                     'days_31_60': Decimal('0'),
@@ -291,7 +309,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
 class ReceiptViewSet(viewsets.ModelViewSet):
     queryset = Receipt.objects.all().select_related(
-        'customer', 'bank_account', 'currency', 'journal_entry'
+        'bank_account', 'currency', 'journal_entry'
     ).prefetch_related('allocations')
     serializer_class = ReceiptSerializer
     filterset_fields = ['status', 'receipt_date', 'payment_method']
@@ -311,6 +329,19 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     def post_receipt(self, request, pk=None):
         """Post receipt — creates journal entry + updates GL balances + customer balance."""
         receipt = self.get_object()
+
+        # S1-06 — fiscal period gate on receipt_date (fallback to today).
+        from accounting.services.base_posting import BasePostingService
+        rcpt_date = getattr(receipt, 'receipt_date', None) or getattr(receipt, 'payment_date', None)
+        if rcpt_date:
+            try:
+                BasePostingService._validate_fiscal_period(rcpt_date, user=request.user)
+            except Exception as exc:
+                return Response(
+                    {"error": str(exc), "period_closed": True},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         if receipt.status == 'Posted':
             return Response({"error": "Receipt already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -397,7 +428,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                         account=credit_account,
                         debit=Decimal('0.00'),
                         credit=amount,
-                        memo=f"Customer downpayment from {receipt.customer.name if receipt.customer else 'customer'}",
+                        memo=f"Customer downpayment from {receipt.customer_name or 'customer'}",
                         document_number=journal.document_number
                     )
                     # Track remaining advance balance
@@ -411,7 +442,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                         account=ar_account,
                         debit=Decimal('0.00'),
                         credit=amount,
-                        memo=f"Receipt from {receipt.customer.name if receipt.customer else 'customer'}",
+                        memo=f"Receipt from {receipt.customer_name or 'customer'}",
                         document_number=journal.document_number
                     )
 
@@ -439,11 +470,9 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                         new_status = 'Paid' if updated.received_amount >= updated.total_amount else 'Partially Paid'
                         CustomerInvoice.objects.filter(pk=allocation.invoice_id).update(status=new_status)
 
-                # Update customer balance (atomic F()-based)
-                if receipt.customer:
-                    type(receipt.customer).objects.filter(pk=receipt.customer.pk).update(
-                        balance=F('balance') - amount
-                    )
+                # Customer balance tracking removed — sales.Customer FK was
+                # dropped in the public-sector pivot. Running balance now
+                # computed on demand from CustomerInvoice aggregates.
 
             return Response({
                 "status": "Receipt posted to GL successfully.",
@@ -525,10 +554,11 @@ class CustomerLedgerView(viewsets.ViewSet):
 
         entries = []
 
-        # Invoices (debits to customer)
+        # Invoices (debits to customer). customer_id query param is now the
+        # customer_name string (FK to sales.Customer was removed in the public-sector pivot).
         inv_qs = CustomerInvoice.objects.filter(
-            customer_id=customer_id
-        ).exclude(status='Void').select_related('customer', 'journal_entry')
+            customer_name=customer_id
+        ).exclude(status='Void').select_related('journal_entry')
 
         if start_date:
             inv_qs = inv_qs.filter(invoice_date__gte=start_date)
@@ -556,10 +586,10 @@ class CustomerLedgerView(viewsets.ViewSet):
                 'id': inv.id,
             })
 
-        # Receipts (credits from customer)
+        # Receipts (credits from customer).
         rcpt_qs = Receipt.objects.filter(
-            customer_id=customer_id
-        ).exclude(status='Void').select_related('customer', 'journal_entry')
+            customer_name=customer_id
+        ).exclude(status='Void').select_related('journal_entry')
 
         if start_date:
             rcpt_qs = rcpt_qs.filter(receipt_date__gte=start_date)

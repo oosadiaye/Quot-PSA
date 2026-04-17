@@ -77,8 +77,12 @@ export default function ChartOfAccounts() {
         setCurrentPage(1);
     }, [typeFilter, searchTerm]);
 
-    // Fetch accounting settings (digit enforcement)
-    const { data: acctSettings } = useQuery<{ account_code_digits: number; is_digit_enforcement_active: boolean }>({
+    // Fetch accounting settings (digit enforcement only — series is
+    // hard-coded per Nigeria CoA standards and no longer read from DB)
+    const { data: acctSettings } = useQuery<{
+        account_code_digits: number;
+        is_digit_enforcement_active: boolean;
+    }>({
         queryKey: ['accounting-settings'],
         queryFn: async () => {
             const res = await apiClient.get('/accounting/settings/');
@@ -89,6 +93,38 @@ export default function ChartOfAccounts() {
 
     const digitEnforcement = acctSettings?.is_digit_enforcement_active ?? false;
     const requiredDigits = acctSettings?.account_code_digits ?? 8;
+
+    // ── Nigeria Chart of Accounts series mapping ──────────────────
+    // Hard-coded to match the backend's serializer validation in
+    // ``AccountSerializer.NIGERIA_COA_SERIES``. Tenants cannot
+    // customise these — the rule is mandated by Nigerian CoA compliance.
+    //
+    //   1xxxxxxx → Revenue (stored internally as "Income")
+    //   2xxxxxxx → Expense
+    //   3xxxxxxx → Asset
+    //   4xxxxxxx → Liability
+    //
+    // Equity has no enforced prefix — user can pick any unused range.
+    const NIGERIA_COA_SERIES: Record<string, string> = {
+        '1': 'Income',
+        '2': 'Expense',
+        '3': 'Asset',
+        '4': 'Liability',
+    };
+
+    /**
+     * Nigeria-CoA series check: the FIRST digit of the account code
+     * determines the expected account_type. Returns null if the first
+     * digit is outside the 1-4 mandated range (which is legal for
+     * Equity accounts and for any legacy codes the tenant may have).
+     */
+    const expectedTypeForCode = (code: string): string | null => {
+        if (!code) return null;
+        return NIGERIA_COA_SERIES[code[0]] ?? null;
+    };
+
+    /** Label-swap helper: internal "Income" → user-facing "Revenue". */
+    const displayType = (t: string): string => (t === 'Income' ? 'Revenue' : t);
 
     // Debounce search term to avoid excessive API calls
     const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -110,6 +146,25 @@ export default function ChartOfAccounts() {
     const totalCount = accountsData?.count ?? 0;
     const totalPages = Math.ceil(totalCount / pageSize);
 
+    // Extract a human-readable error message from a DRF 400 response.
+    // DRF returns `{fieldName: ["msg", ...]}` for serializer.ValidationError,
+    // or `{detail: "..."}` / `{error: "..."}` for view-level errors.
+    // We flatten everything into a single string for the alert banner.
+    const extractBackendError = (err: any, fallback: string): string => {
+        const d = err?.response?.data;
+        if (!d) return err?.message || fallback;
+        if (typeof d === 'string') return d;
+        if (d.detail) return String(d.detail);
+        if (d.error) return String(d.error);
+        // Field-level errors: flatten arrays + join
+        const parts: string[] = [];
+        for (const [field, value] of Object.entries(d)) {
+            const msg = Array.isArray(value) ? value.join(' ') : String(value);
+            parts.push(field === 'non_field_errors' ? msg : `${field}: ${msg}`);
+        }
+        return parts.length > 0 ? parts.join(' | ') : fallback;
+    };
+
     // Create account
     const createAccount = useMutation({
         mutationFn: (data: any) => apiClient.post(API_URL, data),
@@ -117,6 +172,12 @@ export default function ChartOfAccounts() {
             queryClient.invalidateQueries({ queryKey: ['accounts'] });
             setShowForm(false);
             resetForm();
+            showAlert('Account created successfully.', 'success');
+        },
+        onError: (err: any) => {
+            // Backend returned 400 — surface the actual validation message
+            // (number-series mismatch, digit enforcement, duplicate code, etc.)
+            showAlert(extractBackendError(err, 'Failed to create account.'), 'error');
         },
     });
 
@@ -129,6 +190,10 @@ export default function ChartOfAccounts() {
             setShowForm(false);
             setEditingAccount(null);
             resetForm();
+            showAlert('Account updated successfully.', 'success');
+        },
+        onError: (err: any) => {
+            showAlert(extractBackendError(err, 'Failed to update account.'), 'error');
         },
     });
 
@@ -537,6 +602,52 @@ export default function ChartOfAccounts() {
                                             Code must be exactly {requiredDigits} digits ({formData.code.length}/{requiredDigits})
                                         </div>
                                     )}
+                                    {/* Nigeria CoA series hint — shows expected account type
+                                        based on the first digit (1=Revenue, 2=Expense, 3=Asset,
+                                        4=Liability). Mirrors the backend's hardcoded validation
+                                        in AccountSerializer.NIGERIA_COA_SERIES so the user sees
+                                        the issue BEFORE clicking Save. */}
+                                    {(() => {
+                                        if (!formData.code) return null;
+                                        const expected = expectedTypeForCode(formData.code);
+                                        if (!expected) return null;
+                                        const matches = expected === formData.account_type;
+                                        const expectedLabel = displayType(expected);
+                                        return (
+                                            <div style={{
+                                                fontSize: 'var(--text-xs)', marginTop: '4px',
+                                                color: matches ? '#15803d' : '#b45309',
+                                                display: 'flex', alignItems: 'center', gap: '0.3rem',
+                                            }}>
+                                                {matches
+                                                    ? <>✓ Nigeria CoA: prefix <strong>{formData.code[0]}</strong> matches <strong>{expectedLabel}</strong></>
+                                                    : (
+                                                        <>
+                                                            ⚠ Nigeria CoA: prefix <strong>{formData.code[0]}</strong> is reserved for&nbsp;
+                                                            <strong>{expectedLabel}</strong>.&nbsp;
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setFormData({
+                                                                    ...formData,
+                                                                    account_type: expected,
+                                                                    ...(expected !== 'Asset' && expected !== 'Liability'
+                                                                        ? { is_reconciliation: false, reconciliation_type: '' }
+                                                                        : {}),
+                                                                })}
+                                                                style={{
+                                                                    background: 'none', border: 'none',
+                                                                    color: '#2471a3', textDecoration: 'underline',
+                                                                    cursor: 'pointer', padding: 0, font: 'inherit',
+                                                                }}
+                                                            >
+                                                                Switch type to {expectedLabel}
+                                                            </button>
+                                                        </>
+                                                    )
+                                                }
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
                                 <div>

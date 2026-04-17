@@ -498,6 +498,8 @@ export const superadminApi = {
   activateTenant: (id: number) => apiClient.post(`/superadmin/tenants/${id}`, { action: 'activate' }),
   extendTenant: (id: number, days: number) =>
     apiClient.post(`/superadmin/tenants/${id}`, { action: 'extend', days }),
+  resetTenantPassword: (id: number) =>
+    apiClient.post(`/superadmin/tenants/${id}`, { action: 'reset_password' }),
 
   // Tenant Modules
   getTenantModules: (tenantId: number) =>

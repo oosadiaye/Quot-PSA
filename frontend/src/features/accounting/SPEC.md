@@ -1,6 +1,6 @@
 # Accounting Module Specification
 
-> **Project:** DTSG ERP
+> **Project:** QUOT ERP
 > **Module:** Accounting
 > **Version:** 1.0.0
 > **Last Updated:** 2026-03-01

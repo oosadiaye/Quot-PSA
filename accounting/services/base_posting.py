@@ -12,8 +12,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.conf import settings
 from accounting.models import (
-    JournalHeader, JournalLine, Account, GLBalance,
-    Fund, Function, Program, Geo, MDA
+    JournalHeader, Account, GLBalance
 )
 
 logger = logging.getLogger(__name__)
@@ -74,35 +73,26 @@ class BasePostingService:
             )
 
     @staticmethod
-    def _validate_fiscal_period(posting_date):
-        """Validate that the fiscal period is open for posting.
+    def _validate_fiscal_period(posting_date, user=None):
+        """Validate that the fiscal period is open for posting (S1-06).
 
-        If fiscal periods have been configured (i.e. at least one period
-        exists in the system) but *none* covers the posting_date, we
-        reject the transaction — the date falls outside any defined
-        period.  If no periods are configured at all we silently allow
-        posting so the system remains usable before period setup.
+        Strict mode: if NO fiscal period covers the posting_date, posting
+        is rejected. The previous "no periods configured → silently allow"
+        bypass is removed — a production tenant without period setup is
+        misconfigured and must not be allowed to post.
+
+        Delegates to :class:`PeriodControlService.can_post_to_period` so
+        user-level override grants (via ``PeriodAccess``) are honoured
+        consistently across every posting path.
         """
-        from accounting.models import FiscalPeriod
+        from accounting.services.period_control import PeriodControlService
 
-        period = FiscalPeriod.objects.filter(
-            start_date__lte=posting_date,
-            end_date__gte=posting_date,
-        ).first()
-
-        if period is not None:
-            if period.status in ('Closed', 'Locked'):
-                raise TransactionPostingError(
-                    f"Fiscal period {period} is {period.status}. "
-                    f"Cannot post to a closed/locked period."
-                )
-            return  # period exists and is open — OK
-
-        # No matching period.  If periods exist at all, the date is invalid.
-        if FiscalPeriod.objects.exists():
+        allowed, message = PeriodControlService.can_post_to_period(
+            posting_date, user=user,
+        )
+        if not allowed:
             raise TransactionPostingError(
-                f"No open fiscal period found for date {posting_date}. "
-                f"Please ensure a fiscal period covering this date exists and is open."
+                f"Posting to {posting_date} is not allowed: {message}"
             )
 
     @staticmethod
@@ -139,8 +129,12 @@ class BasePostingService:
         """
         fiscal_year = journal.posting_date.year
         period = journal.posting_date.month
+        # S3-05 — carry MDA dimension onto each GLBalance row so budget
+        # execution reports can attribute actuals to the correct MDA.
+        j_mda_header = journal.mda
 
-        for line in journal.lines.all():
+        for line in journal.lines.select_related('cost_center').all():
+            line_mda = line.cost_center or j_mda_header
             # Try to get existing balance
             balance, created = GLBalance.objects.get_or_create(
                 account=line.account,
@@ -148,6 +142,7 @@ class BasePostingService:
                 function=journal.function,
                 program=journal.program,
                 geo=journal.geo,
+                mda=line_mda,
                 fiscal_year=fiscal_year,
                 period=period,
                 defaults={

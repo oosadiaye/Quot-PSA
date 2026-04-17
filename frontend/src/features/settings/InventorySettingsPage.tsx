@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useInventorySettings, useUpdateInventorySettings } from '../inventory/hooks/useInventory';
-import Sidebar from '../../components/Sidebar';
-import BackButton from '../../components/BackButton';
+import SettingsLayout from './SettingsLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import {
     Package, Zap, ShoppingCart, CheckCircle, Info,
-    AlertTriangle, ToggleLeft, ToggleRight,
+    AlertTriangle,
 } from 'lucide-react';
+
+// ─── Card style constant ─────────────────────────────────────────────────────
+
+const CARD_STYLE: React.CSSProperties = {
+    background: 'white',
+    borderRadius: '20px',
+    padding: '28px 32px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
+};
 
 // ─── Tiny toggle switch ───────────────────────────────────────────────────────
 
@@ -26,7 +35,7 @@ function Toggle({ value, onChange, disabled }: { value: boolean; onChange: (v: b
                 borderRadius: '13px',
                 border: 'none',
                 cursor: disabled ? 'not-allowed' : 'pointer',
-                background: value ? 'var(--color-primary)' : '#cbd5e1',
+                background: value ? '#059669' : '#cbd5e1',
                 transition: 'background 0.2s',
                 flexShrink: 0,
                 opacity: disabled ? 0.5 : 1,
@@ -63,24 +72,40 @@ function SettingRow({
     return (
         <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-            padding: indent ? '1rem 1.25rem 1rem 2.5rem' : '1.25rem',
-            borderBottom: '1px solid var(--color-border)',
-            background: indent ? 'var(--color-surface)' : undefined,
+            padding: indent ? '16px 20px 16px 40px' : '20px',
+            borderBottom: '1px solid #e2e8f0',
+            background: indent ? '#f8fafc' : undefined,
             opacity: disabled ? 0.55 : 1,
             transition: 'opacity 0.2s',
-            gap: '1.5rem',
+            gap: '24px',
         }}>
             <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: description ? '0.2rem' : 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: description ? '3px' : 0 }}>
                     {label}
                 </div>
                 {description && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5 }}>
                         {description}
                     </div>
                 )}
             </div>
             <Toggle value={value} onChange={onChange} disabled={disabled} />
+        </div>
+    );
+}
+
+// ─── Section icon badge ──────────────────────────────────────────────────────
+
+function SectionBadge({ icon, color }: { icon: React.ReactNode; color: string }) {
+    return (
+        <div style={{
+            width: '32px', height: '32px', borderRadius: '10px',
+            background: `linear-gradient(135deg, ${color}, ${color}dd)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: `0 2px 8px ${color}33`,
+            flexShrink: 0,
+        }}>
+            {icon}
         </div>
     );
 }
@@ -123,152 +148,152 @@ export default function InventorySettingsPage() {
     if (isLoading) return <LoadingScreen message="Loading inventory settings..." />;
 
     return (
-        <div style={{ display: 'flex' }}>
-            <Sidebar />
-            <div style={{ flex: 1, marginLeft: '260px', minHeight: '100vh', background: 'var(--color-background)' }}>
-
-                {/* ── Page header */}
+        <SettingsLayout
+            title="Inventory Settings"
+            breadcrumb="Inventory"
+            icon={<Package size={22} color="white" />}
+            gradient="linear-gradient(135deg, #059669, #047857)"
+            gradientShadow="rgba(5, 150, 105, 0.25)"
+            subtitle="Configure inventory automation and replenishment behaviour."
+        >
+            {/* Save status */}
+            {saveMsg && (
                 <div style={{
-                    padding: '1.5rem 3rem 1.25rem',
-                    borderBottom: '1px solid var(--color-border)',
-                    background: 'var(--color-surface)',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '10px 16px', background: 'rgba(16,185,129,0.08)',
+                    color: '#059669', borderRadius: '12px', marginBottom: '24px',
+                    fontSize: '14px', fontWeight: 600,
+                    border: '1px solid rgba(16,185,129,0.15)',
                 }}>
-                    <BackButton />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem', marginTop: '0.5rem' }}>
-                        <Package size={22} style={{ color: 'var(--color-primary)' }} />
-                        <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                            Inventory Settings
-                        </h1>
-                    </div>
-                    <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                        Configure inventory automation and replenishment behaviour for this organisation.
-                    </p>
+                    <CheckCircle size={16} /> {saveMsg}
+                </div>
+            )}
+            {saveErr && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '10px 16px', background: 'rgba(239,68,68,0.08)',
+                    color: '#ef4444', borderRadius: '12px', marginBottom: '24px',
+                    fontSize: '14px', fontWeight: 600,
+                    border: '1px solid rgba(239,68,68,0.15)',
+                }}>
+                    <AlertTriangle size={16} /> {saveErr}
+                </div>
+            )}
+
+            {/* ── Section: Automation ──────────────────────────────── */}
+            <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <SectionBadge icon={<Zap size={16} color="white" />} color="#059669" />
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>Automation</h2>
                 </div>
 
-                <div style={{ padding: '2.5rem 3rem', maxWidth: '860px' }}>
+                <div style={{ ...CARD_STYLE, padding: 0, overflow: 'hidden' }}>
+                    {/* Main toggle */}
+                    <SettingRow
+                        label="Automatic Purchase Order Creation"
+                        description="When enabled, a Draft Purchase Order is automatically created the moment any item's stock falls at or below its reorder point. The PO is addressed to the item's preferred vendor."
+                        value={autoPo}
+                        onChange={v => handleToggle('auto_po_enabled', v)}
+                        disabled={updateSettings.isPending}
+                    />
 
-                    {/* Save status */}
-                    {saveMsg && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'rgba(16,185,129,0.1)', color: '#10b981', borderRadius: '8px', marginBottom: '1.5rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            <CheckCircle size={15} /> {saveMsg}
-                        </div>
-                    )}
-                    {saveErr && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: '8px', marginBottom: '1.5rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            <AlertTriangle size={15} /> {saveErr}
-                        </div>
-                    )}
-
-                    {/* ── Section: Automation ──────────────────────────────── */}
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <Zap size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>Automation</h2>
-                        </div>
-
-                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-
-                            {/* Main toggle */}
-                            <SettingRow
-                                label="Automatic Purchase Order Creation"
-                                description="When enabled, a Draft Purchase Order is automatically created the moment any item's stock falls at or below its reorder point. The PO is addressed to the item's preferred vendor."
-                                value={autoPo}
-                                onChange={v => handleToggle('auto_po_enabled', v)}
-                                disabled={updateSettings.isPending}
-                            />
-
-                            {/* Sub-option — indented, only active when main toggle is on */}
-                            <SettingRow
-                                label='Always create as "Draft" (recommended)'
-                                description="Auto-generated POs land in Draft status, requiring a buyer to review and submit. Disabling this would immediately submit POs — not recommended unless you have a trusted replenishment workflow."
-                                value={draftOnly}
-                                onChange={v => handleToggle('auto_po_draft_only', v)}
-                                disabled={!autoPo || updateSettings.isPending}
-                                indent
-                            />
-
-                        </div>
-                    </div>
-
-                    {/* ── Section: How it works ────────────────────────────── */}
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <ShoppingCart size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>How Auto PO Works</h2>
-                        </div>
-
-                        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {[
-                                {
-                                    step: '1',
-                                    color: '#3b82f6',
-                                    title: 'Stock movement is posted',
-                                    body: 'A Stock Out, Adjustment, or Transfer is recorded. The system checks whether total stock across all warehouses has dropped to or below the item\'s reorder point.',
-                                },
-                                {
-                                    step: '2',
-                                    color: '#f59e0b',
-                                    title: 'Reorder threshold crossed',
-                                    body: 'If the item now sits at or below its reorder point and has a preferred vendor and expense account configured, a Draft Purchase Order is auto-generated for the item\'s reorder quantity.',
-                                },
-                                {
-                                    step: '3',
-                                    color: '#10b981',
-                                    title: 'Buyer reviews and submits',
-                                    body: 'The Draft PO appears in Procurement → Purchase Orders. A buyer reviews qty, price, and vendor, then submits for approval. Only one open auto-PO exists per item at a time.',
-                                },
-                            ].map(({ step, color, title, body }) => (
-                                <div key={step} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                                    <div style={{
-                                        width: '28px', height: '28px', borderRadius: '50%',
-                                        background: color + '20', color, fontWeight: 800,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 'var(--text-sm)', flexShrink: 0,
-                                    }}>{step}</div>
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: '0.2rem' }}>{title}</div>
-                                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>{body}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* ── Section: Requirements ────────────────────────────── */}
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                            <Info size={16} style={{ color: 'var(--color-primary)' }} />
-                            <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>Item Requirements</h2>
-                        </div>
-
-                        <div className="card" style={{ padding: '1.25rem', background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                                <AlertTriangle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '1px' }} />
-                                <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: '#f59e0b' }}>
-                                    Each item must be configured correctly for auto-PO to trigger
-                                </span>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                {[
-                                    ['Reorder Point', 'Set on the product — the stock level that triggers replenishment'],
-                                    ['Reorder Quantity', 'How many units to order when the alert fires'],
-                                    ['Preferred Vendor', 'The supplier the PO will be addressed to (set on the product)'],
-                                    ['Expense Account', 'The GL account for the PO line (set on the product)'],
-                                ].map(([field, desc]) => (
-                                    <div key={field} style={{ display: 'flex', gap: '0.75rem', fontSize: 'var(--text-sm)' }}>
-                                        <span style={{ fontWeight: 600, minWidth: '140px', flexShrink: 0 }}>{field}</span>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>{desc}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            <div style={{ marginTop: '1rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                                Items missing any of these fields will be skipped — a log entry is recorded for each skipped item.
-                            </div>
-                        </div>
-                    </div>
-
+                    {/* Sub-option — indented, only active when main toggle is on */}
+                    <SettingRow
+                        label='Always create as "Draft" (recommended)'
+                        description="Auto-generated POs land in Draft status, requiring a buyer to review and submit. Disabling this would immediately submit POs — not recommended unless you have a trusted replenishment workflow."
+                        value={draftOnly}
+                        onChange={v => handleToggle('auto_po_draft_only', v)}
+                        disabled={!autoPo || updateSettings.isPending}
+                        indent
+                    />
                 </div>
             </div>
-        </div>
+
+            {/* ── Section: How it works ────────────────────────────── */}
+            <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <SectionBadge icon={<ShoppingCart size={16} color="white" />} color="#3b82f6" />
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>How Auto PO Works</h2>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {[
+                        {
+                            step: '1',
+                            color: '#3b82f6',
+                            title: 'Stock movement is posted',
+                            body: 'A Stock Out, Adjustment, or Transfer is recorded. The system checks whether total stock across all warehouses has dropped to or below the item\'s reorder point.',
+                        },
+                        {
+                            step: '2',
+                            color: '#f59e0b',
+                            title: 'Reorder threshold crossed',
+                            body: 'If the item now sits at or below its reorder point and has a preferred vendor and expense account configured, a Draft Purchase Order is auto-generated for the item\'s reorder quantity.',
+                        },
+                        {
+                            step: '3',
+                            color: '#059669',
+                            title: 'Buyer reviews and submits',
+                            body: 'The Draft PO appears in Procurement → Purchase Orders. A buyer reviews qty, price, and vendor, then submits for approval. Only one open auto-PO exists per item at a time.',
+                        },
+                    ].map(({ step, color, title, body }) => (
+                        <div key={step} style={{
+                            ...CARD_STYLE,
+                            padding: '20px 24px',
+                            display: 'flex', gap: '16px', alignItems: 'flex-start',
+                        }}>
+                            <div style={{
+                                width: '32px', height: '32px', borderRadius: '50%',
+                                background: `${color}18`, color, fontWeight: 800,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '14px', flexShrink: 0,
+                                border: `2px solid ${color}30`,
+                            }}>{step}</div>
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>{title}</div>
+                                <div style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6 }}>{body}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Section: Requirements ────────────────────────────── */}
+            <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <SectionBadge icon={<Info size={16} color="white" />} color="#f59e0b" />
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>Item Requirements</h2>
+                </div>
+
+                <div style={{
+                    ...CARD_STYLE,
+                    background: 'rgba(245,158,11,0.04)',
+                    border: '1px solid rgba(245,158,11,0.2)',
+                }}>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                        <AlertTriangle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '1px' }} />
+                        <span style={{ fontWeight: 600, fontSize: '14px', color: '#f59e0b' }}>
+                            Each item must be configured correctly for auto-PO to trigger
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {[
+                            ['Reorder Point', 'Set on the product — the stock level that triggers replenishment'],
+                            ['Reorder Quantity', 'How many units to order when the alert fires'],
+                            ['Preferred Vendor', 'The supplier the PO will be addressed to (set on the product)'],
+                            ['Expense Account', 'The GL account for the PO line (set on the product)'],
+                        ].map(([field, desc]) => (
+                            <div key={field} style={{ display: 'flex', gap: '12px', fontSize: '14px' }}>
+                                <span style={{ fontWeight: 600, minWidth: '140px', flexShrink: 0, color: '#0f172a' }}>{field}</span>
+                                <span style={{ color: '#94a3b8' }}>{desc}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ marginTop: '16px', fontSize: '13px', color: '#94a3b8' }}>
+                        Items missing any of these fields will be skipped — a log entry is recorded for each skipped item.
+                    </div>
+                </div>
+            </div>
+        </SettingsLayout>
     );
 }

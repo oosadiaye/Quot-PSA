@@ -1,21 +1,8 @@
-import logging
-
+"""Stub app config — sales module deleted for Quot PSE public sector.
+Kept only for migration history compatibility."""
 from django.apps import AppConfig
 
-logger = logging.getLogger(__name__)
-
-
 class SalesConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
     name = 'sales'
-
-    def ready(self):
-        from django.apps import apps
-        optional_deps = {
-            'accounting': 'GL posting, customer invoicing',
-            'inventory': 'Stock reservation on order approval',
-        }
-        for mod, features in optional_deps.items():
-            if apps.is_installed(mod):
-                logger.debug("sales: optional module '%s' available (%s)", mod, features)
-            else:
-                logger.info("sales: optional module '%s' not installed — %s disabled", mod, features)
+    verbose_name = 'Sales (Deprecated — Public Sector)'

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Lock as LockIcon, Unlock, Users, ChevronDown, ChevronRight, Check, Plus, Calendar, Zap, Eye } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Lock as LockIcon, Unlock, Users, ChevronDown, ChevronRight, Check, Plus, Calendar, Zap, Eye, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useFiscalYears, useFiscalPeriods, useCreateFiscalYear, useCloseFiscalYear, useSetActiveFiscalYear, useClosePeriods, useReopenPeriod, useGrantPeriodAccess } from '../hooks/useFiscalYear';
 import apiClient from '../../../api/client';
 import SettingsLayout from '../../settings/SettingsLayout';
@@ -60,19 +61,51 @@ export default function FiscalYearPage() {
     const [expandedYears, setExpandedYears] = useState<number[]>([]);
     const [users, setUsers] = useState<any[]>([]);
 
+    // ─── Fiscal Year Availability (SAP-style max 2 open) ────────────────────
+    const { data: availability, refetch: refetchAvailability } = useQuery({
+        queryKey: ['fiscal-year-availability'],
+        queryFn: async () => {
+            const res = await apiClient.get('/accounting/fiscal-years/next_available/');
+            return res.data as {
+                next_year: number;
+                open_years: number[];
+                open_count: number;
+                max_open_years: number;
+                must_close_year: number | null;
+                can_create: boolean;
+            };
+        },
+        staleTime: 10_000,
+    });
+
     // ─── Two-step Create flow ─────────────────────────────────────────────────
-    const currentYear = new Date().getFullYear();
+    const nextYear = availability?.next_year || new Date().getFullYear();
+    const canCreate = availability?.can_create ?? true;
+    const mustCloseYear = availability?.must_close_year;
+    const openYears = availability?.open_years || [];
+    const maxOpenYears = availability?.max_open_years || 2;
+
     const [createData, setCreateData] = useState({
-        year: currentYear,
-        name: `FY ${currentYear}`,
+        year: nextYear,
+        name: `FY ${nextYear}`,
         period_type: 'Monthly',
     });
     const [previewPeriods, setPreviewPeriods] = useState<PreviewPeriod[] | null>(null);
     const [createError, setCreateError] = useState('');
 
+    // Auto-update year when availability data loads
+    useEffect(() => {
+        if (availability) {
+            setCreateData(prev => ({
+                ...prev,
+                year: availability.next_year,
+                name: `FY ${availability.next_year}`,
+            }));
+        }
+    }, [availability]);
+
     const handleCreateChange = (field: string, value: string | number) => {
         const updated = { ...createData, [field]: value };
-        // Auto-update name when year changes
         if (field === 'year') {
             const yr = Number(value);
             if (yr >= 1000 && yr <= 9999) {
@@ -80,7 +113,6 @@ export default function FiscalYearPage() {
             }
         }
         setCreateData(updated as typeof createData);
-        // Clear preview when inputs change
         setPreviewPeriods(null);
         setCreateError('');
     };
@@ -115,10 +147,9 @@ export default function FiscalYearPage() {
         };
         try {
             await createFiscalYear.mutateAsync(payload);
-            // Reset
-            const nextYr = yr;
-            setCreateData({ year: nextYr, name: `FY ${nextYr}`, period_type: 'Monthly' });
             setPreviewPeriods(null);
+            // Refetch availability to get the NEXT year
+            refetchAvailability();
         } catch (error: any) {
             const msg = error?.response?.data?.error || error?.response?.data?.detail || JSON.stringify(error?.response?.data) || 'Failed to create fiscal year.';
             setCreateError(String(msg));
@@ -240,24 +271,44 @@ export default function FiscalYearPage() {
                         <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{fiscalYears?.find((y: any) => y.is_active)?.year || 'None'}</p>
                     </div>
                     <div className="card" style={{ borderLeft: '4px solid var(--color-primary)' }}>
-                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Total Years</p>
-                        <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{fiscalYears?.length || 0}</p>
+                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Open Years</p>
+                        <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>
+                            {openYears.length} / {maxOpenYears}
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
+                                {openYears.length > 0 ? `(${openYears.join(', ')})` : ''}
+                            </span>
+                        </p>
                     </div>
                     <div className="card" style={{ borderLeft: '4px solid var(--color-success)' }}>
                         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Open Periods</p>
                         <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{fiscalPeriods?.filter((p: any) => p.status === 'Open').length || 0}</p>
                     </div>
                     <div className="card" style={{ borderLeft: '4px solid var(--color-error)' }}>
-                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Closed Periods</p>
-                        <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{fiscalPeriods?.filter((p: any) => p.status === 'Closed').length || 0}</p>
+                        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Next Year</p>
+                        <p style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{nextYear}</p>
                     </div>
                 </div>
 
+                {/* ─── Max Open Years Warning ───────────────────────────────── */}
+                {!canCreate && mustCloseYear && (
+                    <div style={{
+                        background: '#fffbeb', border: '1px solid #fbbf24', borderRadius: '0.5rem',
+                        padding: '0.75rem 1rem', marginBottom: '1.25rem',
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    }}>
+                        <AlertTriangle size={16} color="#b45309" />
+                        <span style={{ fontSize: '0.8rem', color: '#92400e' }}>
+                            <strong>Maximum {maxOpenYears} fiscal years can be open simultaneously.</strong>{' '}
+                            Close fiscal year <strong>{mustCloseYear}</strong> before opening {nextYear}.
+                        </span>
+                    </div>
+                )}
+
                 {/* ─── New Fiscal Year (two-step) ──────────────────────────────── */}
-                <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+                <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.5rem', opacity: canCreate ? 1 : 0.5, pointerEvents: canCreate ? 'auto' : 'none' }}>
                     <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Calendar size={15} color="var(--color-primary)" />
-                        New Fiscal Year
+                        New Fiscal Year — {nextYear}
                     </h3>
 
                     <form onSubmit={handleCreate}>
@@ -267,12 +318,10 @@ export default function FiscalYearPage() {
                                 <label style={lbl}>Year <span style={{ color: '#ef4444' }}>*</span></label>
                                 <input
                                     type="number"
-                                    style={inp}
+                                    style={{ ...inp, background: '#f1f5f9', fontWeight: 700 }}
                                     value={createData.year}
-                                    min={2000}
-                                    max={2100}
-                                    onChange={(e) => handleCreateChange('year', parseInt(e.target.value) || currentYear)}
-                                    required
+                                    readOnly
+                                    title={`Next available year (auto-calculated). ${!canCreate ? `Close ${mustCloseYear} first.` : ''}`}
                                 />
                             </div>
                             <div>

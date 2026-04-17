@@ -1,6 +1,57 @@
 from datetime import date, timedelta
 from calendar import monthrange
-import calendar
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def get_base_currency_code():
+    """Return the tenant's base currency code (e.g. 'NGN').
+
+    Resolution order:
+      1. AccountingSettings.default_currency_1.code
+      2. Currency.objects.filter(is_base_currency=True).first().code
+      3. 'NGN' as ultimate fallback
+    """
+    try:
+        from accounting.models.advanced import AccountingSettings
+        settings = AccountingSettings.objects.select_related('default_currency_1').first()
+        if settings and settings.default_currency_1_id:
+            return settings.default_currency_1.code
+    except Exception:
+        pass
+
+    try:
+        from accounting.models.gl import Currency
+        base = Currency.objects.filter(is_base_currency=True, is_active=True).first()
+        if base:
+            return base.code
+    except Exception:
+        pass
+
+    return 'NGN'
+
+
+def get_base_currency():
+    """Return the tenant's base Currency instance, or None.
+
+    Resolution order:
+      1. AccountingSettings.default_currency_1
+      2. Currency.objects.filter(is_base_currency=True).first()
+    """
+    try:
+        from accounting.models.advanced import AccountingSettings
+        settings = AccountingSettings.objects.select_related('default_currency_1').first()
+        if settings and settings.default_currency_1_id:
+            return settings.default_currency_1
+    except Exception:
+        pass
+
+    try:
+        from accounting.models.gl import Currency
+        return Currency.objects.filter(is_base_currency=True, is_active=True).first()
+    except Exception:
+        return None
 
 
 def get_month_end_date(ref_date: date = None) -> date:
@@ -10,7 +61,7 @@ def get_month_end_date(ref_date: date = None) -> date:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     last_day = monthrange(ref_date.year, ref_date.month)[1]
     return date(ref_date.year, ref_date.month, last_day)
 
@@ -22,7 +73,7 @@ def get_month_start_date(ref_date: date = None) -> date:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     return date(ref_date.year, ref_date.month, 1)
 
 
@@ -33,12 +84,12 @@ def get_next_month_first_day(ref_date: date = None) -> date:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     if ref_date.month == 12:
         next_month = date(ref_date.year + 1, 1, 1)
     else:
         next_month = date(ref_date.year, ref_date.month + 1, 1)
-    
+
     return next_month
 
 
@@ -62,7 +113,7 @@ def get_next_month_end_date(ref_date: date = None) -> date:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     next_month_first = get_next_month_first_day(ref_date)
     return get_month_end_date(next_month_first)
 
@@ -73,7 +124,7 @@ def is_first_of_month(ref_date: date = None) -> bool:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     return ref_date.day == 1
 
 
@@ -83,7 +134,7 @@ def is_last_day_of_month(ref_date: date = None) -> bool:
     """
     if ref_date is None:
         ref_date = date.today()
-    
+
     last_day = monthrange(ref_date.year, ref_date.month)[1]
     return ref_date.day == last_day
 
@@ -107,7 +158,7 @@ def calculate_period_dates(frequency: str, start_date: date = None) -> dict:
     """
     if start_date is None:
         start_date = date.today()
-    
+
     if frequency == 'daily':
         next_run = start_date + timedelta(days=1)
     elif frequency == 'weekly':
@@ -138,7 +189,7 @@ def calculate_period_dates(frequency: str, start_date: date = None) -> dict:
         next_run = date(start_date.year + 1, start_date.month, next_day)
     else:
         next_run = start_date + timedelta(days=1)
-    
+
     return {
         'next_run_date': next_run,
         'posting_date': get_month_end_date(next_run) if frequency == 'monthly' else next_run

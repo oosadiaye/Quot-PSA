@@ -46,12 +46,27 @@ const ImpersonationBanner = () => {
     }
 
     // Restore original superadmin session
-    localStorage.setItem('authToken', state.originalToken);
-    localStorage.setItem('user', state.originalUser);
+    if (state.originalToken) {
+      localStorage.setItem('authToken', state.originalToken);
+    }
+    if (state.originalUser) {
+      localStorage.setItem('user', state.originalUser);
+    }
+
+    // Clean up all impersonation artifacts
     localStorage.removeItem('impersonation');
     localStorage.removeItem('tenantDomain');
     localStorage.removeItem('tenantInfo');
     localStorage.removeItem('tenantPermissions');
+    localStorage.removeItem('activeTenant');
+    sessionStorage.removeItem('impersonation_session');
+
+    // If we couldn't restore the original token, redirect to login instead
+    if (!state.originalToken) {
+      navigate('/login');
+      window.location.reload();
+      return;
+    }
 
     // Navigate back to superadmin dashboard
     navigate('/superadmin');

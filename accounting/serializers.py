@@ -10,12 +10,7 @@ from .models import (
     CashFlowCategory, CashFlowForecast,
     TaxRegistration, TaxExemption, TaxReturn, WithholdingTax, TaxCode,
     CostCenter, ProfitCenter, CostAllocationRule, JournalLineCostCenter,
-    InterCompany, InterCompanyAccountMapping, InterCompanyTransaction, InterCompanyElimination,
-    FinancialReportTemplate, FinancialReport, ReportColumnConfig,
-    AccountingDocument, DocumentSignature,
-    ConsolidationGroup, Consolidation,
-    DeferredRevenue, DeferredExpense, AmortizationSchedule,
-    Lease, LeasePayment,
+    FinancialReportTemplate, FinancialReport, AccountingDocument, DeferredRevenue, DeferredExpense, Lease, LeasePayment,
     TreasuryForecast, Investment, Loan, LoanRepayment,
     ExchangeRateHistory, ForeignCurrencyRevaluation,
     FiscalPeriod, PeriodCloseCheck, FiscalYear, PeriodAccess,
@@ -27,9 +22,6 @@ from .models import (
     Accrual, Deferral, DeferralRecognition,
     PeriodStatus, YearEndClosing, CurrencyRevaluation, RetainedEarnings,
     AccountingSettings,
-    Company, InterCompanyConfig, InterCompanyInvoice,
-    InterCompanyTransfer, InterCompanyAllocation, InterCompanyCashTransfer,
-    ConsolidationRun,
 )
 
 
@@ -91,6 +83,26 @@ class AccountSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'current_balance']
 
+    # ── Nigeria Chart of Accounts number-series map ─────────────────
+    # Hard-coded here (was previously read from AccountingSettings)
+    # because Nigeria COA compliance mandates a fixed mapping —
+    # tenants are NOT supposed to customise these prefixes. Equity
+    # has no enforced prefix and can use any first digit.
+    #
+    #   1xxxxxxx → Revenue (stored as 'Income' in Account.account_type)
+    #   2xxxxxxx → Expense
+    #   3xxxxxxx → Asset
+    #   4xxxxxxx → Liability
+    #
+    # The Account model still stores 'Income' (not 'Revenue') because
+    # that's the choice value on the field; UI labels can say Revenue.
+    NIGERIA_COA_SERIES = {
+        '1': 'Income',     # Revenue
+        '2': 'Expense',
+        '3': 'Asset',
+        '4': 'Liability',
+    }
+
     def validate(self, attrs):
         account_type = attrs.get('account_type', getattr(self.instance, 'account_type', None))
         is_recon = attrs.get('is_reconciliation', getattr(self.instance, 'is_reconciliation', False))
@@ -108,15 +120,46 @@ class AccountSerializer(serializers.ModelSerializer):
         if not is_recon:
             attrs['reconciliation_type'] = ''
 
-        # Validate account code against digit enforcement and number series
+        # ── Code validation (two independent checks) ───────────────
         if code and account_type:
+            # (1) Digit-count enforcement — tenant-configurable via
+            #     AccountingSettings.is_digit_enforcement_active. Does
+            #     NOT validate series; that's step 2 below.
             from accounting.models import AccountingSettings
             settings_obj = AccountingSettings.objects.first()
+            if settings_obj and settings_obj.is_digit_enforcement_active:
+                digit_errors = []
+                if not code.isdigit():
+                    digit_errors.append(
+                        'Account code must contain only digits when digit '
+                        'enforcement is active.'
+                    )
+                if len(code) != settings_obj.account_code_digits:
+                    digit_errors.append(
+                        f'Account code must be exactly '
+                        f'{settings_obj.account_code_digits} digits '
+                        f'(got {len(code)}).'
+                    )
+                if digit_errors:
+                    raise serializers.ValidationError({'code': digit_errors})
 
-            if settings_obj:
-                is_valid, errors = settings_obj.validate_account_code(code, account_type)
-                if not is_valid:
-                    raise serializers.ValidationError({'code': errors})
+            # (2) Nigeria COA series enforcement — HARDCODED, not
+            #     tenant-configurable. The first digit of the code
+            #     dictates the account type per Nigerian CoA standards.
+            first_digit = code[0] if code else ''
+            expected_type = self.NIGERIA_COA_SERIES.get(first_digit)
+            if expected_type and expected_type != account_type:
+                # Show "Revenue" in the user-facing message even though
+                # the internal choice value is 'Income'.
+                expected_label = 'Revenue' if expected_type == 'Income' else expected_type
+                actual_label = 'Revenue' if account_type == 'Income' else account_type
+                raise serializers.ValidationError({'code': [
+                    f"Nigeria CoA violation: account code '{code}' "
+                    f"starts with '{first_digit}' — that prefix is reserved "
+                    f"for {expected_label} accounts, but the selected "
+                    f"account type is {actual_label}. Either change the "
+                    f"code's first digit or pick the matching account type."
+                ]})
 
         return attrs
 
@@ -171,11 +214,25 @@ class JournalHeaderSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         dims_enabled = is_dimensions_enabled(self.context)
-        if not dims_enabled:
+        if dims_enabled:
+            # ── PSA Budget Control (MANDATORY) ──────────────────
+            # Administrative (MDA) + Fund are required for budget
+            # validation — Appropriation lookup needs admin + economic + fund
+            for field in ['mda', 'fund']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+
+            # ── Reporting Dimensions (MANDATORY for IPSAS reports) ──
+            # Function, Programme, Geographic are required on all
+            # transactions for government performance reporting but
+            # do NOT gate budget approval (only MDA + Account + Fund do)
+            for field in ['function', 'program', 'geo']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+        else:
             for field in ['mda', 'fund', 'function', 'program', 'geo']:
                 self.fields[field].required = False
                 self.fields[field].allow_null = True
-                self.fields[field].allow_empty = True
 
 
 class JournalLineSerializer(serializers.ModelSerializer):
@@ -251,27 +308,210 @@ class VendorInvoiceLineSerializer(serializers.ModelSerializer):
 class VendorInvoiceSerializer(serializers.ModelSerializer):
     lines = VendorInvoiceLineSerializer(many=True, required=False)
 
+    # Read-only denormalisations the AP list UI needs. Without these the
+    # frontend reads undefined and falls back to zero (balance_due) or
+    # blank (vendor_name) — which is why the list was showing ₦0.00
+    # across every row and an empty Vendor column.
+    vendor_name    = serializers.CharField(source='vendor.name', read_only=True)
+    balance_due    = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    currency_code  = serializers.CharField(source='currency.code', read_only=True, allow_null=True)
+    mda_name       = serializers.CharField(source='mda.name', read_only=True, allow_null=True)
+    account_code   = serializers.CharField(source='account.code', read_only=True, allow_null=True)
+    account_name   = serializers.CharField(source='account.name', read_only=True, allow_null=True)
+    fund_name      = serializers.CharField(source='fund.name', read_only=True, allow_null=True)
+
     class Meta:
         model = VendorInvoice
         fields = [
             'id', 'invoice_number', 'reference', 'description',
-            'vendor', 'invoice_date', 'due_date',
-            'purchase_order', 'account', 'mda', 'fund', 'function',
-            'program', 'geo', 'subtotal', 'tax_amount', 'total_amount',
-            'paid_amount', 'currency', 'status', 'journal_entry', 'attachment',
+            'vendor', 'vendor_name',
+            'invoice_date', 'due_date',
+            'purchase_order', 'account', 'account_code', 'account_name',
+            'mda', 'mda_name', 'fund', 'fund_name',
+            'function', 'program', 'geo',
+            'subtotal', 'tax_amount', 'total_amount',
+            'paid_amount', 'balance_due',
+            'currency', 'currency_code',
+            'status', 'journal_entry', 'attachment',
             'document_number', 'document_type', 'lines',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'invoice_number', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number']
+        read_only_fields = [
+            'id', 'invoice_number', 'balance_due',
+            'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number',
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         dims_enabled = is_dimensions_enabled(self.context)
-        if not dims_enabled:
+        if dims_enabled:
+            # Budget control pillars (MDA + Fund) — required
+            for field in ['mda', 'fund']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+            # Reporting dimensions — required for IPSAS reports, not for budget gating
+            for field in ['function', 'program', 'geo']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+        else:
             for field in ['mda', 'fund', 'function', 'program', 'geo']:
                 self.fields[field].required = False
                 self.fields[field].allow_null = True
-                self.fields[field].allow_empty = True
+
+    def validate(self, data):
+        """Three-pillar budget validation at the SERIALIZER level.
+
+        Fires at create (Draft save) AND at update — blocks the record from
+        ever being persisted if the (MDA + Economic Code + Fund) triple
+        doesn't map to an active appropriation, or if the amount would
+        exceed the remaining appropriation / warrant balance.
+
+        This closes the loophole where a verifier could save a Draft
+        invoice for a wrong/non-existent budget line and only discover
+        the mismatch at posting time (by which point the data-entry
+        context is lost).
+
+        The appropriation ceiling check re-runs at posting too (defense
+        in depth) — running it here makes errors appear earlier in the
+        flow, with the exact fields highlighted.
+        """
+        data = super().validate(data)
+
+        # Resolve pillars from request payload, falling back to the
+        # existing instance on PATCH/PUT.
+        mda = data.get('mda', getattr(self.instance, 'mda', None))
+        fund = data.get('fund', getattr(self.instance, 'fund', None))
+        account = data.get('account', getattr(self.instance, 'account', None))
+        # Header account may be empty if user filled in per-line accounts;
+        # fall back to the first line's account for validation purposes.
+        if not account:
+            lines_data = data.get('lines', [])
+            if lines_data:
+                first_line_account = lines_data[0].get('account') if isinstance(lines_data[0], dict) else None
+                if first_line_account:
+                    account = first_line_account
+            elif self.instance and hasattr(self.instance, 'lines'):
+                first_line = self.instance.lines.select_related('account').first()
+                if first_line:
+                    account = first_line.account
+
+        amount = data.get('total_amount', getattr(self.instance, 'total_amount', None))
+
+        # If the tenant doesn't have dimensions enabled OR the request
+        # lacks any of the three pillars, skip gating and let the model
+        # save proceed (legacy path).
+        if not (is_dimensions_enabled(self.context) and mda and fund and account and amount):
+            return data
+
+        # Resolve the three pillars to NCoA segments so we can match
+        # the Appropriation. Parent-walk the economic segment so a leaf
+        # account (e.g. 23100100) validates against a parent
+        # appropriation (e.g. 23000000).
+        from accounting.models.ncoa import (
+            AdministrativeSegment, EconomicSegment, FundSegment,
+        )
+        from accounting.models.advanced import FiscalYear
+        from budget.models import Appropriation
+        from decimal import Decimal as _D
+
+        admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
+        econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
+        fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
+        active_fy = FiscalYear.objects.filter(is_active=True).first()
+
+        # If ANY of the three pillars can't be resolved, we have a
+        # mapping gap — tell the user exactly which pillar failed.
+        missing = []
+        if not admin_seg:  missing.append('MDA')
+        if not econ_seg:   missing.append('Economic Code')
+        if not fund_seg:   missing.append('Fund')
+        if not active_fy:  missing.append('Active Fiscal Year')
+        if missing:
+            raise serializers.ValidationError({
+                'budget': (
+                    f"Budget dimension mapping missing: {', '.join(missing)}. "
+                    f"This invoice cannot be saved because one of the three "
+                    f"budget pillars (MDA, Economic Code, Fund) has no NCoA "
+                    f"bridge, or no active Fiscal Year is configured. Contact "
+                    f"the Budget Office."
+                ),
+                'missing_dimensions': missing,
+            })
+
+        # Find the active Appropriation for this triple. Walk the
+        # economic parent chain — a leaf-coded transaction may be
+        # legally authorised against a parent appropriation.
+        econ_candidates = [econ_seg]
+        cursor = econ_seg.parent
+        while cursor is not None:
+            econ_candidates.append(cursor)
+            cursor = cursor.parent
+
+        appro = Appropriation.objects.filter(
+            administrative=admin_seg,
+            economic__in=econ_candidates,
+            fund=fund_seg,
+            fiscal_year=active_fy,
+            status='ACTIVE',
+        ).first()
+
+        if not appro:
+            raise serializers.ValidationError({
+                'budget': (
+                    f"No active appropriation found for the selected "
+                    f"combination: MDA {admin_seg.code} — "
+                    f"Economic Code {econ_seg.code} — Fund {fund_seg.code}. "
+                    f"Either the budget line was never appropriated, or you "
+                    f"picked the wrong MDA/Code/Fund for this invoice. "
+                    f"Verify with the Budget Office."
+                ),
+                'no_appropriation': True,
+                'dimensions': {
+                    'mda': admin_seg.code,
+                    'economic': econ_seg.code,
+                    'fund': fund_seg.code,
+                },
+            })
+
+        # Check amount against appropriation available balance. Exclude
+        # this instance's previous total_amount on update so we don't
+        # double-count when the user is just editing an existing Draft.
+        try:
+            requested = _D(str(amount))
+        except (ArithmeticError, ValueError, TypeError):
+            return data  # non-numeric amount — another validator will flag it
+
+        available = appro.available_balance or _D('0')
+        # Add-back: if we're updating an existing Posted/Approved invoice,
+        # its current amount is already in total_expended — reverse that
+        # so we check only the delta.
+        if self.instance and self.instance.status == 'Posted':
+            # Posted records are already consumed in available_balance —
+            # if the user is somehow editing (shouldn't happen due to
+            # ImmutableModelMixin), allow up to the existing + remaining.
+            available += (self.instance.total_amount or _D('0'))
+
+        if requested > available:
+            deficit = requested - available
+            raise serializers.ValidationError({
+                'budget': (
+                    f"Insufficient appropriation balance for "
+                    f"{admin_seg.name} — {econ_seg.name} — Fund "
+                    f"{fund_seg.code}.\n"
+                    f"  Requested:  NGN {requested:>15,.2f}\n"
+                    f"  Available:  NGN {available:>15,.2f}\n"
+                    f"  Deficit:    NGN {deficit:>15,.2f}\n"
+                    f"A Supplementary Appropriation or Virement is "
+                    f"required to post this invoice."
+                ),
+                'appropriation_exceeded': True,
+                'appropriation_id': appro.pk,
+                'requested': str(requested),
+                'available': str(available),
+                'deficit': str(deficit),
+            })
+
+        return data
 
     def create(self, validated_data):
         lines_data = validated_data.pop('lines', [])
@@ -299,6 +539,9 @@ class PaymentSerializer(serializers.ModelSerializer):
     bank_account_name = serializers.CharField(source='bank_account.name', read_only=True)
     vendor_name = serializers.CharField(source='vendor.name', read_only=True)
     currency_code = serializers.CharField(source='currency.code', read_only=True)
+    # Read-only denormalisations that help the Outgoing Payment list show
+    # "Payment #123 (PV-2026-0004)" without an extra lookup.
+    payment_voucher_number = serializers.CharField(source='payment_voucher.voucher_number', read_only=True, default='')
 
     class Meta:
         model = Payment
@@ -307,10 +550,42 @@ class PaymentSerializer(serializers.ModelSerializer):
             'reference_number', 'total_amount', 'currency', 'currency_code',
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
             'vendor', 'vendor_name', 'is_advance', 'advance_type', 'advance_remaining',
-            'document_number',
+            'payment_voucher', 'payment_voucher_number',
+            'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation']
+
+    def validate(self, attrs):
+        """Enforce `require_pv_before_payment` gate.
+
+        When the tenant's AccountingSettings has
+        ``require_pv_before_payment=True``, every Payment must reference
+        a PaymentVoucherGov via ``payment_voucher``. Otherwise the
+        field stays optional and direct vendor-invoice payments are
+        allowed. Check only on CREATE (not every update) so an existing
+        Payment doesn't suddenly become invalid when the flag is toggled
+        — retro-enforcement would break in-flight workflows.
+        """
+        attrs = super().validate(attrs)
+        if self.instance is None:  # create path only
+            from accounting.models import AccountingSettings
+            acct_settings = AccountingSettings.objects.first()
+            if acct_settings and acct_settings.require_pv_before_payment:
+                pv = attrs.get('payment_voucher')
+                if not pv:
+                    raise serializers.ValidationError({
+                        'payment_voucher': (
+                            'Payment Voucher (PV) is required before an outgoing '
+                            'payment can be created. The MDA has enabled the '
+                            'PV-before-Payment workflow in Accounting Settings — '
+                            'raise a PV first, then post the payment against it. '
+                            'To allow direct payments, disable '
+                            '"Require PV before Payment" in Accounting Settings.'
+                        ),
+                        'require_pv_before_payment': True,
+                    })
+        return attrs
 
 
 class PaymentAllocationSerializer(serializers.ModelSerializer):
@@ -343,8 +618,8 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
         model = CustomerInvoice
         fields = [
             'id', 'invoice_number', 'reference', 'description',
-            'customer', 'invoice_date', 'due_date',
-            'sales_order', 'mda', 'fund', 'function', 'program', 'geo',
+            'customer_name', 'customer_tin', 'invoice_date', 'due_date',
+            'mda', 'fund', 'function', 'program', 'geo',
             'subtotal', 'tax_amount', 'total_amount', 'received_amount',
             'currency', 'status', 'journal_entry',
             'document_number', 'document_type', 'lines',
@@ -384,7 +659,6 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
 
 class ReceiptSerializer(serializers.ModelSerializer):
     bank_account_name = serializers.CharField(source='bank_account.name', read_only=True)
-    customer_name = serializers.CharField(source='customer.name', read_only=True)
     currency_code = serializers.CharField(source='currency.code', read_only=True)
 
     class Meta:
@@ -393,11 +667,11 @@ class ReceiptSerializer(serializers.ModelSerializer):
             'id', 'receipt_number', 'receipt_date', 'payment_method',
             'reference_number', 'total_amount', 'currency', 'currency_code',
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
-            'customer', 'customer_name', 'is_advance', 'advance_type', 'advance_remaining',
-            'document_number',
+            'customer_name', 'is_advance', 'advance_type', 'advance_remaining',
+            'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation']
 
 
 class ReceiptAllocationSerializer(serializers.ModelSerializer):
@@ -408,6 +682,9 @@ class ReceiptAllocationSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):
+    mda_name = serializers.CharField(source='mda.name', read_only=True, default='')
+    net_book_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+
     class Meta:
         model = FixedAsset
         fields = [
@@ -415,20 +692,30 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             'acquisition_date', 'acquisition_cost', 'salvage_value',
             'useful_life_years', 'depreciation_method', 'accumulated_depreciation',
             'asset_account', 'depreciation_expense_account',
-            'accumulated_depreciation_account', 'mda', 'fund', 'function',
-            'program', 'geo', 'status',
+            'accumulated_depreciation_account', 'mda', 'mda_name', 'fund', 'function',
+            'program', 'geo', 'status', 'net_book_value',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'mda_name', 'net_book_value']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         dims_enabled = is_dimensions_enabled(self.context)
-        if not dims_enabled:
+        if dims_enabled:
+            # PSA: MDA and Fund are MANDATORY for government assets
+            # Every asset must belong to an MDA for budget control
+            for field in ['mda', 'fund']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+
+            # Reporting dimensions — required for IPSAS reports
+            for field in ['function', 'program', 'geo']:
+                self.fields[field].required = True
+                self.fields[field].allow_null = False
+        else:
             for field in ['mda', 'fund', 'function', 'program', 'geo']:
                 self.fields[field].required = False
                 self.fields[field].allow_null = True
-                self.fields[field].allow_empty = True
 
 
 class DepreciationScheduleSerializer(serializers.ModelSerializer):
@@ -547,6 +834,10 @@ class BudgetAnomalySerializer(serializers.ModelSerializer):
 
 
 class BankAccountSerializer(serializers.ModelSerializer):
+    gl_account = serializers.PrimaryKeyRelatedField(
+        queryset=Account.objects.filter(is_active=True),
+        required=False, allow_null=True,
+    )
     gl_account_name = serializers.CharField(source='gl_account.name', read_only=True)
     gl_account_code = serializers.CharField(source='gl_account.code', read_only=True)
     currency_code = serializers.CharField(source='currency.code', read_only=True)
@@ -627,7 +918,7 @@ class TaxExemptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaxExemption
         fields = [
-            'id', 'tax_registration', 'customer', 'vendor',
+            'id', 'tax_registration', 'entity_name', 'vendor',
             'exemption_certificate', 'valid_from', 'valid_until', 'is_active',
         ]
         read_only_fields = ['id']
@@ -746,153 +1037,7 @@ class JournalLineCostCenterSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class InterCompanySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = InterCompany
-        fields = [
-            'id', 'name', 'company_code', 'default_currency', 'is_active',
-        ]
-        read_only_fields = ['id']
-
-
-class InterCompanyTransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = InterCompanyTransaction
-        fields = [
-            'id', 'inter_company', 'transaction_type', 'transaction_date',
-            'amount', 'currency', 'status', 'description',
-        ]
-        read_only_fields = ['id']
-
-
-class CompanySerializer(serializers.ModelSerializer):
-    parent_company_name = serializers.CharField(source='parent_company.name', read_only=True)
-    currency_code = serializers.CharField(source='currency.code', read_only=True)
-
-    class Meta:
-        model = Company
-        fields = [
-            'id', 'name', 'company_code', 'company_type', 'parent_company', 'parent_company_name',
-            'registration_number', 'tax_id', 'currency', 'currency_code',
-            'address', 'phone', 'email', 'is_active', 'is_internal',
-            'created_at', 'updated_at',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class InterCompanyConfigSerializer(serializers.ModelSerializer):
-    company_name = serializers.CharField(source='company.name', read_only=True)
-    partner_company_name = serializers.CharField(source='partner_company.name', read_only=True)
-    ar_account_name = serializers.CharField(source='ar_account.name', read_only=True)
-    ap_account_name = serializers.CharField(source='ap_account.name', read_only=True)
-    expense_account_name = serializers.CharField(source='expense_account.name', read_only=True)
-    revenue_account_name = serializers.CharField(source='revenue_account.name', read_only=True)
-
-    class Meta:
-        model = InterCompanyConfig
-        fields = [
-            'id', 'company', 'company_name', 'partner_company', 'partner_company_name',
-            'ar_account', 'ar_account_name', 'ap_account', 'ap_account_name',
-            'expense_account', 'expense_account_name', 'revenue_account', 'revenue_account_name',
-            'auto_post', 'auto_match', 'is_active',
-        ]
-        read_only_fields = ['id']
-
-
-class InterCompanyInvoiceSerializer(serializers.ModelSerializer):
-    from_company_name = serializers.CharField(source='from_company.name', read_only=True)
-    to_company_name = serializers.CharField(source='to_company.name', read_only=True)
-    currency_code = serializers.CharField(source='currency.code', read_only=True)
-    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
-
-    class Meta:
-        model = InterCompanyInvoice
-        fields = [
-            'id', 'invoice_number', 'from_company', 'from_company_name', 'to_company', 'to_company_name',
-            'invoice_date', 'due_date', 'total_amount', 'currency', 'currency_code',
-            'status', 'description', 'auto_posted', 'linked_journal',
-            'created_at', 'created_by', 'created_by_name',
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class InterCompanyTransferSerializer(serializers.ModelSerializer):
-    from_company_name = serializers.CharField(source='from_company.name', read_only=True)
-    to_company_name = serializers.CharField(source='to_company.name', read_only=True)
-
-    class Meta:
-        model = InterCompanyTransfer
-        fields = [
-            'id', 'transfer_number', 'from_company', 'from_company_name',
-            'to_company', 'to_company_name', 'transfer_date',
-            'items', 'total_value', 'status', 'auto_posted', 'created_at',
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class InterCompanyAllocationSerializer(serializers.ModelSerializer):
-    source_company_name = serializers.CharField(source='source_company.name', read_only=True)
-    currency_code = serializers.CharField(source='currency.code', read_only=True)
-
-    class Meta:
-        model = InterCompanyAllocation
-        fields = [
-            'id', 'allocation_number', 'source_company', 'source_company_name',
-            'allocation_date', 'total_amount', 'currency', 'currency_code',
-            'allocation_method', 'allocations', 'status', 'auto_posted', 'created_at',
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class InterCompanyCashTransferSerializer(serializers.ModelSerializer):
-    from_company_name = serializers.CharField(source='from_company.name', read_only=True)
-    to_company_name = serializers.CharField(source='to_company.name', read_only=True)
-    currency_code = serializers.CharField(source='currency.code', read_only=True)
-
-    class Meta:
-        model = InterCompanyCashTransfer
-        fields = [
-            'id', 'transfer_number', 'from_company', 'from_company_name',
-            'to_company', 'to_company_name', 'transfer_date', 'amount',
-            'currency', 'currency_code', 'exchange_rate', 'status',
-            'auto_posted', 'notes', 'created_at',
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class ConsolidationGroupSerializer(serializers.ModelSerializer):
-    companies_list = serializers.SerializerMethodField()
-    reporting_currency_code = serializers.CharField(source='reporting_currency.code', read_only=True)
-
-    class Meta:
-        model = ConsolidationGroup
-        fields = [
-            'id', 'name', 'companies', 'companies_list', 'consolidation_method',
-            'reporting_currency', 'reporting_currency_code', 'is_active', 'created_at',
-        ]
-        read_only_fields = ['id', 'created_at']
-
-    def get_companies_list(self, obj):
-        return [{'id': c.id, 'name': c.name, 'code': c.company_code} for c in obj.companies.all()]
-
-
-class ConsolidationRunSerializer(serializers.ModelSerializer):
-    group_name = serializers.CharField(source='group.name', read_only=True)
-    period_info = serializers.SerializerMethodField()
-    run_by_name = serializers.CharField(source='run_by.username', read_only=True)
-
-    class Meta:
-        model = ConsolidationRun
-        fields = [
-            'id', 'group', 'group_name', 'period', 'period_info', 'run_date',
-            'status', 'total_assets', 'total_liabilities', 'total_equity',
-            'total_revenue', 'total_expenses', 'elimination_entries',
-            'consolidated_data', 'error_message', 'run_by', 'run_by_name',
-        ]
-        read_only_fields = ['id']
-
-    def get_period_info(self, obj):
-        return f"FY{obj.period.fiscal_year} - P{obj.period.period_number}"
+# Intercompany & Consolidation serializers — REMOVED for public sector
 
 
 class FinancialReportTemplateSerializer(serializers.ModelSerializer):
@@ -921,21 +1066,11 @@ class AccountingDocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'uploaded_at']
 
 
-class ConsolidationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Consolidation
-        fields = [
-            'id', 'group', 'period', 'consolidation_date', 'status',
-            'total_assets', 'total_liabilities', 'total_equity',
-        ]
-        read_only_fields = ['id']
-
-
 class DeferredRevenueSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeferredRevenue
         fields = [
-            'id', 'name', 'customer', 'initial_amount', 'start_date',
+            'id', 'name', 'payer_name', 'initial_amount', 'start_date',
             'recognition_periods', 'recognized_amount', 'is_active',
         ]
         read_only_fields = ['id']
@@ -1009,11 +1144,16 @@ class LoanRepaymentSerializer(serializers.ModelSerializer):
 
 
 class ExchangeRateHistorySerializer(serializers.ModelSerializer):
+    from_currency_code = serializers.CharField(source='from_currency.code', read_only=True)
+    to_currency_code = serializers.CharField(source='to_currency.code', read_only=True)
+
     class Meta:
         model = ExchangeRateHistory
         fields = [
             'id', 'from_currency', 'to_currency', 'rate_date',
+            'rate_valid_from', 'rate_valid_to',
             'exchange_rate',
+            'from_currency_code', 'to_currency_code',
         ]
         read_only_fields = ['id']
 
@@ -1230,10 +1370,12 @@ class AssetMaintenanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssetMaintenance
         fields = [
-            'id', 'asset', 'maintenance_type', 'scheduled_date',
-            'completed_date', 'cost', 'description',
+            'id', 'asset', 'maintenance_type', 'status',
+            'scheduled_date', 'completed_date',
+            'labor_cost', 'parts_cost', 'external_cost', 'total_cost',
+            'vendor', 'description',
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'total_cost']
 
 
 class AssetTransferSerializer(serializers.ModelSerializer):
@@ -1341,8 +1483,8 @@ class RecurringJournalSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecurringJournal
         fields = ['id', 'name', 'code', 'description', 'frequency', 'start_date',
-                  'start_type', 'scheduled_posting_date', 'end_date', 'next_run_date', 
-                  'is_active', 'auto_post', 
+                  'start_type', 'scheduled_posting_date', 'end_date', 'next_run_date',
+                  'is_active', 'auto_post',
                   'use_month_end_default', 'auto_reverse_on_month_start', 'code_prefix',
                   'fund', 'fund_name', 'function', 'function_name',
                   'program', 'program_name', 'geo', 'geo_name', 'lines',
@@ -1374,15 +1516,15 @@ class AccrualSerializer(serializers.ModelSerializer):
         model = Accrual
         fields = ['id', 'name', 'code', 'accrual_type', 'account', 'account_name', 'account_code',
                   'counterpart_account', 'counterpart_name', 'counterpart_code', 'amount', 'period', 'period_name',
-                  'description', 'source_document', 
+                  'description', 'source_document',
                   'posting_date', 'reversal_date',
-                  'is_reversed', 'reversal_journal', 'reversal_journal_number', 
+                  'is_reversed', 'reversal_journal', 'reversal_journal_number',
                   'auto_reverse', 'auto_reverse_on_month_start', 'use_default_dates',
                   'is_posted', 'journal_entry', 'journal_number',
                   'recurring_journal', 'recurring_journal_name',
                   'created_at', 'updated_at', 'created_by', 'updated_by']
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'code']
-    
+
     def get_period_name(self, obj):
         if not obj.period:
             return ''
@@ -1398,7 +1540,7 @@ class DeferralRecognitionSerializer(serializers.ModelSerializer):
         fields = ['id', 'deferral', 'period', 'period_name', 'recognition_date',
                   'amount', 'journal_entry', 'journal_number', 'is_posted']
         read_only_fields = ['id']
-    
+
     def get_period_name(self, obj):
         if not obj.period:
             return ''
@@ -1415,14 +1557,14 @@ class DeferralSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Deferral
-        fields = ['id', 'name', 'code', 'deferral_type', 
+        fields = ['id', 'name', 'code', 'deferral_type',
                   'account', 'account_name', 'account_code',
                   'counterpart_account', 'counterpart_name', 'counterpart_code',
-                  'original_amount', 'remaining_amount', 'recognition_amount', 
+                  'original_amount', 'remaining_amount', 'recognition_amount',
                   'start_date', 'recognition_periods', 'current_period',
                   'auto_recognize', 'auto_recognize_on_month_start',
-                  'description', 'source_document', 
-                  'is_active', 'is_fully_recognized', 
+                  'description', 'source_document',
+                  'is_active', 'is_fully_recognized',
                   'recurring_journal', 'recurring_journal_name',
                   'recognitions',
                   'created_at', 'updated_at', 'created_by', 'updated_by']
@@ -1443,20 +1585,15 @@ class PeriodStatusSerializer(serializers.ModelSerializer):
 
 
 class YearEndClosingSerializer(serializers.ModelSerializer):
-    closing_journal_number = serializers.CharField(source='closing_journal.journal_number', read_only=True)
-    opening_journal_number = serializers.CharField(source='opening_journal.journal_number', read_only=True)
-    closed_by_name = serializers.CharField(source='closed_by.username', read_only=True)
-
     class Meta:
         model = YearEndClosing
         fields = ['id', 'fiscal_year', 'closing_date', 'status',
-                  'income_summary_debit', 'income_summary_credit', 'net_income',
-                  'retained_earnings_debit', 'retained_earnings_credit',
-                  'closing_journal', 'closing_journal_number',
-                  'opening_journal', 'opening_journal_number',
-                  'closed_by', 'closed_by_name', 'closed_date', 'notes',
-                  'created_at', 'updated_at', 'created_by', 'updated_by']
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+                  'revenue_total', 'expense_total', 'net_income',
+                  'retained_earnings_before', 'retained_earnings_after',
+                  'closing_journal_id', 'net_income_journal_id',
+                  'next_fiscal_year', 'notes',
+                  'created_by', 'created_at', 'approved_by', 'approved_at']
+        read_only_fields = ['id', 'created_at', 'approved_at']
 
 
 class CurrencyRevaluationSerializer(serializers.ModelSerializer):
@@ -1490,16 +1627,24 @@ class AccountingSettingsSerializer(serializers.ModelSerializer):
     default_currency_2_detail = CurrencySerializer(source='default_currency_2', read_only=True)
     default_currency_3_detail = CurrencySerializer(source='default_currency_3', read_only=True)
     default_currency_4_detail = CurrencySerializer(source='default_currency_4', read_only=True)
+    default_currency_5_detail = CurrencySerializer(source='default_currency_5', read_only=True)
 
     class Meta:
         model = AccountingSettings
         fields = [
             'id', 'account_code_digits', 'is_digit_enforcement_active',
             'account_number_series',
+            # Workflow flag: when True, outgoing Payments require a PV
+            # reference. Read by the frontend Outgoing Payment form to
+            # toggle the PV picker between optional and mandatory.
+            'require_pv_before_payment',
             'default_currency_1', 'default_currency_2',
             'default_currency_3', 'default_currency_4',
+            'default_currency_5',
             'default_currency_1_detail', 'default_currency_2_detail',
             'default_currency_3_detail', 'default_currency_4_detail',
+            'default_currency_5_detail',
+            'require_vendor_registration_invoice',
             'enable_sales_downpayment', 'downpayment_default_type',
             'downpayment_default_value', 'downpayment_gl_account',
         ]
@@ -1535,7 +1680,7 @@ class CreditNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreditNote
         fields = [
-            'id', 'credit_note_number', 'customer', 'customer_name',
+            'id', 'credit_note_number', 'customer_name',
             'original_invoice', 'original_invoice_number',
             'credit_note_date', 'reason', 'reason_type',
             'subtotal', 'tax_amount', 'total_amount',
@@ -1543,6 +1688,12 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             'created_by', 'created_at', 'journal_id', 'currency_code',
         ]
         read_only_fields = ['id', 'created_at', 'journal_id']
+
+    def create(self, validated_data):
+        if not validated_data.get('currency_code'):
+            from accounting.utils import get_base_currency_code
+            validated_data['currency_code'] = get_base_currency_code()
+        return super().create(validated_data)
 
 
 class DebitNoteSerializer(serializers.ModelSerializer):
@@ -1557,6 +1708,12 @@ class DebitNoteSerializer(serializers.ModelSerializer):
             'created_by', 'created_at', 'journal_id', 'currency_code',
         ]
         read_only_fields = ['id', 'created_at', 'journal_id']
+
+    def create(self, validated_data):
+        if not validated_data.get('currency_code'):
+            from accounting.utils import get_base_currency_code
+            validated_data['currency_code'] = get_base_currency_code()
+        return super().create(validated_data)
 
 
 class BadDebtProvisionSerializer(serializers.ModelSerializer):
@@ -1577,7 +1734,7 @@ class BadDebtWriteOffSerializer(serializers.ModelSerializer):
     class Meta:
         model = BadDebtWriteOff
         fields = [
-            'id', 'write_off_number', 'customer', 'customer_name',
+            'id', 'write_off_number', 'customer_name',
             'original_invoice', 'original_invoice_number',
             'write_off_date', 'invoice_date', 'invoice_amount',
             'amount_paid', 'amount_written_off', 'reason',

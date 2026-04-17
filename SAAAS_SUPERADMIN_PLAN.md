@@ -1,4 +1,4 @@
-# DTSG ERP SaaS SuperAdmin Dashboard Enhancement Plan
+# QUOT ERP SaaS SuperAdmin Dashboard Enhancement Plan
 ## Comprehensive Feature Implementation Plan
 
 ---

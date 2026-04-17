@@ -1,4 +1,4 @@
-# DTSG ERP Comprehensive Module Review & Implementation Plan
+# QUOT ERP Comprehensive Module Review & Implementation Plan
 
 ## Multi-Role Analysis: Production, Maintenance, QA, and Approval Systems
 

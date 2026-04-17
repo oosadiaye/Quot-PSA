@@ -1,8 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
-from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField
 from django.db.models.functions import Coalesce
 from django.db import transaction
@@ -10,7 +8,6 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import pandas as pd
 from core.permissions import IsApprover
-from .common import AccountingPagination
 from ..models import (
     BudgetPeriod, Budget, BudgetEncumbrance, BudgetAmendment, BudgetTransfer,
     BudgetCheckLog, BudgetForecast, BudgetAnomaly, GLBalance,
@@ -240,7 +237,6 @@ class BudgetViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def variance_analysis(self, request):
         """Get budget vs actual variance analysis - Optimized with aggregation"""
-        from django.db.models import DecimalField
 
         period_id = request.query_params.get('period')
         if not period_id:

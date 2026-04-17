@@ -2,7 +2,6 @@ import logging
 
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login
-from django.utils import timezone
 from django_tenants.utils import schema_context
 from rest_framework.authtoken.models import Token
 

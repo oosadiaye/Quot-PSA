@@ -33,7 +33,9 @@ from .views import (
     pending_payments_list,
     tenant_settings_api, tenant_company_api, tenant_public_branding_api,
     tenant_branding_api, tenant_email_api, tenant_payment_methods_api,
-    tenant_modules_api
+    tenant_modules_api,
+    configure_government,
+    isolation_mode,
 )
 
 router = DefaultRouter()
@@ -65,4 +67,8 @@ urlpatterns = [
     path('available-modules/', available_modules, name='available-modules'),
     path('tenant-modules/', tenant_modules, name='tenant-modules'),
     path('pending-payments/', pending_payments_list, name='pending-payments'),
+
+    # Government Configuration (Quot PSE)
+    path('configure-government/', configure_government, name='configure-government'),
+    path('isolation-mode/', isolation_mode, name='isolation-mode'),
 ]

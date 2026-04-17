@@ -1,0 +1,52 @@
+# Keep the runtime image small and never bake PII/secrets into it.
+
+# VCS + CI
+.git
+.github
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Virtualenvs
+.venv
+venv
+env
+
+# Node + frontend build (frontend is built elsewhere and served separately)
+frontend/node_modules
+frontend/dist
+
+# IDE
+.vscode
+.idea
+
+# Docs + planning (never needed at runtime)
+*.md
+docs/
+scripts/diagnostics/
+
+# Media + logs (handled via volumes in prod)
+media/
+logs/
+*.log
+
+# Session captures + developer-local state
+auth_state.txt
+users_tenants_roles.txt
+*.sqlite3
+.env
+.env.*
+!.env.example
+
+# Django + Celery
+staticfiles/
+celerybeat-schedule*

@@ -4,6 +4,7 @@ import LoadingScreen from '../../../../components/common/LoadingScreen';
 import { useBudgetPeriods } from '../hooks/useBudgetPeriods';
 import { useVarianceAnalysis } from '../hooks/useBudgetAnalytics';
 import { useCurrency } from '../../../../context/CurrencyContext';
+import { useNCoASegments } from '../../../../hooks/useGovForms';
 import { Download, TrendingDown, TrendingUp, BarChart3 } from 'lucide-react';
 import '../../styles/glassmorphism.css';
 
@@ -18,10 +19,13 @@ const selectStyle: React.CSSProperties = {
 };
 
 export const VarianceAnalysis: React.FC = () => {
+    const [selectedYear, setSelectedYear] = useState<number | undefined>();
     const [selectedPeriod, setSelectedPeriod] = useState<number | undefined>();
+    const [selectedMda, setSelectedMda] = useState<number | undefined>();
     const [compareToPeriod, setCompareToPeriod] = useState<number | undefined>();
 
     const { periods, isLoading: periodsLoading } = useBudgetPeriods();
+    const { data: segments } = useNCoASegments();
     const { currencySymbol } = useCurrency();
     const { data: varianceData, isLoading: varianceLoading } = useVarianceAnalysis(
         selectedPeriod || null,
@@ -118,53 +122,71 @@ export const VarianceAnalysis: React.FC = () => {
                 </button>
             </div>
 
-            {/* Period Selectors */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div className="glass-card" style={{ padding: '1rem' }}>
-                    <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
-                        Budget Period
-                    </label>
-                    <select
-                        value={selectedPeriod || ''}
-                        onChange={(e) => setSelectedPeriod(Number(e.target.value) || undefined)}
-                        style={selectStyle}
-                    >
-                        <option value="">Select budget period</option>
-                        {(periods || []).map((p: any) => (
-                            <option key={p.id} value={p.id}>
-                                FY{p.fiscal_year} - {p.period_type === 'ANNUAL' ? 'Annual' : p.period_type === 'QUARTERLY' ? `Q${p.period_number}` : `Month ${p.period_number}`}
-                                {p.status === 'ACTIVE' ? ' (Active)' : ''}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                <div className="glass-card" style={{ padding: '1rem' }}>
-                    <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
-                        Compare To (Optional)
-                    </label>
-                    <select
-                        value={compareToPeriod || ''}
-                        onChange={(e) => setCompareToPeriod(Number(e.target.value) || undefined)}
-                        style={selectStyle}
-                    >
-                        <option value="">Select period to compare</option>
-                        {(periods || [])
-                            .filter((p: any) => p.id !== selectedPeriod)
-                            .map((p: any) => (
-                                <option key={p.id} value={p.id}>
-                                    FY{p.fiscal_year} - {p.period_type}
-                                </option>
+            {/* Fiscal Year + Period Selectors */}
+            <div className="glass-card" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                            Fiscal Year <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <select value={selectedYear || ''} onChange={e => { setSelectedYear(Number(e.target.value) || undefined); setSelectedPeriod(undefined); }} style={selectStyle}>
+                            <option value="">Select fiscal year...</option>
+                            {[...new Set((periods || []).map((p: any) => p.fiscal_year))].sort((a: number, b: number) => b - a).map((yr: any) => (
+                                <option key={yr} value={yr}>FY {yr}</option>
                             ))}
-                    </select>
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                            Period <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <select value={selectedPeriod || ''} onChange={e => setSelectedPeriod(Number(e.target.value) || undefined)} style={selectStyle} disabled={!selectedYear}>
+                            <option value="">{selectedYear ? 'All Periods (Annual)' : 'Select year first'}</option>
+                            {(periods || [])
+                                .filter((p: any) => p.fiscal_year === selectedYear)
+                                .map((p: any) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.period_type === 'ANNUAL' ? 'Annual' : p.period_type === 'QUARTERLY' ? `Q${p.period_number}` : `Month ${p.period_number}`}
+                                        {p.status === 'ACTIVE' ? ' (Active)' : ''}
+                                    </option>
+                                ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                            MDA <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <select value={selectedMda || ''} onChange={e => setSelectedMda(Number(e.target.value) || undefined)} style={selectStyle}>
+                            <option value="">All MDAs</option>
+                            {(segments?.administrative || []).map((s: any) => (
+                                <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                            Compare To <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <select value={compareToPeriod || ''} onChange={e => setCompareToPeriod(Number(e.target.value) || undefined)} style={selectStyle}>
+                            <option value="">No comparison</option>
+                            {(periods || [])
+                                .filter((p: any) => p.id !== selectedPeriod)
+                                .map((p: any) => (
+                                    <option key={p.id} value={p.id}>
+                                        FY{p.fiscal_year} - {p.period_type === 'ANNUAL' ? 'Annual' : `Month ${p.period_number}`}
+                                    </option>
+                                ))}
+                        </select>
+                    </div>
                 </div>
             </div>
 
-            {!selectedPeriod ? (
+            {!selectedYear ? (
                 <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
                     <BarChart3 size={48} style={{ margin: '0 auto 1rem', opacity: 0.5, display: 'block', color: 'var(--color-text-muted)' }} />
-                    <h3 style={{ color: 'var(--color-text)', marginBottom: '0.5rem' }}>Select a Budget Period</h3>
+                    <h3 style={{ color: 'var(--color-text)', marginBottom: '0.5rem' }}>Select a Fiscal Year</h3>
                     <p style={{ color: 'var(--color-text-muted)', margin: 0, fontSize: 'var(--text-sm)' }}>
-                        Please select a budget period to view variance analysis.
+                        Select a fiscal year to view budget vs actual variance analysis.
                     </p>
                 </div>
             ) : (

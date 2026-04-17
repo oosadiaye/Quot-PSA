@@ -10,7 +10,6 @@ from accounting.models import (
     AccountingSettings,
 )
 from procurement.models import Vendor
-from sales.models import Customer
 
 class Command(BaseCommand):
     help = 'Seed demo accounting data for testing'
@@ -32,7 +31,7 @@ class Command(BaseCommand):
                 function = Function.objects.first()
                 program = Program.objects.first()
                 geo = Geo.objects.first()
-                
+
                 if not all([fund, function, program, geo]):
                     self.stdout.write(self.style.ERROR('ERROR: Missing required dimensions (Fund, Function, Program, Geo).'))
                     self.stdout.write(self.style.WARNING('Please run seed_demo_data command first to create dimensions.'))
@@ -49,10 +48,10 @@ class Command(BaseCommand):
                 revenue_account = Account.objects.filter(code__startswith='401').first()
                 expense_account = Account.objects.filter(code__startswith='501').first()
                 asset_account = Account.objects.filter(code__startswith='103').first()
-                
+
                 if not all([cash_account, ar_account, ap_account, revenue_account, expense_account, asset_account]):
                     self.stdout.write(self.style.WARNING('WARNING: Some accounts not found. Creating default accounts...'))
-                    
+
                     # Create minimal accounts if they don't exist
                     cash_account, _ = Account.objects.get_or_create(
                         code='10100000',
@@ -138,7 +137,7 @@ class Command(BaseCommand):
                         invoice_date = timezone.now().date() - timedelta(days=30 + i * 10 + j * 5)
                         due_date = invoice_date + timedelta(days=30)
                         amount = Decimal(str(1000 + i * 500 + j * 250))
-                        
+
                         invoice, created = VendorInvoice.objects.get_or_create(
                             invoice_number=f'VINV-{i+1:03d}-{j+1}',
                             defaults={
@@ -159,49 +158,13 @@ class Command(BaseCommand):
                         if created:
                             self.stdout.write(self.style.SUCCESS(f'  ✓ Created vendor invoice: {invoice.invoice_number}'))
 
-            # 3. Seed Customer Invoices (AR)
-            self.stdout.write('Creating customer invoices...')
-            customers = list(Customer.objects.all()[:5])
-            if not customers:
-                self.stdout.write(self.style.WARNING('  ! No customers found. Run seed_demo_data first.'))
-            else:
-                statuses = ['Draft', 'Sent', 'Partially Paid', 'Paid', 'Overdue']
-                for i, customer in enumerate(customers):
-                    for j in range(2):  # 2 invoices per customer
-                        invoice_date = timezone.now().date() - timedelta(days=45 + i * 10 + j * 5)
-                        due_date = invoice_date + timedelta(days=30)
-                        amount = Decimal(str(2000 + i * 750 + j * 300))
-                        
-                        # Make some invoices overdue
-                        status = 'Overdue' if (due_date < timezone.now().date() and j == 0) else statuses[j % (len(statuses) - 1)]
-                        
-                        invoice, created = CustomerInvoice.objects.get_or_create(
-                            invoice_number=f'CINV-{i+1:03d}-{j+1}',
-                            defaults={
-                                'customer': customer,
-                                'invoice_date': invoice_date,
-                                'due_date': due_date,
-                                'subtotal': amount,
-                                'tax_amount': Decimal('0.00'),
-                                'total_amount': amount,
-                                'currency': ngn,
-                                'status': status,
-                                'fund': fund,
-                                'function': function,
-                                'program': program,
-                                'geo': geo
-                            }
-                        )
-                        if created:
-                            self.stdout.write(self.style.SUCCESS(f'  ✓ Created customer invoice: {invoice.invoice_number}'))
-
-            # 4. Seed Fixed Assets
+            # 3. Seed Fixed Assets (Customer invoices skipped — sales module removed)
             self.stdout.write('Creating fixed assets...')
-            
+
             # Get depreciation accounts — use exact codes matching seed_coa.py entries
             depreciation_expense_account = Account.objects.filter(code='66100000').first()
             accumulated_depreciation_account = Account.objects.filter(code='12306000').first()
-            
+
             if not depreciation_expense_account:
                 depreciation_expense_account, _ = Account.objects.get_or_create(
                     code='66100000',
@@ -212,7 +175,7 @@ class Command(BaseCommand):
                     code='12306000',
                     defaults={'name': 'Accumulated Depreciation - Equipment', 'account_type': 'Asset', 'is_active': True}
                 )
-            
+
             assets_data = [
                 {'name': 'Dell Latitude Laptop', 'category': 'IT', 'tag': 'IT-001', 'cost': '1200', 'life': 3},
                 {'name': 'HP LaserJet Printer', 'category': 'IT', 'tag': 'IT-002', 'cost': '800', 'life': 5},
@@ -227,13 +190,13 @@ class Command(BaseCommand):
                 acquisition_date = timezone.now().date() - timedelta(days=365 + i * 60)
                 cost = Decimal(asset_data['cost'])
                 useful_life = asset_data['life']
-                
+
                 # Calculate depreciation (straight-line)
                 days_owned = (timezone.now().date() - acquisition_date).days
                 years_owned = days_owned / 365.25
                 annual_depreciation = cost / useful_life
                 accumulated_depreciation = min(annual_depreciation * Decimal(str(years_owned)), cost)
-                
+
                 asset, created = FixedAsset.objects.get_or_create(
                     asset_number=asset_data['tag'],
                     defaults={
@@ -260,7 +223,7 @@ class Command(BaseCommand):
             self.stdout.write('Creating GL balances...')
             current_year = timezone.now().year
             current_period = timezone.now().month
-            
+
             # Create sample balances for key accounts
             balances_data = [
                 {'account': cash_account, 'debit': '50000', 'credit': '0'},

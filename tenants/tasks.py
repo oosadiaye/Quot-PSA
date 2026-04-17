@@ -31,9 +31,21 @@ def create_tenant_schema(self, tenant_id):
         # django-tenants creates the schema and runs migrations
         # when auto_create_schema=True on save(). If we want manual control:
         from django.core.management import call_command
+        from django_tenants.utils import schema_context
+
         call_command('migrate_schemas', '--schema', tenant.schema_name, verbosity=0)
 
-        logger.info('Schema created and migrated for tenant %s (%s)',
+        # Seed the Chart of Accounts so every module's GL posting works
+        # from day one. Uses get_or_create internally, so safe to re-run.
+        with schema_context(tenant.schema_name):
+            call_command('seed_coa', '--validate', verbosity=0)
+
+        # Seed tenant defaults: warehouse, asset categories, UOMs, base currency
+        with schema_context(tenant.schema_name):
+            from core.management.commands.seed_tenant_defaults import seed_defaults
+            seed_defaults(tenant_name=tenant.name)
+
+        logger.info('Schema created, migrated, COA + defaults seeded for tenant %s (%s)',
                      tenant.schema_name, tenant_id)
     except Client.DoesNotExist:
         logger.error('Tenant %s does not exist', tenant_id)

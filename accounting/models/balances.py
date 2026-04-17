@@ -1,9 +1,9 @@
 from datetime import date
 from decimal import Decimal
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 from django.core.validators import MinValueValidator
-from core.models import AuditBaseModel, ImmutableModelMixin
+from core.models import AuditBaseModel
 from django.contrib.auth.models import User
 
 
@@ -13,18 +13,45 @@ class GLBalance(models.Model):
     function = models.ForeignKey('accounting.Function', on_delete=models.PROTECT, null=True, blank=True)
     program = models.ForeignKey('accounting.Program', on_delete=models.PROTECT, null=True, blank=True)
     geo = models.ForeignKey('accounting.Geo', on_delete=models.PROTECT, null=True, blank=True)
+    # S3-05 — MDA dimension added so budget "actual expended" can be
+    # attributed to the correct administrative unit. Previously budget
+    # execution rolled up shared expense accounts across ALL MDAs,
+    # producing wrong budget-vs-actual numbers for any multi-MDA tenant.
+    # Nullable so legacy rows load; posting services write the MDA on
+    # every new balance row.
+    mda = models.ForeignKey(
+        'accounting.MDA', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='gl_balances',
+    )
     fiscal_year = models.IntegerField(db_index=True, default=0)
     period = models.IntegerField(default=0)
     debit_balance = models.DecimalField(max_digits=19, decimal_places=2, default=0)
     credit_balance = models.DecimalField(max_digits=19, decimal_places=2, default=0)
 
     class Meta:
-        unique_together = ['account', 'fund', 'function', 'program', 'geo', 'fiscal_year', 'period']
+        # S3-05 — uniqueness now includes MDA. Different MDAs sharing
+        # the same economic account maintain separate balance rows.
+        unique_together = ['account', 'fund', 'function', 'program', 'geo', 'mda', 'fiscal_year', 'period']
         ordering = ['fiscal_year', 'period', 'account__code']
         indexes = [
             models.Index(fields=['fiscal_year', 'period']),
             models.Index(fields=['account', 'fiscal_year']),
             models.Index(fields=['fund', 'fiscal_year', 'period']),
+            models.Index(fields=['mda', 'fiscal_year', 'period']),
+            models.Index(fields=['mda', 'account', 'fiscal_year']),
+        ]
+        # S5-03 — granular permission for IPSAS report access. Granting
+        # ``view_journalheader`` implicitly grants this (see
+        # ``accounting.permissions.CanViewFinancialStatements``) so
+        # existing deployments remain unaffected, but new Auditor-General
+        # and Finance Commissioner roles can be wired to this specific
+        # permission without giving full ledger access.
+        permissions = [
+            (
+                'view_financial_statements',
+                'Can view IPSAS financial statements (SoFP, SoFPerformance, '
+                'Cash Flow, Changes in Net Assets, Notes, Budget-vs-Actual)',
+            ),
         ]
 
     @property

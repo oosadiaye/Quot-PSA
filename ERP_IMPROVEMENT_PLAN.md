@@ -1,4 +1,4 @@
-# DTSG ERP Comprehensive Improvement Plan
+# QUOT ERP Comprehensive Improvement Plan
 ## Backend, Frontend, Security, Performance & UI/UX
 
 ---

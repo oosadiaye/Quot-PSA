@@ -1,34 +1,33 @@
 import { useState, useEffect } from 'react';
-import { Hash, Sprout, Save, Loader2 } from 'lucide-react';
-import PageHeader from '../../components/PageHeader';
+import {
+    Save, Loader2, Check, AlertCircle, Receipt, Banknote,
+} from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
 import SettingsLayout from './SettingsLayout';
-import GlassCard from '../accounting/components/shared/GlassCard';
-import '../accounting/styles/glassmorphism.css';
 
 interface AccountingSettingsData {
     id: number;
-    account_code_digits: number;
-    is_digit_enforcement_active: boolean;
-}
-
-interface SeedResult {
-    success: boolean;
-    created: number;
-    skipped: number;
-    total_seed: number;
+    require_vendor_registration_invoice: boolean;
+    // When true, outgoing Payments MUST reference a PV. When false,
+    // verifiers can raise direct payments from vendor invoices.
+    require_pv_before_payment: boolean;
 }
 
 const SETTINGS_URL = '/accounting/settings/';
-const SEED_URL = '/accounting/settings/seed-coa/';
+
+// ── Styles ───────────────────────────────────────────────────
+const cardStyle: React.CSSProperties = {
+    background: 'white', borderRadius: '20px', padding: '28px 32px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
+};
 
 export default function AccountingSettingsPage() {
     const queryClient = useQueryClient();
-    const [digits, setDigits] = useState(8);
-    const [enforced, setEnforced] = useState(false);
-    const [saveMsg, setSaveMsg] = useState('');
-    const [seedResult, setSeedResult] = useState<SeedResult | null>(null);
+    const [requireVendorInvoice, setRequireVendorInvoice] = useState(true);
+    const [requirePvBeforePayment, setRequirePvBeforePayment] = useState(false);
+    const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
     const { data: settings, isLoading } = useQuery<AccountingSettingsData>({
         queryKey: ['accounting-settings'],
@@ -40,58 +39,43 @@ export default function AccountingSettingsPage() {
 
     useEffect(() => {
         if (settings) {
-            setDigits(settings.account_code_digits);
-            setEnforced(settings.is_digit_enforcement_active);
+            setRequireVendorInvoice(settings.require_vendor_registration_invoice ?? true);
+            setRequirePvBeforePayment(settings.require_pv_before_payment ?? false);
         }
     }, [settings]);
 
     const saveMutation = useMutation({
         mutationFn: async () => {
-            const res = await apiClient.put(SETTINGS_URL, {
-                account_code_digits: digits,
-                is_digit_enforcement_active: enforced,
+            // PATCH rather than PUT: we only want to update the toggles we own,
+            // not overwrite unrelated settings (currencies, digit rules, etc.)
+            // that this page doesn't surface. PATCH is partial update.
+            const res = await apiClient.patch(SETTINGS_URL, {
+                require_vendor_registration_invoice: requireVendorInvoice,
+                require_pv_before_payment: requirePvBeforePayment,
             });
             return res.data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['accounting-settings'] });
-            setSaveMsg('Settings saved successfully.');
-            setTimeout(() => setSaveMsg(''), 3000);
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoice-gate'] });
+            setSaveMsg({ text: 'Settings saved successfully', type: 'success' });
+            setTimeout(() => setSaveMsg(null), 4000);
         },
         onError: () => {
-            setSaveMsg('Failed to save settings.');
-            setTimeout(() => setSaveMsg(''), 3000);
+            setSaveMsg({ text: 'Failed to save settings', type: 'error' });
+            setTimeout(() => setSaveMsg(null), 4000);
         },
     });
-
-    const seedMutation = useMutation({
-        mutationFn: async () => {
-            const res = await apiClient.post(SEED_URL);
-            return res.data as SeedResult;
-        },
-        onSuccess: (data) => {
-            setSeedResult(data);
-            queryClient.invalidateQueries({ queryKey: ['accounts'] });
-        },
-        onError: () => {
-            setSeedResult(null);
-        },
-    });
-
-    const previewCodes = [
-        { prefix: '1', label: 'Assets', example: '1' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-        { prefix: '2', label: 'Liabilities', example: '2' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-        { prefix: '3', label: 'Equity', example: '3' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-        { prefix: '4', label: 'Income', example: '4' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-        { prefix: '5', label: 'COGS / Production', example: '5' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-        { prefix: '6', label: 'General Expenses', example: '6' + '001'.padEnd(digits - 1, '0').slice(0, digits - 1) },
-    ];
 
     if (isLoading) {
         return (
             <SettingsLayout>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
-                    <Loader2 size={32} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    minHeight: '400px', gap: '12px', color: '#94a3b8',
+                }}>
+                    <Loader2 size={28} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Loading settings...</span>
                 </div>
             </SettingsLayout>
         );
@@ -99,151 +83,230 @@ export default function AccountingSettingsPage() {
 
     return (
         <SettingsLayout>
-            <PageHeader
-                title="Chart of Account Settings"
-                subtitle="Configure chart of accounts structure and digit enforcement for this tenant."
-                icon={<Hash size={22} color="white" />}
-                backButton={false}
-            />
-
-            {/* CoA Digit Controller */}
-            <GlassCard style={{ marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                    <Hash size={20} style={{ color: '#2471a3' }} />
-                    <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>Digit Controller</h2>
+            {/* ── Vendor Registration Invoice Gate ────────── */}
+            <div style={{ ...cardStyle, marginBottom: '24px' }}>
+                <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '16px',
+                    marginBottom: '24px', paddingBottom: '20px',
+                    borderBottom: '1px solid #f1f5f9',
+                }}>
+                    <div style={{
+                        width: '48px', height: '48px', borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #7c3aed10, #7c3aed06)',
+                        border: '1.5px solid #7c3aed20',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <Receipt size={22} color="#7c3aed" />
+                    </div>
+                    <div>
+                        <h2 style={{
+                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            margin: '0 0 4px 0', letterSpacing: '-0.2px',
+                        }}>
+                            Vendor Registration Invoice
+                        </h2>
+                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                            Controls whether new vendors must pay a registration invoice before activation.
+                            When disabled, vendors are created as active immediately — useful during initial setup.
+                        </p>
+                    </div>
                 </div>
 
-                <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-                    Set the strict number of digits for all account codes. When enforcement is active,
-                    new accounts must have exactly the selected number of digits.
-                </p>
-
-                <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Account Code Digits
-                        </label>
-                        <select
-                            className="glass-input"
-                            value={digits}
-                            onChange={(e) => setDigits(Number(e.target.value))}
-                            style={{ width: '120px', padding: '0.5rem 0.75rem', fontSize: 'var(--text-sm)' }}
-                        >
-                            {[4, 5, 6, 7, 8, 9, 10].map((d) => (
-                                <option key={d} value={d}>{d} digits</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Digit Enforcement
-                        </label>
-                        <div
-                            onClick={() => setEnforced(!enforced)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', userSelect: 'none' }}
-                        >
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '20px',
+                    padding: '16px 20px', borderRadius: '14px',
+                    background: requireVendorInvoice ? '#f5f3ff' : '#f8fafc',
+                    border: `1.5px solid ${requireVendorInvoice ? '#ddd6fe' : '#e2e8f0'}`,
+                    transition: 'all 0.3s',
+                }}>
+                    <button
+                        type="button"
+                        onClick={() => setRequireVendorInvoice(!requireVendorInvoice)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '12px',
+                            padding: '0', border: 'none', background: 'none',
+                            cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                    >
+                        <div style={{
+                            width: '44px', height: '24px', borderRadius: '12px',
+                            background: requireVendorInvoice
+                                ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
+                                : '#cbd5e1',
+                            transition: 'background 0.25s', position: 'relative',
+                            boxShadow: requireVendorInvoice ? '0 2px 8px rgba(124, 58, 237, 0.3)' : 'none',
+                        }}>
                             <div style={{
-                                width: '44px', height: '24px', borderRadius: '12px',
-                                background: enforced ? '#2471a3' : 'var(--color-border)',
-                                transition: 'background 0.2s', position: 'relative',
-                            }}>
-                                <div style={{
-                                    width: '18px', height: '18px', borderRadius: '50%', background: 'white',
-                                    position: 'absolute', top: '3px', left: enforced ? '23px' : '3px',
-                                    transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </div>
-                            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: enforced ? '#2471a3' : 'var(--color-text-muted)' }}>
-                                {enforced ? 'Active' : 'Inactive'}
-                            </span>
+                                width: '18px', height: '18px', borderRadius: '50%',
+                                background: 'white', position: 'absolute',
+                                top: '3px', left: requireVendorInvoice ? '23px' : '3px',
+                                transition: 'left 0.25s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                            }} />
+                        </div>
+                    </button>
+                    <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireVendorInvoice ? '#7c3aed' : '#64748b' }}>
+                            {requireVendorInvoice ? 'Enabled' : 'Disabled'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                            {requireVendorInvoice
+                                ? 'New vendors start inactive. Registration invoice + payment required before activation.'
+                                : 'New vendors are created active immediately. No invoice gate — finance team can proceed without interruption.'}
                         </div>
                     </div>
                 </div>
 
-                <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Code Preview ({digits} digits)
-                    </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.5rem' }}>
-                        {previewCodes.map((p) => (
-                            <div key={p.prefix} style={{
-                                padding: '0.5rem 0.75rem', borderRadius: '8px',
-                                background: 'var(--color-background)', border: '1px solid var(--color-border)', fontSize: 'var(--text-xs)',
-                            }}>
-                                <span style={{ fontWeight: 600, color: '#2471a3' }}>{p.prefix}xxx</span>
-                                <span style={{ color: 'var(--color-text-muted)', margin: '0 0.5rem' }}>&rarr;</span>
-                                <span style={{ fontFamily: 'monospace' }}>{p.example}</span>
-                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>{p.label}</div>
-                            </div>
-                        ))}
+                {!requireVendorInvoice && (
+                    <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '10px',
+                        padding: '14px 16px', borderRadius: '12px',
+                        background: '#fffbeb', border: '1.5px solid #fde68a',
+                        marginTop: '16px',
+                    }}>
+                        <AlertCircle size={16} color="#d97706" style={{ marginTop: '1px', flexShrink: 0 }} />
+                        <div style={{ fontSize: '12px', color: '#92400e', lineHeight: 1.6 }}>
+                            <strong>Note:</strong> Expired supplier renewal invoices are still available on the
+                            Expired Suppliers page. This setting only affects new vendor registration.
+                        </div>
+                    </div>
+                )}
+
+                {/* ── PV-before-Payment gate ──────────────────────── */}
+                {/* This sits in the same card as the Vendor Registration gate,
+                    separated by a divider. Both are workflow toggles that
+                    govern how permissive the system is about creating
+                    downstream records without an upstream authorisation. */}
+                <div style={{
+                    marginTop: '28px', paddingTop: '24px',
+                    borderTop: '1px solid #f1f5f9',
+                    display: 'flex', alignItems: 'flex-start', gap: '16px',
+                    marginBottom: '20px',
+                }}>
+                    <div style={{
+                        width: '48px', height: '48px', borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #f59e0b10, #f59e0b06)',
+                        border: '1.5px solid #f59e0b20',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <Banknote size={22} color="#f59e0b" />
+                    </div>
+                    <div>
+                        <h2 style={{
+                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            margin: '0 0 4px 0', letterSpacing: '-0.2px',
+                        }}>
+                            Require Payment Voucher before Payment
+                        </h2>
+                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                            Controls whether every outgoing payment must reference an approved
+                            Payment Voucher (PV). When disabled, finance can raise payments
+                            directly from vendor invoices without the PV step.
+                        </p>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '20px',
+                    padding: '16px 20px', borderRadius: '14px',
+                    background: requirePvBeforePayment ? '#fef3c7' : '#f8fafc',
+                    border: `1.5px solid ${requirePvBeforePayment ? '#fde68a' : '#e2e8f0'}`,
+                    transition: 'all 0.3s',
+                }}>
                     <button
-                        className="btn-primary"
+                        type="button"
+                        onClick={() => setRequirePvBeforePayment(!requirePvBeforePayment)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '12px',
+                            padding: '0', border: 'none', background: 'none',
+                            cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                    >
+                        <div style={{
+                            width: '44px', height: '24px', borderRadius: '12px',
+                            background: requirePvBeforePayment
+                                ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                                : '#cbd5e1',
+                            transition: 'background 0.25s', position: 'relative',
+                            boxShadow: requirePvBeforePayment ? '0 2px 8px rgba(245, 158, 11, 0.3)' : 'none',
+                        }}>
+                            <div style={{
+                                width: '18px', height: '18px', borderRadius: '50%',
+                                background: 'white', position: 'absolute',
+                                top: '3px', left: requirePvBeforePayment ? '23px' : '3px',
+                                transition: 'left 0.25s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                            }} />
+                        </div>
+                    </button>
+                    <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requirePvBeforePayment ? '#d97706' : '#64748b' }}>
+                            {requirePvBeforePayment ? 'Enabled — PV Required' : 'Disabled — Direct payments allowed'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                            {requirePvBeforePayment
+                                ? 'Every outgoing payment must reference an approved PV. Enforced at payment-creation time.'
+                                : 'Outgoing payments can be posted directly. PV reference is optional.'}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Save Button */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '16px',
+                    paddingTop: '20px', marginTop: '20px', borderTop: '1px solid #f1f5f9',
+                }}>
+                    <button
                         onClick={() => saveMutation.mutate()}
                         disabled={saveMutation.isPending}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '12px 28px', borderRadius: '12px', border: 'none',
+                            background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                            fontSize: '14px', fontWeight: 700, color: 'white',
+                            cursor: saveMutation.isPending ? 'wait' : 'pointer',
+                            fontFamily: 'inherit', transition: 'all 0.2s',
+                            boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(124, 58, 237, 0.35)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.3)'; }}
                     >
-                        {saveMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                        {saveMutation.isPending
+                            ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                            : <Save size={16} />
+                        }
                         Save Settings
                     </button>
+
                     {saveMsg && (
-                        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: saveMsg.includes('success') ? 'var(--color-success)' : '#ef4444' }}>
-                            {saveMsg}
-                        </span>
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '8px 16px', borderRadius: '10px',
+                            background: saveMsg.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                            border: `1.5px solid ${saveMsg.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+                            animation: 'fadeIn 0.3s ease',
+                        }}>
+                            {saveMsg.type === 'success'
+                                ? <Check size={15} color="#059669" strokeWidth={3} />
+                                : <AlertCircle size={15} color="#dc2626" />
+                            }
+                            <span style={{
+                                fontSize: '13px', fontWeight: 600,
+                                color: saveMsg.type === 'success' ? '#059669' : '#dc2626',
+                            }}>
+                                {saveMsg.text}
+                            </span>
+                        </div>
                     )}
                 </div>
-            </GlassCard>
+            </div>
 
-            {/* Auto-Seed CoA */}
-            <GlassCard>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                    <Sprout size={20} style={{ color: '#10b981' }} />
-                    <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>Auto-Seed Default Chart of Accounts</h2>
-                </div>
-
-                <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1rem', lineHeight: 1.6 }}>
-                    Generate a standard set of ~28 default accounts based on the current digit count setting.
-                </p>
-                <ul style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem', paddingLeft: '1.25rem', lineHeight: 1.8 }}>
-                    <li><strong>1-series:</strong> Assets</li>
-                    <li><strong>2-series:</strong> Liabilities</li>
-                    <li><strong>3-series:</strong> Equity</li>
-                    <li><strong>4-series:</strong> Income</li>
-                    <li><strong>5-series:</strong> COGS / Production Expenses</li>
-                    <li><strong>6-series:</strong> General Expenses</li>
-                </ul>
-
-                <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', marginBottom: '1.5rem' }}>
-                    Existing account codes will be skipped — this operation is safe to run multiple times.
-                </p>
-
-                <button
-                    className="btn-glass"
-                    onClick={() => seedMutation.mutate()}
-                    disabled={seedMutation.isPending}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderColor: '#10b981', color: '#10b981' }}
-                >
-                    {seedMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Sprout size={16} />}
-                    Seed Default Accounts
-                </button>
-
-                {seedResult && (
-                    <GlassCard style={{ marginTop: '1rem', background: seedResult.created > 0 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)' }}>
-                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: '0.5rem' }}>
-                            {seedResult.created > 0 ? 'Accounts Created Successfully' : 'All Accounts Already Exist'}
-                        </div>
-                        <div style={{ display: 'flex', gap: '2rem', fontSize: 'var(--text-sm)' }}>
-                            <div><span style={{ color: 'var(--color-text-muted)' }}>Created: </span><strong style={{ color: '#10b981' }}>{seedResult.created}</strong></div>
-                            <div><span style={{ color: 'var(--color-text-muted)' }}>Skipped: </span><strong style={{ color: '#f59e0b' }}>{seedResult.skipped}</strong></div>
-                            <div><span style={{ color: 'var(--color-text-muted)' }}>Total Seed: </span><strong>{seedResult.total_seed}</strong></div>
-                        </div>
-                    </GlassCard>
-                )}
-            </GlassCard>
+            <style>{`
+                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+            `}</style>
         </SettingsLayout>
     );
 }

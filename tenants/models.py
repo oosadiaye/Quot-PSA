@@ -22,6 +22,12 @@ BUSINESS_CATEGORIES = [
 ]
 
 
+GOVERNMENT_TIER_CHOICES = [
+    ('STATE', 'State Government'),
+    ('LGA', 'Local Government Area'),
+]
+
+
 class Client(TenantMixin):
     name = models.CharField(max_length=100)
     created_on = models.DateField(auto_now_add=True)
@@ -33,6 +39,39 @@ class Client(TenantMixin):
         max_length=50, choices=BUSINESS_CATEGORIES,
         blank=True, default='other',
         help_text='Industry category — drives default CoA, BOM templates, and module config',
+    )
+
+    # ─── Government Configuration (Quot PSE) ─────────────────────
+    government_tier = models.CharField(
+        max_length=5, choices=GOVERNMENT_TIER_CHOICES, blank=True, default='',
+        help_text='STATE = State Government, LGA = Local Government Area',
+    )
+    state_nbs_code = models.CharField(
+        max_length=2, blank=True, default='',
+        help_text='NBS 2-digit state code (e.g., 24 for Kwara, 28 for Lagos)',
+    )
+    state_name = models.CharField(max_length=100, blank=True, default='')
+    lga_code = models.CharField(
+        max_length=2, blank=True, default='',
+        help_text='NBS LGA code within the state (only for LGA-tier tenants)',
+    )
+    lga_name = models.CharField(max_length=100, blank=True, default='')
+
+    # ─── MDA Isolation Mode ─────────────────────────────────────
+    MDA_ISOLATION_CHOICES = [
+        ('UNIFIED', 'Unified — all users see all MDAs'),
+        ('SEPARATED', 'Separated — each MDA operates as a branch'),
+    ]
+    mda_isolation_mode = models.CharField(
+        max_length=10, choices=MDA_ISOLATION_CHOICES, default='UNIFIED',
+        help_text='UNIFIED = no data filtering; SEPARATED = per-MDA data isolation',
+    )
+
+    # ─── Budget Control Settings ────────────────────────────────
+    enforce_warrant = models.BooleanField(
+        default=False,
+        help_text='True = warrant must be released before payment (strict). '
+                  'False = only appropriation + balance checked (relaxed).',
     )
 
     # Branding & company info
@@ -55,17 +94,18 @@ class Domain(DomainMixin):
 
 
 AVAILABLE_MODULES = [
-    ('dimensions', 'Dimensions', 'Fund, Function, Program, Geo, MDA - Multi-dimensional accounting'),
-    ('accounting', 'Accounting', 'Chart of Accounts, Journals, AP/AR, Fixed Assets'),
-    ('budget', 'Budget Management', 'Budget Allocations, Variance Analysis'),
-    ('procurement', 'Procurement', 'Purchase Requests, Purchase Orders, Vendors'),
-    ('inventory', 'Inventory', 'Items, Stock Management, Warehouses'),
-    ('sales', 'Sales Management', 'CRM, Quotations, Sales Orders'),
-    ('hrm', 'Human Resources', 'Employees, Leave, Payroll'),
-    ('production', 'Production', 'BOM, Work Orders, Manufacturing'),
-    ('quality', 'Quality Management', 'Inspections, NCR, Complaints'),
-    ('service', 'Service Management', 'Tickets, Work Orders, Maintenance'),
-    ('workflow', 'Workflow & Approvals', 'Approval Templates, Workflows'),
+    # ── Quot PSE: Nigeria Government IFMIS Modules ──────────────────────────
+    ('dimensions', 'NCoA Dimensions',       'NCoA 6-segment classification — Administrative, Economic, Functional, Programme, Fund, Geographic'),
+    ('accounting', 'General Ledger',        'Chart of Accounts, Journals, AP/AR, Fixed Assets, IPSAS Accrual Accounting'),
+    ('budget',     'Budget & Appropriation', 'Appropriations, Warrants, Budget Execution, Variance Analysis'),
+    ('treasury',   'Treasury & TSA',        'Treasury Single Account, Payment Vouchers, Payment Instructions, Cash Position'),
+    ('revenue',    'Revenue (IGR)',          'Revenue Heads, Revenue Collection, PAYE, Fees & Fines, e-Collection'),
+    ('procurement','Procurement',           'Purchase Requisitions, Purchase Orders, GRN, BPP Due Process, No Objection'),
+    ('inventory',  'Stores & Inventory',    'Government Stores, Stock Management, Warehouses'),
+    ('hrm',        'Human Resources',       'Employees, Leave, Payroll, Pension (CPS), PAYE, IPPIS Alignment'),
+    ('workflow',   'Workflow & Approvals',   'Approval Templates, Multi-level Workflows, Delegation'),
+    ('reporting',  'Financial Reporting',    'IPSAS Statements, COFOG Reports, Budget vs Actual, Revenue Performance'),
+    ('audit',      'Audit & Compliance',    'Audit Trail, Transaction Logs, Period Close, Year-End'),
 ]
 
 
@@ -423,17 +463,17 @@ class Role(models.Model):
     """
     
     MODULE_CHOICES = [
-        ('accounting', 'Accounting'),
-        ('sales', 'Sales'),
-        ('procurement', 'Procurement'),
-        ('inventory', 'Inventory'),
-        ('hrm', 'Human Resources'),
-        ('budget', 'Budget'),
-        ('production', 'Production'),
-        ('quality', 'Quality'),
-        ('service', 'Service'),
-        ('technical', 'Technical'),
-        ('admin', 'Administration'),
+        ('accounting',   'General Ledger & Accounting'),
+        ('budget',       'Budget & Appropriation'),
+        ('treasury',     'Treasury & TSA'),
+        ('procurement',  'Procurement & Due Process'),
+        ('inventory',    'Stores & Inventory'),
+        ('hrm',          'Human Resources & Payroll'),
+        ('revenue',      'Revenue Collection (IGR)'),
+        ('workflow',     'Workflow & Approvals'),
+        ('reporting',    'Financial Reporting'),
+        ('audit',        'Audit & Compliance'),
+        ('admin',        'System Administration'),
     ]
     
     ROLE_TYPE_CHOICES = [
@@ -491,57 +531,51 @@ class Role(models.Model):
         """Get list of model names for the module."""
         module_models = {
             'accounting': [
-                'fund', 'function', 'program', 'geo', 'account', 'mda',
-                'journalheader', 'journalline', 'journalreversal', 'currency', 'glbalance',
-                'budgetperiod', 'budget', 'budgetencumbrance', 'budgettransfer',
+                'administrativesegment', 'economicsegment', 'functionalsegment',
+                'programmesegment', 'fundsegment', 'geographicsegment', 'ncoacode',
+                'journalheader', 'journalline', 'currency', 'glbalance',
                 'bankaccount', 'vendorinvoice', 'payment', 'paymentallocation',
-                'customerinvoice', 'receipt', 'receiptallocation',
-                'fixedasset', 'depreciationschedule', 'costcenter',
-                'bankreconciliation', 'taxregistration', 'taxexemption', 'taxreturn', 
-                'withholdingtax', 'taxcode', 'profitcenter', 'fiscalperiod', 'fiscalyear',
+                'fixedasset', 'depreciationschedule',
+                'bankreconciliation', 'fiscalperiod', 'fiscalyear',
             ],
-            'sales': [
-                'customer', 'lead', 'opportunity', 'quotation', 'quotationline',
-                'salesorder', 'salesorderline', 'deliverynote', 'deliverynoteline',
+            'budget': [
+                'appropriation', 'warrant', 'unifiedbudget',
+                'unifiedbudgetamendment', 'unifiedbudgetencumbrance',
+            ],
+            'treasury': [
+                'treasuryaccount', 'paymentvouchergov', 'paymentinstruction',
+            ],
+            'revenue': [
+                'revenuehead', 'revenuecollection',
             ],
             'procurement': [
-                'purchasetype', 'vendor', 'purchaserequest', 'purchaserequestline',
-                'purchaseorder', 'purchaseorderline', 'goodsreceivednote', 
-                'goodsreceivednoteline', 'invoicematching', 'vendorcreditnote',
-                'vendordebitnote', 'purchasereturn', 'purchasereturnline',
+                'vendor', 'purchaserequest', 'purchaserequestline',
+                'purchaseorder', 'purchaseorderline', 'goodsreceivednote',
+                'goodsreceivednoteline', 'invoicematching',
+                'procurementthreshold', 'certificateofnoobjection',
+                'procurementbudgetlink',
             ],
             'inventory': [
-                'warehouse', 'producttype', 'productcategory', 'itemcategory',
-                'item', 'itemstock', 'itembatch', 'stockmovement',
-                'stockreconciliation', 'stockreconciliationline', 'reorderalert',
-                'itemserialnumber', 'batchexpiryalert',
+                'warehouse', 'itemcategory', 'item', 'itemstock',
+                'itembatch', 'stockmovement', 'stockreconciliation',
             ],
             'hrm': [
                 'department', 'position', 'employee', 'leavetype', 'leaverequest',
-                'leavebalance', 'attendance', 'holiday', 'jobpost', 'candidate',
-                'interview', 'onboardingtask', 'onboardingprogress', 'salarystructure',
+                'leavebalance', 'attendance', 'holiday', 'salarystructure',
                 'salarycomponent', 'payrollperiod', 'payrollrun', 'payrollline',
-                'payslip', 'performancecycle', 'performancegoal', 'performancereview',
+                'payslip', 'pensionfundadministrator', 'employeepensionprofile',
+                'pensionremittance', 'nigeriataxbracket',
             ],
-            'budget': [
-                'budgetallocation', 'budgetline', 'budgetvariance',
+            'workflow': [
+                'workflowdefinition', 'workflowinstance', 'workflowstep',
+                'approvaltemplate', 'approval', 'approvallog',
             ],
-            'production': [
-                'workcenter', 'billofmaterials', 'bomline', 'productionorder',
-                'materialissue', 'materialreceipt', 'jobcard', 'routing',
+            'reporting': [
+                'financialreporttemplate', 'financialreport', 'xbrlreport',
             ],
-            'quality': [
-                'qualityinspection', 'inspectionline', 'nonconformance',
-                'customercomplaint', 'qualitychecklist', 'qualitychecklistline',
-                'calibrationrecord', 'supplierquality',
-            ],
-            'service': [
-                'serviceasset', 'technician', 'serviceticket', 'slatracking',
-                'workorder', 'workordermaterial', 'citizenrequest', 'servicemetric',
-                'maintenanceschedule',
-            ],
-            'technical': [
-                'serviceasset', 'serviceticket', 'workorder', 'technician',
+            'audit': [
+                'transactionauditlog', 'approvalrule', 'approvalinstance',
+                'periodclosing', 'yearendclosing',
             ],
             'admin': [
                 'user', 'group', 'tenant', 'tenantmodule', 'tenantsubscription',

@@ -1,9 +1,7 @@
 from datetime import date
-from decimal import Decimal
 from django.db import models, transaction
 from django.utils import timezone
-from django.core.validators import MinValueValidator
-from core.models import AuditBaseModel, ImmutableModelMixin
+from core.models import AuditBaseModel
 from django.contrib.auth.models import User
 
 
@@ -119,6 +117,12 @@ class FiscalPeriod(models.Model):
     class Meta:
         unique_together = ['fiscal_year', 'period_number', 'period_type']
         ordering = ['fiscal_year', 'period_number']
+        # S1-14 — custom permission for the reopen flow. Standard admins
+        # don't get this by default; it must be explicitly granted to
+        # Accountant-General / Senior Treasury roles.
+        permissions = [
+            ('reopen_fiscal_period', 'Can reopen a closed fiscal period'),
+        ]
 
     def __str__(self):
         return f"FY{self.fiscal_year} - P{self.period_number} ({self.period_type})"
@@ -206,7 +210,8 @@ class PeriodCloseCheck(models.Model):
 
 class DeferredRevenue(models.Model):
     name = models.CharField(max_length=100, default='')
-    customer = models.ForeignKey('sales.Customer', on_delete=models.CASCADE, null=True, blank=True)
+    payer_name = models.CharField(max_length=200, blank=True, default='',
+        help_text="Revenue payer name (replaces FK to deleted sales.Customer)")
     initial_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     start_date = models.DateField(default=date.today)
     recognition_periods = models.IntegerField(default=0)
@@ -342,6 +347,8 @@ class ExchangeRateHistory(models.Model):
     from_currency = models.ForeignKey('accounting.Currency', on_delete=models.CASCADE, related_name='exchange_from', null=True, blank=True)
     to_currency = models.ForeignKey('accounting.Currency', on_delete=models.CASCADE, related_name='exchange_to', null=True, blank=True)
     rate_date = models.DateField(default=date.today)
+    rate_valid_from = models.DateField(default=date.today, help_text='Start date for this exchange rate')
+    rate_valid_to = models.DateField(null=True, blank=True, help_text='End date for this exchange rate (blank = ongoing)')
     exchange_rate = models.DecimalField(max_digits=15, decimal_places=6, default=0)
 
     class Meta:
@@ -711,6 +718,110 @@ class AccountingSettings(models.Model):
         ),
     )
 
+    # S3-06 — Year-end close target: the equity account where net
+    # surplus / (deficit) is transferred at the end of each fiscal year.
+    # Defaults to NCoA 43100000 ("General Reserve / Accumulated Fund")
+    # when unset. Must exist in the Account table before close_year can
+    # run.
+    accumulated_fund_account_code = models.CharField(
+        max_length=20, blank=True, default='43100000',
+        help_text=(
+            'Chart-of-Accounts code used as the Accumulated '
+            'Surplus/Deficit target for year-end close. Defaults to '
+            'NCoA 43100000 (General Reserve Fund).'
+        ),
+    )
+
+    # S13-02 — IPSAS 31 intangible-asset amortisation accounts.
+    # The amortisation scheduler posts:
+    #   DR  intangible_amortisation_expense_code
+    #   CR  intangible_accumulated_amortisation_code
+    # Defaults follow a common NCoA layout; override per tenant as needed.
+    intangible_amortisation_expense_code = models.CharField(
+        max_length=20, blank=True, default='22301000',
+        help_text=(
+            'CoA code debited when monthly intangible-asset '
+            'amortisation is posted (IPSAS 31 ¶97). Defaults to NCoA '
+            '22301000 (Amortisation — Intangible Assets).'
+        ),
+    )
+    intangible_accumulated_amortisation_code = models.CharField(
+        max_length=20, blank=True, default='32201000',
+        help_text=(
+            'CoA code credited for accumulated amortisation on '
+            'intangible assets. Contra-asset balance on the '
+            'intangibles line of the Statement of Financial Position. '
+            'Defaults to NCoA 32201000.'
+        ),
+    )
+
+    # S15-01 — IPSAS 39 pension accrual accounts.
+    # The monthly pension-accrual scheduler posts:
+    #   DR  pension_interest_expense_code     (1/12 of annual interest cost)
+    #   DR  pension_service_cost_code         (1/12 of annual service cost)
+    #   CR  defined_benefit_obligation_code
+    pension_interest_expense_code = models.CharField(
+        max_length=20, blank=True, default='24100000',
+        help_text=(
+            'CoA code debited for monthly pension interest expense '
+            '(IPSAS 39 ¶64 net interest on NDB liability). Defaults '
+            'to NCoA 24100000 (Debt-service / Interest).'
+        ),
+    )
+    pension_service_cost_code = models.CharField(
+        max_length=20, blank=True, default='21400000',
+        help_text=(
+            'CoA code debited for monthly pension current-service '
+            'cost (IPSAS 39 ¶64). Defaults to NCoA 21400000 '
+            '(Personnel costs — pension).'
+        ),
+    )
+    defined_benefit_obligation_code = models.CharField(
+        max_length=20, blank=True, default='42201000',
+        help_text=(
+            'CoA code credited by pension accrual / debited by pension '
+            'payments. Present Value of the Defined Benefit Obligation '
+            'on the Statement of Financial Position. Defaults to NCoA '
+            '42201000 (Non-current pension liability).'
+        ),
+    )
+
+    # S15-01 — IPSAS 42 social-benefit accounts.
+    # The batch-payment service posts:
+    #   DR  social_benefit_expense_code       (per-claim amount)
+    #   CR  bank account (request-supplied)
+    social_benefit_expense_code = models.CharField(
+        max_length=20, blank=True, default='25100000',
+        help_text=(
+            'CoA code debited when social-benefit batch payments post. '
+            'Defaults to NCoA 25100000 (Transfers & Subventions — '
+            'Social Benefits).'
+        ),
+    )
+
+    # Workflow control: whether an outgoing Payment must be backed by a
+    # Payment Voucher (PV).
+    #   True  → PV is MANDATORY. Outgoing Payment creation is rejected
+    #           unless a PV is supplied. The PV pipeline (draft → approve
+    #           → post) becomes the authoritative entry point for all
+    #           outgoing cash.
+    #   False → PV is OPTIONAL. Verifiers can raise outgoing payments
+    #           directly from a vendor invoice without first producing a
+    #           PV — useful for tenants that don't yet have a mature
+    #           Treasury workflow.
+    #
+    # Per-tenant setting because state-level PSAs vary on when they
+    # activate the full PV pipeline (many states are mid-migration from
+    # direct-payment to PV-backed).
+    require_pv_before_payment = models.BooleanField(
+        default=False,
+        help_text=(
+            'When True, outgoing Payments must reference an approved '
+            'Payment Voucher (PV). When False, direct payments from '
+            'vendor invoices are allowed.'
+        ),
+    )
+
     # Default currencies (up to 4 slots)
     default_currency_1 = models.ForeignKey(
         'accounting.Currency', on_delete=models.SET_NULL, null=True, blank=True,
@@ -731,6 +842,21 @@ class AccountingSettings(models.Model):
         'accounting.Currency', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='settings_slot4',
         help_text='Reporting currency (optional)',
+    )
+    default_currency_5 = models.ForeignKey(
+        'accounting.Currency', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='settings_slot5',
+        help_text='Reporting currency (optional)',
+    )
+
+    # ── Vendor Registration Invoice Gate ─────────────────────────
+    require_vendor_registration_invoice = models.BooleanField(
+        default=True,
+        help_text=(
+            'When enabled, new vendors start inactive and require a registration '
+            'invoice + payment confirmation before activation. When disabled, '
+            'vendors are created active immediately (no invoice gate).'
+        ),
     )
 
     # ── Sales Downpayment ──────────────────────────────────────
@@ -788,7 +914,7 @@ class AccountingSettings(models.Model):
         # Digit enforcement
         if self.is_digit_enforcement_active:
             if not code.isdigit():
-                errors.append(f"Account code must contain only digits when digit enforcement is active.")
+                errors.append("Account code must contain only digits when digit enforcement is active.")
             if len(code) != self.account_code_digits:
                 errors.append(
                     f"Account code must be exactly {self.account_code_digits} digits "
@@ -1138,7 +1264,7 @@ class PaymentVoucher(models.Model):
     payment_date = models.DateField(null=True, blank=True)
 
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    currency_code = models.CharField(max_length=3, default='NGN')
+    currency_code = models.CharField(max_length=3, default='NGN')  # migration-safe; overridden at creation by view/serializer
 
     description = models.TextField(default='')
 

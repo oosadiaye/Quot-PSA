@@ -24,10 +24,15 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
     j_function = function or journal.function
     j_program = program or journal.program
     j_geo = geo or journal.geo
+    # S3-05 — carry the MDA (cost centre) dimension onto each GLBalance
+    # bucket. Prefer the line's per-row cost_center (used by payroll /
+    # intercompany splits), falling back to the journal's header MDA.
+    j_mda_header = journal.mda
 
-    for line in journal.lines.select_related('account').all():
+    for line in journal.lines.select_related('account', 'cost_center').all():
         debit = line.debit or Decimal('0.00')
         credit = line.credit or Decimal('0.00')
+        line_mda = line.cost_center or j_mda_header
 
         gl_bal, created = GLBalance.objects.get_or_create(
             account=line.account,
@@ -35,6 +40,7 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
             function=j_function,
             program=j_program,
             geo=j_geo,
+            mda=line_mda,
             fiscal_year=fiscal_year,
             period=period,
             defaults={'debit_balance': Decimal('0.00'), 'credit_balance': Decimal('0.00')}
@@ -54,7 +60,9 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
             )
 
 
-class InterCompanyPostingService:
+# InterCompanyPostingService and ConsolidationService — REMOVED for public sector
+# These classes are disabled but preserved for reference in case parastatals need them.
+class _DisabledInterCompanyPostingService:
     """Service for handling inter-company posting operations"""
 
     @staticmethod

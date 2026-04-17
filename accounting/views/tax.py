@@ -1,12 +1,6 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Sum, F, Q
-from django.db.models.functions import Coalesce
-from django.db import transaction
-from decimal import Decimal
 from .common import AccountingPagination
 from ..models import (
     TaxRegistration, TaxExemption, TaxReturn, WithholdingTax, TaxCode,
@@ -24,7 +18,7 @@ class TaxRegistrationViewSet(viewsets.ModelViewSet):
 
 
 class TaxExemptionViewSet(viewsets.ModelViewSet):
-    queryset = TaxExemption.objects.all().select_related('tax_registration', 'vendor', 'customer')
+    queryset = TaxExemption.objects.all().select_related('tax_registration', 'vendor')
     serializer_class = TaxExemptionSerializer
     filterset_fields = ['tax_registration', 'is_active']
 

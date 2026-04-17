@@ -1,36 +1,84 @@
-import { Settings } from 'lucide-react';
+import { Settings, ChevronRight } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import BackButton from '../../components/BackButton';
-import '../accounting/styles/glassmorphism.css';
 
-export default function SettingsLayout({ children }: { children: React.ReactNode }) {
+interface SettingsLayoutProps {
+    children: React.ReactNode;
+    title?: string;
+    breadcrumb?: string;
+    icon?: React.ReactNode;
+    gradient?: string;
+    gradientShadow?: string;
+    subtitle?: string;
+    maxWidth?: string;
+}
 
+export default function SettingsLayout({
+    children,
+    title = 'Accounting Settings',
+    breadcrumb = 'Accounting',
+    icon,
+    gradient = 'linear-gradient(135deg, #242a88, #2e35a0)',
+    gradientShadow = 'rgba(36, 42, 136, 0.25)',
+    subtitle,
+    maxWidth = '920px',
+}: SettingsLayoutProps) {
     return (
         <div style={{ display: 'flex' }}>
             <Sidebar />
-            <div style={{ flex: 1, marginLeft: '260px', minHeight: '100vh', background: 'var(--color-background)' }}>
-                {/* Page header */}
+            <div style={{
+                flex: 1, marginLeft: '260px', minHeight: '100vh',
+                background: '#f8fafc',
+                fontFamily: "'Inter', -apple-system, sans-serif",
+            }}>
+                {/* Page Header */}
                 <div style={{
-                    padding: '1.5rem 3rem 1.25rem',
-                    borderBottom: '1px solid var(--color-border)',
-                    background: 'var(--color-surface)',
+                    padding: '24px 40px 20px',
+                    borderBottom: '1px solid #e2e8f0',
+                    background: 'white',
                 }}>
                     <BackButton />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem', marginTop: '0.5rem' }}>
-                        <Settings size={22} style={{ color: 'var(--color-primary)' }} />
-                        <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)' }}>
-                            Accounting Settings
-                        </h1>
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: '14px',
+                        marginTop: '10px',
+                    }}>
+                        <div style={{
+                            width: '44px', height: '44px', borderRadius: '14px',
+                            background: gradient,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: `0 4px 12px ${gradientShadow}`,
+                        }}>
+                            {icon || <Settings size={22} color="white" />}
+                        </div>
+                        <div>
+                            <h1 style={{
+                                fontSize: '22px', fontWeight: 800, color: '#0f172a',
+                                margin: 0, letterSpacing: '-0.3px',
+                            }}>
+                                {title}
+                            </h1>
+                            {subtitle && (
+                                <p style={{
+                                    fontSize: '13px', color: '#94a3b8', margin: '2px 0 0',
+                                    maxWidth: '500px',
+                                }}>
+                                    {subtitle}
+                                </p>
+                            )}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '4px',
+                                fontSize: '13px', color: '#94a3b8', marginTop: '2px',
+                            }}>
+                                <span>Settings</span>
+                                <ChevronRight size={12} />
+                                <span style={{ color: '#64748b', fontWeight: 500 }}>{breadcrumb}</span>
+                            </div>
+                        </div>
                     </div>
-                    <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                        Configure accounting preferences, currencies, and chart of accounts structure.
-                    </p>
                 </div>
 
-                <div style={{ padding: '2.5rem 3rem 3rem' }}>
-                    <main>
-                        {children}
-                    </main>
+                <div style={{ padding: '32px 40px 48px', maxWidth }}>
+                    <main>{children}</main>
                 </div>
             </div>
         </div>

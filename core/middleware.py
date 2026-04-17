@@ -90,6 +90,19 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         super().__init__(get_response)
         self.get_response = get_response
 
+    # ------------------------------------------------------------------
+    # Override: resolve tenant directly when X-Tenant-Domain is present.
+    #
+    # django-tenants' TenantMainMiddleware uses request.get_host() which
+    # validates the hostname against RFC 1034/1035.  Our internal tenant
+    # domain names may contain underscores (e.g. test_farm_corp.dtsg.test)
+    # which are technically invalid per the RFC, causing DisallowedHost.
+    #
+    # Instead of relying on HTTP_HOST rewriting, we resolve the tenant
+    # ourselves and hand it directly to connection.set_tenant(), skipping
+    # the hostname validation entirely for header-based requests.
+    # ------------------------------------------------------------------
+
     def __call__(self, request):
         path = request.path_info
 
@@ -115,14 +128,29 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
                     {'error': 'Unknown tenant domain'},
                     status=400,
                 )
-            elif cached == '__valid__':
-                request.META['HTTP_HOST'] = tenant_domain
+
+            # Resolve domain → tenant (cache-aware)
+            if cached == '__valid__':
+                # Cache hit — still need to fetch the tenant object for
+                # connection.set_tenant().  Use a secondary cache for the
+                # schema_name so we can avoid a DB hit on every request.
+                schema_key = f'schema:{tenant_domain}'
+                schema_name = cache.get(schema_key)
+                if schema_name:
+                    domain_obj = None  # resolved via schema_name below
+                else:
+                    domain_obj = Domain.objects.select_related('tenant').filter(domain=tenant_domain).first()
+                    if domain_obj:
+                        schema_name = domain_obj.tenant.schema_name
+                        cache.set(schema_key, schema_name, timeout=900)
             else:
                 # Cache miss — query the database
                 domain_obj = Domain.objects.select_related('tenant').filter(domain=tenant_domain).first()
+
                 if domain_obj and not getattr(domain_obj.tenant, 'is_deleted', False):
-                    request.META['HTTP_HOST'] = tenant_domain
                     cache.set(cache_key, '__valid__', timeout=900)  # 15 min
+                    schema_name = domain_obj.tenant.schema_name
+                    cache.set(f'schema:{tenant_domain}', schema_name, timeout=900)
                 elif domain_obj and getattr(domain_obj.tenant, 'is_deleted', False):
                     cache.set(cache_key, '__deleted__', timeout=300)  # 5 min
                     return JsonResponse(
@@ -136,14 +164,39 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
                         request.META.get('REMOTE_ADDR', 'unknown'),
                         path,
                     )
-                    cache.set(cache_key, '__unknown__', timeout=60)  # 1 min (short TTL for unknown)
+                    cache.set(cache_key, '__unknown__', timeout=60)
                     return JsonResponse(
                         {'error': 'Unknown tenant domain'},
                         status=400,
                     )
 
-        response = super().__call__(request)
-        return response
+            # Directly activate the tenant on the DB connection, bypassing
+            # TenantMainMiddleware's hostname-based resolution entirely.
+            from django.db import connection as db_connection
+            from tenants.models import Client
+
+            db_connection.set_schema_to_public()
+            try:
+                if domain_obj:
+                    tenant = domain_obj.tenant
+                else:
+                    tenant = Client.objects.get(schema_name=schema_name)
+                tenant.domain_url = tenant_domain
+                request.tenant = tenant
+                db_connection.set_tenant(tenant)
+                self.setup_url_routing(request)
+            except Client.DoesNotExist:
+                cache.delete(cache_key)
+                cache.delete(f'schema:{tenant_domain}')
+                return JsonResponse({'error': 'Unknown tenant domain'}, status=400)
+
+            # Continue to the next middleware / view
+            return self.get_response(request)
+
+        # No X-Tenant-Domain header — fall through to normal
+        # TenantMainMiddleware hostname-based resolution (for direct
+        # domain access, admin, etc.)
+        return super().__call__(request)
 
 
 class TenantAccessMiddleware:
@@ -158,10 +211,10 @@ class TenantAccessMiddleware:
 
     def __call__(self, request):
         path = request.path_info
-        
+
         if _is_public_path(path):
             return self.get_response(request)
-        
+
         user = getattr(request, 'user', None)
         tenant = getattr(request, 'tenant', None)
 
@@ -235,46 +288,46 @@ class LanguageDetectionMiddleware:
     6. Browser Accept-Language header
     7. Default language
     """
-    
+
     # Paths that should not have language detection
     EXEMPT_PATHS = (
         '/admin/',
         '/static/',
         '/media/',
     )
-    
+
     def __init__(self, get_response):
         self.get_response = get_response
-    
+
     def __call__(self, request):
         path = request.path_info
-        
+
         # Skip language detection for exempt paths
         if any(path.startswith(p) for p in self.EXEMPT_PATHS):
             return self.get_response(request)
-        
+
         # Get user if authenticated
         user = getattr(request, 'user', None)
-        
+
         # Detect language from multiple sources
         language = detect_language(request, user)
-        
+
         # Store detected language in request for later use
         request.detected_language = language
-        
+
         # Activate the language for this request
         activate(language)
-        
+
         # Store in session if available
         if hasattr(request, 'session'):
             request.session[LANGUAGE_SESSION_KEY] = language
-        
+
         # Set response language header
         response = self.get_response(request)
-        
+
         # Add detected language to response headers
         response['X-Detected-Language'] = language
-        
+
         # Add country info if available
         ip = get_client_ip(request)
         if ip and not self._is_local_ip(ip):
@@ -282,9 +335,9 @@ class LanguageDetectionMiddleware:
             country = get_country_from_ip(ip)
             if country:
                 response['X-Detected-Country'] = country
-        
+
         return response
-    
+
     def _is_local_ip(self, ip: str) -> bool:
         """Check if IP is local/private."""
         if not ip:
@@ -304,22 +357,96 @@ class ForceDefaultLanguageMiddleware:
     Middleware to force default language when explicitly requested.
     Used for API endpoints that should always return in English.
     """
-    
+
     # Paths that should always use default language
     DEFAULT_LANGUAGE_PATHS = (
         '/api/v1/core/health/',
         '/api/v1/superadmin/saas-stats',
     )
-    
+
     def __init__(self, get_response):
         self.get_response = get_response
-    
+
     def __call__(self, request):
         path = request.path_info
-        
+
         # Force English for specified paths
         if any(path.startswith(p) for p in self.DEFAULT_LANGUAGE_PATHS):
             activate('en')
             request.force_language = 'en'
-        
+
+        return self.get_response(request)
+
+
+# ── Organization Middleware ────────────────────────────────────────
+
+class OrganizationMiddleware:
+    """
+    Resolves the active Organization for the current request.
+
+    Must come AFTER ``TenantAccessMiddleware`` so ``request.tenant`` and
+    ``request.user`` are both available.
+
+    Reads the active org from:
+    1. ``X-Organization-Id`` request header (primary, from frontend)
+    2. ``session['active_organization_id']`` (fallback, from switch API)
+
+    Sets on ``request``:
+    - ``mda_isolation_mode``  — 'UNIFIED' or 'SEPARATED'
+    - ``organization``        — Organization instance or None
+    """
+
+    # Paths that skip org resolution (public, auth, health)
+    SKIP_PATHS = ('/api/v1/auth/', '/health/', '/admin/', '/__debug__/')
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Default: no org context
+        request.mda_isolation_mode = 'UNIFIED'
+        request.organization = None
+
+        # Skip for unauthenticated or non-API requests
+        if not hasattr(request, 'tenant') or not hasattr(request, 'user'):
+            return self.get_response(request)
+
+        if any(request.path_info.startswith(p) for p in self.SKIP_PATHS):
+            return self.get_response(request)
+
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
+        # Read tenant isolation mode
+        tenant = getattr(request, 'tenant', None)
+        if tenant:
+            request.mda_isolation_mode = getattr(
+                tenant, 'mda_isolation_mode', 'UNIFIED',
+            )
+
+        # Resolve active organization from header or session
+        org_id = (
+            request.headers.get('X-Organization-Id')
+            or request.session.get('active_organization_id')
+        )
+        if org_id:
+            try:
+                from core.models import UserOrganization
+                org_id = int(org_id)
+                # Validate user is assigned to this org
+                assignment = UserOrganization.objects.select_related(
+                    'organization',
+                    'organization__administrative_segment',
+                    'organization__legacy_mda',
+                ).filter(
+                    user=request.user,
+                    organization_id=org_id,
+                    organization__is_active=True,
+                    is_active=True,
+                ).first()
+                if assignment:
+                    request.organization = assignment.organization
+            except (ValueError, TypeError):
+                pass
+
         return self.get_response(request)

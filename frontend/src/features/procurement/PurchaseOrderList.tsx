@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, ShoppingCart, Send, CheckCircle, XCircle, FileText, Lock, Package } from 'lucide-react';
-import { usePurchaseOrders, usePostPO, useSubmitPOForApproval, useClosePO } from './hooks/useProcurement';
+import { usePurchaseOrders, usePostPO, useSubmitPOForApproval, useApprovePO, useRejectPO, useClosePO } from './hooks/useProcurement';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
@@ -20,6 +20,8 @@ export default function PurchaseOrderList() {
     const { data: orders, isLoading } = usePurchaseOrders({ status: statusFilter, search: searchTerm || undefined, page: currentPage, page_size: pageSize });
     const postMutation = usePostPO();
     const submitMutation = useSubmitPOForApproval();
+    const approveMutation = useApprovePO();
+    const rejectMutation = useRejectPO();
     const closeMutation = useClosePO();
 
     const ordersList = orders?.results || orders || [];
@@ -28,6 +30,8 @@ export default function PurchaseOrderList() {
 
     const handleConfirmedAction = (id: number, action: string) => {
         if (action === 'submit') submitMutation.mutate(id);
+        else if (action === 'approve') approveMutation.mutate(id);
+        else if (action === 'reject') rejectMutation.mutate(id);
         else if (action === 'post') postMutation.mutate(id);
         else if (action === 'close') closeMutation.mutate(id);
         setConfirmAction(null);
@@ -222,6 +226,50 @@ export default function PurchaseOrderList() {
                                                         <Send size={14} />
                                                         Submit
                                                     </button>
+                                                )}
+                                                {confirmAction?.id !== po.id && po.status === 'Pending' && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => setConfirmAction({ id: po.id, action: 'approve' })}
+                                                            style={{
+                                                                padding: '0.375rem 0.75rem',
+                                                                borderRadius: '6px',
+                                                                border: 'none',
+                                                                background: 'rgba(34, 197, 94, 0.12)',
+                                                                color: '#15803d',
+                                                                cursor: 'pointer',
+                                                                fontSize: 'var(--text-xs)',
+                                                                fontWeight: 600,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.25rem',
+                                                            }}
+                                                            title="Approve"
+                                                        >
+                                                            <CheckCircle size={14} />
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setConfirmAction({ id: po.id, action: 'reject' })}
+                                                            style={{
+                                                                padding: '0.375rem 0.75rem',
+                                                                borderRadius: '6px',
+                                                                border: 'none',
+                                                                background: 'rgba(239, 68, 68, 0.1)',
+                                                                color: '#dc2626',
+                                                                cursor: 'pointer',
+                                                                fontSize: 'var(--text-xs)',
+                                                                fontWeight: 600,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.25rem',
+                                                            }}
+                                                            title="Reject"
+                                                        >
+                                                            <XCircle size={14} />
+                                                            Reject
+                                                        </button>
+                                                    </>
                                                 )}
                                                 {confirmAction?.id !== po.id && po.status === 'Approved' && (
                                                     <button

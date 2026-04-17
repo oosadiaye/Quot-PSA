@@ -3,7 +3,7 @@ import django
 from django.conf import settings
 
 # Setup Django environment
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dtsg_erp.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'quot_pse.settings')
 django.setup()
 
 from tenants.models import Client, Domain

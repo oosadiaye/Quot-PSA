@@ -172,7 +172,7 @@ const SettingsTab = () => {
           </Col>
           <Col span={8}>
             <Form.Item label="From Name" name="smtp_from_name">
-              <Input placeholder="DTSG ERP" />
+              <Input placeholder="QUOT ERP" />
             </Form.Item>
           </Col>
           <Col span={8}>

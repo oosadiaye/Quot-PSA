@@ -1,502 +1,889 @@
 import { useNavigate } from 'react-router-dom';
 import { useModulePricing } from '../../hooks/useModulePricing';
 import {
-  BarChart3, Shield, Globe, Zap, ArrowRight, Check, Building2, Users,
-  Package, FileText, Wallet, Factory, Wrench, ClipboardCheck, Layers,
-  TrendingUp, ChevronRight,
+    BarChart3, Shield, Zap, ArrowRight, Building2, Users,
+    Package, FileText, Wallet, Layers, Landmark, Scale,
+    Banknote, ClipboardCheck, ShieldCheck, FileBarChart2, MapPin,
+    Receipt, Gavel, CheckCircle2, ChevronRight, BookOpen,
 } from 'lucide-react';
 
-const MODULE_ICONS: Record<string, React.ReactNode> = {
-  accounting: <Wallet size={28} />,
-  sales: <TrendingUp size={28} />,
-  procurement: <Package size={28} />,
-  inventory: <Layers size={28} />,
-  hrm: <Users size={28} />,
-  budget: <BarChart3 size={28} />,
-  production: <Factory size={28} />,
-  quality: <ClipboardCheck size={28} />,
-  service: <Wrench size={28} />,
-  dimensions: <Globe size={28} />,
-  workflow: <FileText size={28} />,
+// ─────────────────────────────────────────────────────────────────
+// Nigerian Public-Sector ERP — landing page.
+// Target audience: State Ministries of Finance, Offices of the
+// Accountant-General, Local Government Councils, Parastatals, MDAs.
+// Positioning anchored to regulatory alignment, not feature counts.
+// ─────────────────────────────────────────────────────────────────
+
+const NAVY = '#1a237e';
+const NAVY_DARK = '#0f1759';
+const NIGERIA_GREEN = '#008751';
+const INK = '#0b1320';
+const MUTED = '#4a5568';
+const SURFACE = '#f6f8fb';
+
+type Module = {
+    module_name: string;
+    title: string;
+    tagline: string;
+    is_popular: boolean;
+    price_monthly?: string;
+    description?: string;
 };
 
-/* Fallback modules when no pricing data exists in the DB yet */
-const defaultModules = [
-  { module_name: 'accounting', title: 'Accounting', tagline: 'Chart of Accounts, Journals, AP/AR, Fixed Assets', is_popular: true, price_monthly: '', description: '' },
-  { module_name: 'procurement', title: 'Procurement', tagline: 'Purchase Requests, Orders, Vendors, GRN', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'inventory', title: 'Inventory', tagline: 'Items, Stock, Warehouses, Batch Tracking', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'sales', title: 'Sales', tagline: 'CRM, Quotations, Sales Orders, Delivery', is_popular: true, price_monthly: '', description: '' },
-  { module_name: 'hrm', title: 'Human Resources', tagline: 'Employees, Leave, Payroll, Performance', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'budget', title: 'Budget Management', tagline: 'Allocations, Variance Analysis', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'production', title: 'Production', tagline: 'BOM, Work Orders, Manufacturing', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'quality', title: 'Quality', tagline: 'Inspections, NCR, Complaints', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'service', title: 'Service', tagline: 'Tickets, Maintenance, SLA Tracking', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'workflow', title: 'Workflow', tagline: 'Approval Templates & Workflows', is_popular: false, price_monthly: '', description: '' },
-  { module_name: 'dimensions', title: 'Dimensions', tagline: 'Fund, Function, Program, Geo, MDA', is_popular: false, price_monthly: '', description: '' },
+const MODULE_ICONS: Record<string, React.ReactNode> = {
+    budget: <Gavel size={26} />,
+    accounting: <Wallet size={26} />,
+    treasury: <Landmark size={26} />,
+    procurement: <Package size={26} />,
+    ncoa: <Layers size={26} />,
+    ipsas: <FileBarChart2 size={26} />,
+    statutory: <Receipt size={26} />,
+    hrm: <Users size={26} />,
+    inventory: <ClipboardCheck size={26} />,
+    workflow: <FileText size={26} />,
+};
+
+/* Fallback modules when no pricing data exists in the DB yet.
+ * Tailored to Nigerian public-sector IFMIS scope. */
+const defaultModules: Module[] = [
+    {
+        module_name: 'budget',
+        title: 'Budget & Appropriation',
+        tagline: 'Appropriation Act, Supplementary, Virements, Warrants',
+        is_popular: true,
+    },
+    {
+        module_name: 'accounting',
+        title: 'GL & Accounting (IPSAS)',
+        tagline: 'Accrual GL, Journals, AP/AR, Fixed Assets, Period Close',
+        is_popular: true,
+    },
+    {
+        module_name: 'treasury',
+        title: 'Treasury (TSA)',
+        tagline: 'Cash position, FAAC allocations, Bank reconciliation',
+        is_popular: false,
+    },
+    {
+        module_name: 'ncoa',
+        title: 'NCoA Classification',
+        tagline: 'Administrative, Economic, Functional, Programme, Fund, Geo',
+        is_popular: false,
+    },
+    {
+        module_name: 'procurement',
+        title: 'Procurement',
+        tagline: 'PR → PO → GRN → Invoice · 3-way matching · Commitment accounting',
+        is_popular: false,
+    },
+    {
+        module_name: 'statutory',
+        title: 'Statutory Reporting',
+        tagline: 'FIRS WHT / VAT XML · PENCOM pension schedule · OAGF bulletin',
+        is_popular: false,
+    },
+    {
+        module_name: 'ipsas',
+        title: 'IPSAS Financial Statements',
+        tagline: 'SoFP, SoFPerf, Cash Flow, Budget-vs-Actual, Notes',
+        is_popular: true,
+    },
+    {
+        module_name: 'hrm',
+        title: 'HR & Nigerian Payroll',
+        tagline: 'PAYE, Pension (8%/10%), NHF, leave, career history',
+        is_popular: false,
+    },
+    {
+        module_name: 'inventory',
+        title: 'Government Stores',
+        tagline: 'Store ledger, requisitions, batch tracking per MDA',
+        is_popular: false,
+    },
+    {
+        module_name: 'workflow',
+        title: 'Approval Workflow',
+        tagline: 'Multi-level SOD · Dual-control overrides · Audit-ready trail',
+        is_popular: false,
+    },
 ];
 
 const LandingPage = () => {
-  const navigate = useNavigate();
-  const { data: rawModules = [] } = useModulePricing();
-  const modules = Array.isArray(rawModules) ? rawModules : [];
+    const navigate = useNavigate();
+    const { data: rawModules = [] } = useModulePricing();
+    const modulesFromDb = Array.isArray(rawModules) ? (rawModules as Module[]) : [];
+    const modules: Module[] = modulesFromDb.length > 0 ? modulesFromDb : defaultModules;
 
-  return (
-    <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", color: '#191c1e', background: '#f8f9fb' }}>
-      {/* ── Glassmorphic Navigation ────────────────────────── */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-        padding: '16px 0',
-        boxShadow: '0 1px 0 rgba(25,28,30,0.06)',
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => navigate('/')}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+    return (
+        <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", color: INK, background: SURFACE }}>
+            {/* ── Glassmorphic Navigation ──────────────────────── */}
+            <nav style={{
+                position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+                background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+                padding: '14px 0',
+                boxShadow: '0 1px 0 rgba(15,23,89,0.08)',
             }}>
-              <Building2 size={20} color="#fff" />
-            </div>
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700, color: '#191c1e' }}>
-              DTSG ERP
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            <a href="#features" style={{ color: '#4a5568', textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Features</a>
-            <a href="#modules" style={{ color: '#4a5568', textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Modules</a>
-            <button
-              onClick={() => navigate('/pricing')}
-              style={{
-                background: 'none', border: 'none', color: '#4a5568', fontSize: '0.875rem',
-                fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              Pricing
-            </button>
-            <button
-              onClick={() => navigate('/login')}
-              style={{
-                padding: '10px 24px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: 'linear-gradient(135deg, #242a88, #2e35a0)', color: '#fff',
-                fontWeight: 600, fontSize: '0.875rem', fontFamily: 'inherit',
-                boxShadow: '0 2px 8px rgba(36,42,136,0.25)',
-                transition: 'all 200ms ease',
-              }}
-            >
-              Sign In
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* ── Hero Section ───────────────────────────────────── */}
-      <section style={{
-        paddingTop: 160, paddingBottom: 120,
-        background: 'linear-gradient(180deg, #ffffff 0%, #f8f9fb 100%)',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        {/* Decorative gradient orbs */}
-        <div style={{
-          position: 'absolute', top: -100, right: -100, width: 500, height: 500,
-          borderRadius: '50%', background: 'radial-gradient(circle, rgba(36,42,136,0.06) 0%, transparent 70%)',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: -60, left: -80, width: 400, height: 400,
-          borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,75,89,0.04) 0%, transparent 70%)',
-        }} />
-
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center' }}>
-            <div>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px',
-                borderRadius: 100, background: 'rgba(36,42,136,0.06)', marginBottom: 24,
-              }}>
-                <Zap size={14} color="#242a88" />
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#242a88', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  Enterprise-grade ERP
-                </span>
-              </div>
-
-              <h1 style={{
-                fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(2.5rem, 5vw, 3.5rem)',
-                fontWeight: 700, lineHeight: 1.1, color: '#191c1e', margin: '0 0 24px',
-                letterSpacing: '-0.03em',
-              }}>
-                Build your organization
-                <br />
-                <span style={{ color: '#242a88' }}>module by module</span>
-              </h1>
-
-              <p style={{
-                fontSize: '1.125rem', lineHeight: 1.7, color: '#4a5568', maxWidth: 560,
-                margin: '0 0 40px',
-              }}>
-                Select only the modules you need. Scale as you grow. One platform for accounting,
-                procurement, HR, inventory, and more &mdash; with per-module pricing that puts you in control.
-              </p>
-
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => navigate('/register')}
-                  style={{
-                    padding: '14px 32px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #242a88, #2e35a0)', color: '#fff',
-                    fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
-                    boxShadow: '0 4px 14px rgba(36,42,136,0.3)',
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    transition: 'all 200ms ease',
-                  }}
-                >
-                  Start Free Trial <ArrowRight size={18} />
-                </button>
-                <button
-                  onClick={() => navigate('/pricing')}
-                  style={{
-                    padding: '14px 32px', borderRadius: 8, border: '1.5px solid #242a88',
-                    background: 'transparent', color: '#242a88', cursor: 'pointer',
-                    fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
-                    transition: 'all 200ms ease',
-                  }}
-                >
-                  View Pricing
-                </button>
-              </div>
-            </div>
-
-            {/* Hero Image */}
-            <div style={{ position: 'relative' }}>
-              <img
-                src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&h=450&fit=crop&q=80"
-                alt="Business analytics dashboard"
-                style={{
-                  width: '100%', borderRadius: 16,
-                  boxShadow: '0 20px 60px rgba(36,42,136,0.15)',
-                  objectFit: 'cover',
-                }}
-              />
-              {/* Floating stats card */}
-              <div style={{
-                position: 'absolute', bottom: -24, left: -24, background: '#ffffff',
-                borderRadius: 12, padding: '16px 20px',
-                boxShadow: '0 8px 30px rgba(25,28,30,0.12)',
-                display: 'flex', alignItems: 'center', gap: 12,
-              }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10,
-                  background: 'rgba(36,42,136,0.08)', color: '#242a88',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <TrendingUp size={20} />
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => navigate('/')}>
+                        <div style={{
+                            width: 40, height: 40, borderRadius: 10,
+                            background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: `0 2px 8px ${NAVY}33`,
+                        }}>
+                            <Building2 size={22} color="#fff" />
+                        </div>
+                        <div style={{ lineHeight: 1 }}>
+                            <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 800, color: INK }}>
+                                Quot PSE
+                            </div>
+                            <div style={{ fontSize: '0.65rem', color: NIGERIA_GREEN, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', marginTop: 2 }}>
+                                Nigeria Public-Sector IFMIS
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                        <a href="#compliance" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Compliance</a>
+                        <a href="#modules" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Modules</a>
+                        <a href="#who" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Who it's for</a>
+                        <button
+                            onClick={() => navigate('/pricing')}
+                            style={{
+                                background: 'none', border: 'none', color: MUTED, fontSize: '0.875rem',
+                                fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+                            }}
+                        >
+                            Pricing
+                        </button>
+                        <button
+                            onClick={() => navigate('/login')}
+                            style={{
+                                padding: '10px 22px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`, color: '#fff',
+                                fontWeight: 600, fontSize: '0.875rem', fontFamily: 'inherit',
+                                boxShadow: `0 2px 8px ${NAVY}33`,
+                            }}
+                        >
+                            Sign In
+                        </button>
+                    </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>Efficiency gain</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#191c1e' }}>+42%</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+            </nav>
 
-      {/* ── Trust Bar ──────────────────────────────────────── */}
-      <section style={{ background: '#ffffff', padding: '48px 0' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 64, flexWrap: 'wrap', alignItems: 'center' }}>
-            {[
-              { icon: <Shield size={20} color="#242a88" />, text: 'SOC 2 Compliant' },
-              { icon: <Globe size={20} color="#242a88" />, text: 'Multi-tenant Architecture' },
-              { icon: <Zap size={20} color="#242a88" />, text: 'Real-time Analytics' },
-              { icon: <Users size={20} color="#242a88" />, text: 'Role-based Access' },
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {item.icon}
-                <span style={{ fontSize: '0.875rem', fontWeight: 500, color: '#4a5568' }}>{item.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Features Section ───────────────────────────────── */}
-      <section id="features" style={{ padding: '100px 0', background: '#f8f9fb' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
-          <div style={{ textAlign: 'center', marginBottom: 72 }}>
-            <h2 style={{
-              fontFamily: "'Manrope', sans-serif", fontSize: '1.75rem', fontWeight: 600,
-              color: '#191c1e', margin: '0 0 16px',
+            {/* ── Hero Section ─────────────────────────────────── */}
+            <section style={{
+                paddingTop: 160, paddingBottom: 110,
+                background: 'linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%)',
+                position: 'relative', overflow: 'hidden',
             }}>
-              Why organizations choose DTSG
-            </h2>
-            <p style={{ fontSize: '1rem', color: '#4a5568', maxWidth: 560, margin: '0 auto' }}>
-              An enterprise resource platform designed for modern teams that demand flexibility without compromise.
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 32 }}>
-            {[
-              {
-                icon: <Layers size={24} />,
-                title: 'Modular by Design',
-                desc: 'Pick the exact modules your organization needs. No bloated bundles — pay only for what you use.',
-              },
-              {
-                icon: <Shield size={24} />,
-                title: 'Enterprise Security',
-                desc: 'Multi-tenant isolation, role-based access control, audit logging, and 256-bit encryption at rest.',
-              },
-              {
-                icon: <BarChart3 size={24} />,
-                title: 'Real-time Financials',
-                desc: 'GL posting, trial balance, P&L, and balance sheet — all generated in real-time from your journal entries.',
-              },
-              {
-                icon: <Globe size={24} />,
-                title: 'Multi-dimensional Accounting',
-                desc: 'Track by Fund, Function, Program, Geo, and MDA simultaneously for complete government-grade reporting.',
-              },
-              {
-                icon: <Zap size={24} />,
-                title: 'Instant Provisioning',
-                desc: 'Sign up and your tenant is ready in seconds. No waiting for setup calls or manual configuration.',
-              },
-              {
-                icon: <TrendingUp size={24} />,
-                title: 'Scale Without Limits',
-                desc: 'Add modules, users, and storage as your organization grows. Upgrade or downgrade anytime.',
-              },
-            ].map((feature, i) => (
-              <div key={i} style={{
-                background: '#ffffff', borderRadius: 12, padding: 32,
-                transition: 'all 200ms ease',
-              }}>
+                {/* Decorative gradient orbs */}
                 <div style={{
-                  width: 48, height: 48, borderRadius: 10,
-                  background: 'rgba(36,42,136,0.06)', color: '#242a88',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  marginBottom: 20,
-                }}>
-                  {feature.icon}
-                </div>
-                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1rem', fontWeight: 600, margin: '0 0 8px' }}>
-                  {feature.title}
-                </h3>
-                <p style={{ fontSize: '0.875rem', lineHeight: 1.6, color: '#4a5568', margin: 0 }}>
-                  {feature.desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+                    position: 'absolute', top: -120, right: -120, width: 540, height: 540,
+                    borderRadius: '50%', background: `radial-gradient(circle, ${NAVY}10 0%, transparent 70%)`,
+                }} />
+                <div style={{
+                    position: 'absolute', bottom: -80, left: -100, width: 420, height: 420,
+                    borderRadius: '50%', background: `radial-gradient(circle, ${NIGERIA_GREEN}0f 0%, transparent 70%)`,
+                }} />
 
-      {/* ── Modules Showcase ───────────────────────────────── */}
-      <section id="modules" style={{ padding: '100px 0', background: '#ffffff' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
-          <div style={{ textAlign: 'center', marginBottom: 72 }}>
-            <h2 style={{
-              fontFamily: "'Manrope', sans-serif", fontSize: '1.75rem', fontWeight: 600,
-              color: '#191c1e', margin: '0 0 16px',
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px', position: 'relative' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 64, alignItems: 'center' }}>
+                        <div>
+                            <div style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 16px',
+                                borderRadius: 100, background: `${NIGERIA_GREEN}10`, marginBottom: 28,
+                                border: `1px solid ${NIGERIA_GREEN}33`,
+                            }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: NIGERIA_GREEN, boxShadow: `0 0 0 3px ${NIGERIA_GREEN}22` }} />
+                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: NIGERIA_GREEN, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                                    Built for Nigerian State &amp; Local Government
+                                </span>
+                            </div>
+
+                            <h1 style={{
+                                fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(2.6rem, 5vw, 3.8rem)',
+                                fontWeight: 800, lineHeight: 1.05, color: INK, margin: '0 0 24px',
+                                letterSpacing: '-0.035em',
+                            }}>
+                                The modern IFMIS for
+                                <br />
+                                <span style={{
+                                    background: `linear-gradient(90deg, ${NAVY} 0%, ${NIGERIA_GREEN} 100%)`,
+                                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                                    backgroundClip: 'text',
+                                }}>
+                                    States, LGAs &amp; Parastatals
+                                </span>
+                            </h1>
+
+                            <p style={{
+                                fontSize: '1.15rem', lineHeight: 1.7, color: MUTED, maxWidth: 620,
+                                margin: '0 0 36px',
+                            }}>
+                                Run your State's entire fiscal cycle &mdash; Appropriation Act to audited
+                                IPSAS statements &mdash; on a single platform that speaks <strong style={{ color: INK }}>NCoA</strong>,
+                                <strong style={{ color: INK }}> TSA</strong>, <strong style={{ color: INK }}>FAAC</strong>,
+                                <strong style={{ color: INK }}> FIRS</strong> and <strong style={{ color: INK }}>PENCOM</strong> natively.
+                            </p>
+
+                            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 40 }}>
+                                <button
+                                    onClick={() => navigate('/register')}
+                                    style={{
+                                        padding: '14px 30px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                        background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`, color: '#fff',
+                                        fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
+                                        boxShadow: `0 6px 16px ${NAVY}3d`,
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                    }}
+                                >
+                                    Request a Demo <ArrowRight size={18} />
+                                </button>
+                                <button
+                                    onClick={() => navigate('/pricing')}
+                                    style={{
+                                        padding: '14px 30px', borderRadius: 8, border: `1.5px solid ${NAVY}`,
+                                        background: 'transparent', color: NAVY, cursor: 'pointer',
+                                        fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
+                                    }}
+                                >
+                                    View Modules &amp; Pricing
+                                </button>
+                            </div>
+
+                            {/* Stat strip */}
+                            <div style={{
+                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24,
+                                paddingTop: 28, borderTop: '1px solid rgba(15,23,89,0.08)',
+                            }}>
+                                {[
+                                    { v: '5', l: 'IPSAS Financial Statements' },
+                                    { v: '6', l: 'NCoA Classification Segments' },
+                                    { v: '3-way', l: 'Procurement Matching' },
+                                ].map((s, i) => (
+                                    <div key={i}>
+                                        <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.6rem', fontWeight: 800, color: INK, letterSpacing: '-0.02em' }}>
+                                            {s.v}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: MUTED, fontWeight: 500, marginTop: 2 }}>
+                                            {s.l}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Hero visual — product preview mock */}
+                        <div style={{ position: 'relative' }}>
+                            <div style={{
+                                background: '#fff', borderRadius: 16, padding: 18,
+                                boxShadow: `0 24px 60px ${NAVY}22`,
+                                border: `1px solid ${NAVY}10`,
+                            }}>
+                                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f57' }} />
+                                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
+                                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#28ca41' }} />
+                                    <span style={{ marginLeft: 14, fontSize: '0.7rem', color: MUTED, fontFamily: "'JetBrains Mono', monospace" }}>
+                                        accountant-general.delta.gov.ng/dashboard
+                                    </span>
+                                </div>
+
+                                {/* Preview cards */}
+                                <div style={{ padding: 16, background: SURFACE, borderRadius: 10 }}>
+                                    <div style={{ fontSize: '0.7rem', color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 10 }}>
+                                        Government Financial Dashboard
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                                        {[
+                                            { label: 'TSA Cash Position', value: '₦17.84B', tone: NAVY },
+                                            { label: 'YTD Revenue', value: '₦212.8M', tone: NIGERIA_GREEN },
+                                        ].map((c, i) => (
+                                            <div key={i} style={{
+                                                background: '#fff', padding: 12, borderRadius: 8,
+                                                borderLeft: `3px solid ${c.tone}`,
+                                            }}>
+                                                <div style={{ fontSize: '0.65rem', color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                    {c.label}
+                                                </div>
+                                                <div style={{ fontSize: '1.15rem', fontWeight: 700, color: INK, marginTop: 2 }}>
+                                                    {c.value}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Budget bars */}
+                                    <div style={{ background: '#fff', padding: 12, borderRadius: 8 }}>
+                                        <div style={{ fontSize: '0.7rem', color: INK, fontWeight: 600, marginBottom: 8 }}>
+                                            Budget Execution by MDA
+                                        </div>
+                                        {[
+                                            { mda: 'Min. of Education', pct: 68, tone: NIGERIA_GREEN },
+                                            { mda: 'Min. of Health', pct: 54, tone: NAVY },
+                                            { mda: 'Min. of Works', pct: 43, tone: '#c47f17' },
+                                            { mda: 'Min. of Agric', pct: 31, tone: MUTED },
+                                        ].map((b, i) => (
+                                            <div key={i} style={{ marginBottom: i === 3 ? 0 : 8 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: MUTED, marginBottom: 3 }}>
+                                                    <span>{b.mda}</span>
+                                                    <span style={{ fontWeight: 600, color: INK }}>{b.pct}%</span>
+                                                </div>
+                                                <div style={{ height: 5, background: '#eef1f6', borderRadius: 3, overflow: 'hidden' }}>
+                                                    <div style={{ height: '100%', width: `${b.pct}%`, background: b.tone, borderRadius: 3 }} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Floating compliance badge */}
+                            <div style={{
+                                position: 'absolute', bottom: -20, right: -20, background: '#ffffff',
+                                borderRadius: 12, padding: '12px 16px',
+                                boxShadow: '0 10px 30px rgba(15,23,89,0.15)',
+                                display: 'flex', alignItems: 'center', gap: 10,
+                                border: `1px solid ${NIGERIA_GREEN}22`,
+                            }}>
+                                <div style={{
+                                    width: 36, height: 36, borderRadius: 8,
+                                    background: `${NIGERIA_GREEN}14`, color: NIGERIA_GREEN,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <ShieldCheck size={18} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.65rem', color: MUTED, fontWeight: 500 }}>IPSAS Accrual</div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: INK }}>Audit-Ready</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Compliance Bar ────────────────────────────────── */}
+            <section id="compliance" style={{ background: '#ffffff', padding: '44px 0', borderTop: `1px solid ${NAVY}0f`, borderBottom: `1px solid ${NAVY}0f` }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: MUTED, letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+                            Regulatory alignment — out of the box
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 40, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {[
+                            { label: 'IPSAS Accrual', sub: 'IFRS-aligned public sector', icon: <Scale size={18} /> },
+                            { label: 'NCoA 6-Segment', sub: 'Federal Chart of Accounts', icon: <Layers size={18} /> },
+                            { label: 'TSA Compliant', sub: 'Treasury Single Account', icon: <Landmark size={18} /> },
+                            { label: 'FAAC Ready', sub: 'Statutory / VAT / Derivation', icon: <Banknote size={18} /> },
+                            { label: 'FIRS XML', sub: 'WHT & VAT schedules', icon: <Receipt size={18} /> },
+                            { label: 'PENCOM XML', sub: 'Pension remittance', icon: <ShieldCheck size={18} /> },
+                        ].map((item, i) => (
+                            <div key={i} style={{
+                                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px',
+                                borderRadius: 10, background: SURFACE,
+                                border: `1px solid ${NAVY}0f`,
+                            }}>
+                                <div style={{ color: NAVY, display: 'flex' }}>{item.icon}</div>
+                                <div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: INK, lineHeight: 1.15 }}>{item.label}</div>
+                                    <div style={{ fontSize: '0.7rem', color: MUTED, marginTop: 1 }}>{item.sub}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Public-Sector Feature Grid ────────────────────── */}
+            <section style={{ padding: '96px 0', background: SURFACE }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{ textAlign: 'center', marginBottom: 64, maxWidth: 760, marginLeft: 'auto', marginRight: 'auto' }}>
+                        <div style={{
+                            display: 'inline-block', padding: '5px 14px', borderRadius: 100,
+                            background: `${NAVY}10`, color: NAVY,
+                            fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
+                            marginBottom: 16,
+                        }}>
+                            Purpose-built for Nigeria
+                        </div>
+                        <h2 style={{
+                            fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(1.75rem, 3vw, 2.3rem)', fontWeight: 700,
+                            color: INK, margin: '0 0 18px', letterSpacing: '-0.02em',
+                        }}>
+                            Every feature the OAGF checklist asks for
+                        </h2>
+                        <p style={{ fontSize: '1rem', color: MUTED, margin: 0, lineHeight: 1.6 }}>
+                            Not a generic ERP with a government skin &mdash; every module was designed
+                            from first principles around the 1999 Constitution, the PFM Act, IPSAS,
+                            and the Federal Treasury Circulars.
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+                        {[
+                            {
+                                icon: <Gavel size={22} />,
+                                title: 'Appropriation Act enforcement',
+                                desc: 'Original, Supplementary, Virement workflows route through the State House of Assembly with full law-reference tracking and a hard ceiling on over-commitment.',
+                                tone: NIGERIA_GREEN,
+                            },
+                            {
+                                icon: <Layers size={22} />,
+                                title: 'NCoA six-segment coding',
+                                desc: 'Administrative · Economic · Functional · Programme · Fund · Geographic. Every journal line is coded to the full 52-digit NCoA composite.',
+                                tone: NAVY,
+                            },
+                            {
+                                icon: <Landmark size={22} />,
+                                title: 'TSA & sub-account discipline',
+                                desc: 'Main TSA, Revenue, Holding, and Sub-accounts tracked in real time. FAAC statutory, VAT and derivation inflows tagged at receipt.',
+                                tone: NIGERIA_GREEN,
+                            },
+                            {
+                                icon: <FileBarChart2 size={22} />,
+                                title: 'IPSAS monthly management pack',
+                                desc: 'Statement of Financial Position, Performance, Cash Flow, Changes in Net Assets, and Notes — generated live from the GL with prior-year comparatives.',
+                                tone: NAVY,
+                            },
+                            {
+                                icon: <ClipboardCheck size={22} />,
+                                title: '3-way matching procurement',
+                                desc: 'PR → PO → GRN → Invoice with commitment accounting. POs reduce the Appropriation ceiling instantly; verified invoices release the commitment to actual expenditure.',
+                                tone: NIGERIA_GREEN,
+                            },
+                            {
+                                icon: <Receipt size={22} />,
+                                title: 'FIRS & PENCOM native exports',
+                                desc: 'Monthly WHT and VAT returns, and PENCOM pension schedules generated as XSD-validated XML ready for portal upload — no spreadsheet gymnastics.',
+                                tone: NAVY,
+                            },
+                            {
+                                icon: <Users size={22} />,
+                                title: 'Nigerian payroll out of the box',
+                                desc: 'PAYE (progressive bands), Pension 8%/10%, NHF, NSITF, ITF deductions computed per statute. Social benefit batch pay for pensioners and widows.',
+                                tone: NIGERIA_GREEN,
+                            },
+                            {
+                                icon: <ShieldCheck size={22} />,
+                                title: 'Segregation of Duties + Dual Control',
+                                desc: 'Initiator ≠ approver is enforced at the database level. Dual-control overrides require two Accountant-General signatures and write to an immutable audit log.',
+                                tone: NAVY,
+                            },
+                            {
+                                icon: <BookOpen size={22} />,
+                                title: 'Full audit trail & Data Quality',
+                                desc: 'Every posting, override and setting change is append-only logged. Data Quality dashboard flags missing NCoA codes, unbalanced journals, and closed-period breaches.',
+                                tone: NIGERIA_GREEN,
+                            },
+                        ].map((feature, i) => (
+                            <div key={i} style={{
+                                background: '#ffffff', borderRadius: 14, padding: 28,
+                                border: `1px solid ${NAVY}0a`,
+                                transition: 'all 200ms ease',
+                            }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.boxShadow = `0 12px 32px ${NAVY}18`;
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.boxShadow = 'none';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                }}>
+                                <div style={{
+                                    width: 44, height: 44, borderRadius: 10,
+                                    background: `${feature.tone}14`, color: feature.tone,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    marginBottom: 18,
+                                }}>
+                                    {feature.icon}
+                                </div>
+                                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.05rem', fontWeight: 700, margin: '0 0 10px', color: INK }}>
+                                    {feature.title}
+                                </h3>
+                                <p style={{ fontSize: '0.88rem', lineHeight: 1.65, color: MUTED, margin: 0 }}>
+                                    {feature.desc}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Who It's For ──────────────────────────────────── */}
+            <section id="who" style={{ padding: '96px 0', background: '#ffffff' }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{ textAlign: 'center', marginBottom: 64, maxWidth: 720, marginLeft: 'auto', marginRight: 'auto' }}>
+                        <h2 style={{
+                            fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(1.75rem, 3vw, 2.3rem)', fontWeight: 700,
+                            color: INK, margin: '0 0 18px', letterSpacing: '-0.02em',
+                        }}>
+                            Who runs on Quot PSE
+                        </h2>
+                        <p style={{ fontSize: '1rem', color: MUTED, margin: 0, lineHeight: 1.6 }}>
+                            Every tier of public-sector finance &mdash; from the Governor's Office
+                            of the Accountant-General down to a Local Government Chairman &mdash; gets
+                            the same battle-tested controls and IPSAS-compliant books.
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+                        {[
+                            {
+                                icon: <Building2 size={28} />,
+                                title: 'State Ministries of Finance',
+                                desc: 'Commissioners and their teams running the annual budget cycle, cash plans, and revenue profiles across all MDAs.',
+                                bullets: ['Budget cycle management', 'Revenue profile tracking', 'MDA oversight'],
+                            },
+                            {
+                                icon: <Landmark size={28} />,
+                                title: 'Offices of the Accountant-General',
+                                desc: 'The apex stewards of State finances — closing periods, signing statements, and filing statutory returns.',
+                                bullets: ['Period close & sign-off', 'IPSAS filing', 'Override audit'],
+                            },
+                            {
+                                icon: <MapPin size={28} />,
+                                title: 'Local Government Councils',
+                                desc: 'All 774 Councils can plug in with their own NCoA segment, warrant limits, and LG-specific reporting packs.',
+                                bullets: ['Council-scoped books', 'LG-funded projects', 'IGR tracking'],
+                            },
+                            {
+                                icon: <Package size={28} />,
+                                title: 'Parastatals & Agencies',
+                                desc: 'SOEs, tertiary institutions, hospitals, and boards operate as independent tenants consolidating up to the State.',
+                                bullets: ['Independent tenant schema', 'Sub-vention workflow', 'Consolidation ready'],
+                            },
+                        ].map((persona, i) => (
+                            <div key={i} style={{
+                                background: SURFACE, borderRadius: 14, padding: 28,
+                                border: `1px solid ${NAVY}0a`,
+                            }}>
+                                <div style={{
+                                    width: 56, height: 56, borderRadius: 14,
+                                    background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`,
+                                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    marginBottom: 20, boxShadow: `0 6px 16px ${NAVY}33`,
+                                }}>
+                                    {persona.icon}
+                                </div>
+                                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.1rem', fontWeight: 700, margin: '0 0 12px', color: INK }}>
+                                    {persona.title}
+                                </h3>
+                                <p style={{ fontSize: '0.88rem', lineHeight: 1.65, color: MUTED, margin: '0 0 18px' }}>
+                                    {persona.desc}
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {persona.bullets.map((b, j) => (
+                                        <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <CheckCircle2 size={14} color={NIGERIA_GREEN} />
+                                            <span style={{ fontSize: '0.82rem', color: INK, fontWeight: 500 }}>{b}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Modules Showcase ─────────────────────────────── */}
+            <section id="modules" style={{ padding: '96px 0', background: SURFACE }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{ textAlign: 'center', marginBottom: 64 }}>
+                        <h2 style={{
+                            fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(1.75rem, 3vw, 2.3rem)', fontWeight: 700,
+                            color: INK, margin: '0 0 18px', letterSpacing: '-0.02em',
+                        }}>
+                            {modulesFromDb.length > 0 ? `${modulesFromDb.length} modules, one fiscal backbone` : 'Ten public-sector modules, one fiscal backbone'}
+                        </h2>
+                        <p style={{ fontSize: '1rem', color: MUTED, maxWidth: 640, margin: '0 auto', lineHeight: 1.6 }}>
+                            Each module stands alone &mdash; but they share one General Ledger, one
+                            NCoA, and one audit trail. Switch on what you need; the rest sleeps until
+                            you're ready.
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 20 }}>
+                        {modules.map((mod, i) => (
+                            <div
+                                key={mod.module_name || i}
+                                onClick={() => navigate(`/pricing/${mod.module_name}`)}
+                                style={{
+                                    background: '#fff', borderRadius: 14, padding: 26,
+                                    cursor: 'pointer', transition: 'all 200ms ease',
+                                    position: 'relative',
+                                    border: `1px solid ${NAVY}0c`,
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.boxShadow = `0 12px 32px ${NAVY}20`;
+                                    e.currentTarget.style.transform = 'translateY(-3px)';
+                                    e.currentTarget.style.borderColor = `${NAVY}22`;
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.boxShadow = 'none';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.borderColor = `${NAVY}0c`;
+                                }}
+                            >
+                                {mod.is_popular && (
+                                    <div style={{
+                                        position: 'absolute', top: 14, right: 14, padding: '3px 10px',
+                                        borderRadius: 100, background: `${NIGERIA_GREEN}14`, color: NIGERIA_GREEN,
+                                        fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px',
+                                    }}>
+                                        Core
+                                    </div>
+                                )}
+                                <div style={{
+                                    width: 48, height: 48, borderRadius: 11,
+                                    background: `${NAVY}10`, color: NAVY,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    marginBottom: 16,
+                                }}>
+                                    {MODULE_ICONS[mod.module_name] || <Package size={26} />}
+                                </div>
+                                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1rem', fontWeight: 700, margin: '0 0 8px', color: INK }}>
+                                    {mod.title}
+                                </h3>
+                                <p style={{ fontSize: '0.8rem', lineHeight: 1.55, color: MUTED, margin: '0 0 18px', minHeight: 40 }}>
+                                    {mod.tagline || mod.description?.slice(0, 80)}
+                                </p>
+                                {mod.price_monthly && Number(mod.price_monthly) > 0 ? (
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                        <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700, color: INK }}>
+                                            ₦{Number(mod.price_monthly).toLocaleString()}
+                                        </span>
+                                        <span style={{ fontSize: '0.75rem', color: MUTED }}>/mo</span>
+                                    </div>
+                                ) : (
+                                    <span style={{ fontSize: '0.8rem', color: NAVY, fontWeight: 600 }}>
+                                        Learn more <ChevronRight size={14} style={{ verticalAlign: 'middle' }} />
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ textAlign: 'center', marginTop: 48 }}>
+                        <button
+                            onClick={() => navigate('/pricing')}
+                            style={{
+                                padding: '14px 32px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`, color: '#fff',
+                                fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
+                                boxShadow: `0 6px 16px ${NAVY}3d`,
+                                display: 'inline-flex', alignItems: 'center', gap: 8,
+                            }}
+                        >
+                            View Full Module Catalogue <ArrowRight size={18} />
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Outcomes / Stats Band ─────────────────────────── */}
+            <section style={{ padding: '80px 0', background: '#ffffff' }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                        gap: 0, padding: '40px 28px',
+                        background: `linear-gradient(135deg, ${SURFACE} 0%, #eef1f6 100%)`,
+                        borderRadius: 16, border: `1px solid ${NAVY}0a`,
+                    }}>
+                        {[
+                            { value: '774', label: 'LGAs addressable', icon: <MapPin size={22} /> },
+                            { value: '36+1', label: 'States + FCT supported', icon: <Shield size={22} /> },
+                            { value: '9', label: 'IPSAS reports shipped', icon: <FileBarChart2 size={22} /> },
+                            { value: 'Zero', label: 'Excel VLOOKUPs required', icon: <Zap size={22} /> },
+                        ].map((s, i) => (
+                            <div key={i} style={{
+                                padding: '20px 24px',
+                                borderLeft: i === 0 ? 'none' : `1px solid ${NAVY}14`,
+                                textAlign: 'center',
+                            }}>
+                                <div style={{ color: NIGERIA_GREEN, display: 'inline-flex', marginBottom: 10 }}>
+                                    {s.icon}
+                                </div>
+                                <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '2rem', fontWeight: 800, color: INK, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                                    {s.value}
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: MUTED, fontWeight: 500, marginTop: 8 }}>
+                                    {s.label}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Final CTA ─────────────────────────────────────── */}
+            <section style={{
+                padding: '100px 0',
+                background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY_DARK} 55%, #0a1240 100%)`,
+                position: 'relative', overflow: 'hidden',
             }}>
-              {modules.length > 0 ? `${modules.length} modules, one platform` : 'Comprehensive ERP modules'}
-            </h2>
-            <p style={{ fontSize: '1rem', color: '#4a5568', maxWidth: 560, margin: '0 auto' }}>
-              Each module works independently or integrates seamlessly with the rest.
-              Select what you need today — add more as you grow.
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 24 }}>
-            {(modules.length > 0 ? modules : defaultModules).map((mod, i) => (
-              <div
-                key={mod.module_name || i}
-                onClick={() => navigate(`/pricing/${mod.module_name}`)}
-                style={{
-                  background: '#f8f9fb', borderRadius: 12, padding: 28,
-                  cursor: 'pointer', transition: 'all 200ms ease',
-                  position: 'relative',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#ffffff';
-                  e.currentTarget.style.boxShadow = '0 8px 30px rgba(25,28,30,0.06)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8f9fb';
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                {mod.is_popular && (
-                  <div style={{
-                    position: 'absolute', top: 12, right: 12, padding: '3px 10px',
-                    borderRadius: 100, background: 'rgba(36,42,136,0.08)', color: '#242a88',
-                    fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
-                  }}>
-                    Popular
-                  </div>
-                )}
                 <div style={{
-                  width: 48, height: 48, borderRadius: 10,
-                  background: 'rgba(36,42,136,0.06)', color: '#242a88',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  marginBottom: 16,
-                }}>
-                  {MODULE_ICONS[mod.module_name] || <Package size={28} />}
-                </div>
-                <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1rem', fontWeight: 600, margin: '0 0 6px' }}>
-                  {mod.title}
-                </h3>
-                <p style={{ fontSize: '0.8rem', lineHeight: 1.5, color: '#4a5568', margin: '0 0 16px', minHeight: 40 }}>
-                  {mod.tagline || mod.description?.slice(0, 80)}
-                </p>
-                {mod.price_monthly && Number(mod.price_monthly) > 0 ? (
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1.25rem', fontWeight: 700, color: '#191c1e' }}>
-                      ${mod.price_monthly}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>/mo</span>
-                  </div>
-                ) : (
-                  <span style={{ fontSize: '0.8rem', color: '#242a88', fontWeight: 600 }}>Learn more <ChevronRight size={14} style={{ verticalAlign: 'middle' }} /></span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div style={{ textAlign: 'center', marginTop: 48 }}>
-            <button
-              onClick={() => navigate('/pricing')}
-              style={{
-                padding: '14px 32px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: 'linear-gradient(135deg, #242a88, #2e35a0)', color: '#fff',
-                fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
-                boxShadow: '0 4px 14px rgba(36,42,136,0.3)',
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              View All Pricing <ArrowRight size={18} />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA Section ────────────────────────────────────── */}
-      <section style={{
-        padding: '100px 0',
-        background: 'linear-gradient(135deg, #242a88 0%, #2e35a0 100%)',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', top: -100, right: -50, width: 400, height: 400,
-          borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
-        }} />
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center' }}>
-            <div>
-              <h2 style={{
-                fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(1.5rem, 3vw, 2rem)',
-                fontWeight: 700, color: '#ffffff', margin: '0 0 16px',
-              }}>
-                Ready to modernize your operations?
-              </h2>
-              <p style={{ fontSize: '1rem', color: 'rgba(255,255,255,0.8)', margin: '0 0 40px', lineHeight: 1.7 }}>
-                Start with a free trial. No credit card required. Your dedicated ERP environment
-                is provisioned instantly.
-              </p>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => navigate('/register')}
-                  style={{
-                    padding: '14px 32px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: '#ffffff', color: '#242a88',
-                    fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
-                    boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
-                    display: 'flex', alignItems: 'center', gap: 8,
-                  }}
-                >
-                  Get Started Free <ArrowRight size={18} />
-                </button>
-                <button
-                  onClick={() => navigate('/login')}
-                  style={{
-                    padding: '14px 32px', borderRadius: 8, border: '1.5px solid rgba(255,255,255,0.4)',
-                    background: 'transparent', color: '#ffffff', cursor: 'pointer',
-                    fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
-                  }}
-                >
-                  Sign In
-                </button>
-              </div>
-            </div>
-            <div>
-              <img
-                src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=560&h=400&fit=crop&q=80"
-                alt="Team collaborating in modern office"
-                style={{
-                  width: '100%', borderRadius: 16,
-                  boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-                  objectFit: 'cover',
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Footer ─────────────────────────────────────────── */}
-      <footer style={{ background: '#191c1e', padding: '64px 0 32px', color: 'rgba(255,255,255,0.6)' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 48, marginBottom: 48 }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                    position: 'absolute', top: -120, right: -60, width: 440, height: 440,
+                    borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
+                }} />
                 <div style={{
-                  width: 32, height: 32, borderRadius: 8,
-                  background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Building2 size={16} color="#fff" />
+                    position: 'absolute', bottom: -100, left: -50, width: 360, height: 360,
+                    borderRadius: '50%', background: `${NIGERIA_GREEN}18`,
+                }} />
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px', position: 'relative' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 64, alignItems: 'center' }}>
+                        <div>
+                            <div style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 14px',
+                                borderRadius: 100, background: 'rgba(255,255,255,0.12)', marginBottom: 20,
+                            }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: NIGERIA_GREEN }} />
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#fff', letterSpacing: '0.6px', textTransform: 'uppercase' }}>
+                                    Onboard in days, not quarters
+                                </span>
+                            </div>
+                            <h2 style={{
+                                fontFamily: "'Manrope', sans-serif", fontSize: 'clamp(1.8rem, 3.4vw, 2.4rem)',
+                                fontWeight: 800, color: '#ffffff', margin: '0 0 18px',
+                                letterSpacing: '-0.02em', lineHeight: 1.15,
+                            }}>
+                                Bring your State's books into the IPSAS era
+                            </h2>
+                            <p style={{ fontSize: '1rem', color: 'rgba(255,255,255,0.82)', margin: '0 0 36px', lineHeight: 1.7 }}>
+                                We'll stand up your tenant, migrate your NCoA, seed opening balances
+                                and train your team. Your Accountant-General posts the first journal
+                                on day one.
+                            </p>
+                            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => navigate('/register')}
+                                    style={{
+                                        padding: '14px 30px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                        background: '#ffffff', color: NAVY,
+                                        fontWeight: 700, fontSize: '1rem', fontFamily: 'inherit',
+                                        boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                    }}
+                                >
+                                    Book an Executive Demo <ArrowRight size={18} />
+                                </button>
+                                <button
+                                    onClick={() => navigate('/login')}
+                                    style={{
+                                        padding: '14px 30px', borderRadius: 8,
+                                        border: '1.5px solid rgba(255,255,255,0.45)',
+                                        background: 'transparent', color: '#ffffff', cursor: 'pointer',
+                                        fontWeight: 600, fontSize: '1rem', fontFamily: 'inherit',
+                                    }}
+                                >
+                                    Sign in
+                                </button>
+                            </div>
+                        </div>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.06)', borderRadius: 16, padding: 28,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+                        }}>
+                            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.65)', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 16 }}>
+                                Onboarding in 4 steps
+                            </div>
+                            {[
+                                { step: '01', title: 'Tenant provisioning', body: 'Dedicated schema, domain and Accountant-General user live in under an hour.' },
+                                { step: '02', title: 'NCoA & opening balances', body: 'Your State\'s NCoA segments seeded; audited opening balances migrated.' },
+                                { step: '03', title: 'Workflow & SOD setup', body: 'Approval levels mapped to your Civil Service grades with dual-control rules.' },
+                                { step: '04', title: 'Go-live training', body: 'Budget, Accounting, Procurement teams trained; first IPSAS pack filed in-app.' },
+                            ].map((s, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: 14,
+                                    padding: '14px 0',
+                                    borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                                }}>
+                                    <div style={{
+                                        fontFamily: "'Manrope', sans-serif", fontSize: '0.95rem', fontWeight: 800,
+                                        color: NIGERIA_GREEN, minWidth: 32,
+                                    }}>
+                                        {s.step}
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#fff', marginBottom: 2 }}>
+                                            {s.title}
+                                        </div>
+                                        <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', lineHeight: 1.55 }}>
+                                            {s.body}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-                <span style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1rem', fontWeight: 700, color: '#fff' }}>
-                  DTSG ERP
-                </span>
-              </div>
-              <p style={{ fontSize: '0.8rem', lineHeight: 1.7 }}>
-                Enterprise Resource Planning built for modern organizations.
-              </p>
-            </div>
-            <div>
-              <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Product</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <a href="#features" style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem' }}>Features</a>
-                <a href="#modules" style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem' }}>Modules</a>
-                <a onClick={() => navigate('/pricing')} style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem', cursor: 'pointer' }}>Pricing</a>
-              </div>
-            </div>
-            <div>
-              <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Company</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <span style={{ fontSize: '0.8rem' }}>About</span>
-                <span style={{ fontSize: '0.8rem' }}>Contact</span>
-                <span style={{ fontSize: '0.8rem' }}>Careers</span>
-              </div>
-            </div>
-            <div>
-              <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Legal</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <span style={{ fontSize: '0.8rem' }}>Privacy Policy</span>
-                <span style={{ fontSize: '0.8rem' }}>Terms of Service</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 24, textAlign: 'center' }}>
-            <p style={{ fontSize: '0.75rem' }}>&copy; {new Date().getFullYear()} DTSG ERP. All rights reserved.</p>
-          </div>
+            </section>
+
+            {/* ── Footer ────────────────────────────────────────── */}
+            <footer style={{ background: INK, padding: '64px 0 32px', color: 'rgba(255,255,255,0.6)' }}>
+                <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 48, marginBottom: 48 }}>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                                <div style={{
+                                    width: 34, height: 34, borderRadius: 8,
+                                    background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <Building2 size={17} color="#fff" />
+                                </div>
+                                <div style={{ lineHeight: 1 }}>
+                                    <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '1rem', fontWeight: 800, color: '#fff' }}>
+                                        Quot PSE
+                                    </div>
+                                    <div style={{ fontSize: '0.6rem', color: NIGERIA_GREEN, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', marginTop: 2 }}>
+                                        Public-Sector IFMIS
+                                    </div>
+                                </div>
+                            </div>
+                            <p style={{ fontSize: '0.8rem', lineHeight: 1.7, margin: 0 }}>
+                                IPSAS-compliant, NCoA-native fiscal management for Nigeria's 36 States, the FCT,
+                                and all 774 Local Government Councils.
+                            </p>
+                        </div>
+                        <div>
+                            <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Platform</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <a href="#modules" style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem' }}>Modules</a>
+                                <a href="#compliance" style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem' }}>Compliance</a>
+                                <a href="#who" style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem' }}>Who it's for</a>
+                                <a onClick={() => navigate('/pricing')} style={{ color: 'inherit', textDecoration: 'none', fontSize: '0.8rem', cursor: 'pointer' }}>Pricing</a>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Resources</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <span style={{ fontSize: '0.8rem' }}>IPSAS Adoption Guide</span>
+                                <span style={{ fontSize: '0.8rem' }}>NCoA Coding Handbook</span>
+                                <span style={{ fontSize: '0.8rem' }}>Onboarding Runbook</span>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Legal</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <span style={{ fontSize: '0.8rem' }}>Privacy Policy</span>
+                                <span style={{ fontSize: '0.8rem' }}>Terms of Service</span>
+                                <span style={{ fontSize: '0.8rem' }}>Data Residency (NG)</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                        <p style={{ fontSize: '0.75rem', margin: 0 }}>&copy; {new Date().getFullYear()} Quot PSE. All rights reserved.</p>
+                        <p style={{ fontSize: '0.72rem', margin: 0, color: 'rgba(255,255,255,0.45)' }}>
+                            Aligned with IPSAS · NCoA · PFM Act · Pension Reform Act 2014 · FIRSCA 2007
+                        </p>
+                    </div>
+                </div>
+            </footer>
         </div>
-      </footer>
-    </div>
-  );
+    );
 };
 
 export default LandingPage;

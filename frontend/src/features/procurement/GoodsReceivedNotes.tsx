@@ -264,7 +264,7 @@ export default function GoodsReceivedNotes() {
                                                         style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
                                                 </div>
                                             )}
-                                            {confirmAction?.id !== grn.id && grn.status === 'Received' && (
+                                            {confirmAction?.id !== grn.id && ['Draft', 'Received', 'On Hold'].includes(grn.status) && (
                                                 <button
                                                     onClick={() => setConfirmAction({ id: grn.id, action: 'post' })}
                                                     style={{

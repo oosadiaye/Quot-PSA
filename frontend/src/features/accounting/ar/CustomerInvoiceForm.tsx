@@ -4,7 +4,7 @@ import {
     ReceiptText, ArrowLeftRight, CheckCircle, AlertCircle,
 } from 'lucide-react';
 import { useCreateCustomerInvoice, useTaxCodes, useWithholdingTaxes } from '../hooks/useAccountingEnhancements';
-import { useCustomers } from '../../sales/hooks/useSales';
+import { useCustomers } from '../hooks/useCustomers';
 import { useDimensions } from '../hooks/useJournal';
 import { useIsDimensionsEnabled } from '../../../hooks/useTenantModules';
 import { useCurrency } from '../../../context/CurrencyContext';

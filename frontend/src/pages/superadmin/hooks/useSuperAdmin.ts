@@ -70,6 +70,9 @@ export const useTenantAction = () => {
       } else if (action === 'update') {
         const res = await superadminApi.updateTenant(tenantId, data);
         return res.data;
+      } else if (action === 'reset_password') {
+        const res = await superadminApi.resetTenantPassword(tenantId);
+        return res.data;
       } else if (action === 'delete') {
         const res = await superadminApi.deleteTenant(tenantId);
         return res.data;

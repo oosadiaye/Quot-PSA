@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='superadminsettings',
             name='smtp_from_name',
-            field=models.CharField(blank=True, default='DTSG ERP', max_length=100),
+            field=models.CharField(blank=True, default='QUOT ERP', max_length=100),
         ),
         migrations.AddField(
             model_name='superadminsettings',

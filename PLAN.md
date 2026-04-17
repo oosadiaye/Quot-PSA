@@ -1,8 +1,8 @@
-# DTSG ERP - Comprehensive Accounting Implementation Plan
+# QUOT ERP - Comprehensive Accounting Implementation Plan
 
 ## Executive Summary
 
-This document outlines the comprehensive implementation plan for all missing accounting features in the DTSG ERP system. The plan addresses critical financial controls, tax compliance (FIRS/NDIC), and professional accounting requirements under IFRS/IAS standards.
+This document outlines the comprehensive implementation plan for all missing accounting features in the QUOT ERP system. The plan addresses critical financial controls, tax compliance (FIRS/NDIC), and professional accounting requirements under IFRS/IAS standards.
 
 ---
 
@@ -281,4 +281,4 @@ accounting/services/
 
 *Document Version: 1.0*
 *Last Updated: March 2026*
-*Prepared by: DTSG ERP Implementation Team*
+*Prepared by: QUOT ERP Implementation Team*

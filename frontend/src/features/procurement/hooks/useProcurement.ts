@@ -81,6 +81,19 @@ export interface GoodsReceivedNotePayload {
     purchase_order: number;
     received_date: string;
     received_by: string;
+    /**
+     * MDA receiving the goods. Public-sector accountability requires this to
+     * match `purchase_order.mda` — the backend enforces equality in
+     * GoodsReceivedNote.clean(). Optional on the wire because the model's
+     * save() hook auto-populates from the PO when omitted.
+     */
+    mda?: number | null;
+    /**
+     * Receiving warehouse. Auto-resolved from `mda` by the backend
+     * (`inventory.services.get_default_warehouse_for_mda`); the GRN UI no
+     * longer asks the user to pick one. Kept here as `read-only` from the
+     * client's perspective — list/detail responses still surface it.
+     */
     warehouse?: number;
     notes?: string;
     lines: GoodsReceivedNoteLinePayload[];
@@ -226,6 +239,19 @@ export const usePurchaseRequests = (filters = {}) => {
     });
 };
 
+/** Fetch a single Purchase Request by id (used when converting to PO). */
+export const usePurchaseRequest = (id: number | null) => {
+    return useQuery({
+        queryKey: ['purchase-request', id],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/procurement/requests/${id}/`);
+            return data;
+        },
+        enabled: !!id,
+        staleTime: STALE_TIME,
+    });
+};
+
 export const useCreatePR = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -353,6 +379,38 @@ export const useSubmitPOForApproval = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+        },
+    });
+};
+
+/** Approve a Pending PO directly from the list (Pending → Approved). */
+export const useApprovePO = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(`/procurement/orders/${id}/approve/`);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-order'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
+        },
+    });
+};
+
+/** Reject a Pending PO (Pending → Rejected). */
+export const useRejectPO = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(`/procurement/orders/${id}/reject/`);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-order'] });
         },
     });
 };
@@ -534,6 +592,188 @@ export const useRejectMatching = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+        },
+    });
+};
+
+/** Fetch a single InvoiceMatching by ID for the detail/view page. */
+export const useInvoiceMatching = (id: number | null) => {
+    return useQuery({
+        queryKey: ['invoice-matching', id],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/procurement/invoice-matching/${id}/`);
+            return data;
+        },
+        staleTime: STALE_TIME,
+        enabled: !!id,
+    });
+};
+
+/**
+ * Submit a Matched verification for finance approval. Routes via the
+ * centralized workflow engine — small invoices can auto-approve.
+ */
+export const useSubmitMatchingForApproval = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(
+                `/procurement/invoice-matching/${id}/submit_for_approval/`,
+            );
+            return data;
+        },
+        onSuccess: (_data, id) => {
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            queryClient.invalidateQueries({ queryKey: ['invoice-matching', id] });
+            queryClient.invalidateQueries({ queryKey: ['approvals'] });
+        },
+    });
+};
+
+/**
+ * SAP MIRO-style single-call verification + posting.
+ *
+ * Submits the invoice header (PO + GRN + amounts + reference + tax) and,
+ * in one atomic backend transaction:
+ *   1. Creates the InvoiceMatching record
+ *   2. Calculates the 3-way match
+ *   3. Creates/updates the linked VendorInvoice with the verified amounts
+ *   4. Posts the GL journal (DR GR/IR / CR AP)
+ *   5. Closes the budget commitment (INVOICED → CLOSED)
+ *
+ * Two backend gates require the client to acknowledge:
+ *  - `partial_receipt: true`  → show "goods only partially received" modal
+ *  - `requires_variance_reason: true` → variance > 5%, prompt for reason
+ *
+ * Both can be retried by adding `acknowledge_partial: true` and/or
+ * `variance_reason: "..."` to the next call.
+ */
+export interface VerifyAndPostPayload {
+    purchase_order: number;
+    goods_received_note?: number | null;
+    invoice_reference: string;
+    invoice_date: string;
+    invoice_amount: number;
+    invoice_subtotal?: number;
+    invoice_tax_amount?: number;
+    notes?: string;
+    variance_reason?: string;
+    acknowledge_partial?: boolean;
+    down_payment_amount?: number;
+    /**
+     * SAP MIRO Account Assignment override. The backend defaults to
+     * `purchase_order.mda` when omitted; supply this only when the
+     * verifier needs to redirect the spend to a different MDA than the
+     * PO's owning MDA (rare but supported).
+     */
+    mda?: number | null;
+}
+export const useVerifyAndPost = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: VerifyAndPostPayload) => {
+            const { data } = await apiClient.post(
+                '/procurement/invoice-matching/verify_and_post/',
+                payload,
+            );
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['vendors'] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-encumbrances'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-execution-report'] });
+        },
+    });
+};
+
+/**
+ * SAP MIRO "Simulate" — preview the GL journal without writing anything.
+ *
+ * Returns the proposed DR/CR lines, totals, and the calculated 3-way
+ * match result so the verifier can sanity-check the GL hit before
+ * committing. No InvoiceMatching, VendorInvoice, or journal records
+ * are created.
+ */
+export interface SimulatePayload {
+    purchase_order: number;
+    goods_received_note?: number | null;
+    invoice_reference?: string;
+    invoice_amount: number;
+    invoice_subtotal?: number;
+    invoice_tax_amount?: number;
+}
+export interface SimulatedJournalLine {
+    account_code: string;
+    account_name: string;
+    account_type: string;
+    debit: string;
+    credit: string;
+    memo: string;
+}
+export interface SimulationResult {
+    simulated: true;
+    match_type: string;
+    status: string;
+    variance_amount: string;
+    variance_percentage: string;
+    partial_receipt: boolean;
+    po_total: string;
+    grn_total: string;
+    invoice_amount: string;
+    invoice_subtotal: string;
+    invoice_tax: string;
+    proposed_lines: SimulatedJournalLine[];
+    total_debit: string;
+    total_credit: string;
+    balanced: boolean;
+    accounts_used: { gr_ir_clearing: string | null; accounts_payable: string | null };
+}
+export const useSimulateInvoice = () => {
+    return useMutation({
+        mutationFn: async (payload: SimulatePayload) => {
+            const { data } = await apiClient.post<SimulationResult>(
+                '/procurement/invoice-matching/simulate/',
+                payload,
+            );
+            return data;
+        },
+        // Read-only — no cache invalidation needed.
+    });
+};
+
+/**
+ * Post the verified invoice to the GL — IPSAS three-way close.
+ * Locates/creates the linked VendorInvoice, copies the verified
+ * amounts onto it, posts the journal (DR GR/IR / CR AP), and flips
+ * the budget commitment INVOICED → CLOSED.
+ */
+export const usePostMatching = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(
+                `/procurement/invoice-matching/${id}/post_to_gl/`,
+            );
+            return data;
+        },
+        onSuccess: (_data, id) => {
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            queryClient.invalidateQueries({ queryKey: ['invoice-matching', id] });
+            // Cross-module invalidation: VI posting affects journals, AP, budget.
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['vendors'] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-encumbrances'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-execution-report'] });
         },
     });
 };

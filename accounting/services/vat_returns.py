@@ -4,20 +4,18 @@ Generates VAT returns per FIRS requirements.
 """
 from datetime import date
 from decimal import Decimal
-from typing import Optional, Dict, Any, List
-from django.db.models import Sum, Q
+from typing import Dict, Any, List
 from django.contrib.auth.models import User
 from accounting.models import (
-    VATReturn, VATReturnDetail, TaxRate, TaxCode,
-    CustomerInvoice, VendorInvoice, JournalLine
+    VATReturn, VATReturnDetail, CustomerInvoice, VendorInvoice
 )
 
 
 class VATReturnService:
     """Service for VAT return processing per FIRS requirements."""
-    
+
     STANDARD_VAT_RATE = Decimal('7.5')
-    
+
     @classmethod
     def get_output_vat(
         cls,
@@ -32,12 +30,12 @@ class VATReturnService:
             invoice_date__lte=period_end,
             status__in=['POSTED', 'APPROVED']
         )
-        
+
         if fiscal_year:
             invoices = invoices.filter(fiscal_year=fiscal_year)
-        
+
         vat_transactions = []
-        
+
         for invoice in invoices:
             vat_amount = invoice.tax_amount or Decimal('0')
             if vat_amount > 0:
@@ -52,9 +50,9 @@ class VATReturnService:
                     'vat_rate': cls.STANDARD_VAT_RATE,
                     'is_output': True,
                 })
-        
+
         return vat_transactions
-    
+
     @classmethod
     def get_input_vat(
         cls,
@@ -69,12 +67,12 @@ class VATReturnService:
             invoice_date__lte=period_end,
             status__in=['POSTED', 'APPROVED']
         )
-        
+
         if fiscal_year:
             invoices = invoices.filter(fiscal_year=fiscal_year)
-        
+
         vat_transactions = []
-        
+
         for invoice in invoices:
             vat_amount = invoice.tax_amount or Decimal('0')
             if vat_amount > 0:
@@ -89,9 +87,9 @@ class VATReturnService:
                     'vat_rate': cls.STANDARD_VAT_RATE,
                     'is_output': False,
                 })
-        
+
         return vat_transactions
-    
+
     @classmethod
     def calculate_vat_return(
         cls,
@@ -103,28 +101,28 @@ class VATReturnService:
         """Calculate VAT return for a period."""
         output_vat = cls.get_output_vat(period_start, period_end, fiscal_year, period)
         input_vat = cls.get_input_vat(period_start, period_end, fiscal_year, period)
-        
+
         total_output_vat = sum(v['vat_amount'] for v in output_vat)
         total_input_vat = sum(v['vat_amount'] for v in input_vat)
-        
+
         total_output_sales = sum(v['taxable_amount'] for v in output_vat)
         total_input_purchases = sum(v['taxable_amount'] for v in input_vat)
-        
+
         zero_rated_sales = Decimal('0')
         exempt_sales = Decimal('0')
-        
+
         for v in output_vat:
             if getattr(v, 'is_zero_rated', False):
                 zero_rated_sales += v['taxable_amount']
             if getattr(v, 'is_exempt', False):
                 exempt_sales += v['taxable_amount']
-        
+
         vat_payable = total_output_vat - total_input_vat
         if vat_payable < 0:
             vat_payable = Decimal('0')
-        
+
         vat_refundable = abs(vat_payable) if total_input_vat > total_output_vat else Decimal('0')
-        
+
         return {
             'period_start': period_start,
             'period_end': period_end,
@@ -144,7 +142,7 @@ class VATReturnService:
             'output_vat_list': output_vat,
             'input_vat_list': input_vat,
         }
-    
+
     @classmethod
     def create_vat_return(
         cls,
@@ -156,7 +154,7 @@ class VATReturnService:
     ) -> VATReturn:
         """Create and save a VAT return."""
         calc = cls.calculate_vat_return(period_start, period_end, fiscal_year, period)
-        
+
         vat_return = VATReturn.objects.create(
             period_start=period_start,
             period_end=period_end,
@@ -170,7 +168,7 @@ class VATReturnService:
             status='DRAFT',
             created_by=user,
         )
-        
+
         for item in calc['output_vat_list']:
             VATReturnDetail.objects.create(
                 vat_return=vat_return,
@@ -184,7 +182,7 @@ class VATReturnService:
                 is_output='OUTPUT',
                 counterparty_name=item['customer_name'],
             )
-        
+
         for item in calc['input_vat_list']:
             VATReturnDetail.objects.create(
                 vat_return=vat_return,
@@ -198,18 +196,18 @@ class VATReturnService:
                 is_output='INPUT',
                 counterparty_name=item['vendor_name'],
             )
-        
+
         return vat_return
-    
+
     @classmethod
     def generate_firs_form_vat1(cls, vat_return_id: int) -> Dict[str, Any]:
         """Generate FIRS Form VAT 1 data for filing."""
         vat_return = VATReturn.objects.get(id=vat_return_id)
         details = VATReturnDetail.objects.filter(vat_return=vat_return)
-        
+
         output_details = details.filter(is_output='OUTPUT')
         input_details = details.filter(is_output='INPUT')
-        
+
         return {
             'form_type': 'VAT 1',
             'period': f"{vat_return.period_start.strftime('%B %Y')}",
