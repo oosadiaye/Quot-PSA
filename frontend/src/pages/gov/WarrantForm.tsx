@@ -10,9 +10,9 @@
  * The warrant is created as PENDING. The Budget Office releases it via
  * the release action, which triggers notifications to MDA + AG.
  */
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, AlertCircle, FileText, Info, Paperclip, X, Search, Building2 } from 'lucide-react';
+import { Save, AlertCircle, FileText, Info, Paperclip, X, Search, Building2, MapPin, Target, Layers, CheckCircle2 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import '../../features/accounting/styles/glassmorphism.css';
@@ -59,31 +59,58 @@ export default function WarrantForm() {
 
     const [formError, setFormError] = useState('');
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-    const [appFilter, setAppFilter] = useState('');
+
+    // Two-step picker state — simpler than a flat list when tenants have
+    // many appropriations. User picks an MDA that has a budget, then a GL /
+    // economic code that exists on that MDA.
+    const [mdaInput, setMdaInput] = useState('');           // raw text typed
+    const [selectedMdaCode, setSelectedMdaCode] = useState(''); // resolved MDA administrative_code
+    const [glInput, setGlInput] = useState('');             // raw text typed
+    const [selectedGlCode, setSelectedGlCode] = useState(''); // resolved economic_code
+
     const [form, setForm] = useState({
         appropriation: '', quarter: '', amount_released: '',
         release_date: new Date().toISOString().split('T')[0],
         authority_reference: '', notes: '',
     });
 
-    // Filter appropriations by economic code, economic name, MDA name, or fund.
-    // Lets the verifier type "23000000" or "Capital" to quickly find the right
-    // budget line — critical because warrants are released against a SPECIFIC
-    // economic code (Acquisition of Land, Personnel Costs, etc.), not against
-    // the MDA as a whole.
-    const filteredAppropriations = useMemo(() => {
+    // ── Derived data for the two-step picker ──────────────────────
+    // 1. Unique MDAs that have at least one appropriation
+    const mdasWithBudget = useMemo(() => {
         if (!appropriations) return [];
-        const q = appFilter.trim().toLowerCase();
-        if (!q) return appropriations;
-        return appropriations.filter((a: any) => {
-            const haystack = [
-                a.economic_code, a.economic_name,
-                a.administrative_code, a.administrative_name,
-                a.fund_code, a.fund_name,
-            ].filter(Boolean).join(' ').toLowerCase();
-            return haystack.includes(q);
-        });
-    }, [appropriations, appFilter]);
+        const seen = new Map<string, { code: string; name: string }>();
+        for (const a of appropriations as any[]) {
+            const key = a.administrative_code || '';
+            if (key && !seen.has(key)) {
+                seen.set(key, { code: key, name: a.administrative_name || '' });
+            }
+        }
+        return [...seen.values()].sort((a, b) => a.code.localeCompare(b.code));
+    }, [appropriations]);
+
+    // 2. Economic codes that exist under the selected MDA
+    const glsOnSelectedMda = useMemo(() => {
+        if (!appropriations || !selectedMdaCode) return [];
+        const seen = new Map<string, { code: string; name: string }>();
+        for (const a of appropriations as any[]) {
+            if (a.administrative_code !== selectedMdaCode) continue;
+            const key = a.economic_code || '';
+            if (key && !seen.has(key)) {
+                seen.set(key, { code: key, name: a.economic_name || '' });
+            }
+        }
+        return [...seen.values()].sort((a, b) => a.code.localeCompare(b.code));
+    }, [appropriations, selectedMdaCode]);
+
+    // 3. Appropriation rows matching the chosen MDA + GL (may be >1 if different
+    //    fund sources or fiscal years exist for the same combination)
+    const matchingAppropriations = useMemo(() => {
+        if (!appropriations || !selectedMdaCode || !selectedGlCode) return [];
+        return (appropriations as any[]).filter(a =>
+            a.administrative_code === selectedMdaCode &&
+            a.economic_code === selectedGlCode,
+        );
+    }, [appropriations, selectedMdaCode, selectedGlCode]);
 
     // Use custom mutation to handle FormData (file upload)
     const createWarrant = useMutation({
@@ -105,6 +132,47 @@ export default function WarrantForm() {
         if (!form.appropriation || !appropriations) return null;
         return appropriations.find((a: any) => String(a.id) === form.appropriation);
     }, [form.appropriation, appropriations]);
+
+    // When the picker resolves to exactly one appropriation, auto-select it
+    // on the form. When it resolves to zero or many, clear the selection so
+    // the summary panel + downstream fields reflect the ambiguity.
+    useEffect(() => {
+        if (matchingAppropriations.length === 1) {
+            const appId = String(matchingAppropriations[0].id);
+            if (form.appropriation !== appId) {
+                handleAppropriationChange(appId);
+            }
+        } else if (matchingAppropriations.length === 0 && form.appropriation) {
+            setForm(prev => ({ ...prev, appropriation: '' }));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [matchingAppropriations]);
+
+    // Resolver helpers: map typed text / datalist value back to MDA code + GL code
+    const resolveMda = (value: string) => {
+        setMdaInput(value);
+        // Accept either "<code> — <name>" (datalist shape) or plain code or partial name
+        const match = mdasWithBudget.find(m =>
+            value === m.code ||
+            value === `${m.code} — ${m.name}` ||
+            value.toLowerCase() === m.name.toLowerCase(),
+        );
+        setSelectedMdaCode(match ? match.code : '');
+        // Reset the GL when MDA changes
+        if (!match || match.code !== selectedMdaCode) {
+            setGlInput('');
+            setSelectedGlCode('');
+        }
+    };
+    const resolveGl = (value: string) => {
+        setGlInput(value);
+        const match = glsOnSelectedMda.find(g =>
+            value === g.code ||
+            value === `${g.code} — ${g.name}` ||
+            value.toLowerCase() === g.name.toLowerCase(),
+        );
+        setSelectedGlCode(match ? match.code : '');
+    };
 
     // Auto-suggest authority reference when appropriation + quarter selected
     const suggestedRef = useMemo(() => {
@@ -198,65 +266,153 @@ export default function WarrantForm() {
                             {/* Left: Appropriation + Warrant Details */}
                             <div>
                                 <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                    <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <FileText size={14} /> Select Appropriation
                                     </h3>
-                                    <label style={lblStyle}>
-                                        Appropriation *{' '}
-                                        <span style={{ fontWeight: 400, textTransform: 'none', color: '#94a3b8' }}>
-                                            (MDA + Economic Code + Fund — warrants are released against this combination)
-                                        </span>
-                                    </label>
+                                    <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 14px', lineHeight: 1.5 }}>
+                                        Type or select your MDA, then choose the economic code (GL) you're releasing cash for.
+                                        Both must already have a budget appropriation.
+                                    </p>
 
-                                    {/* Filter input — search by economic code (e.g. "23000000"),
-                                        economic name (e.g. "Capital"), MDA, or fund. Critical
-                                        for finding the right line in tenants with many
-                                        appropriations. */}
-                                    <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
-                                        <Search size={14} style={{
+                                    {/* ── Step 1: MDA picker ──────────────────────────── */}
+                                    <label style={lblStyle}>Step 1 · MDA *</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <Building2 size={14} style={{
                                             position: 'absolute', left: 10, top: '50%',
-                                            transform: 'translateY(-50%)', color: '#94a3b8',
+                                            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none',
                                         }} />
                                         <input
                                             type="text"
-                                            value={appFilter}
-                                            onChange={e => setAppFilter(e.target.value)}
-                                            placeholder="Filter by economic code, name, MDA, or fund…"
+                                            list="mda-with-budget-list"
+                                            value={mdaInput}
+                                            onChange={e => resolveMda(e.target.value)}
+                                            placeholder={mdasWithBudget.length
+                                                ? `Type or pick from ${mdasWithBudget.length} MDA${mdasWithBudget.length === 1 ? '' : 's'} with a budget…`
+                                                : 'No MDA has any appropriation yet'}
+                                            disabled={mdasWithBudget.length === 0}
                                             style={{
-                                                ...inputStyle,
-                                                paddingLeft: '2rem',
-                                                fontSize: '12px',
+                                                ...inputStyle, paddingLeft: '2rem',
+                                                borderColor: selectedMdaCode ? '#22c55e' : '#e2e8f0',
                                             }}
                                         />
+                                        <datalist id="mda-with-budget-list">
+                                            {mdasWithBudget.map(m => (
+                                                <option key={m.code} value={`${m.code} — ${m.name}`} />
+                                            ))}
+                                        </datalist>
+                                    </div>
+                                    {selectedMdaCode && (
+                                        <div style={{ fontSize: 10, color: '#16a34a', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <CheckCircle2 size={11} /> MDA resolved: <span style={{ fontFamily: 'monospace' }}>{selectedMdaCode}</span>
+                                            &nbsp;·&nbsp; {glsOnSelectedMda.length} budget line{glsOnSelectedMda.length === 1 ? '' : 's'} available
+                                        </div>
+                                    )}
+                                    {mdaInput && !selectedMdaCode && mdasWithBudget.length > 0 && (
+                                        <div style={{ fontSize: 10, color: '#c2410c', marginTop: 4 }}>
+                                            Keep typing or pick from the dropdown. "{mdaInput}" doesn't match any MDA with a budget.
+                                        </div>
+                                    )}
+
+                                    {/* ── Step 2: GL / Economic code picker ───────────── */}
+                                    <div style={{ marginTop: 14 }}>
+                                        <label style={lblStyle}>Step 2 · Economic Code (GL) *</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <Target size={14} style={{
+                                                position: 'absolute', left: 10, top: '50%',
+                                                transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none',
+                                            }} />
+                                            <input
+                                                type="text"
+                                                list="gl-on-mda-list"
+                                                value={glInput}
+                                                onChange={e => resolveGl(e.target.value)}
+                                                placeholder={
+                                                    !selectedMdaCode ? 'Pick an MDA first' :
+                                                    glsOnSelectedMda.length === 0 ? 'No budget lines on this MDA' :
+                                                    `Type or pick from ${glsOnSelectedMda.length} economic code${glsOnSelectedMda.length === 1 ? '' : 's'}…`
+                                                }
+                                                disabled={!selectedMdaCode || glsOnSelectedMda.length === 0}
+                                                style={{
+                                                    ...inputStyle, paddingLeft: '2rem',
+                                                    borderColor: selectedGlCode ? '#22c55e' : '#e2e8f0',
+                                                }}
+                                            />
+                                            <datalist id="gl-on-mda-list">
+                                                {glsOnSelectedMda.map(g => (
+                                                    <option key={g.code} value={`${g.code} — ${g.name}`} />
+                                                ))}
+                                            </datalist>
+                                        </div>
                                     </div>
 
-                                    <select
-                                        style={{ ...selectStyle, fontFamily: 'monospace' }}
-                                        required
-                                        value={form.appropriation}
-                                        onChange={e => handleAppropriationChange(e.target.value)}
-                                        size={Math.min(8, Math.max(3, filteredAppropriations.length || 3))}
-                                    >
-                                        {filteredAppropriations.length === 0 && (
-                                            <option value="" disabled>No appropriations match the filter</option>
-                                        )}
-                                        {filteredAppropriations.map((a: any) => (
-                                            <option key={a.id} value={a.id}>
-                                                {a.economic_code || '?'}
-                                                {' — '}
-                                                {a.economic_name || 'Unknown'}
-                                                {' • '}
-                                                {a.administrative_code || ''} {a.administrative_name || ''}
-                                                {a.fund_code ? ` • Fund ${a.fund_code}` : ''}
-                                                {' • '}
-                                                {fmtNGN(a.amount_approved)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <div style={{ marginTop: '0.4rem', fontSize: '10px', color: '#94a3b8', lineHeight: 1.5 }}>
-                                        Showing {filteredAppropriations.length} of {(appropriations || []).length} appropriations
-                                        {appFilter && <> &nbsp;•&nbsp; <button type="button" onClick={() => setAppFilter('')} style={{ background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer', padding: 0, fontSize: '10px', textDecoration: 'underline' }}>clear filter</button></>}
-                                    </div>
+                                    {/* ── Resolver status ──────────────────────────────── *
+                                     * Banner fires when the user has picked an MDA AND typed
+                                     * a GL, but either (a) the GL text doesn't resolve to any
+                                     * real code on this MDA, or (b) the resolved GL+MDA pair
+                                     * still has no matching appropriation row.
+                                     */}
+                                    {selectedMdaCode && glInput.trim() && (!selectedGlCode || matchingAppropriations.length === 0) && (
+                                        <div style={{
+                                            marginTop: 12, padding: '10px 12px', borderRadius: 8,
+                                            background: '#fef2f2', border: '1px solid #fecaca',
+                                            color: '#b91c1c', fontSize: 12, display: 'flex', alignItems: 'flex-start', gap: 6,
+                                        }}>
+                                            <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                                            <div>
+                                                <strong>No Budget Appropriation Line for this GL.</strong>
+                                                <div style={{ fontSize: 11, color: '#991b1b', marginTop: 2, lineHeight: 1.5 }}>
+                                                    {selectedGlCode ? (
+                                                        <>No appropriation exists for MDA <code style={{ fontFamily: 'monospace' }}>{selectedMdaCode}</code>
+                                                            &nbsp;+ Economic Code <code style={{ fontFamily: 'monospace' }}>{selectedGlCode}</code>.
+                                                            Create the appropriation first, then come back to raise the warrant.</>
+                                                    ) : (
+                                                        <>"{glInput}" doesn't match any economic code with a budget on MDA
+                                                            &nbsp;<code style={{ fontFamily: 'monospace' }}>{selectedMdaCode}</code>.
+                                                            Pick one from the dropdown — this MDA has {glsOnSelectedMda.length} budget
+                                                            line{glsOnSelectedMda.length === 1 ? '' : 's'} available.</>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {matchingAppropriations.length > 1 && (
+                                        <div style={{ marginTop: 12 }}>
+                                            <div style={{
+                                                fontSize: 11, color: '#b45309', marginBottom: 6, fontWeight: 600,
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}>
+                                                <Info size={12} /> {matchingAppropriations.length} matches — pick one:
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {matchingAppropriations.map((a: any) => (
+                                                    <button
+                                                        key={a.id}
+                                                        type="button"
+                                                        onClick={() => handleAppropriationChange(String(a.id))}
+                                                        style={{
+                                                            textAlign: 'left', padding: '8px 10px', borderRadius: 6,
+                                                            border: form.appropriation === String(a.id) ? '2px solid #22c55e' : '1.5px solid #e2e8f0',
+                                                            background: form.appropriation === String(a.id) ? '#f0fdf4' : '#fff',
+                                                            cursor: 'pointer', fontSize: 12,
+                                                        }}
+                                                    >
+                                                        <div style={{ fontWeight: 600 }}>
+                                                            Fund {a.fund_code} — {a.fund_name}
+                                                        </div>
+                                                        <div style={{ color: '#64748b', fontSize: 11 }}>
+                                                            FY {a.fiscal_year_display || a.fiscal_year}
+                                                            &nbsp;·&nbsp; Approved {fmtNGN(a.amount_approved)}
+                                                            &nbsp;·&nbsp; Available {fmtNGN(a.available_balance)}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Hidden input keeps the required attribute on form submission */}
+                                    <input type="hidden" value={form.appropriation} required readOnly />
                                 </div>
 
                                 <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
@@ -385,10 +541,22 @@ export default function WarrantForm() {
                                                     <span style={{ fontSize: 13, color: '#1e293b' }}>{selectedApp.economic_name}</span>
                                                 </div>
                                             </div>
+                                            {/* Full NCoA segment breakdown — all six dimensions that
+                                                were coded on this appropriation at enactment time.
+                                                Mirrors the Budget Appropriation Entry form so the user
+                                                can verify they're warranting the right budget line. */}
+                                            <div style={{
+                                                fontSize: 10, color: '#64748b', textTransform: 'uppercase',
+                                                fontWeight: 700, letterSpacing: '0.04em', marginTop: 4,
+                                                paddingBottom: 6, borderBottom: '1px solid #e2e8f0',
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}>
+                                                <Layers size={11} /> NCoA Segment Breakdown
+                                            </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                                 <div>
                                                     <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <Building2 size={10} /> MDA
+                                                        <Building2 size={10} /> MDA (Administrative)
                                                     </div>
                                                     <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginTop: 2 }}>
                                                         <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{selectedApp.administrative_code}</span>{' '}
@@ -400,6 +568,43 @@ export default function WarrantForm() {
                                                     <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginTop: 2 }}>
                                                         <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{selectedApp.fund_code}</span>{' '}
                                                         {selectedApp.fund_name}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <Target size={10} /> Function (COFOG)
+                                                    </div>
+                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginTop: 2 }}>
+                                                        {selectedApp.functional_code ? (
+                                                            <>
+                                                                <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{selectedApp.functional_code}</span>{' '}
+                                                                {selectedApp.functional_name}
+                                                            </>
+                                                        ) : <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>Not coded</span>}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Programme</div>
+                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginTop: 2 }}>
+                                                        {selectedApp.programme_code ? (
+                                                            <>
+                                                                <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{selectedApp.programme_code}</span>{' '}
+                                                                {selectedApp.programme_name}
+                                                            </>
+                                                        ) : <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>Not coded</span>}
+                                                    </div>
+                                                </div>
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <MapPin size={10} /> Geographic (LGA / Zone)
+                                                    </div>
+                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginTop: 2 }}>
+                                                        {selectedApp.geographic_code ? (
+                                                            <>
+                                                                <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{selectedApp.geographic_code}</span>{' '}
+                                                                {selectedApp.geographic_name}
+                                                            </>
+                                                        ) : <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>Statewide (no zone coded)</span>}
                                                     </div>
                                                 </div>
                                             </div>
