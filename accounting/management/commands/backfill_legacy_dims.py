@@ -41,14 +41,40 @@ class Command(BaseCommand):
             self._backfill_current_schema('(current)')
 
     def _backfill_current_schema(self, label: str) -> None:
-        from accounting.models import Fund, Function, Program, Geo
+        from accounting.models import Fund, Function, Program, Geo, MDA
         from accounting.models.ncoa import (
+            AdministrativeSegment,
             FundSegment, FunctionalSegment, ProgrammeSegment, GeographicSegment,
         )
 
-        created = {'fund': 0, 'function': 0, 'program': 0, 'geo': 0}
+        created = {'mda': 0, 'fund': 0, 'function': 0, 'program': 0, 'geo': 0}
 
         with transaction.atomic():
+            # ── MDA (Administrative) ─────────────────────────────
+            # MDA.mda_type is required with choices [MINISTRY, DEPARTMENT,
+            # AGENCY, PARASTATAL]. NCoA AdministrativeSegment.mda_type has
+            # overlapping choices — fall back to MINISTRY when source row
+            # hasn't classified itself (common at the sector root level).
+            VALID_TYPES = {'MINISTRY', 'DEPARTMENT', 'AGENCY', 'PARASTATAL'}
+            for seg in AdministrativeSegment.objects.select_related('legacy_mda').all():
+                if seg.legacy_mda_id:
+                    continue
+                source_type = (getattr(seg, 'mda_type', '') or '').upper()
+                mda_type = source_type if source_type in VALID_TYPES else 'MINISTRY'
+                mda, mda_created = MDA.objects.get_or_create(
+                    code=seg.code,
+                    defaults={
+                        'name': seg.name,
+                        'short_name': seg.name[:50],
+                        'mda_type': mda_type,
+                        'is_active': getattr(seg, 'is_active', True),
+                    },
+                )
+                seg.legacy_mda = mda
+                seg.save(update_fields=['legacy_mda'])
+                if mda_created:
+                    created['mda'] += 1
+
             # ── Fund ─────────────────────────────────────────────
             for seg in FundSegment.objects.select_related('legacy_fund').all():
                 if seg.legacy_fund_id:
@@ -118,7 +144,7 @@ class Command(BaseCommand):
                     created['geo'] += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f'[{label}] created Fund={created["fund"]} '
+            f'[{label}] created MDA={created["mda"]} Fund={created["fund"]} '
             f'Function={created["function"]} Program={created["program"]} '
             f'Geo={created["geo"]}'
         ))

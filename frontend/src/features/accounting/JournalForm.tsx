@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDimensions, useCreateJournal, useDownloadJournalTemplate, useBulkImportJournals } from './hooks/useJournal';
+import { useMDAs } from './hooks/useBudgetDimensions';
 import { useIsDimensionsEnabled } from '../../hooks/useTenantModules';
 import { useCurrency } from '../../context/CurrencyContext';
+import { formatApiError } from '../../utils/apiError';
 import AccountingLayout from './AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { Save, X, Plus, Trash2, AlertCircle, Download, Upload, FileUp, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
@@ -22,6 +24,7 @@ interface JournalPayload {
     reference_number: string;
     status: string;
     lines: JournalLine[];
+    mda?: string | null;
     fund?: string | null;
     function?: string | null;
     program?: string | null;
@@ -45,11 +48,17 @@ const JournalForm = () => {
         posting_date: new Date().toISOString().split('T')[0],
         description: '',
         reference_number: '',
+        mda: '',
         fund: '',
         function: '',
         program: '',
         geo: '',
     });
+
+    // MDA dropdown — required when dimensions are on. The backend
+    // JournalHeaderSerializer enforces this; without an MDA, the
+    // Appropriation lookup for budget control cannot resolve.
+    const { data: mdas = [] } = useMDAs({ is_active: true });
 
     const [lines, setLines] = useState([
         { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '' },
@@ -85,6 +94,7 @@ const JournalForm = () => {
                 memo: l.memo,
             })),
             ...(dimensionsEnabled ? {
+                mda: header.mda || null,
                 fund: header.fund || null,
                 function: header.function || null,
                 program: header.program || null,
@@ -97,13 +107,10 @@ const JournalForm = () => {
             await createJournal.mutateAsync(payload);
             navigate('/accounting');
         } catch (err: any) {
-            const data = err.response?.data;
-            if (data) {
-                const messages = typeof data === 'string' ? data : Object.values(data).flat().join(' ');
-                setFormError(messages || 'Failed to create journal entry.');
-            } else {
-                setFormError(err.message || 'Failed to create journal entry.');
-            }
+            // formatApiError parses DRF's {field: [...]} shape into a readable
+            // "mda: This field is required. · fund: This field is required."
+            // so the user knows WHICH field failed, not just that "a field" did.
+            setFormError(formatApiError(err, 'Failed to create journal entry.'));
         }
     };
 
@@ -267,7 +274,16 @@ const JournalForm = () => {
                 {dimensionsEnabled && (
                     <div className="card" style={{ marginBottom: '2.5rem' }}>
                         <h3 style={{ marginBottom: '1.25rem', fontSize: 'var(--text-base)' }}>Mandatory Dimensions</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
+                            <div>
+                                <label className="label">MDA<span className="required-mark"> *</span></label>
+                                <select value={header.mda} onChange={e => setHeader({ ...header, mda: e.target.value })} required>
+                                    <option value="">Select MDA</option>
+                                    {(mdas as any[]).map((m: any) => (
+                                        <option key={m.id} value={m.id}>{m.code ? `${m.code} - ${m.name}` : m.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div>
                                 <label className="label">Fund<span className="required-mark"> *</span></label>
                                 <select value={header.fund} onChange={e => setHeader({ ...header, fund: e.target.value })} required>
