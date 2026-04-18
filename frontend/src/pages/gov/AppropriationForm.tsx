@@ -62,6 +62,7 @@ interface BudgetLine {
     economic: string;
     functional: string;
     programme: string;
+    geographic: string;          // optional — LGA / zone for statistical performance reporting
     amount_approved: string;
     description: string;
 }
@@ -82,7 +83,7 @@ export default function AppropriationForm() {
     });
 
     const [lines, setLines] = useState<BudgetLine[]>([
-        { id: '1', economic: '', functional: '', programme: '', amount_approved: '', description: '' },
+        { id: '1', economic: '', functional: '', programme: '', geographic: '', amount_approved: '', description: '' },
     ]);
 
     const setH = (field: string, value: string) => setHeader(prev => ({ ...prev, [field]: value }));
@@ -94,7 +95,7 @@ export default function AppropriationForm() {
     const addLine = () => {
         setLines(prev => [...prev, {
             id: String(Date.now()), economic: '', functional: '', programme: '',
-            amount_approved: '', description: '',
+            geographic: '', amount_approved: '', description: '',
         }]);
     };
 
@@ -131,6 +132,7 @@ export default function AppropriationForm() {
                     economic: parseInt(line.economic),
                     functional: parseInt(line.functional) || null,
                     programme: parseInt(line.programme) || null,
+                    geographic: parseInt(line.geographic) || null,   // optional statistical dim
                     fund: parseInt(header.fund),
                     amount_approved: line.amount_approved,
                     appropriation_type: header.appropriation_type,
@@ -158,6 +160,7 @@ export default function AppropriationForm() {
     const economicList = segments?.economic || [];
     const functionalList = segments?.functional || [];
     const programmeList = segments?.programme || [];
+    const geographicList = segments?.geographic || [];
 
     return (
         <div style={{ display: 'flex' }}>
@@ -280,12 +283,18 @@ export default function AppropriationForm() {
                         </div>
 
                         <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '260px' }}>Economic Code (Account) {requiredMark}</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '180px' }}>Function (COFOG)</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '180px' }}>Programme</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '200px' }}>
+                                            Geography (LGA / Zone)
+                                            <div style={{ fontSize: '0.6rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0, marginTop: '2px' }}>
+                                                Optional — enables geographic distribution report
+                                            </div>
+                                        </th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '160px' }}>Amount (NGN) {requiredMark}</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)' }}>Description</th>
                                         <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', width: '50px' }}></th>
@@ -325,6 +334,14 @@ export default function AppropriationForm() {
                                                     </select>
                                                 </td>
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
+                                                    <select value={line.geographic} onChange={e => updateLine(line.id, 'geographic', e.target.value)} style={selectStyle}>
+                                                        <option value="">— Statewide —</option>
+                                                        {geographicList.map((s: any) => (
+                                                            <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td style={{ padding: '0.5rem 0.5rem' }}>
                                                     <input type="number" step="0.01" min="0.01"
                                                         value={line.amount_approved}
                                                         onChange={e => updateLine(line.id, 'amount_approved', e.target.value)}
@@ -351,7 +368,7 @@ export default function AppropriationForm() {
                                         );
                                     }) : (
                                         <tr>
-                                            <td colSpan={6} style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={7} style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <FileSpreadsheet size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.4, display: 'block' }} />
                                                 <p style={{ margin: 0 }}>Click "Add Line" to begin entering budget lines.</p>
                                             </td>
@@ -361,7 +378,7 @@ export default function AppropriationForm() {
                                 {lines.length > 0 && (
                                     <tfoot>
                                         <tr style={{ borderTop: '2px solid var(--color-border)' }}>
-                                            <td colSpan={3} style={{ padding: '0.75rem 1rem', fontWeight: 700, fontSize: 'var(--text-sm)' }}>
+                                            <td colSpan={4} style={{ padding: '0.75rem 1rem', fontWeight: 700, fontSize: 'var(--text-sm)' }}>
                                                 Total ({lines.length} lines)
                                             </td>
                                             <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-base)', color: 'var(--color-primary, #191e6a)' }}>
