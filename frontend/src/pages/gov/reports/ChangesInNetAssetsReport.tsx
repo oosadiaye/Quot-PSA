@@ -88,7 +88,7 @@ export default function ChangesInNetAssetsReport() {
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
             <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+            <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: '24px',

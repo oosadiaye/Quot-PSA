@@ -7,9 +7,10 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Check, CheckCheck, ExternalLink } from 'lucide-react';
+import { Bell, Check, CheckCheck, ExternalLink, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/client';
+import { useIsMobile } from '../design';
 
 const CATEGORY_COLORS: Record<string, string> = {
     WARRANT: '#166534',
@@ -48,15 +49,34 @@ export default function NotificationBell() {
     const ref = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
     const qc = useQueryClient();
+    const isMobile = useIsMobile();
 
-    // Close on outside click
+    // Close on outside click (desktop only — mobile uses scrim)
     useEffect(() => {
+        if (isMobile) return;
         const handler = (e: MouseEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
-    }, []);
+    }, [isMobile]);
+
+    // Close on Escape
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open]);
+
+    // Lock body scroll when bottom sheet is open on mobile
+    useEffect(() => {
+        if (isMobile && open) {
+            const prev = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => { document.body.style.overflow = prev; };
+        }
+    }, [isMobile, open]);
 
     // Poll unread count every 30s
     const { data: countData } = useQuery({
@@ -130,9 +150,28 @@ export default function NotificationBell() {
                 )}
             </button>
 
-            {/* Dropdown */}
+            {/* Mobile scrim */}
+            {open && isMobile && (
+                <div
+                    onClick={() => setOpen(false)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,89,0.45)', zIndex: 199 }}
+                />
+            )}
+
+            {/* Dropdown / Bottom sheet */}
             {open && (
-                <div style={{
+                <div style={isMobile ? {
+                    // Mobile: full-width bottom sheet
+                    position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
+                    width: '100%',
+                    background: '#1e293b', border: '1px solid #334155',
+                    borderRadius: '16px 16px 0 0',
+                    boxShadow: '0 -12px 32px rgba(0,0,0,0.4)',
+                    maxHeight: '75vh', display: 'flex', flexDirection: 'column',
+                    animation: 'slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    paddingBottom: 'env(safe-area-inset-bottom, 0)',
+                } : {
+                    // Desktop: anchored dropdown
                     position: 'absolute', top: '100%', right: -80, zIndex: 100,
                     width: 340, marginTop: 6,
                     background: '#1e293b', border: '1px solid #334155',
@@ -141,24 +180,40 @@ export default function NotificationBell() {
                 }}>
                     {/* Header */}
                     <div style={{
-                        padding: '10px 14px', borderBottom: '1px solid #334155',
+                        padding: isMobile ? '14px 18px' : '10px 14px',
+                        borderBottom: '1px solid #334155',
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
-                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>
+                        <span style={{ color: '#fff', fontWeight: 700, fontSize: isMobile ? 15 : 13 }}>
                             Notifications {unread > 0 && `(${unread})`}
                         </span>
-                        {unread > 0 && (
-                            <button
-                                onClick={() => markAllRead.mutate()}
-                                style={{
-                                    background: 'none', border: 'none', cursor: 'pointer',
-                                    color: '#60a5fa', fontSize: 11, fontWeight: 600,
-                                    display: 'flex', alignItems: 'center', gap: 3,
-                                }}
-                            >
-                                <CheckCheck size={12} /> Mark all read
-                            </button>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {unread > 0 && (
+                                <button
+                                    onClick={() => markAllRead.mutate()}
+                                    style={{
+                                        background: 'none', border: 'none', cursor: 'pointer',
+                                        color: '#60a5fa', fontSize: 12, fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', gap: 4,
+                                    }}
+                                >
+                                    <CheckCheck size={13} /> Mark all read
+                                </button>
+                            )}
+                            {isMobile && (
+                                <button
+                                    onClick={() => setOpen(false)}
+                                    aria-label="Close"
+                                    style={{
+                                        background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer',
+                                        color: '#fff', borderRadius: 6, padding: 4,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}
+                                >
+                                    <X size={16} />
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* List */}

@@ -40,7 +40,7 @@ export default function FinancialPerformanceReport() {
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
             <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+            <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Statement of Financial Performance</h1>

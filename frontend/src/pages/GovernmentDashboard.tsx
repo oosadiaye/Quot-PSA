@@ -33,6 +33,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
+import { useBreakpoint } from '../design';
 
 /* ── Colors: Nigerian government palette ────────────────── */
 const GOV = {
@@ -102,6 +103,9 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 
 const GovernmentDashboard = () => {
     const navigate = useNavigate();
+    const bp = useBreakpoint();
+    const isMobile = bp === 'xs' || bp === 'sm';
+    const isTabletOrSmaller = bp === 'xs' || bp === 'sm' || bp === 'md';
 
     // Data hooks
     const { data: tsa, isLoading: tsaLoading } = useTSACashPosition();
@@ -178,7 +182,7 @@ const GovernmentDashboard = () => {
                 </div>
 
                 {/* ── Row 1: KPI Cards ────────────────────────── */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '28px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? '12px' : '20px', marginBottom: '28px' }}>
                     {/* TSA Cash Position */}
                     <div style={kpiCard(GOV.green)} onClick={() => navigate('/accounting/tsa-accounts')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
@@ -269,7 +273,7 @@ const GovernmentDashboard = () => {
                 </div>
 
                 {/* ── Row 2: Charts ────────────────────────────── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px', marginBottom: '28px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isTabletOrSmaller ? '1fr' : '3fr 2fr', gap: isMobile ? '12px' : '20px', marginBottom: '28px' }}>
                     {/* Budget Execution by MDA (Bar Chart) */}
                     <div style={cardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -336,13 +340,13 @@ const GovernmentDashboard = () => {
                 </div>
 
                 {/* ── Row 3: Financial Summary + Quick Actions ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '28px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isTabletOrSmaller ? '1fr' : '2fr 1fr', gap: isMobile ? '12px' : '20px', marginBottom: '28px' }}>
                     {/* Financial Performance Summary */}
                     <div style={cardStyle}>
                         <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk, marginBottom: '20px' }}>
                             Financial Performance (IPSAS)
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '10px' : '16px' }}>
                             <div style={{
                                 background: '#f0fdf4', borderRadius: '12px', padding: '20px',
                                 border: '1px solid #dcfce7',
@@ -429,7 +433,7 @@ const GovernmentDashboard = () => {
                         <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk, marginBottom: '16px' }}>
                             TSA Account Breakdown
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(tsa.by_account_type.length, 4)}, 1fr)`, gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : `repeat(${Math.min(tsa.by_account_type.length, 4)}, 1fr)`, gap: isMobile ? '10px' : '16px' }}>
                             {tsa.by_account_type.map((acct, i) => (
                                 <div key={acct.account_type} style={{
                                     padding: '16px', borderRadius: '10px',

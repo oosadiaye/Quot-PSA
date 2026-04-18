@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useModulePricing } from '../../hooks/useModulePricing';
 import {
@@ -5,7 +6,9 @@ import {
     Package, FileText, Wallet, Layers, Landmark, Scale,
     Banknote, ClipboardCheck, ShieldCheck, FileBarChart2, MapPin,
     Receipt, Gavel, CheckCircle2, ChevronRight, BookOpen,
+    Menu, X,
 } from 'lucide-react';
+import { useIsMobile } from '../../design';
 
 // ─────────────────────────────────────────────────────────────────
 // Nigerian Public-Sector ERP — landing page.
@@ -110,9 +113,17 @@ const defaultModules: Module[] = [
 
 const LandingPage = () => {
     const navigate = useNavigate();
+    const isMobile = useIsMobile();
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const { data: rawModules = [] } = useModulePricing();
     const modulesFromDb = Array.isArray(rawModules) ? (rawModules as Module[]) : [];
     const modules: Module[] = modulesFromDb.length > 0 ? modulesFromDb : defaultModules;
+
+    const goTo = (path: string) => { setMobileNavOpen(false); navigate(path); };
+    const scrollTo = (sel: string) => {
+        setMobileNavOpen(false);
+        setTimeout(() => document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth' }), 80);
+    };
 
     return (
         <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", color: INK, background: SURFACE }}>
@@ -142,7 +153,8 @@ const LandingPage = () => {
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                    {/* Desktop nav */}
+                    <div style={{ display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 32 }}>
                         <a href="#compliance" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Compliance</a>
                         <a href="#modules" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Modules</a>
                         <a href="#who" style={{ color: MUTED, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 500 }}>Who it's for</a>
@@ -167,7 +179,62 @@ const LandingPage = () => {
                             Sign In
                         </button>
                     </div>
+
+                    {/* Mobile hamburger */}
+                    {isMobile && (
+                        <button
+                            onClick={() => setMobileNavOpen(v => !v)}
+                            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+                            style={{
+                                background: 'transparent', border: 'none', cursor: 'pointer',
+                                width: 44, height: 44, borderRadius: 8, color: NAVY,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                        >
+                            {mobileNavOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+                    )}
                 </div>
+
+                {/* Mobile dropdown panel */}
+                {isMobile && mobileNavOpen && (
+                    <div style={{
+                        background: '#fff', borderTop: `1px solid ${NAVY}14`,
+                        padding: '12px 28px 20px',
+                        display: 'flex', flexDirection: 'column', gap: 4,
+                    }}>
+                        {[
+                            { label: 'Compliance', action: () => scrollTo('#compliance') },
+                            { label: 'Modules', action: () => scrollTo('#modules') },
+                            { label: "Who it's for", action: () => scrollTo('#who') },
+                            { label: 'Pricing', action: () => goTo('/pricing') },
+                        ].map(item => (
+                            <button
+                                key={item.label}
+                                onClick={item.action}
+                                style={{
+                                    textAlign: 'left', background: 'transparent', border: 'none',
+                                    color: INK, fontSize: 15, fontWeight: 500, fontFamily: 'inherit',
+                                    padding: '12px 4px', cursor: 'pointer',
+                                    borderBottom: `1px solid ${NAVY}10`,
+                                }}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                        <button
+                            onClick={() => goTo('/login')}
+                            style={{
+                                marginTop: 12, padding: '14px 22px', borderRadius: 8, border: 'none',
+                                background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DARK})`, color: '#fff',
+                                fontWeight: 700, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit',
+                                boxShadow: `0 2px 8px ${NAVY}33`,
+                            }}
+                        >
+                            Sign In
+                        </button>
+                    </div>
+                )}
             </nav>
 
             {/* ── Hero Section ─────────────────────────────────── */}
@@ -187,7 +254,7 @@ const LandingPage = () => {
                 }} />
 
                 <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px', position: 'relative' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 64, alignItems: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.1fr 1fr', gap: isMobile ? 36 : 64, alignItems: 'center' }}>
                         <div>
                             <div style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 16px',
@@ -732,7 +799,7 @@ const LandingPage = () => {
                     borderRadius: '50%', background: `${NIGERIA_GREEN}18`,
                 }} />
                 <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 28px', position: 'relative' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 64, alignItems: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.1fr 1fr', gap: isMobile ? 36 : 64, alignItems: 'center' }}>
                         <div>
                             <div style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 14px',

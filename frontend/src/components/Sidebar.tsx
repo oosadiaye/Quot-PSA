@@ -64,10 +64,12 @@ import {
     Activity,
     Scale,
 } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
 import { useTenantModules } from '../hooks/useTenantModules';
 import { useBranding } from '../context/BrandingContext';
 import { useAuth } from '../context/AuthContext';
+import { useIsMobile } from '../design';
 import OrganizationSwitcher from './OrganizationSwitcher';
 import NotificationBell from './NotificationBell';
 import BackButton from './BackButton';
@@ -294,6 +296,32 @@ const Sidebar = () => {
     const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
+    // ── Responsive drawer state (Phase 1 of responsive rollout)
+    const isMobile = useIsMobile();
+    const [drawerOpen, setDrawerOpen] = useState(false);
+
+    // Close drawer on route change
+    useEffect(() => {
+        if (isMobile) setDrawerOpen(false);
+    }, [location.pathname, isMobile]);
+
+    // Close drawer on Escape
+    useEffect(() => {
+        if (!drawerOpen) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [drawerOpen]);
+
+    // Lock body scroll when drawer is open on mobile
+    useEffect(() => {
+        if (isMobile && drawerOpen) {
+            const prev = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => { document.body.style.overflow = prev; };
+        }
+    }, [isMobile, drawerOpen]);
+
     useEffect(() => {
         const activeParent = menuItems.find(
             (item) =>
@@ -367,8 +395,33 @@ const Sidebar = () => {
 
     return (
         <>
-        {/* Top Header Bar — only visible when MDA separation is active */}
-        {showMdaSwitcher && (
+        {/* Mobile hamburger + top bar — only on mobile */}
+        {isMobile && (
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, height: '56px',
+                background: '#ffffff', borderBottom: '1px solid #e2e8f0',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0 12px', gap: '12px', zIndex: 30,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                paddingTop: 'env(safe-area-inset-top, 0)',
+            }}>
+                <button
+                    onClick={() => setDrawerOpen(true)}
+                    aria-label="Open navigation"
+                    className="tap-target"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 8, color: '#1a237e' }}
+                >
+                    <Menu size={22} />
+                </button>
+                <div style={{ flex: 1, fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#0b1320', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {branding.name || 'Quot PSE'}
+                </div>
+                <NotificationBell />
+            </div>
+        )}
+
+        {/* Top Header Bar — only visible when MDA separation is active, desktop only */}
+        {showMdaSwitcher && !isMobile && (
             <div style={{
                 position: 'fixed', top: 0, left: '260px', right: 0, height: '48px',
                 background: '#ffffff', borderBottom: '1px solid #e2e8f0',
@@ -381,16 +434,46 @@ const Sidebar = () => {
             </div>
         )}
 
+        {/* Mobile drawer scrim */}
+        {isMobile && drawerOpen && (
+            <div
+                onClick={() => setDrawerOpen(false)}
+                style={{
+                    position: 'fixed', inset: 0, background: 'rgba(15,23,89,0.45)',
+                    zIndex: 25, animation: 'fade-in 180ms ease',
+                }}
+            />
+        )}
+
         <div style={{
-            width: '260px', height: '100vh',
+            width: '260px',
+            height: '100vh',
             background: 'linear-gradient(180deg, #1a1f66 0%, #242a88 100%)',
             color: 'rgba(255,255,255,0.75)',
             display: 'flex', flexDirection: 'column',
             position: 'fixed', left: 0, top: 0,
             overflowY: 'auto',
             borderRight: '1px solid rgba(255,255,255,0.07)',
-            zIndex: 20
+            zIndex: isMobile ? 28 : 20,
+            transform: isMobile ? (drawerOpen ? 'translateX(0)' : 'translateX(-100%)') : 'none',
+            transition: isMobile ? 'transform 240ms cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+            boxShadow: isMobile && drawerOpen ? '0 0 40px rgba(0,0,0,0.35)' : 'none',
         }}>
+            {/* Close button — mobile drawer only */}
+            {isMobile && (
+                <button
+                    onClick={() => setDrawerOpen(false)}
+                    aria-label="Close navigation"
+                    className="tap-target"
+                    style={{
+                        position: 'absolute', top: 8, right: 8,
+                        background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer',
+                        color: '#fff', borderRadius: 8, zIndex: 2,
+                    }}
+                >
+                    <X size={20} />
+                </button>
+            )}
             {/* Header */}
             <div style={{
                 padding: '20px 20px 16px',

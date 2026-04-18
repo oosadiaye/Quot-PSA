@@ -114,7 +114,7 @@ const Login = () => {
     // ── Brand Panel (shared between both steps) ─────────────────────
 
     const BrandPanel = () => (
-        <div style={{
+        <div className="auth-brand-panel" style={{
             width: '50%', minHeight: '100vh',
             background: 'linear-gradient(135deg, #242a88 0%, #1e2480 50%, #2e35a0 100%)',
             display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
@@ -190,7 +190,7 @@ const Login = () => {
         return (
             <div style={{ display: 'flex', minHeight: '100vh' }}>
                 <BrandPanel />
-                <div style={{
+                <div className="auth-form-panel" style={{
                     width: '50%', minHeight: '100vh', display: 'flex',
                     flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
                     padding: '60px', background: 'white'
