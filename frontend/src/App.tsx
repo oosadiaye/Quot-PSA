@@ -179,6 +179,7 @@ const ApprovalHistory = lazy(() => import('./features/workflow/pages/ApprovalHis
 
 // ── Settings ─────────────────────────────────────────────
 const AccountingSettingsPage  = lazy(() => import('./features/settings/AccountingSettings'));
+const BudgetCheckRulesSettings = lazy(() => import('./features/settings/BudgetCheckRulesSettings'));
 const InventorySettingsPage   = lazy(() => import('./features/settings/InventorySettingsPage'));
 const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManagement'));
 const BankAccountSettings = lazy(() => import('./features/settings/BankAccountSettings'));
@@ -304,6 +305,9 @@ function App() {
                       {/* ── Settings (no module guard) ───────────────── */}
                       <Route path="/settings/accounting" element={
                         <ProtectedRoute><AccountingSettingsPage /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/accounting/budget-check-rules" element={
+                        <ProtectedRoute><BudgetCheckRulesSettings /></ProtectedRoute>
                       } />
                       <Route path="/settings/inventory" element={
                         <ProtectedRoute><InventorySettingsPage /></ProtectedRoute>

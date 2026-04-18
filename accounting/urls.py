@@ -243,6 +243,13 @@ router.register(r'approval-rules', ApprovalRuleViewSet, basename='approval-rule'
 # P4-T5 — dual-control override audit feed.
 router.register(r'dual-control-overrides', DualControlOverrideViewSet, basename='dual-control-override')
 
+# ── Budget Check Rules (tenant-configurable policy) ──────────────────
+# MUST be registered BEFORE the urlpatterns=[] assignment below — that
+# snapshot captures router.urls eagerly, so later router.register() calls
+# won't appear in resolved URLs.
+from .views.budget_check_rules import BudgetCheckRuleViewSet
+router.register(r'budget-check-rules', BudgetCheckRuleViewSet, basename='budget-check-rule')
+
 urlpatterns = [
     path('', include(router.urls)),
     path('settings/', accounting_settings_api, name='accounting-settings'),

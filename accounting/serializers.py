@@ -1814,3 +1814,44 @@ class SuspenseClearingSerializer(serializers.ModelSerializer):
             'description', 'status', 'created_by', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+
+# ─────────────────────────────────────────────────────────────────
+# BudgetCheckRule — tenant-configurable budget-check policy
+# ─────────────────────────────────────────────────────────────────
+from accounting.models.budget_check_rules import BudgetCheckRule
+
+
+class BudgetCheckRuleSerializer(serializers.ModelSerializer):
+    check_level_display = serializers.CharField(source='get_check_level_display', read_only=True)
+
+    class Meta:
+        model = BudgetCheckRule
+        fields = [
+            'id',
+            'gl_from', 'gl_to',
+            'check_level', 'check_level_display',
+            'warning_threshold_pct',
+            'description', 'priority', 'is_active',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        gl_from = attrs.get('gl_from') or (self.instance.gl_from if self.instance else None)
+        gl_to = attrs.get('gl_to') or (self.instance.gl_to if self.instance else None)
+        if gl_from and gl_to and gl_from > gl_to:
+            raise serializers.ValidationError(
+                {'gl_to': f'"{gl_to}" must be >= "gl_from" ("{gl_from}"). Check the range.'}
+            )
+        level = attrs.get('check_level') or (self.instance.check_level if self.instance else None)
+        thr = attrs.get('warning_threshold_pct')
+        if thr is not None and (thr < 0 or thr > 100):
+            raise serializers.ValidationError(
+                {'warning_threshold_pct': 'Must be between 0 and 100.'}
+            )
+        # Only WARNING level uses the threshold — silently pin to default
+        # for NONE/STRICT so the DB doesn't carry stale values.
+        if level in ('NONE', 'STRICT') and thr is None:
+            attrs['warning_threshold_pct'] = 80
+        return attrs

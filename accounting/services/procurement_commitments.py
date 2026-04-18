@@ -132,13 +132,29 @@ def create_commitment_for_po(po, committed_amount=None) -> bool:
             .first()
         )
         if not appro:
+            # Rule-driven policy: when the GL account has a STRICT rule,
+            # "no appropriation" is a HARD STOP — we raise so the PO
+            # approval fails loudly. For WARNING/NONE rules we keep the
+            # legacy silent-skip behaviour (the PO posts without a
+            # commitment record).
+            from accounting.services.budget_check_rules import check_policy
+            policy = check_policy(
+                account_code=first_account.code,
+                appropriation=None,
+                requested_amount=committed_amount,
+                transaction_label=f'PO {po.po_number}',
+            )
+            if policy.blocked:
+                from budget.services import BudgetExceededError
+                raise BudgetExceededError(policy.reason)
             logger.warning(
                 "Commitment skipped for PO %s: no ACTIVE Appropriation for "
                 "MDA=%s / Econ=%s (or ancestors: %s) / Fund=%s. Approve an "
-                "appropriation for this combination to back the PO.",
+                "appropriation for this combination to back the PO. "
+                "Policy level for this GL: %s.",
                 po.po_number, admin_seg.code, econ_seg.code,
                 [c.code for c in candidates[1:]] or 'none',
-                fund_seg.code,
+                fund_seg.code, policy.level,
             )
             return False
 

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
-    Save, Loader2, Check, AlertCircle, Receipt, Banknote,
+    Save, Loader2, Check, AlertCircle, Receipt, Banknote, ShieldAlert, ChevronRight,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/client';
 import SettingsLayout from './SettingsLayout';
 
@@ -23,8 +24,17 @@ const cardStyle: React.CSSProperties = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
+const navCardStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '16px 20px',
+    background: '#ffffff', border: '1px solid rgba(0,0,0,0.08)',
+    borderRadius: '12px', cursor: 'pointer',
+    marginTop: '20px', transition: 'all 0.15s ease',
+};
+
 export default function AccountingSettingsPage() {
     const queryClient = useQueryClient();
+    const navigate = useNavigate();
     const [requireVendorInvoice, setRequireVendorInvoice] = useState(true);
     const [requirePvBeforePayment, setRequirePvBeforePayment] = useState(false);
     const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -301,6 +311,37 @@ export default function AccountingSettingsPage() {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* ── Budget Check Rules — cross-module policy ────────────── */}
+            <div
+                style={navCardStyle}
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate('/settings/accounting/budget-check-rules')}
+                onKeyDown={(e) => { if (e.key === 'Enter') navigate('/settings/accounting/budget-check-rules'); }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a237e'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(26,35,126,0.10)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)'; e.currentTarget.style.boxShadow = 'none'; }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{
+                        width: 44, height: 44, borderRadius: 10,
+                        background: 'rgba(220,38,38,0.08)', color: '#dc2626',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <ShieldAlert size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                            Budget Check Rules
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: 2 }}>
+                            Per-GL policy controlling how strictly postings are gated against appropriations
+                            (NONE / Warning / Strict). Applies across journals, PO, 3-way match, invoice, PV.
+                        </div>
+                    </div>
+                </div>
+                <ChevronRight size={20} color="#94a3b8" />
             </div>
 
             <style>{`

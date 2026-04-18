@@ -63,6 +63,14 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
     """
     Check if a transaction amount is available in the budget.
     Uses select_for_update to prevent race conditions.
+
+    As of the BudgetCheckRule rollout this function is a thin wrapper
+    over ``accounting.services.budget_check_rules.check_policy`` — every
+    caller (treasury, asset acquisition, vendor invoice post) gets the
+    same per-GL-range policy applied through this one doorway. The
+    legacy Budget table lookup still runs as a secondary check for
+    accounts that don't fall under any BudgetCheckRule.
+
     Returns: (is_allowed: bool, message: str)
     """
     from django.db import transaction
@@ -73,6 +81,26 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
 
     if not dimensions or not any(dimensions.values()):
         return True, "No dimensions provided. Budget check skipped."
+
+    # ── Rule-driven policy — single source of truth ───────────────
+    from accounting.services.budget_check_rules import (
+        check_policy, find_matching_appropriation,
+    )
+    appropriation = find_matching_appropriation(
+        mda=dimensions.get('mda'),
+        fund=dimensions.get('fund'),
+        account=account,
+    )
+    policy = check_policy(
+        account_code=account.code if account else '',
+        appropriation=appropriation,
+        requested_amount=amount,
+        transaction_label=transaction_type or 'transaction',
+    )
+    if policy.blocked:
+        return False, policy.reason
+    if policy.level == 'NONE':
+        return True, "Budget check level NONE for this GL — no gate applied."
 
     with transaction.atomic():
         # Budget control = MDA + Account (Economic Code) + Fund only
@@ -90,8 +118,13 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
         budget = Budget.objects.select_for_update().filter(**filters).first()
 
         if not budget:
-            # PF-16: When no budget exists, respect the account's control level.
-            # Look up the default control level from settings; default to WARNING.
+            # If rule-driven policy said WARNING, allow with the policy's
+            # own message. Only land in the legacy HARD_STOP default
+            # (settings.BUDGET_DEFAULT_CONTROL_LEVEL) when the account
+            # has no rule at all and the env default is set to STRICT.
+            if policy.level == 'WARNING':
+                warn = '; '.join(policy.warnings) or 'Warning: no budget row defined.'
+                return True, warn
             from django.conf import settings as django_settings
             default_control = getattr(django_settings, 'BUDGET_DEFAULT_CONTROL_LEVEL', 'WARNING')
             if default_control == 'HARD_STOP':

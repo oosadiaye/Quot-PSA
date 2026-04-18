@@ -29,6 +29,7 @@ from accounting.models.pension import (  # noqa: F401
 from accounting.models.social_benefit import (  # noqa: F401
     SocialBenefitScheme, SocialBenefitClaim,
 )
+from accounting.models.budget_check_rules import BudgetCheckRule  # noqa: F401
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -165,6 +166,7 @@ __all__ = [
     'CurrencyRevaluation',
     'RetainedEarnings',
     'AccountingSettings',
+    'BudgetCheckRule',
     'CurrencyRevaluationRun',
     'CurrencyRevaluationDetail',
     'CostAllocationRun',

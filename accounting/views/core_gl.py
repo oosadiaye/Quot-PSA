@@ -401,63 +401,98 @@ class JournalViewSet(viewsets.ModelViewSet):
                 journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
                 journal.save(update_fields=['document_number'], _allow_status_change=True)
 
-            # Budget validation for expense transactions (debits)
+            # Budget validation for expense transactions (debits).
+            # Policy is driven by the tenant's BudgetCheckRule set — see
+            # accounting/services/budget_check_rules.py. The rule that
+            # covers this GL code dictates:
+            #   NONE    → skip check entirely
+            #   WARNING → post but record a warning (UI-surfaced)
+            #   STRICT  → block when no appropriation / over-budget
             budget_violations = []
+            budget_warnings = []
+            from accounting.services.budget_check_rules import (
+                check_policy, find_matching_appropriation,
+            )
 
             for line in journal.lines.all():
                 if not line.document_number:
                     line.document_number = journal.document_number
                     line.save(update_fields=['document_number'])
 
-                # Budget check for expense accounts with debit amounts
-                if not skip_budget_check and line.account.account_type == 'Expense' and line.debit and line.debit > 0:
-                    # Find matching budget
-                    # Budget control: MDA + Account (Economic) + Fund only
-                    budget = UnifiedBudget.get_budget_for_transaction(
-                        dimensions={
-                            'fund': journal.fund,
-                            'mda': journal.mda,
-                        },
-                        account=line.account,
-                        fiscal_year=str(fiscal_year),
-                        period_type='MONTHLY',
-                        period_number=period
+                # Only expense debits are candidates for the check
+                if skip_budget_check or not (line.account.account_type == 'Expense' and line.debit and line.debit > 0):
+                    continue
+
+                # ── Rule-driven policy evaluation ──────────────
+                appropriation = find_matching_appropriation(
+                    mda=journal.mda,
+                    fund=journal.fund,
+                    account=line.account,
+                    fiscal_year=fiscal_year,
+                )
+                result = check_policy(
+                    account_code=line.account.code,
+                    appropriation=appropriation,
+                    requested_amount=line.debit,
+                    transaction_label='journal',
+                )
+                if result.blocked:
+                    budget_violations.append({
+                        'account': line.account.code,
+                        'account_name': line.account.name,
+                        'requested': str(line.debit),
+                        'level': result.level,
+                        'message': result.reason,
+                    })
+                    continue
+                if result.warnings:
+                    budget_warnings.extend([
+                        f'[{line.account.code}] {w}' for w in result.warnings
+                    ])
+
+                # ── Encumbrance bookkeeping ─────────────────────
+                # NOTE: STRICT/WARNING gate decisions are already made by
+                # check_policy() above. The UnifiedBudget path below no
+                # longer vetoes posting — it only records an encumbrance
+                # for reporting on accounts that carry a UnifiedBudget row.
+                if result.level == 'NONE':
+                    continue
+                budget = UnifiedBudget.get_budget_for_transaction(
+                    dimensions={'fund': journal.fund, 'mda': journal.mda},
+                    account=line.account,
+                    fiscal_year=str(fiscal_year),
+                    period_type='MONTHLY',
+                    period_number=period,
+                )
+                if budget and budget.enable_encumbrance:
+                    UnifiedBudgetEncumbrance.objects.create(
+                        budget=budget,
+                        reference_type='GENERAL',
+                        reference_id=journal.id,
+                        reference_number=journal.document_number or '',
+                        encumbrance_date=journal.posting_date,
+                        amount=line.debit,
+                        status='ACTIVE',
+                        description=f"Journal {journal.document_number}: {journal.description[:100]}",
+                        created_by=user,
                     )
-
-                    if budget:
-                        is_allowed, message, available = budget.check_availability(line.debit, 'JOURNAL')
-
-                        if not is_allowed and budget.control_level == 'HARD_STOP':
-                            budget_violations.append({
-                                'account': line.account.code,
-                                'account_name': line.account.name,
-                                'requested': str(line.debit),
-                                'available': str(available),
-                                'message': message
-                            })
-                        elif is_allowed and budget.enable_encumbrance:
-                            UnifiedBudgetEncumbrance.objects.create(
-                                budget=budget,
-                                reference_type='GENERAL',
-                                reference_id=journal.id,
-                                reference_number=journal.document_number or '',
-                                encumbrance_date=journal.posting_date,
-                                amount=line.debit,
-                                status='ACTIVE',
-                                description=f"Journal {journal.document_number}: {journal.description[:100]}",
-                                created_by=user
-                            )
 
             # If there are hard-stop budget violations, abort
             if budget_violations:
                 raise ValidationError({
                     'budget_violations': budget_violations,
-                    'message': 'Budget check failed. Cannot post journal.'
+                    'message': 'Budget check failed. Cannot post journal.',
+                    'detail': '; '.join(v['message'] for v in budget_violations),
                 })
 
             # Post to GL balances (atomic F()-based)
             from accounting.services import update_gl_from_journal
             update_gl_from_journal(journal)
+
+            # Attach any non-blocking warnings to the journal's meta so the
+            # caller (post_journal action) can include them in its response.
+            if budget_warnings:
+                journal._budget_warnings = budget_warnings
 
     @action(detail=True, methods=['post'])
     def post_journal(self, request, pk=None):
@@ -519,7 +554,11 @@ class JournalViewSet(viewsets.ModelViewSet):
                 "total_debit": total_debit,
                 "total_credit": total_credit,
                 "fiscal_year": journal.posting_date.year,
-                "period": journal.posting_date.month
+                "period": journal.posting_date.month,
+                # Non-blocking budget warnings from the rule-driven policy
+                # (e.g. "Appropriation utilisation 87% is at or above the
+                # 80% warning threshold"). UI surfaces as a yellow banner.
+                "warnings": getattr(journal, '_budget_warnings', []),
             })
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
