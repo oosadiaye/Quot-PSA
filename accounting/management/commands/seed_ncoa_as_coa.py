@@ -123,6 +123,11 @@ class Command(BaseCommand):
                 f'\nDRY RUN: Would create {created}, skip {skipped}'
             ))
         else:
+            # Also backfill legacy Fund/Function/Program/Geo so JournalForm
+            # dropdowns populate without a second seed pass.
+            from django.core.management import call_command
+            call_command('backfill_legacy_dims', stdout=self.stdout)
+
             self.stdout.write(self.style.SUCCESS(
                 f'\nNCoA -> Chart of Accounts bridge complete:\n'
                 f'  Created: {created}\n'

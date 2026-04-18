@@ -330,7 +330,10 @@ REST_FRAMEWORK = {
         #     throttle_classes = [ScopedRateThrottle]
         #     throttle_scope = '<name>'
         # on the relevant view/action.
-        'login':        '3/min',
+        # Login throttle is env-configurable: prod stays strict at 3/min,
+        # DEBUG defaults to 30/min so a dev with a fat-finger password
+        # doesn't keep locking themselves out.
+        'login':        os.getenv('LOGIN_THROTTLE_RATE', '30/min' if DEBUG else '3/min'),
         'signup':       '5/hour',
         'impersonate':  '20/hour',   # superadmin tenant impersonation
         # P1-T5 — tighter limits for mutating endpoints so a runaway

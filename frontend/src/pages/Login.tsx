@@ -4,6 +4,7 @@ import { Building2, Eye, EyeOff, ChevronRight, Shield, Monitor, BarChart3, Globe
 import apiClient from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
+import { useIsMobile } from '../design';
 
 interface TenantInfo {
     id: number;
@@ -27,6 +28,10 @@ const Login = () => {
     const [selectingTenant, setSelectingTenant] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const { setAuthData, setTenantData, logout } = useAuth();
+
+    // Responsive layout toggle — mobile ditches the 2-column brand panel
+    // entirely and renders the form full-width with tighter spacing.
+    const isMobile = useIsMobile();
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -188,15 +193,18 @@ const Login = () => {
 
     if (step === 'tenant') {
         return (
-            <div style={{ display: 'flex', minHeight: '100vh' }}>
-                <BrandPanel />
+            <div style={{ display: 'flex', minHeight: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
+                {!isMobile && <BrandPanel />}
                 <div className="auth-form-panel" style={{
-                    width: '50%', minHeight: '100vh', display: 'flex',
+                    width: isMobile ? '100%' : '50%',
+                    minHeight: isMobile ? 'auto' : '100vh',
+                    flex: isMobile ? '1 1 auto' : undefined,
+                    display: 'flex',
                     flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                    padding: '60px', background: 'white'
+                    padding: isMobile ? '24px 20px' : '60px', background: 'white',
                 }}>
                     <div style={{ width: '100%', maxWidth: '420px' }}>
-                        <div style={{ marginBottom: '36px', textAlign: 'center' }}>
+                        <div style={{ marginBottom: isMobile ? '24px' : '36px', textAlign: 'center' }}>
                             <div style={{
                                 width: '64px', height: '64px', background: 'linear-gradient(135deg, #242a88, #2e35a0)',
                                 borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -204,10 +212,10 @@ const Login = () => {
                             }}>
                                 <Building2 size={32} />
                             </div>
-                            <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                            <h2 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                                 Select Organization
                             </h2>
-                            <p style={{ fontSize: '15px', color: '#64748b' }}>
+                            <p style={{ fontSize: isMobile ? '14px' : '15px', color: '#64748b' }}>
                                 Choose which organization to work with
                             </p>
                         </div>
@@ -280,19 +288,50 @@ const Login = () => {
     // ── Credentials step ───────────────────────────────────────────
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <BrandPanel />
-            <div style={{
-                width: '50%', minHeight: '100vh', display: 'flex',
+        <div style={{ display: 'flex', minHeight: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
+            {!isMobile && <BrandPanel />}
+            <div className="auth-form-panel" style={{
+                width: isMobile ? '100%' : '50%',
+                minHeight: isMobile ? 'auto' : '100vh',
+                flex: isMobile ? '1 1 auto' : undefined,
+                display: 'flex',
                 flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                padding: '60px', background: 'white'
+                padding: isMobile ? '28px 20px' : '60px', background: 'white',
             }}>
                 <div style={{ width: '100%', maxWidth: '420px' }}>
-                    <div style={{ marginBottom: '36px' }}>
-                        <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                    {/* Mobile-only brand lockup — replaces the hidden side-panel */}
+                    {isMobile && (
+                        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                            <div style={{
+                                width: '56px', height: '56px', background: 'linear-gradient(135deg, #242a88, #2e35a0)',
+                                borderRadius: '14px', display: 'inline-flex',
+                                alignItems: 'center', justifyContent: 'center', color: 'white',
+                                boxShadow: '0 6px 20px rgba(36,42,136,0.25)',
+                            }}>
+                                {branding.logo ? (
+                                    <img src={branding.logo} alt={branding.name} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 14 }} />
+                                ) : (
+                                    <Building2 size={28} />
+                                )}
+                            </div>
+                            <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '20px', fontWeight: 800, color: '#0f172a', marginTop: 10 }}>
+                                {branding.name || 'Quot PSE'}
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#008751', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginTop: 4 }}>
+                                Nigeria Public-Sector IFMIS
+                            </div>
+                        </div>
+                    )}
+
+                    <div style={{ marginBottom: isMobile ? '22px' : '36px' }}>
+                        <h2 style={{
+                            fontSize: isMobile ? '24px' : '28px',
+                            fontWeight: 700, color: '#0f172a', marginBottom: '8px',
+                            lineHeight: 1.2, whiteSpace: 'nowrap',
+                        }}>
                             Welcome back
                         </h2>
-                        <p style={{ fontSize: '15px', color: '#64748b' }}>
+                        <p style={{ fontSize: isMobile ? '14px' : '15px', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
                             Sign in to your account to continue
                         </p>
                     </div>
@@ -386,8 +425,15 @@ const Login = () => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#64748b', cursor: 'pointer' }}>
+                        <div style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            flexWrap: 'wrap', gap: '10px',
+                        }}>
+                            <label style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                fontSize: '14px', color: '#64748b', cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                            }}>
                                 <input
                                     type="checkbox"
                                     checked={rememberMe}
@@ -396,7 +442,10 @@ const Login = () => {
                                 />
                                 Remember me
                             </label>
-                            <a href="/forgot-password" style={{ fontSize: '14px', color: '#2e35a0', textDecoration: 'none', fontWeight: 500 }}>
+                            <a href="/forgot-password" style={{
+                                fontSize: '14px', color: '#2e35a0', textDecoration: 'none',
+                                fontWeight: 500, whiteSpace: 'nowrap',
+                            }}>
                                 Forgot password?
                             </a>
                         </div>
@@ -405,7 +454,9 @@ const Login = () => {
                             type="submit"
                             disabled={loading}
                             style={{
-                                width: '100%', padding: '15px',
+                                width: '100%',
+                                padding: isMobile ? '16px' : '15px',
+                                minHeight: isMobile ? '52px' : '48px',
                                 background: 'linear-gradient(135deg, #242a88, #2e35a0)',
                                 color: 'white', border: 'none', borderRadius: '12px',
                                 fontSize: '16px', fontWeight: 600, fontFamily: 'inherit',
