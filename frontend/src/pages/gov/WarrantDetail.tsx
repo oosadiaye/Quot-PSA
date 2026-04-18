@@ -13,6 +13,7 @@ import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import '../../features/accounting/styles/glassmorphism.css';
 import apiClient from '../../api/client';
+import { formatApiError } from '../../utils/apiError';
 
 const fmtNGN = (v: number | string | undefined): string => {
     const num = typeof v === 'string' ? parseFloat(v) : (v || 0);
@@ -55,8 +56,9 @@ export default function WarrantDetail() {
             setTimeout(() => setMsg(''), 4000);
         },
         onError: (error: any) => {
-            setErr(error?.response?.data?.error || 'Action failed');
-            setTimeout(() => setErr(''), 5000);
+            setErr(formatApiError(error));
+            // Give the user enough time to read longer reasons (MFA / SOD)
+            setTimeout(() => setErr(''), 10000);
         },
     });
 

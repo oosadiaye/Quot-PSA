@@ -13,6 +13,7 @@ import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import '../../features/accounting/styles/glassmorphism.css';
 import apiClient from '../../api/client';
+import { formatApiError } from '../../utils/apiError';
 
 const fmtNGN = (v: number | string | undefined): string => {
     const num = typeof v === 'string' ? parseFloat(v) : (v || 0);
@@ -85,7 +86,7 @@ export default function AppropriationDetail() {
             setTimeout(() => setActionMsg(''), 4000);
         },
         onError: (err: any) => {
-            setActionError(err?.response?.data?.error || 'Action failed');
+            setActionError(formatApiError(err));
             setTimeout(() => setActionError(''), 5000);
         },
     });

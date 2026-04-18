@@ -352,6 +352,21 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
+# ── MFA enforcement for sensitive mutations ──────────────────────
+# Gates the accounting.permissions.RequiresMFA class. When True (prod
+# default) the viewsets using it require the session to carry a fresh
+# MFA verification stamp AND the user to have UserMFA enrolled. When
+# False (dev default) the class degrades to IsAuthenticated so engineers
+# can exercise the warrant-release / journal-post / year-end paths
+# without a full MFA rollout. Override via env for staging.
+#
+# Known limitation: the current MFA check reads from request.session,
+# but the production frontend uses Token auth which is session-less. A
+# follow-up is planned to move the freshness stamp to the token record
+# itself. Until then this flag is the operational release valve.
+MFA_ENFORCED = os.getenv('MFA_ENFORCED', 'false' if DEBUG else 'true').lower() in ('1', 'true', 'yes', 'on')
+MFA_VERIFICATION_TTL_MINUTES = int(os.getenv('MFA_VERIFICATION_TTL_MINUTES', '30'))
+
 # P7-T1 — drf-spectacular configuration.
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Quot PSE API',

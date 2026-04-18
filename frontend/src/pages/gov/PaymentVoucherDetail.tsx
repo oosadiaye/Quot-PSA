@@ -8,6 +8,7 @@ import { ArrowLeft, CheckCircle, Send, CreditCard, Printer, AlertCircle } from '
 import { useState } from 'react';
 import Sidebar from '../../components/Sidebar';
 import { usePaymentVoucherDetail, usePVAction } from '../../hooks/useGovForms';
+import { formatApiError } from '../../utils/apiError';
 
 const fmtNGN = (v: number | string) => {
     const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -32,7 +33,7 @@ export default function PaymentVoucherDetail() {
         try {
             await pvAction.mutateAsync({ id: pv.id, action, data: extraData });
         } catch (err: any) {
-            setActionError(err.response?.data?.error || err.message || 'Action failed');
+            setActionError(formatApiError(err));
         }
     };
 

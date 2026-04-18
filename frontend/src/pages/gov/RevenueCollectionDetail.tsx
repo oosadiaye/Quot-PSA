@@ -8,6 +8,7 @@ import { ArrowLeft, CheckCircle, BookOpen, Printer, AlertCircle } from 'lucide-r
 import { useState } from 'react';
 import Sidebar from '../../components/Sidebar';
 import { useRevenueCollectionDetail, useRevenueAction } from '../../hooks/useGovForms';
+import { formatApiError } from '../../utils/apiError';
 
 const fmtNGN = (v: number | string) => {
     const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -32,7 +33,7 @@ export default function RevenueCollectionDetail() {
         try {
             await revAction.mutateAsync({ id: col.id, action });
         } catch (err: any) {
-            setActionError(err.response?.data?.error || err.message || 'Action failed');
+            setActionError(formatApiError(err));
         }
     };
 

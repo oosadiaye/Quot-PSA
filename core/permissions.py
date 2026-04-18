@@ -73,6 +73,10 @@ class RBACPermission(permissions.DjangoModelPermissions):
     - Tenant Admin (role='admin'): bypass model-level checks for their tenant
     - Senior Manager / Mid-Level Manager / User: checked against tenant-scoped groups
     - Viewer: read-only access (GET/HEAD/OPTIONS only)
+
+    Every denial sets ``self.message`` to a human-readable reason so the
+    DRF-serialised 403 body surfaces WHY (authentication? tenant role?
+    missing model permission?) rather than a generic "forbidden".
     """
     perms_map = {
         'GET': ['%(app_label)s.view_%(model_name)s'],
@@ -87,9 +91,12 @@ class RBACPermission(permissions.DjangoModelPermissions):
     def has_permission(self, request, view):
         # Must be authenticated
         if not request.user or not request.user.is_authenticated:
+            self.message = 'You must be signed in to perform this action.'
             return False
 
-        # Superuser bypass
+        # Superuser bypass — explicitly granted access overrides all RBAC
+        # and SOD (initiator != approver) rules. A superuser who holds
+        # the permission IS authorized by definition.
         if request.user.is_superuser:
             return True
 
@@ -101,6 +108,10 @@ class RBACPermission(permissions.DjangoModelPermissions):
         # Get tenant-scoped role
         utr = _get_tenant_role(request.user, tenant)
         if not utr:
+            self.message = (
+                f'You do not have a role on the "{tenant.schema_name}" tenant. '
+                'Contact your tenant administrator to be assigned access.'
+            )
             return False
 
         # Tenant admin bypass
@@ -109,6 +120,11 @@ class RBACPermission(permissions.DjangoModelPermissions):
 
         # Viewer: read-only
         if utr.role == 'viewer' and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            self.message = (
+                'Your role on this tenant is read-only (Viewer). You cannot '
+                'create, update or delete records. Request a higher role from '
+                'your tenant administrator.'
+            )
             return False
 
         # For safe methods with no queryset (e.g. custom actions), allow
@@ -129,7 +145,15 @@ class RBACPermission(permissions.DjangoModelPermissions):
         if '__all__' in tenant_perms:
             return True
 
-        return all(perm in tenant_perms for perm in required_perms)
+        missing = [p for p in required_perms if p not in tenant_perms]
+        if missing:
+            self.message = (
+                f'Your role ({utr.role}) does not grant the permission '
+                f'required for this action: {", ".join(missing)}. '
+                'Ask your tenant administrator to update your role.'
+            )
+            return False
+        return True
 
 
 class IsApprover(permissions.BasePermission):
@@ -137,6 +161,10 @@ class IsApprover(permissions.BasePermission):
     Check if the user has a custom action permission for the current tenant.
     Defaults to 'approve_<model>' but supports other prefixes like 'post' or 'process'.
     Usage: IsApprover() or IsApprover('post') or IsApprover('process')
+
+    Superusers and tenant admins bypass — that's the documented SOD escape
+    hatch for approved-access users. For anyone else, sets ``self.message``
+    on denial so the 403 body explains which permission is missing.
     """
     def __init__(self, perm_prefix='approve'):
         self.perm_prefix = perm_prefix
@@ -144,7 +172,10 @@ class IsApprover(permissions.BasePermission):
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
+            self.message = 'You must be signed in to perform this action.'
             return False
+
+        # Superuser bypass — explicitly authorised access over-rides SOD.
         if request.user.is_superuser:
             return True
 
@@ -154,12 +185,18 @@ class IsApprover(permissions.BasePermission):
 
         utr = _get_tenant_role(request.user, tenant)
         if not utr:
+            self.message = (
+                f'You do not have a role on "{tenant.schema_name}". '
+                'Contact your tenant administrator for access.'
+            )
             return False
+        # Tenant admin bypass — admins hold the documented SOD override.
         if utr.role == 'admin':
             return True
 
         model_cls = view.queryset.model if hasattr(view, 'queryset') and view.queryset else None
         if not model_cls:
+            self.message = 'This action requires a specific approval permission.'
             return False
 
         app = model_cls._meta.app_label
@@ -167,7 +204,24 @@ class IsApprover(permissions.BasePermission):
         perm = f"{app}.{self.perm_prefix}_{model_name}"
 
         tenant_perms = _get_tenant_permissions(request.user, tenant)
-        return perm in tenant_perms
+        if perm in tenant_perms:
+            return True
+
+        # Verb-specific messaging so the user sees why
+        verb_label = {
+            'approve': 'approve',
+            'post': 'post to GL',
+            'process': 'process',
+            'release': 'release',
+        }.get(self.perm_prefix, self.perm_prefix)
+        self.message = (
+            f'You are not authorised to {verb_label} this {model_name}. '
+            f'Missing permission: {perm}. '
+            f'This is a Segregation-of-Duties control — the initiator of a '
+            f'document cannot also {verb_label} it. Ask a different authorised '
+            f'user, or request the {perm} permission from your tenant admin.'
+        )
+        return False
 
 
 class IsTenantAdmin(permissions.BasePermission):

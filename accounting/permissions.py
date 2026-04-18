@@ -116,6 +116,22 @@ class RequiresMFA(IsAuthenticated):
     # Configurable freshness window.
     DEFAULT_TTL_MINUTES = 30
 
+    # Human-readable reasons for MFA failures. The view layer attaches
+    # the detail to the 403 response via PermissionDenied so the client
+    # can show a specific message rather than a generic "forbidden".
+    MSG_NOT_ENROLLED = (
+        'MFA is required for this action but you have not enrolled a '
+        'second factor yet. Open Profile → Security → Set up MFA to enrol.'
+    )
+    MSG_STALE_SESSION = (
+        'Your MFA verification has expired. Re-verify at Profile → Security '
+        '→ Verify MFA and try again (verification is valid for 30 minutes).'
+    )
+    MSG_DISABLED_BUT_GATED = (
+        'This action requires MFA. Contact your tenant administrator to '
+        'enable MFA on your account or to grant the bypass_mfa permission.'
+    )
+
     def has_permission(self, request, view) -> bool:
         if not super().has_permission(request, view):
             return False
@@ -130,15 +146,26 @@ class RequiresMFA(IsAuthenticated):
         if user.has_perm('core.bypass_mfa'):
             return True
 
+        # Tenant-level / env-level off-switch. When MFA_ENFORCED=False
+        # (default in DEBUG) this whole class degrades to IsAuthenticated
+        # so development and staging work without a full MFA rollout.
+        from django.conf import settings
+        if not getattr(settings, 'MFA_ENFORCED', True):
+            return True
+
         # Must be enrolled.
         if not _user_is_mfa_enrolled(user):
+            # Surface a specific reason for the 403 so the client can
+            # render a helpful toast instead of "Action failed".
+            self.message = self.MSG_NOT_ENROLLED
             return False
 
         # Session must have been MFA-verified recently.
-        return _session_mfa_is_fresh(
-            request,
-            max_age_minutes=self._ttl_minutes(),
-        )
+        if not _session_mfa_is_fresh(request, max_age_minutes=self._ttl_minutes()):
+            self.message = self.MSG_STALE_SESSION
+            return False
+
+        return True
 
     @classmethod
     def _ttl_minutes(cls) -> int:
