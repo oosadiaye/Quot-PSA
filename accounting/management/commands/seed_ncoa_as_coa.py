@@ -96,15 +96,21 @@ class Command(BaseCommand):
                 self.stdout.write(f'  [LINKED] {seg.code} | {seg.name}')
                 continue
 
-            # Create new Account
+            # Create new Account. Any account whose code matches a known
+            # reconciliation family (AP, AR, inventory, asset-accounting,
+            # bank-accounting) must be flagged is_reconciliation=True so the
+            # downstream AssetCategory / BankAccount / etc. validators accept
+            # it — regardless of the (sometimes missing) is_control_account
+            # flag on the source EconomicSegment row.
+            recon_type = self._get_recon_type(seg)
             acct = Account.objects.create(
                 code=seg.code,
                 name=seg.name,
                 account_type=legacy_type,
                 is_active=seg.is_active,
                 parent=parent_account,
-                is_reconciliation=seg.is_control_account,
-                reconciliation_type=self._get_recon_type(seg),
+                is_reconciliation=bool(recon_type) or seg.is_control_account,
+                reconciliation_type=recon_type,
             )
 
             # Link the bridge

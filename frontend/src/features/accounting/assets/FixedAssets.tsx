@@ -209,7 +209,11 @@ export default function FixedAssets() {
                             >
                                 <Play size={16} /> Mass Depreciation Run
                             </button>
-                            <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <button
+                                onClick={() => navigate('/accounting/fixed-assets/new')}
+                                className="btn btn-primary"
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                            >
                                 <Plus size={18} /> Add Asset
                             </button>
                         </div>

@@ -102,14 +102,30 @@ interface ReceiptFormData {
     sales_order?: number;
 }
 
-interface FixedAssetFormData {
+export interface FixedAssetFormData {
     asset_number: string;
     name: string;
-    asset_category: number;
+    description?: string;
+    asset_category: string;                     // enum on the model (Building, Equipment, Vehicle, IT, Furniture, Land)
     acquisition_date: string;
     acquisition_cost: string;
+    salvage_value?: string;
     useful_life_years: number;
     depreciation_method: string;
+
+    // GL accounts (all optional — filled from Asset Category defaults by the backend when blank)
+    asset_account?: number | null;
+    depreciation_expense_account?: number | null;
+    accumulated_depreciation_account?: number | null;
+
+    // Dimensions (mda + fund REQUIRED when dimensions feature-flag is on)
+    mda?: number | null;
+    fund?: number | null;
+    function?: number | null;
+    program?: number | null;
+    geo?: number | null;
+
+    status?: string;
 }
 
 interface AssetCategoryFormData {
