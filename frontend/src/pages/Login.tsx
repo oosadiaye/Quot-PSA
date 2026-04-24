@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Building2, Eye, EyeOff, ChevronRight, Shield, Monitor, BarChart3, Globe } from 'lucide-react';
 import apiClient from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { useBranding } from '../context/BrandingContext';
-import { useIsMobile } from '../design';
+import AuthShell from '../components/auth/AuthShell';
+import { FormField } from '../components/forms';
 
 interface TenantInfo {
     id: number;
@@ -14,39 +14,98 @@ interface TenantInfo {
     role: string;
 }
 
-const Login = () => {
-    const { branding } = useBranding();
-    const [identifier, setIdentifier] = useState(() => localStorage.getItem('rememberedUser') || '');
+const FeatureList: React.FC = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 380 }}>
+        {(
+            [
+                { icon: Shield, text: 'Enterprise-grade security with role-based access control' },
+                { icon: Monitor, text: 'Multi-tenant architecture for scalable deployments' },
+                { icon: BarChart3, text: 'Real-time analytics and financial reporting' },
+                { icon: Globe, text: '12+ integrated modules — Accounting to Quality' },
+            ] as const
+        ).map((f, i) => (
+            <div
+                key={i}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 16,
+                    color: 'rgba(255,255,255,0.85)',
+                    fontSize: 15,
+                }}
+            >
+                <div
+                    style={{
+                        width: 44,
+                        height: 44,
+                        background: 'rgba(255,255,255,0.12)',
+                        borderRadius: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                    }}
+                >
+                    <f.icon size={22} style={{ color: 'rgba(255,255,255,0.9)' }} />
+                </div>
+                <span>{f.text}</span>
+            </div>
+        ))}
+    </div>
+);
+
+const roleLabel = (role: string): string => {
+    const labels: Record<string, string> = {
+        admin: 'Admin',
+        manager: 'Manager',
+        user: 'User',
+        viewer: 'Viewer',
+    };
+    return labels[role] || role;
+};
+
+const Login: React.FC = () => {
+    const [identifier, setIdentifier] = useState<string>(
+        () => localStorage.getItem('rememberedUser') || '',
+    );
     const [password, setPassword] = useState('');
-    const [rememberMe, setRememberMe] = useState(() => !!localStorage.getItem('rememberedUser'));
-    const [error, setError] = useState('');
+    const [rememberMe, setRememberMe] = useState<boolean>(
+        () => !!localStorage.getItem('rememberedUser'),
+    );
+    // Pick up a one-shot "session expired" reason written by the axios 401
+    // interceptor (see src/api/client.ts). Read once, then clear so the
+    // message doesn't re-appear on subsequent logins.
+    const [error, setError] = useState<string>(() => {
+        try {
+            const reason = sessionStorage.getItem('auth-expired-reason');
+            if (reason) {
+                sessionStorage.removeItem('auth-expired-reason');
+                return reason;
+            }
+        } catch {
+            /* storage disabled — non-fatal */
+        }
+        return '';
+    });
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
 
     const [step, setStep] = useState<'credentials' | 'tenant'>('credentials');
     const [tenants, setTenants] = useState<TenantInfo[]>([]);
     const [selectingTenant, setSelectingTenant] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
     const { setAuthData, setTenantData, logout } = useAuth();
-
-    // Responsive layout toggle — mobile ditches the 2-column brand panel
-    // entirely and renders the form full-width with tighter spacing.
-    const isMobile = useIsMobile();
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         setLoading(true);
-
         try {
             const response = await apiClient.post('/core/auth/login/', {
-                // Backend accepts email or username in this field
                 username: identifier,
                 password,
             });
-
             const { token, user, tenants: userTenants } = response.data;
-
             setAuthData(user, token, rememberMe);
 
             if (user.is_superuser) {
@@ -55,11 +114,9 @@ const Login = () => {
             }
 
             if (!userTenants || userTenants.length === 0) {
-                // Account exists but no tenant role yet (e.g. registered from a
-                // domain that couldn't be resolved, or manually created account)
                 setError(
                     'Your account is not assigned to any organisation. ' +
-                    'Please contact your administrator to be granted access.'
+                        'Please contact your administrator to be granted access.',
                 );
                 logout();
                 return;
@@ -69,8 +126,13 @@ const Login = () => {
                 setTenants(userTenants);
                 setStep('tenant');
             }
-        } catch (err: any) {
-            setError(err.response?.data?.error || err.message || 'Login failed. Please check your credentials.');
+        } catch (err: unknown) {
+            const msg =
+                (err as { response?: { data?: { error?: string } }; message?: string })?.response
+                    ?.data?.error ||
+                (err as { message?: string })?.message ||
+                'Login failed. Please check your credentials.';
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -83,409 +145,271 @@ const Login = () => {
             const response = await apiClient.post('/core/auth/select-tenant/', {
                 tenant_id: tenant.id,
             });
-
             const { domain, tenant_name, role, permissions } = response.data;
-            
-            setTenantData({
-                id: tenant.id,
-                name: tenant_name,
-                domain,
-                role: role || tenant.role,
-            }, permissions || []);
-
-            // Redirect to setup wizard if tenant setup is incomplete (admin first login)
-            if (response.data.setup_required) {
-                navigate('/setup');
-            } else {
-                navigate('/dashboard');
-            }
-        } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to select tenant.');
+            setTenantData(
+                { id: tenant.id, name: tenant_name, domain, role: role || tenant.role },
+                permissions || [],
+            );
+            if (response.data.setup_required) navigate('/setup');
+            else navigate('/dashboard');
+        } catch (err: unknown) {
+            const msg =
+                (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+                'Failed to select tenant.';
+            setError(msg);
         } finally {
             setSelectingTenant(false);
         }
     };
 
-    const roleLabel = (role: string) => {
-        const labels: Record<string, string> = {
-            admin: 'Admin',
-            manager: 'Manager',
-            user: 'User',
-            viewer: 'Viewer',
-        };
-        return labels[role] || role;
-    };
-
-    // ── Brand Panel (shared between both steps) ─────────────────────
-
-    const BrandPanel = () => (
-        <div className="auth-brand-panel" style={{
-            width: '50%', minHeight: '100vh',
-            background: 'linear-gradient(135deg, #242a88 0%, #1e2480 50%, #2e35a0 100%)',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-            padding: '60px', position: 'relative', overflow: 'hidden'
-        }}>
-            {/* Decorative circles */}
-            <div style={{
-                position: 'absolute', top: '-100px', right: '-100px',
-                width: '500px', height: '500px', borderRadius: '50%',
-                background: 'rgba(255,255,255,0.04)'
-            }} />
-            <div style={{
-                position: 'absolute', bottom: '-150px', left: '-150px',
-                width: '600px', height: '600px', borderRadius: '50%',
-                background: 'rgba(255,255,255,0.03)'
-            }} />
-
-            {/* Logo */}
-            <div style={{
-                width: '72px', height: '72px', background: 'white',
-                borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                marginBottom: '28px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-                overflow: 'hidden',
-            }}>
-                {branding.logo ? (
-                    <img src={branding.logo} alt={branding.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                    <svg viewBox="0 0 40 40" fill="none" width="40" height="40">
-                        <rect x="4" y="8" width="14" height="14" rx="3" fill="#242a88"/>
-                        <rect x="22" y="8" width="14" height="14" rx="3" fill="#2e35a0"/>
-                        <rect x="4" y="26" width="14" height="6" rx="3" fill="#2e35a0" opacity="0.6"/>
-                        <rect x="22" y="26" width="14" height="6" rx="3" fill="#242a88" opacity="0.6"/>
-                    </svg>
-                )}
-            </div>
-
-            <div style={{ fontSize: '42px', fontWeight: 800, color: 'white', letterSpacing: '-1px', marginBottom: '12px' }}>
-                {branding.name}
-            </div>
-            <div style={{
-                fontSize: '17px', color: 'rgba(255,255,255,0.75)', textAlign: 'center',
-                lineHeight: 1.6, marginBottom: '56px'
-            }}>
-                {branding.tagline || 'Enterprise Resource Planning\nBuilt for modern organizations'}
-            </div>
-
-            {/* Features */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '380px' }}>
-                {[
-                    { icon: Shield, text: 'Enterprise-grade security with role-based access control' },
-                    { icon: Monitor, text: 'Multi-tenant architecture for scalable deployments' },
-                    { icon: BarChart3, text: 'Real-time analytics and financial reporting' },
-                    { icon: Globe, text: '12+ integrated modules — Accounting to Quality' },
-                ].map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'rgba(255,255,255,0.85)', fontSize: '15px' }}>
-                        <div style={{
-                            width: '44px', height: '44px', background: 'rgba(255,255,255,0.12)',
-                            borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            flexShrink: 0
-                        }}>
-                            <f.icon size={22} style={{ color: 'rgba(255,255,255,0.9)' }} />
-                        </div>
-                        <span>{f.text}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-
     // ── Tenant selection step ──────────────────────────────────────
-
     if (step === 'tenant') {
         return (
-            <div style={{ display: 'flex', minHeight: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
-                {!isMobile && <BrandPanel />}
-                <div className="auth-form-panel" style={{
-                    width: isMobile ? '100%' : '50%',
-                    minHeight: isMobile ? 'auto' : '100vh',
-                    flex: isMobile ? '1 1 auto' : undefined,
-                    display: 'flex',
-                    flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                    padding: isMobile ? '24px 20px' : '60px', background: 'white',
-                }}>
-                    <div style={{ width: '100%', maxWidth: '420px' }}>
-                        <div style={{ marginBottom: isMobile ? '24px' : '36px', textAlign: 'center' }}>
-                            <div style={{
-                                width: '64px', height: '64px', background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                                borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                margin: '0 auto 16px', color: 'white'
-                            }}>
-                                <Building2 size={32} />
-                            </div>
-                            <h2 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                                Select Organization
-                            </h2>
-                            <p style={{ fontSize: isMobile ? '14px' : '15px', color: '#64748b' }}>
-                                Choose which organization to work with
-                            </p>
-                        </div>
+            <AuthShell
+                title="Select Organization"
+                subtitle="Choose which organization to work with"
+                brandContent={<FeatureList />}
+                footer={
+                    <button
+                        onClick={() => {
+                            logout();
+                            setStep('credentials');
+                            setTenants([]);
+                        }}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#64748b',
+                            cursor: 'pointer',
+                            fontSize: 14,
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        Sign in as a different user
+                    </button>
+                }
+            >
+                {error && (
+                    <div
+                        role="alert"
+                        style={{
+                            padding: '12px 16px',
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            borderRadius: 10,
+                            marginBottom: 16,
+                            fontSize: 14,
+                            border: '1px solid #fecaca',
+                        }}
+                    >
+                        {error}
+                    </div>
+                )}
 
-                        {error && (
-                            <div style={{
-                                padding: '12px 16px', background: '#fef2f2', color: '#dc2626',
-                                borderRadius: '10px', marginBottom: '16px', fontSize: '14px',
-                                border: '1px solid #fecaca'
-                            }}>
-                                {error}
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {tenants.map((tenant) => (
-                                <button
-                                    key={tenant.id}
-                                    onClick={() => selectTenantAndNavigate(tenant)}
-                                    disabled={selectingTenant}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                        padding: '16px', border: '1.5px solid #e2e8f0', borderRadius: '12px',
-                                        background: 'white', cursor: selectingTenant ? 'wait' : 'pointer',
-                                        width: '100%', textAlign: 'left', transition: 'all 0.2s',
-                                        fontFamily: 'inherit'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = '#2e35a0';
-                                        e.currentTarget.style.background = '#f0f7ff';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = '#e2e8f0';
-                                        e.currentTarget.style.background = 'white';
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '15px', color: '#0f172a' }}>
-                                            {tenant.name}
-                                        </div>
-                                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
-                                            {roleLabel(tenant.role)}
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={18} style={{ color: '#94a3b8' }} />
-                                </button>
-                            ))}
-                        </div>
-
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {tenants.map((tenant) => (
                         <button
-                            onClick={() => {
-                                logout();
-                                setStep('credentials');
-                                setTenants([]);
-                            }}
+                            key={tenant.id}
+                            onClick={() => selectTenantAndNavigate(tenant)}
+                            disabled={selectingTenant}
                             style={{
-                                marginTop: '24px', background: 'none', border: 'none',
-                                color: '#64748b', cursor: 'pointer', fontSize: '14px',
-                                width: '100%', textAlign: 'center', fontFamily: 'inherit'
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: 16,
+                                border: '1.5px solid #e2e8f0',
+                                borderRadius: 12,
+                                background: 'white',
+                                cursor: selectingTenant ? 'wait' : 'pointer',
+                                width: '100%',
+                                textAlign: 'left',
+                                transition: 'all 0.2s',
+                                fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = '#2e35a0';
+                                e.currentTarget.style.background = '#f0f7ff';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                e.currentTarget.style.background = 'white';
                             }}
                         >
-                            Sign in as a different user
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div
+                                    style={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: 10,
+                                        background: 'linear-gradient(135deg, #242a88, #2e35a0)',
+                                        color: 'white',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    <Building2 size={20} />
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 15, color: '#0f172a' }}>
+                                        {tenant.name}
+                                    </div>
+                                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                                        {roleLabel(tenant.role)}
+                                    </div>
+                                </div>
+                            </div>
+                            <ChevronRight size={18} style={{ color: '#94a3b8' }} />
                         </button>
-                    </div>
+                    ))}
                 </div>
-            </div>
+            </AuthShell>
         );
     }
 
     // ── Credentials step ───────────────────────────────────────────
-
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
-            {!isMobile && <BrandPanel />}
-            <div className="auth-form-panel" style={{
-                width: isMobile ? '100%' : '50%',
-                minHeight: isMobile ? 'auto' : '100vh',
-                flex: isMobile ? '1 1 auto' : undefined,
-                display: 'flex',
-                flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                padding: isMobile ? '28px 20px' : '60px', background: 'white',
-            }}>
-                <div style={{ width: '100%', maxWidth: '420px' }}>
-                    {/* Mobile-only brand lockup — replaces the hidden side-panel */}
-                    {isMobile && (
-                        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                            <div style={{
-                                width: '56px', height: '56px', background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                                borderRadius: '14px', display: 'inline-flex',
-                                alignItems: 'center', justifyContent: 'center', color: 'white',
-                                boxShadow: '0 6px 20px rgba(36,42,136,0.25)',
-                            }}>
-                                {branding.logo ? (
-                                    <img src={branding.logo} alt={branding.name} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 14 }} />
-                                ) : (
-                                    <Building2 size={28} />
-                                )}
-                            </div>
-                            <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: '20px', fontWeight: 800, color: '#0f172a', marginTop: 10 }}>
-                                {branding.name || 'Quot PSE'}
-                            </div>
-                            <div style={{ fontSize: '10px', color: '#008751', fontWeight: 700, letterSpacing: '0.8px', textTransform: 'uppercase', marginTop: 4 }}>
-                                Nigeria Public-Sector IFMIS
-                            </div>
-                        </div>
-                    )}
+        <AuthShell
+            title="Welcome back"
+            subtitle="Sign in to your account to continue"
+            brandContent={<FeatureList />}
+            footer={
+                <>
+                    Don't have an account?{' '}
+                    <a
+                        href="/register"
+                        style={{ color: '#2e35a0', textDecoration: 'none', fontWeight: 600 }}
+                    >
+                        Create Account
+                    </a>
+                </>
+            }
+        >
+            {error && (
+                <div
+                    role="alert"
+                    style={{
+                        padding: '12px 16px',
+                        background: '#fef2f2',
+                        color: '#dc2626',
+                        borderRadius: 10,
+                        marginBottom: 16,
+                        fontSize: 14,
+                        border: '1px solid #fecaca',
+                    }}
+                >
+                    {error}
+                </div>
+            )}
 
-                    <div style={{ marginBottom: isMobile ? '22px' : '36px' }}>
-                        <h2 style={{
-                            fontSize: isMobile ? '24px' : '28px',
-                            fontWeight: 700, color: '#0f172a', marginBottom: '8px',
-                            lineHeight: 1.2, whiteSpace: 'nowrap',
-                        }}>
-                            Welcome back
-                        </h2>
-                        <p style={{ fontSize: isMobile ? '14px' : '15px', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
-                            Sign in to your account to continue
-                        </p>
-                    </div>
+            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                <FormField
+                    label="Username or Email"
+                    name="username"
+                    type="text"
+                    placeholder="Enter your username or email"
+                    value={identifier}
+                    onChange={setIdentifier}
+                    autoComplete="username"
+                    required
+                />
 
-                    {error && (
-                        <div style={{
-                            padding: '12px 16px', background: '#fef2f2', color: '#dc2626',
-                            borderRadius: '10px', marginBottom: '16px', fontSize: '14px',
-                            border: '1px solid #fecaca'
-                        }}>
-                            {error}
-                        </div>
-                    )}
-
-                    <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-                        <div>
-                            <label style={{
-                                display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569',
-                                marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px'
-                            }}>
-                                Username or Email
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="Enter your username or email"
-                                value={identifier}
-                                onChange={(e) => setIdentifier(e.target.value)}
-                                autoComplete="username"
-                                required
-                                style={{
-                                    width: '100%', padding: '14px 16px', border: '1.5px solid #e2e8f0',
-                                    borderRadius: '12px', fontSize: '15px', background: '#f8fafc',
-                                    outline: 'none', color: '#1e293b', fontFamily: 'inherit',
-                                    transition: 'all 0.2s'
-                                }}
-                                onFocus={(e) => {
-                                    e.target.style.borderColor = '#2e35a0';
-                                    e.target.style.background = 'white';
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(36,42,136,0.1)';
-                                }}
-                                onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0';
-                                    e.target.style.background = '#f8fafc';
-                                    e.target.style.boxShadow = 'none';
-                                }}
-                            />
-                        </div>
-
-                        <div>
-                            <label style={{
-                                display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569',
-                                marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px'
-                            }}>
-                                Password
-                            </label>
-                            <div style={{ position: 'relative' }}>
-                                <input
-                                    type={showPassword ? 'text' : 'password'}
-                                    placeholder="Enter your password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                    style={{
-                                        width: '100%', padding: '14px 46px 14px 16px', border: '1.5px solid #e2e8f0',
-                                        borderRadius: '12px', fontSize: '15px', background: '#f8fafc',
-                                        outline: 'none', color: '#1e293b', fontFamily: 'inherit',
-                                        transition: 'all 0.2s'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#2e35a0';
-                                        e.target.style.background = 'white';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(36,42,136,0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#e2e8f0';
-                                        e.target.style.background = '#f8fafc';
-                                        e.target.style.boxShadow = 'none';
-                                    }}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    style={{
-                                        position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)',
-                                        background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-                                        color: '#94a3b8', display: 'flex', alignItems: 'center'
-                                    }}
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            flexWrap: 'wrap', gap: '10px',
-                        }}>
-                            <label style={{
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                fontSize: '14px', color: '#64748b', cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                            }}>
-                                <input
-                                    type="checkbox"
-                                    checked={rememberMe}
-                                    onChange={(e) => setRememberMe(e.target.checked)}
-                                    style={{ width: '16px', height: '16px', accentColor: '#2e35a0' }}
-                                />
-                                Remember me
-                            </label>
-                            <a href="/forgot-password" style={{
-                                fontSize: '14px', color: '#2e35a0', textDecoration: 'none',
-                                fontWeight: 500, whiteSpace: 'nowrap',
-                            }}>
-                                Forgot password?
-                            </a>
-                        </div>
-
+                <FormField
+                    label="Password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={setPassword}
+                    autoComplete="current-password"
+                    required
+                    rightAdornment={
                         <button
-                            type="submit"
-                            disabled={loading}
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
                             style={{
-                                width: '100%',
-                                padding: isMobile ? '16px' : '15px',
-                                minHeight: isMobile ? '52px' : '48px',
-                                background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                                color: 'white', border: 'none', borderRadius: '12px',
-                                fontSize: '16px', fontWeight: 600, fontFamily: 'inherit',
-                                cursor: loading ? 'wait' : 'pointer', letterSpacing: '0.3px',
-                                boxShadow: '0 4px 14px rgba(36,42,136,0.3)',
-                                transition: 'all 0.2s'
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 4,
+                                color: '#94a3b8',
+                                display: 'flex',
+                                alignItems: 'center',
                             }}
                         >
-                            {loading ? 'Signing in...' : 'Sign In'}
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
-                    </form>
+                    }
+                />
 
-                    <div style={{ textAlign: 'center', marginTop: '32px', fontSize: '14px', color: '#64748b' }}>
-                        Don't have an account?{' '}
-                        <a href="/register" style={{ color: '#2e35a0', textDecoration: 'none', fontWeight: 600 }}>
-                            Create Account
-                        </a>
-                    </div>
-
-                    <div style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                        marginTop: '24px', fontSize: '12px', color: '#94a3b8'
-                    }}>
-                        <Shield size={14} style={{ color: '#94a3b8' }} />
-                        256-bit SSL encrypted &middot; SOC 2 Compliant
-                    </div>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                    }}
+                >
+                    <label
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            fontSize: 14,
+                            color: '#64748b',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            style={{ width: 16, height: 16, accentColor: '#2e35a0' }}
+                        />
+                        Remember me
+                    </label>
+                    <a
+                        href="/forgot-password"
+                        style={{
+                            fontSize: 14,
+                            color: '#2e35a0',
+                            textDecoration: 'none',
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Forgot password?
+                    </a>
                 </div>
-            </div>
-        </div>
+
+                <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                        width: '100%',
+                        padding: '15px',
+                        minHeight: 48,
+                        background: 'linear-gradient(135deg, #242a88, #2e35a0)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 12,
+                        fontSize: 16,
+                        fontWeight: 600,
+                        fontFamily: 'inherit',
+                        cursor: loading ? 'wait' : 'pointer',
+                        letterSpacing: '0.3px',
+                        boxShadow: '0 4px 14px rgba(36,42,136,0.3)',
+                        transition: 'all 0.2s',
+                    }}
+                >
+                    {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+            </form>
+        </AuthShell>
     );
 };
 
