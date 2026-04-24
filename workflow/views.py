@@ -3,6 +3,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
@@ -29,27 +30,38 @@ APPROVABLE_MODELS = [
     'goodsreceivednote',
     'invoicematching',       # Invoice Verification (3-way match)
     'purchasereturn',
-    # ── Other modules ─────────────────────────────────────────────────────
+    # ── Public-sector IFMIS workflows ─────────────────────────────────────
+    'paymentvoucher',        # PV — TSA disbursement authorisation
+    'appropriation',         # Budget Appropriation (create + activate)
+    'warrant',               # AIE / Cash Release Warrant
+    'appropriationvirement', # Virement between economic lines
+    'revenuebudget',         # Revenue target budget
+    'baddebtwriteoff',       # Revenue / bad-debt write-off (Accountant-General + FC)
+    'assetdisposal',         # Fixed asset disposal
+    'fixedasset',            # Fixed asset creation / capitalisation
+    # ── GL / HR ──────────────────────────────────────────────────────────
     'journalheader',
-    'vendorinvoice',
-    'customerinvoice',
-    'salesorder',
-    'quotation',
     'leaverequest',
+    'payrollrun',
 ]
 
 APPROVABLE_LABELS = {
-    'purchaserequest':   'Purchase Request',
-    'purchaseorder':     'Purchase Order',
-    'goodsreceivednote': 'Goods Received Note',
-    'invoicematching':   'Invoice Verification',
-    'purchasereturn':    'Purchase Return',
-    'journalheader':     'Journal Entry',
-    'vendorinvoice':     'Vendor Invoice',
-    'customerinvoice':   'Customer Invoice',
-    'salesorder':        'Sales Order',
-    'quotation':         'Quotation',
-    'leaverequest':      'Leave Request',
+    'purchaserequest':        'Purchase Request',
+    'purchaseorder':          'Purchase Order',
+    'goodsreceivednote':      'Goods Received Note',
+    'invoicematching':        'Invoice Verification',
+    'purchasereturn':         'Purchase Return',
+    'paymentvoucher':         'Payment Voucher',
+    'appropriation':          'Budget Appropriation',
+    'warrant':                'Cash Release Warrant (AIE)',
+    'appropriationvirement':  'Budget Virement',
+    'revenuebudget':          'Revenue Budget',
+    'baddebtwriteoff':        'Revenue Write-Off',
+    'assetdisposal':          'Asset Disposal',
+    'fixedasset':             'Fixed Asset Capitalisation',
+    'journalheader':          'Journal Entry',
+    'leaverequest':           'Leave Request',
+    'payrollrun':             'Payroll Run',
 }
 
 
@@ -57,15 +69,22 @@ APPROVABLE_LABELS = {
 # .capitalize() breaks for multi-word model names like 'invoicematching' → 'Invoicematching'
 # which doesn't match the MODULE_CHOICES value 'InvoiceVerification'.
 _MODEL_TO_MODULE_KEY = {
-    'purchaserequest':   'PurchaseRequest',
-    'purchaseorder':     'PurchaseOrder',
-    'goodsreceivednote': 'GoodsReceivedNote',
-    'invoicematching':   'InvoiceVerification',   # BUG-2 fix: was 'Invoicematching'
-    'purchasereturn':    'PurchaseReturn',
-    'journalheader':     'JournalEntry',
-    'salesorder':        'SalesOrder',
-    'leaverequest':      'LeaveRequest',
-    'productionorder':   'ProductionOrder',
+    'purchaserequest':        'PurchaseRequest',
+    'purchaseorder':          'PurchaseOrder',
+    'goodsreceivednote':      'GoodsReceivedNote',
+    'invoicematching':        'InvoiceVerification',   # BUG-2 fix: was 'Invoicematching'
+    'purchasereturn':         'PurchaseReturn',
+    'paymentvoucher':         'PaymentVoucher',
+    'appropriation':          'Appropriation',
+    'warrant':                'Warrant',
+    'appropriationvirement':  'Appropriation',
+    'revenuebudget':          'Budget',
+    'baddebtwriteoff':        'RevenueWriteOff',
+    'assetdisposal':          'AssetDisposal',
+    'fixedasset':             'Budget',
+    'journalheader':          'JournalEntry',
+    'leaverequest':           'LeaveRequest',
+    'payrollrun':             'PayrollRun',
 }
 
 
@@ -202,10 +221,15 @@ class ApprovalPagination(PageNumberPagination):
 
 
 class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing global approval settings per module"""
+    """ViewSet for managing global approval settings per module.
+
+    Admin-only — tampering with these settings (thresholds, auto-approval,
+    approval modes) is a systemic-risk change affecting all users.
+    """
     queryset = GlobalApprovalSettings.objects.all()
     pagination_class = ApprovalPagination
     filterset_fields = ['module', 'approval_mode']
+    permission_classes = [IsAdminUser]
     
     @action(detail=False, methods=['get'])
     def check(self, request):
@@ -297,13 +321,28 @@ class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
 
 
 class ApprovalGroupViewSet(viewsets.ModelViewSet):
+    """Admin-only: defines WHO can approve what.
+
+    Exposing write-access here would let any authenticated user add
+    themselves to an approval group and then self-approve their own
+    documents — a classic SOD bypass.
+    """
     queryset = ApprovalGroup.objects.all()
     serializer_class = ApprovalGroupSerializer
     pagination_class = ApprovalPagination
+    permission_classes = [IsAdminUser]
+
+
 class ApprovalTemplateViewSet(viewsets.ModelViewSet):
+    """Admin-only: configures approval chain templates per document type.
+
+    Users may read templates to understand flow, but only admins may
+    change the chain itself.
+    """
     queryset = ApprovalTemplate.objects.all().prefetch_related('steps')
     serializer_class = ApprovalTemplateSerializer
     pagination_class = ApprovalPagination
+    permission_classes = [IsAdminUser]
 
     @action(detail=False, methods=['get'])
     def content_types(self, request):
@@ -902,6 +941,29 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 else:
                     doc.status = 'Approved'
                     doc.save()
+
+                # ── Auto-post InvoiceMatching to GL on approval ──
+                # User expectation: once an Invoice Verification
+                # (three-way match) is approved — whether by auto-
+                # routing (no approver required) or by a human
+                # approver via the workflow inbox — the GL journal
+                # should fire immediately (DR GR/IR / CR AP) and the
+                # budget commitment should close. No extra "Post to
+                # GL" click. Matches the already-auto-posting
+                # behaviour of ``verify_and_post``.
+                if model_name == 'invoicematching' and doc.status == 'Approved':
+                    try:
+                        from procurement.views import InvoiceMatchingViewSet
+                        from django.db import transaction as _tx
+                        with _tx.atomic():
+                            InvoiceMatchingViewSet._post_matching_to_gl_inner(doc)
+                    except Exception as exc:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            'Workflow-approved matching %s auto-post to GL '
+                            'failed (user can still retry via Post to GL): %s',
+                            doc.pk, exc,
+                        )
 
             elif action == 'reject':
                 rejected_status = {

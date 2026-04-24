@@ -546,6 +546,14 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
             # Auto-post payroll accrual to GL on approval.
             # Creates:  DR Salary Expense / CR Payroll Liability
             # The liability is cleared later by the mark_paid action.
+            #
+            # IMPORTANT — rollback semantics:
+            # Catching an exception and returning a Response prevents it from
+            # propagating out of `with transaction.atomic()`, so the DB commits
+            # despite the failure.  That would leave payroll_run.status = Approved
+            # without a matching GL journal.  We explicitly flag the transaction
+            # for rollback so BOTH sides stay consistent: either fully posted
+            # or fully pending.
             try:
                 from accounting.services.payroll_posting import PayrollPostingService
                 journal = PayrollPostingService.post_payroll_run(payroll_run)
@@ -554,10 +562,12 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
                     payroll_run.save(update_fields=['journal_entry'])
             except Exception as e:
                 import logging
+                from django.db import transaction as _txn
+                _txn.set_rollback(True)
                 logger = logging.getLogger(__name__)
                 logger.error("payroll GL posting failed for run %s: %s", payroll_run.run_number, e)
                 return Response(
-                    {'error': f'Payroll approved but GL posting failed: {str(e)}'},
+                    {'error': f'Payroll approval rolled back — GL posting failed: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 

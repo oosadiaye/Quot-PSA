@@ -1,13 +1,30 @@
+import logging
 from decimal import Decimal
 from .models import Budget, BudgetCheckLog, BudgetPeriod
 
+logger = logging.getLogger(__name__)
+
 
 def is_dimensions_enabled_for_budget(tenant):
-    """Check if dimensions module is enabled for the tenant."""
-    from tenants.models import is_dimensions_enabled
+    """Check if dimensions module is enabled for the tenant.
+
+    We default to True when the module-resolver itself is broken (ImportError
+    or the function missing), because denying dimensions when we can't tell
+    is the safer fallback for multi-dimensional public-sector accounting.
+    But any OTHER exception is a real bug that should be logged instead of
+    silently swallowed (the old ``except Exception: pass`` style masked
+    database errors, permission bugs, etc.).
+    """
+    try:
+        from tenants.models import is_dimensions_enabled
+    except ImportError:
+        logger.info('tenants.models.is_dimensions_enabled unavailable — defaulting to True')
+        return True
     try:
         return is_dimensions_enabled(tenant)
-    except Exception:
+    except (AttributeError, TypeError) as e:
+        # tenant missing attributes or wrong type — defensible default
+        logger.warning('is_dimensions_enabled fell back to default: %s', e)
         return True
 
 
@@ -216,18 +233,37 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
 
     warrants_released = appro.total_warrants_released or Decimal('0')
 
-    # Sum existing committed + expended against this appropriation.
-    # Optionally exclude one PO's commitment (used at invoice-post time
-    # to avoid double-counting the PO that's about to be invoice-verified).
-    committed = appro.total_committed or Decimal('0')
-    expended  = appro.total_expended  or Decimal('0')
+    # Actual single-count consumption against the appropriation.
+    #
+    # ``total_committed`` and ``total_expended`` are DISPLAY columns —
+    # they both include the same direct disbursements (direct AP, direct
+    # PV, direct JV) by design so the Appropriation report can show the
+    # full commitment + expenditure posture in parallel. A naive
+    # ``committed + expended`` would double-count every NGN of direct
+    # disbursement, which is exactly the bug that produced the
+    # "32M already committed/expended" number when the real figure was
+    # 16M.
+    #
+    # The correct identity (matches ``Appropriation.available_balance``):
+    #   consumed = approved - available_balance
+    #            = open_po + closed_po + direct
+    # which equals ``total_committed + total_expended - direct``.
+    #
+    # We compute it via ``amount_approved - available_balance`` so we
+    # reuse the single source of truth the model already exposes.
+    approved = appro.amount_approved or Decimal('0')
+    already_consumed = approved - (appro.available_balance or Decimal('0'))
+    if already_consumed < 0:
+        already_consumed = Decimal('0')
+
+    # Optional: exclude one PO's commitment so invoice-verify time
+    # doesn't double-count the PO that's about to close out.
     if exclude_po is not None:
         existing_link = appro.commitments.filter(purchase_order=exclude_po).first()
         if existing_link:
-            committed -= (existing_link.committed_amount or Decimal('0'))
-            committed = max(committed, Decimal('0'))
+            already_consumed -= (existing_link.committed_amount or Decimal('0'))
+            already_consumed = max(already_consumed, Decimal('0'))
 
-    already_consumed = committed + expended
     available_warrant = warrants_released - already_consumed
 
     info = {

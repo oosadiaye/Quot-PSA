@@ -73,12 +73,23 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('impersonation');
         window.location.href = '/superadmin';
       } else {
-        // Clear stale auth data from both storages and notify ProtectedRoute to redirect
+        // Clear stale auth data from both storages and notify ProtectedRoute
+        // + the Login page (via sessionStorage flag) that the session expired
+        // so the user sees an explanatory banner instead of a silent redirect.
         const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo', 'tenantPermissions'];
         for (const key of keys) {
           localStorage.removeItem(key);
           sessionStorage.removeItem(key);
         }
+        // One-shot reason the Login page can read & clear so it knows to show
+        // "Your session expired. Please log in again." rather than looking like
+        // a spurious logout.
+        try {
+          sessionStorage.setItem(
+            'auth-expired-reason',
+            'Your session expired. Please log in again to continue.'
+          );
+        } catch { /* storage quota / disabled — non-fatal */ }
         // Dispatch event so ProtectedRoute can react without hard redirect
         window.dispatchEvent(new Event('auth-expired'));
       }

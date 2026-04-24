@@ -91,6 +91,7 @@ TENANT_APPS = [
     'workflow',
     'hrm',
     'simple_history',
+    'contracts',      # Contract & Milestone Payment Management (overpayment prevention)
 
     # Stub apps — deleted for public sector, kept for migration history only
     'sales',
@@ -273,7 +274,11 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000'
 ).split(',')
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Allow all origins in development only
-CORS_ALLOW_CREDENTIALS = not DEBUG  # Credentials only in production (conflicts with ALLOW_ALL)
+# Credentials must be enabled in BOTH environments — token-authenticated axios
+# requests are treated as "credentialed" by browsers, and disabling this flag
+# causes cross-origin requests to fail in production. Security is enforced via
+# CORS_ALLOWED_ORIGINS, not by disabling credentials.
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     'GET',
     'POST',
@@ -697,7 +702,28 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tenants.tasks.cleanup_expired_tokens',
         'schedule': 86400,  # Daily
     },
+    # Contracts — SLA escalation & reminders (D5)
+    'contracts-escalate-stale-variations': {
+        'task': 'contracts.tasks.escalate_stale_variations',
+        'schedule': 3600,  # Every hour
+    },
+    'contracts-escalate-stale-ipcs': {
+        'task': 'contracts.tasks.escalate_stale_ipcs',
+        'schedule': 3600,  # Every hour
+    },
+    'contracts-send-pending-approval-reminders': {
+        'task': 'contracts.tasks.send_pending_approval_reminders',
+        'schedule': 14400,  # Every 4 hours
+    },
+    'contracts-reconcile-balances': {
+        'task': 'contracts.tasks.reconcile_contract_balances',
+        'schedule': 86400,  # Daily
+    },
 }
+
+# Contracts SLA thresholds (hours). Override any key as needed; unset
+# keys fall back to the defaults in ``contracts/sla.py``.
+CONTRACTS_SLA: dict[str, int] = {}
 
 # =============================================================================
 # SENTRY (P3-T2) — gated on SENTRY_DSN env var so dev environments and
