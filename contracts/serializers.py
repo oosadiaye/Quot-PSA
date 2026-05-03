@@ -122,6 +122,46 @@ class ContractSerializer(serializers.ModelSerializer):
     ncoa_code_geographic_id = serializers.IntegerField(
         source='ncoa_code.geographic_id', read_only=True, default=None,
     )
+    # ── GL code strings (for IPC ledger projected rows) ───────────────
+    # The IPC detail page renders a "projected" GL ledger before the
+    # accrual journal posts; it needs the actual account *codes* — not
+    # just FK ids — so each row carries something meaningful in the
+    # GL CODE column. Pulling the code through serializer ``source``
+    # avoids extra round-trips and stays read-only by definition.
+    ncoa_economic_code = serializers.CharField(
+        source='ncoa_code.economic.code', read_only=True, default='',
+    )
+    ncoa_economic_name = serializers.CharField(
+        source='ncoa_code.economic.name', read_only=True, default='',
+    )
+    vendor_ap_code = serializers.SerializerMethodField()
+    vendor_ap_name = serializers.SerializerMethodField()
+    withholding_account_code = serializers.CharField(
+        source='vendor.withholding_tax_code.withholding_account.code',
+        read_only=True, default='',
+    )
+    input_tax_account_code = serializers.CharField(
+        source='vendor.tax_code.input_tax_account.code',
+        read_only=True, default='',
+    )
+
+    def get_vendor_ap_code(self, obj):
+        """Walk vendor → category → reconciliation_account → code.
+        Returns '' when any link is missing rather than blowing up."""
+        try:
+            recon = (obj.vendor.category.reconciliation_account
+                     if obj.vendor and obj.vendor.category else None)
+            return recon.code if recon else ''
+        except Exception:
+            return ''
+
+    def get_vendor_ap_name(self, obj):
+        try:
+            recon = (obj.vendor.category.reconciliation_account
+                     if obj.vendor and obj.vendor.category else None)
+            return recon.name if recon else ''
+        except Exception:
+            return ''
 
     class Meta:
         model = Contract
@@ -134,6 +174,10 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",
             "ncoa_code_geographic_id",
+            # Resolved GL codes/names (for IPC projected ledger).
+            "ncoa_economic_code", "ncoa_economic_name",
+            "vendor_ap_code", "vendor_ap_name",
+            "withholding_account_code", "input_tax_account_code",
             "original_sum", "mobilization_rate", "retention_rate",
             "bpp_no_objection_ref", "due_process_certificate",
             "signed_date", "commencement_date",
@@ -154,6 +198,9 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",
             "ncoa_code_geographic_id",
+            "ncoa_economic_code", "ncoa_economic_name",
+            "vendor_ap_code", "vendor_ap_name",
+            "withholding_account_code", "input_tax_account_code",
         ]
 
 

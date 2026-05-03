@@ -607,15 +607,21 @@ function GLLedgerCard({ ipc, journal, contract, formatCurrency }: GLLedgerCardPr
     }> = [];
     if (gross > 0) {
       rows.push({
-        account_name: 'Expense / Work-in-Progress',
+        // Use the contract's economic-segment code/name when available
+        // — the same line that funded the contract is the one we
+        // debit on certification. Falls back to a descriptive label
+        // when the contract serializer hasn't surfaced it yet.
+        account_code: contract?.ncoa_economic_code || '',
+        account_name: contract?.ncoa_economic_name || 'Expense / Work-in-Progress',
         memo: 'Gross certified value for the period',
         debit: gross,
       });
     }
     if (vat > 0) {
       rows.push({
+        account_code: contract?.input_tax_account_code || '',
         account_name: 'Input VAT (Recoverable)',
-        memo: `Statutory FIRS tax @ 7.5%`,
+        memo: 'Statutory FIRS tax',
         debit: vat,
       });
     }
@@ -635,15 +641,21 @@ function GLLedgerCard({ ipc, journal, contract, formatCurrency }: GLLedgerCardPr
     }
     if (wht > 0) {
       rows.push({
+        account_code: contract?.withholding_account_code || '',
         account_name: 'Withholding Tax Payable',
         memo: 'Advance income tax (payment time)',
         credit: wht,
       });
     }
     rows.push({
-      account_name: contract?.vendor_name
-        ? `Accounts Payable — ${contract.vendor_name}`
-        : 'Accounts Payable',
+      account_code: contract?.vendor_ap_code || '',
+      account_name: (
+        contract?.vendor_ap_name
+          ? `${contract.vendor_ap_name}${contract.vendor_name ? ` — ${contract.vendor_name}` : ''}`
+          : (contract?.vendor_name
+              ? `Accounts Payable — ${contract.vendor_name}`
+              : 'Accounts Payable')
+      ),
       memo: 'Net amount due to contractor',
       credit: apCredit,
     });
@@ -723,15 +735,36 @@ function GLLedgerCard({ ipc, journal, contract, formatCurrency }: GLLedgerCardPr
               </tr>
             ) : rows.map((r: any, i: number) => (
               <tr key={i} style={ledgerRow}>
-                <td style={{ ...ledgerTd, fontFamily: 'monospace', fontWeight: 600, color: '#1e40af' }}>
-                  {r.account_code || '—'}
+                <td style={{
+                  ...ledgerTd,
+                  fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace',
+                  fontWeight: 700, color: r.account_code ? '#1e40af' : '#cbd5e1',
+                  fontSize: 11.5, letterSpacing: 0,
+                }}>
+                  {r.account_code || (
+                    <span title="GL code resolves on Approve when the accrual journal posts" style={{ fontStyle: 'italic' }}>
+                      pending
+                    </span>
+                  )}
                 </td>
-                <td style={{ ...ledgerTd, fontWeight: 600 }}>{r.account_name}</td>
-                <td style={{ ...ledgerTd, color: '#64748b', fontSize: 11 }}>{r.memo || '—'}</td>
-                <td style={{ ...ledgerTd, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: r.debit ? '#0f172a' : '#cbd5e1' }}>
+                <td style={{ ...ledgerTd, fontWeight: 600, color: '#0f172a' }}>{r.account_name}</td>
+                <td style={{ ...ledgerTd, color: '#64748b', fontSize: 11.5 }}>{r.memo || '—'}</td>
+                <td style={{
+                  ...ledgerTd, textAlign: 'right',
+                  fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace',
+                  fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: r.debit ? '#0f172a' : '#e2e8f0',
+                }}>
                   {r.debit ? formatCurrency(r.debit) : '—'}
                 </td>
-                <td style={{ ...ledgerTd, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: r.credit ? '#dc2626' : '#cbd5e1' }}>
+                <td style={{
+                  ...ledgerTd, textAlign: 'right',
+                  fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace',
+                  fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: r.credit ? '#dc2626' : '#e2e8f0',
+                }}>
                   {r.credit ? formatCurrency(r.credit) : '—'}
                 </td>
               </tr>
@@ -825,8 +858,8 @@ const topBreadcrumb: React.CSSProperties = {
   textTransform: 'uppercase', letterSpacing: '0.08em',
 };
 const topTitle: React.CSSProperties = {
-  fontSize: 16, fontWeight: 700, color: '#fff', margin: '2px 0 0',
-  lineHeight: 1.2,
+  fontSize: 17, fontWeight: 700, color: '#fff', margin: '2px 0 0',
+  lineHeight: 1.25, letterSpacing: '-0.01em',
 };
 const topBtnGhost: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -985,12 +1018,14 @@ const statCurrencySymbol: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: '#94a3b8',
 };
 const statValue: React.CSSProperties = {
-  fontSize: 22, fontWeight: 900,
-  color: '#0f172a', letterSpacing: '-0.025em',
+  fontSize: 26, fontWeight: 800,
+  color: '#0f172a', letterSpacing: '-0.03em',
+  fontVariantNumeric: 'tabular-nums',
 };
 const statCaption: React.CSSProperties = {
-  marginTop: 8,
-  fontSize: 10, fontWeight: 500, color: '#64748b',
+  marginTop: 6,
+  fontSize: 11, fontWeight: 500, color: '#64748b',
+  letterSpacing: '-0.005em',
 };
 
 // GL Ledger
@@ -1037,7 +1072,8 @@ const ledgerRow: React.CSSProperties = {
   borderBottom: '1px solid #f1f5f9',
 };
 const ledgerTd: React.CSSProperties = {
-  padding: '0.85rem 1.25rem', fontSize: 12, verticalAlign: 'middle',
+  padding: '0.85rem 1.25rem', fontSize: 12.5, verticalAlign: 'middle',
+  letterSpacing: '-0.005em',
 };
 const ledgerEmpty: React.CSSProperties = {
   padding: '2rem', textAlign: 'center', color: '#94a3b8',
