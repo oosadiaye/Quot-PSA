@@ -662,6 +662,27 @@ function GLLedgerCard({ ipc, journal, contract, formatCurrency }: GLLedgerCardPr
 
   const totalDr = rows.reduce((s: number, r: any) => s + Number(r.debit || 0), 0);
   const totalCr = rows.reduce((s: number, r: any) => s + Number(r.credit || 0), 0);
+  // The "Final Net Payable to Contractor" must match the Net Payable
+  // card (= what cash actually goes to the vendor). That's the AP
+  // credit only — retention/WHT/mob-recovery are *deductions held
+  // back*, not paid out. Source-of-truth precedence:
+  //   1. ``ipc.net_payable`` (backend-computed, authoritative)
+  //   2. AP-line credit from the journal rows (when net_payable is 0)
+  //   3. ``totalCr - retention - wht - mob`` as a derivation fallback
+  const apRowCredit = rows
+    .filter((r: any) => /(account.*payable|^ap\b)/i.test(r.account_name || ''))
+    .reduce((s: number, r: any) => s + Number(r.credit || 0), 0);
+  const finalNetPayable =
+    Number(ipc.net_payable || 0)
+    || apRowCredit
+    || Math.max(
+        0,
+        totalCr
+          - Number(ipc.retention_deduction_this_cert || 0)
+          - Number(ipc.wht_amount || 0)
+          - Number(ipc.mobilization_recovery_this_cert || 0),
+      );
+  const balanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
     <div style={panelLight}>
@@ -717,16 +738,58 @@ function GLLedgerCard({ ipc, journal, contract, formatCurrency }: GLLedgerCardPr
             ))}
           </tbody>
           <tfoot>
+            {/* Row 1 — journal balance (sanity check). Same colour
+                treatment as the existing dark footer, just relabelled
+                as totals + a Balanced/Unbalanced indicator. */}
             <tr style={ledgerFootRow}>
-              <td style={{ ...ledgerTd, color: '#fff', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}
-                  colSpan={3}>
-                Final Net Payable to Contractor
+              <td
+                style={{
+                  ...ledgerTd, color: 'rgba(255,255,255,0.85)',
+                  fontWeight: 700, fontSize: 10,
+                  textTransform: 'uppercase', letterSpacing: '0.1em',
+                }}
+                colSpan={3}
+              >
+                Journal Total
+                {balanced ? (
+                  <span style={ledgerBalancedTag}>Balanced</span>
+                ) : (
+                  <span style={ledgerUnbalancedTag}>Out of Balance</span>
+                )}
               </td>
-              <td style={{ ...ledgerTd, textAlign: 'right', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>
+              <td style={{ ...ledgerTd, textAlign: 'right', color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>
                 {formatCurrency(totalDr)}
               </td>
-              <td style={{ ...ledgerTd, textAlign: 'right', color: '#fff', fontFamily: 'monospace', fontSize: 14, fontWeight: 800 }}>
+              <td style={{ ...ledgerTd, textAlign: 'right', color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>
                 {formatCurrency(totalCr)}
+              </td>
+            </tr>
+            {/* Row 2 — the actual cash-to-contractor figure. This MUST
+                equal the ``Net Payable`` stat card (both come from
+                ``ipc.net_payable`` when present), so an auditor can
+                cross-reference at a glance. Retention / WHT / mob
+                recovery are credits in the journal but *held back*
+                from the contractor — not part of this number. */}
+            <tr style={{ ...ledgerFootRow, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
+              <td
+                style={{
+                  ...ledgerTd, color: '#fff',
+                  fontWeight: 800, fontSize: 11,
+                  textTransform: 'uppercase', letterSpacing: '0.1em',
+                }}
+                colSpan={4}
+              >
+                Final Net Payable to Contractor
+                <span style={ledgerNetSubLabel}>
+                  (after retention / mobilisation recovery / WHT)
+                </span>
+              </td>
+              <td style={{
+                ...ledgerTd, textAlign: 'right',
+                color: '#fff', fontFamily: 'monospace',
+                fontSize: 16, fontWeight: 900,
+              }}>
+                {formatCurrency(finalNetPayable)}
               </td>
             </tr>
           </tfoot>
@@ -981,6 +1044,32 @@ const ledgerEmpty: React.CSSProperties = {
 };
 const ledgerFootRow: React.CSSProperties = {
   background: '#1e293b',
+};
+const ledgerBalancedTag: React.CSSProperties = {
+  marginLeft: 10,
+  padding: '2px 8px', borderRadius: 4,
+  fontSize: 9, fontWeight: 800,
+  background: 'rgba(16, 185, 129, 0.20)',
+  color: '#34d399',
+  border: '1px solid rgba(52, 211, 153, 0.35)',
+  letterSpacing: '0.05em',
+};
+const ledgerUnbalancedTag: React.CSSProperties = {
+  marginLeft: 10,
+  padding: '2px 8px', borderRadius: 4,
+  fontSize: 9, fontWeight: 800,
+  background: 'rgba(239, 68, 68, 0.20)',
+  color: '#fca5a5',
+  border: '1px solid rgba(252, 165, 165, 0.35)',
+  letterSpacing: '0.05em',
+};
+const ledgerNetSubLabel: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 9, fontWeight: 500,
+  color: 'rgba(255,255,255,0.55)',
+  textTransform: 'none',
+  letterSpacing: 'normal',
+  fontStyle: 'italic',
 };
 
 // Bottom row
