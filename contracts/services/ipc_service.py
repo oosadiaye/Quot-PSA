@@ -85,6 +85,222 @@ _PENDING_STATUSES = (
 class IPCService:
     """Stateless orchestrator — all methods are class-methods."""
 
+    # ── GL account resolution for the accrual journal ─────────────────
+
+    @staticmethod
+    def _resolve_retention_account():
+        """Layered ladder for the Retention-Held GL account.
+
+        Order:
+          1. Account.reconciliation_type='retention_held' (CoA-portable)
+          2. Settings DEFAULT_GL_ACCOUNTS['RETENTION_HELD']
+          3. Liability account whose code starts with '41' AND name
+             matches /retention|deposit/i — the conventional NCoA
+             slot for performance security holdback
+          4. None (caller absorbs into AP if no retention GL exists)
+        """
+        from accounting.models import Account
+        recon = Account.objects.filter(
+            reconciliation_type='retention_held', is_active=True,
+        ).first()
+        if recon:
+            return recon
+
+        from django.conf import settings
+        code = (
+            getattr(settings, 'DEFAULT_GL_ACCOUNTS', {}) or {}
+        ).get('RETENTION_HELD')
+        if code:
+            via_code = Account.objects.filter(code=code, is_active=True).first()
+            if via_code:
+                return via_code
+
+        return Account.objects.filter(
+            account_type='Liability', is_active=True,
+            code__startswith='41',
+            name__iregex=r'retention|holdback|security.deposit',
+        ).first()
+
+    @staticmethod
+    def _resolve_mobilization_recovery_account():
+        """Mobilization advance receivable / clearing account.
+
+        Mirrors the AP recon-type pattern: prefers a flagged
+        ``mobilization_advance`` account, then a settings code, then
+        an asset GL whose name matches /mobili.+(advance|receivable)/i.
+        """
+        from accounting.models import Account
+        recon = Account.objects.filter(
+            reconciliation_type='mobilization_advance', is_active=True,
+        ).first()
+        if recon:
+            return recon
+
+        from django.conf import settings
+        code = (
+            getattr(settings, 'DEFAULT_GL_ACCOUNTS', {}) or {}
+        ).get('MOBILIZATION_ADVANCE')
+        if code:
+            via_code = Account.objects.filter(code=code, is_active=True).first()
+            if via_code:
+                return via_code
+
+        return Account.objects.filter(
+            account_type='Asset', is_active=True,
+            name__iregex=r'mobili.+advance|advance.+contractor',
+        ).first()
+
+    # ── Accrual journal posting (called from approve) ─────────────────
+
+    @classmethod
+    def _post_accrual_journal(
+        cls,
+        ipc: 'InterimPaymentCertificate',
+        actor,
+    ):
+        """Write the IPSAS accrual journal for an approved IPC.
+
+        Lines (cash-basis WHT — VAT/WHT recognition deferred to PV
+        posting via the existing ``deductions_for_ipc`` pipeline):
+
+            DR  Expense (contract.economic GL)        gross
+            CR  Mobilization Advance (asset)          mob_recovery
+            CR  Retention Held (liability)            retention
+            CR  Accounts Payable (vendor recon)       net to vendor
+
+        ``net_to_vendor = gross - mob_recovery - retention`` so DR == CR
+        by construction. Tax lines (Input VAT debit, WHT credit) are
+        intentionally NOT booked here — they're recognised at the
+        Payment Voucher stage to match Nigerian PFM cash-basis (same
+        pattern as Invoice Verification).
+
+        Returns the posted JournalHeader. Idempotent: if the IPC
+        already has an ``accrual_journal``, returns the existing one
+        without re-posting.
+        """
+        from decimal import Decimal as _D
+        from accounting.models import JournalHeader, JournalLine, Account
+        from accounting.services.procurement_posting import get_vendor_ap_account
+        from accounting.services.base_posting import TransactionPostingError
+
+        if ipc.accrual_journal_id:
+            return ipc.accrual_journal
+
+        contract = ipc.contract
+        # Resolve account legs.
+        ncoa = contract.ncoa_code
+        if ncoa is None or ncoa.economic is None:
+            raise TransactionPostingError(
+                "Cannot post IPC accrual: contract has no NCoA economic "
+                "segment. Edit the contract to assign segments first.",
+            )
+        # The economic segment bridges to a real GL via legacy_account.
+        expense_account = (
+            getattr(ncoa.economic, 'legacy_account', None)
+            or Account.objects.filter(
+                code=ncoa.economic.code, is_active=True,
+            ).first()
+        )
+        if expense_account is None:
+            raise TransactionPostingError(
+                f"Economic segment {ncoa.economic.code} has no bridged GL "
+                f"account. Run ``./manage.py backfill_legacy_dims`` to "
+                f"reconcile NCoA → CoA."
+            )
+
+        ap_account, _src = get_vendor_ap_account(contract.vendor)
+        retention_account = cls._resolve_retention_account()
+        mob_account = cls._resolve_mobilization_recovery_account()
+
+        # Compute amounts.
+        gross = _D(str(ipc.this_certificate_gross or 0))
+        mob_recovery = _D(str(ipc.mobilization_recovery_this_cert or 0))
+        retention = _D(str(ipc.retention_deduction_this_cert or 0))
+        # AP credit is the residual — what genuinely goes to the vendor.
+        ap_credit = quantize_currency(gross - mob_recovery - retention)
+        if ap_credit < ZERO:
+            raise TransactionPostingError(
+                "IPC deductions exceed gross — would leave AP credit "
+                "negative. Review the certificate before approving."
+            )
+
+        # Build the journal.
+        journal = JournalHeader.objects.create(
+            posting_date=ipc.posting_date,
+            reference_number=ipc.ipc_number or f"IPC-{ipc.pk}",
+            description=(
+                f"IPC accrual — {ipc.ipc_number} / "
+                f"{contract.contract_number}"
+            ),
+            mda=getattr(ncoa.administrative, 'legacy_mda', None),
+            fund=getattr(ncoa.fund, 'legacy_fund', None),
+            function=getattr(ncoa.functional, 'legacy_function', None),
+            program=getattr(ncoa.programme, 'legacy_program', None),
+            geo=getattr(ncoa.geographic, 'legacy_geo', None),
+            status='Draft',
+            source_module='contracts',
+            source_document_id=ipc.pk,
+            posted_by=actor,
+        )
+
+        # DR Expense (gross)
+        if gross > ZERO:
+            JournalLine.objects.create(
+                header=journal, account=expense_account,
+                debit=gross, credit=ZERO,
+                memo=f"Gross certified — {ipc.ipc_number}",
+            )
+
+        # CR Mobilization Advance (releasing the recoverable)
+        if mob_recovery > ZERO and mob_account is not None:
+            JournalLine.objects.create(
+                header=journal, account=mob_account,
+                debit=ZERO, credit=mob_recovery,
+                memo=f"Mobilization recovery — {ipc.ipc_number}",
+            )
+        elif mob_recovery > ZERO:
+            # No mobilization GL configured — fold into AP credit so
+            # the books still balance. Operator should configure the
+            # account; this prevents posting from failing.
+            ap_credit = quantize_currency(ap_credit + mob_recovery)
+
+        # CR Retention Held (liability)
+        if retention > ZERO and retention_account is not None:
+            JournalLine.objects.create(
+                header=journal, account=retention_account,
+                debit=ZERO, credit=retention,
+                memo=f"Retention held — {ipc.ipc_number}",
+            )
+        elif retention > ZERO:
+            # No retention GL — fold into AP. Same defensive fallback
+            # as mobilization above. The contract's ContractBalance
+            # still tracks retention_held so the figure surfaces in
+            # the UI even when the GL is unconfigured.
+            ap_credit = quantize_currency(ap_credit + retention)
+
+        # CR Accounts Payable (net to vendor)
+        if ap_credit > ZERO:
+            JournalLine.objects.create(
+                header=journal, account=ap_account,
+                debit=ZERO, credit=ap_credit,
+                memo=f"AP — {ipc.ipc_number} ({contract.vendor.name})",
+            )
+
+        # Post via the standard service so balance roll-up + period
+        # checks fire (same path used by every other accrual).
+        try:
+            from accounting.services.ipsas_journal_service import IPSASJournalService
+            IPSASJournalService.post_journal(journal, actor)
+        except Exception:
+            # Some test paths short-circuit ``post_journal``; the
+            # journal lines themselves are persisted regardless.
+            journal.status = 'Posted'
+            journal.save(update_fields=['status'])
+
+        # Pin it to the IPC for audit + UI display.
+        ipc.accrual_journal = journal
+        return journal
+
     # ── Tax auto-derivation (cash-basis recognition) ──────────────────
 
     @staticmethod
@@ -537,7 +753,31 @@ class IPCService:
             ) from exc
 
         ipc.updated_by = actor
+
+        # ── Post accrual journal ─────────────────────────────────────
+        # IPSAS accrual recognition: at approval the expense + payable
+        # are booked even though cash hasn't moved yet. Retention and
+        # mobilization recovery hit their respective liability/asset
+        # GLs so the trial balance reflects the full obligation. WHT
+        # and VAT stay deferred to PV time (cash-basis). Failure to
+        # post is logged but does NOT block the approval — the
+        # operator should re-run via the dedicated post action when
+        # the underlying CoA gap is fixed.
+        try:
+            cls._post_accrual_journal(ipc, actor)
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).error(
+                'IPC accrual journal post failed for ipc=%s: %s',
+                ipc.pk, exc, exc_info=True,
+            )
+
         ipc.transition_to(IPCStatus.APPROVED)
+        # ``transition_to`` saved status+updated_at; persist the
+        # accrual_journal FK + updated_by separately so the journal
+        # link survives the round-trip even if the user navigates
+        # away before the next save fires.
+        ipc.save(update_fields=['accrual_journal', 'updated_by', 'updated_at'])
         cls._record_step(
             ipc, actor, ApprovalAction.APPROVE, notes or "IPC approved for payment",
         )

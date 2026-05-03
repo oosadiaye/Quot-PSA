@@ -384,3 +384,56 @@ export const useIssueMobilization = () => {
     },
   });
 };
+
+/**
+ * GET /contracts/retention-releases/?contract={id}
+ * — list all retention releases on a contract (typically 0–2:
+ * Practical Completion 50%, Final Completion remainder).
+ */
+export const useContractRetentionReleases = (contractId: number | null) => {
+  return useQuery({
+    queryKey: ['contract-retention-releases', contractId],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/contracts/retention-releases/', {
+        params: { contract: contractId, page_size: 5 },
+      });
+      return Array.isArray(data) ? data : (data?.results ?? []);
+    },
+    enabled: !!contractId,
+    staleTime: 30 * 1000,
+  });
+};
+
+/**
+ * POST /contracts/retention-releases/create-release/
+ *
+ * Creates a PENDING RetentionRelease at Practical or Final
+ * Completion. The contract must be in the matching status:
+ *   PRACTICAL_COMPLETION → 50% of retention_held released
+ *   FINAL_COMPLETION     → remaining 50% released
+ *
+ * The actual cash disbursement is via PaymentVoucher (Treasury).
+ * Backend enforces the status gate, the unique-per-type rule, and
+ * caps the released amount at the remaining held balance.
+ */
+export const useCreateRetentionRelease = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      contractId, release_type,
+    }: {
+      contractId: number;
+      release_type: 'PRACTICAL_COMPLETION' | 'FINAL_COMPLETION';
+    }) => {
+      const { data } = await apiClient.post(
+        '/contracts/retention-releases/create-release/',
+        { contract: contractId, release_type },
+      );
+      return { data, contractId };
+    },
+    onSuccess: ({ contractId }) => {
+      qc.invalidateQueries({ queryKey: ['contract-retention-releases', contractId] });
+      qc.invalidateQueries({ queryKey: ['contract', contractId] });
+    },
+  });
+};

@@ -33,6 +33,7 @@ import {
   useCreateMilestone, useStartMilestone, useApproveMilestone,
   useConvertMilestoneToIPC,
   useContractMobilization, useIssueMobilization,
+  useContractRetentionReleases, useCreateRetentionRelease,
 } from './hooks/useContracts';
 import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
@@ -191,6 +192,48 @@ const ContractDetail = () => {
       );
     } catch (e) {
       message.error(formatServiceError(e, 'Failed to issue mobilization advance'));
+    }
+  };
+
+  // ── Retention release wiring ───────────────────────────────────────
+  // The backend gates this on contract.status — only PRACTICAL_COMPLETION
+  // (releases 50%) or FINAL_COMPLETION (releases remaining 50%) qualify.
+  // The button below maps to whichever release_type is currently
+  // available; the gate is checked again server-side.
+  const { data: retentionReleases } = useContractRetentionReleases(cid);
+  const createReleaseMut = useCreateRetentionRelease();
+  const releasedTypes = new Set(
+    ((retentionReleases ?? []) as any[]).map((r) => r.release_type),
+  );
+  const retentionHeld = Number(balance?.retention_held ?? 0);
+  const retentionReleased = Number(balance?.retention_released ?? 0);
+  const retentionRemaining = Math.max(0, retentionHeld - retentionReleased);
+  // Decide which release type the button should attempt next.
+  const nextReleaseType: 'PRACTICAL_COMPLETION' | 'FINAL_COMPLETION' | null = (() => {
+    if (status === 'PRACTICAL_COMPLETION' && !releasedTypes.has('PRACTICAL_COMPLETION')) {
+      return 'PRACTICAL_COMPLETION';
+    }
+    if (status === 'FINAL_COMPLETION' && !releasedTypes.has('FINAL_COMPLETION')) {
+      return 'FINAL_COMPLETION';
+    }
+    return null;
+  })();
+  const canReleaseRetention = !!nextReleaseType && retentionRemaining > 0;
+
+  const handleReleaseRetention = async () => {
+    if (!nextReleaseType) return;
+    try {
+      const result = await createReleaseMut.mutateAsync({
+        contractId: cid, release_type: nextReleaseType,
+      });
+      const release = result.data;
+      const releasedAmount = parseFloat(String(release.amount || 0)) || 0;
+      message.success(
+        `Retention release of ${formatCurrency(releasedAmount)} created. `
+        + `Now raise a Payment Voucher in Treasury to disburse to the contractor.`,
+      );
+    } catch (e) {
+      message.error(formatServiceError(e, 'Failed to create retention release'));
     }
   };
   const handleConvertToIPC = async (milestoneId: number) => {
@@ -429,6 +472,47 @@ const ContractDetail = () => {
                       <Button danger size="middle" loading={closeMut.isPending}>
                         Close Contract
                       </Button>
+                    </Popconfirm>
+                  )}
+                  {canReleaseRetention && (
+                    <Popconfirm
+                      title={
+                        nextReleaseType === 'PRACTICAL_COMPLETION'
+                          ? `Release 50% retention (${formatCurrency(retentionHeld * 0.5)})?`
+                          : `Release remaining retention (${formatCurrency(retentionRemaining)})?`
+                      }
+                      description={
+                        <span>
+                          {nextReleaseType === 'PRACTICAL_COMPLETION' ? (
+                            <>
+                              At <strong>Practical Completion</strong>, half of the
+                              held retention is returned to the contractor. The
+                              remainder is released at Final Completion (after
+                              the defects-liability period).
+                            </>
+                          ) : (
+                            <>
+                              At <strong>Final Completion</strong>, the remaining
+                              retention is returned to the contractor.
+                            </>
+                          )}
+                          <br /><br />
+                          A PENDING RetentionRelease record will be created.
+                          Treasury then raises a Payment Voucher to disburse
+                          the cash. The retention liability GL is debited
+                          automatically when the PV posts.
+                        </span>
+                      }
+                      okText="Yes, release"
+                      cancelText="Cancel"
+                      onConfirm={handleReleaseRetention}
+                    >
+                      <button
+                        style={releaseRetentionBtn}
+                        disabled={createReleaseMut.isPending}
+                      >
+                        {createReleaseMut.isPending ? 'Releasing…' : '↩ Release Retention'}
+                      </button>
                     </Popconfirm>
                   )}
                   {canIssueMobilization && (
@@ -1525,6 +1609,15 @@ const mobilizeBtn: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.05em',
   cursor: 'pointer',
   boxShadow: '0 6px 14px -6px rgba(245, 158, 11, 0.55)',
+};
+const releaseRetentionBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+  padding: '0.5rem 1.1rem',
+  background: '#10b981', color: '#fff',
+  border: 'none', borderRadius: 8,
+  fontSize: 11, fontWeight: 700, letterSpacing: '0.05em',
+  cursor: 'pointer',
+  boxShadow: '0 6px 14px -6px rgba(16, 185, 129, 0.45)',
 };
 const primaryHeroBtn: React.CSSProperties = {
   background: '#22c55e', borderColor: '#22c55e',
