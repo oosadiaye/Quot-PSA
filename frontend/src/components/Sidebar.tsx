@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
     BarChart3,
     Wallet,
@@ -17,6 +17,7 @@ import {
     Building,
     List,
     CreditCard,
+    ArrowRightLeft,
     UserPlus,
     Users,
     History,
@@ -63,6 +64,7 @@ import {
     Monitor,
     Activity,
     Scale,
+    Handshake,
 } from 'lucide-react';
 import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
@@ -110,8 +112,10 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'view_budget', module: 'budget',
         subItems: [
             { name: 'Appropriations', path: '/budget/appropriations', icon: FileText },
+            { name: 'Virement (Transfer)', path: '/budget/virements/new', icon: ArrowRightLeft },
             { name: 'Revenue Budget', path: '/budget/revenue-budget', icon: Banknote },
             { name: 'Warrants / AIE', path: '/budget/warrants', icon: CreditCard },
+            { name: 'Warrant Utilization', path: '/budget/warrant-utilization', icon: Scale },
             { name: 'Execution Report', path: '/budget/execution-report', icon: TrendingUp },
             { name: 'Variance Analysis', path: '/accounting/budget/variance', icon: TrendingUp },
         ],
@@ -149,9 +153,20 @@ const menuItems: MenuItem[] = [
             { name: 'Purchase Orders', path: '/procurement/orders', icon: ShoppingCart },
             { name: 'Goods Received Notes', path: '/procurement/grn', icon: Package },
             { name: 'Invoice Verification', path: '/procurement/matching', icon: CheckCircle },
-            { name: 'Active Suppliers', path: '/procurement/vendors', icon: Building },
+            { name: 'Add Suppliers', path: '/procurement/vendors', icon: Building },
             { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
             { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
+        ],
+    },
+    {
+        name: 'Contracts & Milestones', icon: Handshake, path: '/contracts/dashboard',
+        requiredPerm: 'view_contract', module: 'contracts',
+        subItems: [
+            { name: 'Contracts Dashboard', path: '/contracts/dashboard', icon: BarChart3 },
+            { name: 'All Contracts', path: '/contracts', icon: FileText },
+            { name: 'New Contract', path: '/contracts/new', icon: FilePlus },
+            { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale },
+            { name: 'Variations', path: '/contracts/variations', icon: TrendingUp },
         ],
     },
     {
@@ -198,6 +213,7 @@ const menuItems: MenuItem[] = [
             { name: 'Changes in Net Assets', path: '/accounting/ipsas/changes-in-net-assets', icon: TrendingUp },
             { name: 'Notes to Financial Statements', path: '/accounting/ipsas/notes', icon: FileText },
             { name: 'Budget vs Actual', path: '/accounting/ipsas/budget-vs-actual', icon: BarChart3 },
+            { name: 'Budget Performance', path: '/accounting/ipsas/budget-performance', icon: Scale },
             { name: 'Revenue Performance', path: '/accounting/ipsas/revenue-performance', icon: Banknote },
             { name: 'TSA Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Landmark },
             { name: 'Functional Performance', path: '/accounting/ipsas/functional-classification', icon: BarChart3 },
@@ -293,8 +309,48 @@ const Sidebar = () => {
     const activeTenant = tenantInfo?.name || 'No Organization';
     const { data: user, isLoading: permLoading } = usePermissions();
     const { data: tenantModules, isLoading: modulesLoading } = useTenantModules();
-    const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+    // Persist expanded menus in localStorage. The Sidebar is rendered
+    // by every page layout separately (~96 call-sites), which means it
+    // unmounts/remounts on EVERY route change — a plain useState would
+    // reset to [] each time and the user would lose their manually-
+    // expanded menu groups after each click. localStorage survives
+    // remount AND full page reload, so the sidebar stays open on the
+    // group the user was working in until they explicitly collapse it.
+    const EXPANDED_MENUS_STORAGE_KEY = 'quotpse.sidebar.expandedMenus.v1';
+    const [expandedMenus, setExpandedMenus] = useState<string[]>(() => {
+        try {
+            const raw = window.localStorage.getItem(EXPANDED_MENUS_STORAGE_KEY);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+        } catch {
+            return [];
+        }
+    });
+    // Write back on every change.
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(
+                EXPANDED_MENUS_STORAGE_KEY,
+                JSON.stringify(expandedMenus),
+            );
+        } catch { /* storage quota / private mode — ignore */ }
+    }, [expandedMenus]);
+
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+    // ── Active-item scroll-into-view ───────────────────────────────────
+    // Ref attached to the currently active sidebar row. On every path
+    // change we scroll it into view so the user always sees where they
+    // are in the nav tree without manually scrolling. ``block: 'nearest'``
+    // means we don't scroll if it's already visible — avoids gratuitous
+    // movement when the active item didn't change.
+    const activeRowRef = useRef<HTMLElement | null>(null);
+    useLayoutEffect(() => {
+        if (activeRowRef.current) {
+            activeRowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }, [location.pathname, location.search]);
 
     // ── Responsive drawer state (Phase 1 of responsive rollout)
     const isMobile = useIsMobile();
@@ -515,100 +571,167 @@ const Sidebar = () => {
 
             {/* Navigation */}
             <nav style={{ flex: 1, padding: '4px 12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                {filteredItems.map((item) => (
-                    <div key={item.name}>
-                        <div
-                            onClick={() => {
-                                if (item.subItems) {
-                                    toggleMenu(item.name);
-                                } else {
-                                    navigate(item.path);
-                                }
-                            }}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: '10px',
-                                padding: '8px 12px', borderRadius: '8px',
-                                cursor: 'pointer', transition: 'all 0.15s',
-                                background: isParentActive(item) ? 'rgba(255,255,255,0.14)' : 'transparent',
-                                color: isParentActive(item) ? '#ffffff' : 'rgba(255,255,255,0.75)',
-                            }}
-                            onMouseOver={(e) => {
-                                if (!isParentActive(item)) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
-                                }
-                            }}
-                            onMouseOut={(e) => {
-                                if (!isParentActive(item)) {
-                                    e.currentTarget.style.background = 'transparent';
-                                }
-                            }}
-                        >
+                {filteredItems.map((item) => {
+                    // Bright Quot accent green used for both hover and
+                    // active states so the user can immediately see where
+                    // they are in the nav. Translucent variants for
+                    // subtle hover, solid + bold strip for active.
+                    const ACCENT = '#39cd9a';
+                    const HOVER_BG = 'rgba(57, 205, 154, 0.12)';
+                    const ACTIVE_BG = 'rgba(57, 205, 154, 0.20)';
+
+                    const parentActive = isParentActive(item);
+
+                    // Shared row styling for both the parent <Link> (when the
+                    // item has no subItems and is a real destination) and the
+                    // parent <div> toggler (when the item groups subItems).
+                    // Built as a function so the two code paths stay in sync.
+                    const parentRowStyle: React.CSSProperties = {
+                        position: 'relative',
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        padding: '8px 12px', borderRadius: '8px',
+                        cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
+                        background: parentActive ? ACTIVE_BG : 'transparent',
+                        color: parentActive ? ACCENT : 'rgba(255,255,255,0.75)',
+                        // Link inherits <a> defaults; strip them out.
+                        textDecoration: 'none',
+                        // Solid 3px accent strip on the left edge of the
+                        // active row — visible at a glance, even when
+                        // multiple parent items share a similar shade.
+                        boxShadow: parentActive ? `inset 3px 0 0 0 ${ACCENT}` : 'none',
+                    };
+                    const parentRowHoverIn = (e: React.MouseEvent<HTMLElement>) => {
+                        if (!parentActive) {
+                            (e.currentTarget as HTMLElement).style.background = HOVER_BG;
+                            (e.currentTarget as HTMLElement).style.color = ACCENT;
+                        }
+                    };
+                    const parentRowHoverOut = (e: React.MouseEvent<HTMLElement>) => {
+                        if (!parentActive) {
+                            (e.currentTarget as HTMLElement).style.background = 'transparent';
+                            (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.75)';
+                        }
+                    };
+                    // Only the parent without subItems gets the
+                    // active-ref (so scroll-into-view targets a leaf
+                    // page). Parents with subItems delegate the ref to
+                    // their active child below.
+                    const parentRefProp = (parentActive && !item.subItems)
+                        ? { ref: activeRowRef as React.RefObject<HTMLAnchorElement & HTMLDivElement> }
+                        : {};
+                    const parentInner = (
+                        <>
                             <item.icon size={18} style={{
-                                color: isParentActive(item) ? '#ffffff' : 'rgba(255,255,255,0.5)',
+                                color: parentActive ? ACCENT : 'rgba(255,255,255,0.5)',
                                 flexShrink: 0
                             }} />
                             <span style={{
                                 flex: 1, fontSize: '13.5px',
-                                fontWeight: isParentActive(item) ? 600 : 500,
-                                color: isParentActive(item) ? '#ffffff' : 'rgba(255,255,255,0.8)',
+                                fontWeight: parentActive ? 700 : 500,
+                                color: parentActive ? ACCENT : 'rgba(255,255,255,0.85)',
                             }}>
                                 {item.name}
                             </span>
                             {item.subItems ? (
                                 expandedMenus.includes(item.name) ?
-                                    <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.35)' }} /> :
-                                    <ChevronRight size={14} style={{ color: 'rgba(255,255,255,0.35)' }} />
+                                    <ChevronDown size={14} style={{ color: parentActive ? ACCENT : 'rgba(255,255,255,0.35)' }} /> :
+                                    <ChevronRight size={14} style={{ color: parentActive ? ACCENT : 'rgba(255,255,255,0.35)' }} />
                             ) : null}
-                        </div>
+                        </>
+                    );
 
-                        {item.subItems && expandedMenus.includes(item.name) && (
-                            <div style={{ marginLeft: '12px', borderLeft: '1.5px solid rgba(255,255,255,0.15)', marginTop: '2px', marginBottom: '4px' }}>
-                                {item.subItems.map((subItem) => (
-                                    <div
-                                        key={subItem.name}
-                                        onClick={() => navigate(subItem.path)}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '8px',
-                                            padding: '6px 12px 6px 16px', borderRadius: '0 6px 6px 0',
-                                            cursor: 'pointer', transition: 'all 0.15s',
-                                            background: isActive(subItem.path) ? 'rgba(255,255,255,0.14)' : 'transparent',
-                                            marginLeft: '4px'
-                                        }}
-                                        onMouseOver={(e) => {
-                                            if (!isActive(subItem.path)) {
-                                                e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
-                                            }
-                                        }}
-                                        onMouseOut={(e) => {
-                                            if (!isActive(subItem.path)) {
-                                                e.currentTarget.style.background = 'transparent';
-                                            }
-                                        }}
-                                    >
-                                        <subItem.icon size={14} style={{
-                                            color: isActive(subItem.path) ? '#ffffff' : 'rgba(255,255,255,0.45)',
-                                            flexShrink: 0
-                                        }} />
-                                        <span style={{
-                                            fontSize: '12.5px',
-                                            fontWeight: isActive(subItem.path) ? 600 : 400,
-                                            color: isActive(subItem.path) ? '#ffffff' : 'rgba(255,255,255,0.7)',
-                                        }}>
-                                            {subItem.name}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                ))}
+                    return (
+                        <div key={item.name}>
+                            {item.subItems ? (
+                                // Has a submenu — row is a toggler, not a link.
+                                // (Most common case and there's no natural
+                                // destination when subItems exist.)
+                                <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => toggleMenu(item.name)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleMenu(item.name); }}
+                                    style={parentRowStyle}
+                                    onMouseOver={parentRowHoverIn}
+                                    onMouseOut={parentRowHoverOut}
+                                >
+                                    {parentInner}
+                                </div>
+                            ) : (
+                                // Leaf item — render as a real <Link> so
+                                // right-click / middle-click / Ctrl+click
+                                // open in a new tab and hover shows the URL
+                                // in the status bar. Navigation via left-click
+                                // still goes through React Router (no full
+                                // page reload) because Link handles that.
+                                <Link
+                                    {...parentRefProp}
+                                    to={item.path}
+                                    style={parentRowStyle}
+                                    onMouseOver={parentRowHoverIn}
+                                    onMouseOut={parentRowHoverOut}
+                                >
+                                    {parentInner}
+                                </Link>
+                            )}
+
+                            {item.subItems && expandedMenus.includes(item.name) && (
+                                <div style={{ marginLeft: '12px', borderLeft: '1.5px solid rgba(255,255,255,0.15)', marginTop: '2px', marginBottom: '4px' }}>
+                                    {item.subItems.map((subItem) => {
+                                        const subActive = isActive(subItem.path);
+                                        return (
+                                            <Link
+                                                ref={subActive ? (activeRowRef as React.RefObject<HTMLAnchorElement>) : undefined}
+                                                key={subItem.name}
+                                                to={subItem.path}
+                                                style={{
+                                                    position: 'relative',
+                                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                                    padding: '6px 12px 6px 16px', borderRadius: '0 6px 6px 0',
+                                                    cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
+                                                    background: subActive ? ACTIVE_BG : 'transparent',
+                                                    marginLeft: '4px',
+                                                    textDecoration: 'none',
+                                                    boxShadow: subActive ? `inset 3px 0 0 0 ${ACCENT}` : 'none',
+                                                }}
+                                                onMouseOver={(e) => {
+                                                    if (!subActive) {
+                                                        e.currentTarget.style.background = HOVER_BG;
+                                                    }
+                                                }}
+                                                onMouseOut={(e) => {
+                                                    if (!subActive) {
+                                                        e.currentTarget.style.background = 'transparent';
+                                                    }
+                                                }}
+                                            >
+                                                <subItem.icon size={14} style={{
+                                                    color: subActive ? ACCENT : 'rgba(255,255,255,0.5)',
+                                                    flexShrink: 0
+                                                }} />
+                                                <span style={{
+                                                    fontSize: '12.5px',
+                                                    fontWeight: subActive ? 700 : 400,
+                                                    color: subActive ? ACCENT : 'rgba(255,255,255,0.75)',
+                                                }}>
+                                                    {subItem.name}
+                                                </span>
+                                            </Link>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </nav>
 
             {/* Footer */}
             <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                {/* Account / Profile link */}
-                <div
-                    onClick={() => navigate('/account')}
+                {/* Account / Profile link — real <Link> so right-click /
+                    middle-click / Ctrl+click open in a new tab natively. */}
+                <Link
+                    to="/account"
                     style={{
                         display: 'flex', alignItems: 'center', gap: '10px',
                         padding: '8px 12px', borderRadius: '8px',
@@ -616,13 +739,14 @@ const Sidebar = () => {
                         color: isActive('/account') ? '#ffffff' : 'rgba(255,255,255,0.75)',
                         background: isActive('/account') ? 'rgba(255,255,255,0.14)' : 'transparent',
                         marginBottom: '2px',
+                        textDecoration: 'none',
                     }}
                     onMouseOver={(e) => { if (!isActive('/account')) e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; }}
                     onMouseOut={(e) => { if (!isActive('/account')) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <User size={18} style={{ color: isActive('/account') ? '#ffffff' : 'rgba(255,255,255,0.5)' }} />
                     <span style={{ fontSize: '13.5px', fontWeight: 500 }}>My Account</span>
-                </div>
+                </Link>
 
                 <div
                     onClick={() => setShowLogoutConfirm(true)}

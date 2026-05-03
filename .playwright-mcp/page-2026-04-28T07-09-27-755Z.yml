@@ -1,0 +1,6 @@
+- generic [active]:
+  - generic:
+    - generic:
+      - link "Skip to main content" [ref=e1] [cursor=pointer]:
+        - /url: "#main-content"
+      - generic [ref=e10]: Starting application...

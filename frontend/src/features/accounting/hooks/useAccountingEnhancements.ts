@@ -374,6 +374,36 @@ export const useCreateVendorInvoice = () => {
     });
 };
 
+/**
+ * Full update of a Draft vendor invoice (header + lines).
+ * Backend (payables.py) rejects with 400 if status !== 'Draft'.
+ */
+export const useUpdateVendorInvoice = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, payload }: { id: number; payload: VendorInvoiceFormData | FormData }) => {
+            const { data } = await apiClient.put(`/accounting/vendor-invoices/${id}/`, payload);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoice-detail'] });
+        },
+    });
+};
+
+/** Single vendor invoice fetch for hydrating the edit form. */
+export const useVendorInvoiceDetail = (id: number | null) => {
+    return useQuery({
+        queryKey: ['vendor-invoice-detail', id],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/vendor-invoices/${id}/`);
+            return data;
+        },
+        enabled: !!id,
+    });
+};
+
 export const useApproveVendorInvoice = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -712,6 +742,88 @@ export const useBulkDepreciation = () => {
 };
 
 // ============================================================================
+// DEPRECIATION RUN SCHEDULE — monthly auto-depreciation
+// ============================================================================
+
+export interface DepreciationSchedule {
+    id: number;
+    is_active: boolean;
+    day_of_month: number;
+    last_run_at: string | null;
+    last_run_period_date: string | null;
+    last_run_assets_posted: number;
+    last_run_total_amount: string;
+    last_run_skipped: number;
+    last_run_error: string;
+    next_run_date: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+/** Return the single (or first) schedule row on this tenant.
+ *  Typical deployment is one schedule per tenant. */
+export const useDepreciationSchedule = () => {
+    return useQuery<DepreciationSchedule | null>({
+        queryKey: ['depreciation-schedule'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/depreciation-schedules/', {
+                params: { page_size: 1 },
+            });
+            const list = Array.isArray(data) ? data : (data?.results || []);
+            return list.length ? list[0] : null;
+        },
+        staleTime: 30_000,
+    });
+};
+
+export const useSaveDepreciationSchedule = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: { id?: number; is_active: boolean; day_of_month: number }) => {
+            if (payload.id) {
+                const { data } = await apiClient.patch(
+                    `/accounting/depreciation-schedules/${payload.id}/`,
+                    { is_active: payload.is_active, day_of_month: payload.day_of_month },
+                );
+                return data;
+            }
+            const { data } = await apiClient.post(
+                '/accounting/depreciation-schedules/',
+                { is_active: payload.is_active, day_of_month: payload.day_of_month },
+            );
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['depreciation-schedule'] });
+        },
+    });
+};
+
+export const useRunScheduleNow = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: { id: number; simulate: boolean; period_date?: string }) => {
+            const { data } = await apiClient.post(
+                `/accounting/depreciation-schedules/${payload.id}/run-now/`,
+                {
+                    simulate: payload.simulate,
+                    ...(payload.period_date ? { period_date: payload.period_date } : {}),
+                },
+            );
+            return data;
+        },
+        onSuccess: (data: any) => {
+            if (data?.mode === 'posted') {
+                queryClient.invalidateQueries({ queryKey: ['fixed-assets'] });
+                queryClient.invalidateQueries({ queryKey: ['journals'] });
+                queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            }
+            queryClient.invalidateQueries({ queryKey: ['depreciation-schedule'] });
+        },
+    });
+};
+
+// ============================================================================
 // ASSET CATEGORY HOOKS
 // ============================================================================
 
@@ -719,8 +831,18 @@ export const useAssetCategories = (filters: Record<string, unknown> = {}) => {
     return useQuery({
         queryKey: ['asset-categories', filters],
         queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/asset-categories/', { params: filters });
-            return data.results;
+            // Fetch the full catalogue in one call. Without an explicit
+            // page_size, DRF defaults to PAGE_SIZE=20 — the AssetCategories
+            // page does *client-side* pagination + search, so it needs the
+            // whole list up-front. Otherwise search "finds nothing" the
+            // moment a matching row sits past row 20, and the page
+            // selector can never advance past page 1. Cap is enforced
+            // server-side by AccountingPagination.max_page_size=10000.
+            const { data } = await apiClient.get('/accounting/asset-categories/', {
+                params: { page_size: 10000, ...filters },
+            });
+            // Tolerate both paginated `{results}` and plain-array shapes.
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: DEFAULT_STALE_TIME,
         retry: false,
@@ -771,12 +893,26 @@ export const useDeleteAssetCategory = () => {
 
 export const useTaxCodes = (filters: Record<string, unknown> = {}) => {
     return useQuery({
-        queryKey: ['tax-codes', filters],
+        // 'v2' suffix busts any TanStack Query cache that was populated
+        // before the response-shape hardening below — without it,
+        // browsers that already loaded the page would keep serving the
+        // (empty) prior result for up to staleTime regardless of the
+        // new queryFn behaviour.
+        queryKey: ['tax-codes', 'v2', filters],
         queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/tax-codes/', { params: filters });
-            return data.results;
+            // Explicit page_size defeats DRF's PAGE_SIZE=20 default;
+            // tolerant unwrapper handles both paginated and array shapes
+            // so the dropdown never silently shows zero options.
+            const { data } = await apiClient.get('/accounting/tax-codes/', {
+                params: { page_size: 10000, ...filters },
+            });
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: DEFAULT_STALE_TIME,
+        // Reference-data dropdowns: always refetch on mount so
+        // operators see the latest tax codes immediately after they're
+        // added in Settings, without waiting for staleTime to expire.
+        refetchOnMount: 'always',
         retry: false,
     });
 };
@@ -825,12 +961,18 @@ export const useDeleteTaxCode = () => {
 
 export const useWithholdingTaxes = (filters: Record<string, unknown> = {}) => {
     return useQuery({
-        queryKey: ['withholding-taxes', filters],
+        // 'v2' suffix forces a refetch through the hardened code path
+        // for clients that have stale empty results cached from prior
+        // staleTime windows.
+        queryKey: ['withholding-taxes', 'v2', filters],
         queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/withholding-taxes/', { params: filters });
-            return data.results;
+            const { data } = await apiClient.get('/accounting/withholding-taxes/', {
+                params: { page_size: 10000, ...filters },
+            });
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: DEFAULT_STALE_TIME,
+        refetchOnMount: 'always',
         retry: false,
     });
 };

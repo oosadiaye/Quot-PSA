@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
-import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, FolderTree } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, FolderTree, Upload, Download, FileDown } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
     useAssetCategories,
@@ -73,8 +73,88 @@ const initialFormData = {
 };
 
 export default function AssetCategories() {
-    const { showConfirm } = useDialog();
+    const { showConfirm, showAlert } = useDialog();
     const { formatCurrency, currencySymbol } = useCurrency();
+    const queryClient = useQueryClient();
+
+    // Import / Export plumbing — mirrors COA + NCoA dimension pages.
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isImporting, setIsImporting] = useState(false);
+    const [importResult, setImportResult] = useState<{
+        success: boolean;
+        created: number;
+        updated: number;
+        skipped: number;
+        errors: string[];
+    } | null>(null);
+
+    const handleDownloadTemplate = async () => {
+        try {
+            const res = await apiClient.get('/accounting/asset-categories/import-template/', {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'asset_category_import_template.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch {
+            showAlert('Could not download the template. Please check your connection and try again.', 'error');
+        }
+    };
+
+    const handleExport = async () => {
+        try {
+            const res = await apiClient.get('/accounting/asset-categories/export/', {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'asset_categories_export.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch {
+            showAlert('Failed to export asset categories.', 'error');
+        }
+    };
+
+    const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setIsImporting(true);
+        setImportResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            // Same Content-Type override pattern as COA / NCoA imports —
+            // without it, the global ``application/json`` baked into
+            // apiClient JSON-serialises the FormData and the file is lost.
+            const response = await apiClient.post(
+                '/accounting/asset-categories/bulk-import/',
+                formData,
+                { headers: { 'Content-Type': 'multipart/form-data' } },
+            );
+            setImportResult(response.data);
+            // Invalidate the prefix — every query whose key starts with
+            // 'asset-categories' (the AssetCategories list, the COA dropdown,
+            // any future consumer) re-fetches in one shot.
+            queryClient.invalidateQueries({ queryKey: ['asset-categories'] });
+        } catch (err: any) {
+            setImportResult({
+                success: false,
+                created: 0,
+                updated: 0,
+                skipped: 0,
+                errors: [err.response?.data?.error || 'Import failed. Please check the file format.'],
+            });
+        } finally {
+            setIsImporting(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
     const [showForm, setShowForm] = useState(false);
     const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -88,14 +168,17 @@ export default function AssetCategories() {
     const updateCategory = useUpdateAssetCategory();
     const deleteCategory = useDeleteAssetCategory();
 
-    // Fetch GL accounts for dropdowns
+    // Fetch GL accounts for dropdowns. page_size=10000 is the server-side
+    // cap (AccountingPagination.max_page_size); 100 was too small for real
+    // tenant Charts of Accounts (175 Asset / 619 Expense accounts in this
+    // tenant got silently truncated).
     const { data: assetAccounts } = useQuery<AccountOption[]>({
         queryKey: ['accounts', 'asset-all'],
         queryFn: async () => {
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { account_type: 'Asset', page_size: 100 },
+                params: { account_type: 'Asset', page_size: 10000, ordering: 'code' },
             });
-            return data.results;
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -104,9 +187,9 @@ export default function AssetCategories() {
         queryKey: ['accounts', 'expense-all'],
         queryFn: async () => {
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { account_type: 'Expense', page_size: 100 },
+                params: { account_type: 'Expense', page_size: 10000, ordering: 'code' },
             });
-            return data.results;
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -197,6 +280,26 @@ export default function AssetCategories() {
         return filtered;
     }, [categories, searchTerm, sortConfig]);
 
+    // Client-side pagination state. Default page-size of 20 matches the COA
+    // list so the two pages feel identical. Changing search or sort resets
+    // to page 1 so the user isn't stranded on an empty page after filtering.
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+    const totalCount = sortedCategories.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    // Clamp the page index in case the filtered list shrinks below the
+    // current page boundary (e.g. user types a search that filters everything
+    // off the back pages). We don't useEffect — clamping at render is enough
+    // and avoids an extra render cycle.
+    const safePage = Math.min(currentPage, totalPages);
+    const pageStart = (safePage - 1) * pageSize;
+    const pageEnd = pageStart + pageSize;
+    const paginatedCategories = sortedCategories.slice(pageStart, pageEnd);
+    // Reset to page 1 whenever the underlying filter / sort / page-size
+    // changes. Without this, after typing a query that narrows results
+    // below the current page boundary the user lands on an empty page.
+    useEffect(() => { setCurrentPage(1); }, [searchTerm, sortConfig, pageSize]);
+
     const getSortIndicator = (key: SortKey) => {
         if (!sortConfig || sortConfig.key !== key) return null;
         return sortConfig.direction === 'asc'
@@ -228,27 +331,169 @@ export default function AssetCategories() {
 
     return (
         <AccountingLayout>
+            {/* Hidden file input — triggered by the Import button. */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx"
+                style={{ display: 'none' }}
+                onChange={handleImport}
+            />
             <PageHeader
                 title="Asset Categories"
                 subtitle="Define asset groups with GL assignments, depreciation methods, and residual values"
                 icon={<FolderTree size={22} />}
                 actions={
-                    <button
-                        className="btn-primary ripple"
-                        onClick={() => {
-                            if (showForm && !editingCategory) {
-                                setShowForm(false);
-                            } else {
-                                resetForm();
-                                setShowForm(true);
-                            }
-                        }}
-                    >
-                        {showForm && !editingCategory ? <X size={18} style={{ marginRight: '8px' }} /> : <Plus size={18} style={{ marginRight: '8px' }} />}
-                        {showForm && !editingCategory ? 'Close Form' : 'Add Category'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Template / Import / Export — matched geometry with
+                            the COA toolbar (padding, border-radius, font-weight,
+                            shadow). Neutral white/glass fill keeps them quiet
+                            so the primary Add Category CTA reads loudest. */}
+                        <button
+                            onClick={handleDownloadTemplate}
+                            title="Download a CSV template with help block + example rows"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.55rem 1.1rem',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                border: '1px solid rgba(255,255,255,0.6)',
+                                borderRadius: '8px',
+                                fontSize: 'var(--text-sm)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                                transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
+                            }}
+                            onMouseEnter={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
+                            }}
+                        >
+                            <FileDown size={18} style={{ marginRight: '8px' }} /> Template
+                        </button>
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isImporting}
+                            title="Upload a CSV / XLSX to bulk-create or update asset categories"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.55rem 1.1rem',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                border: '1px solid rgba(255,255,255,0.6)',
+                                borderRadius: '8px',
+                                fontSize: 'var(--text-sm)',
+                                fontWeight: 600,
+                                cursor: isImporting ? 'not-allowed' : 'pointer',
+                                opacity: isImporting ? 0.65 : 1,
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                                transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
+                            }}
+                            onMouseEnter={(e) => {
+                                if (isImporting) return;
+                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
+                            }}
+                        >
+                            <Upload size={18} style={{ marginRight: '8px' }} />
+                            {isImporting ? 'Importing...' : 'Import'}
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            title="Export every asset category as a CSV (re-importable)"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.55rem 1.1rem',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                border: '1px solid rgba(255,255,255,0.6)',
+                                borderRadius: '8px',
+                                fontSize: 'var(--text-sm)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                                transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
+                            }}
+                            onMouseEnter={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
+                            }}
+                        >
+                            <Download size={18} style={{ marginRight: '8px' }} /> Export
+                        </button>
+                        <button
+                            className="btn-primary ripple"
+                            onClick={() => {
+                                if (showForm && !editingCategory) {
+                                    setShowForm(false);
+                                } else {
+                                    resetForm();
+                                    setShowForm(true);
+                                }
+                            }}
+                        >
+                            {showForm && !editingCategory ? <X size={18} style={{ marginRight: '8px' }} /> : <Plus size={18} style={{ marginRight: '8px' }} />}
+                            {showForm && !editingCategory ? 'Close Form' : 'Add Category'}
+                        </button>
+                    </div>
                 }
             />
+
+            {/* Import result banner — counts + collapsible error list. */}
+            {importResult && (
+                <div className="animate-slide-down" style={{ marginBottom: '1.5rem' }}>
+                    <GlassCard style={{
+                        padding: '1.25rem',
+                        borderLeft: `4px solid ${importResult.errors.length > 0 ? '#f59e0b' : '#22c55e'}`,
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.4rem' }}>
+                                    Import Results
+                                </h3>
+                                <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', margin: 0 }}>
+                                    Created: <strong>{importResult.created}</strong> &nbsp;|&nbsp;
+                                    Updated: <strong>{importResult.updated}</strong>
+                                    {importResult.errors.length > 0 && (
+                                        <> &nbsp;|&nbsp; Errors: <strong style={{ color: '#ef4444' }}>{importResult.errors.length}</strong></>
+                                    )}
+                                </p>
+                                {importResult.errors.length > 0 && (
+                                    <ul style={{
+                                        marginTop: '0.6rem', paddingLeft: '1.25rem',
+                                        color: '#ef4444', fontSize: 'var(--text-sm)',
+                                        maxHeight: '140px', overflowY: 'auto',
+                                    }}>
+                                        {importResult.errors.map((err, i) => (
+                                            <li key={`err-${i}-${err.slice(0, 20)}`} style={{ marginBottom: '0.2rem' }}>{err}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setImportResult(null)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}
+                                aria-label="Dismiss"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                    </GlassCard>
+                </div>
+            )}
 
             {/* Add/Edit Form */}
             {showForm && (
@@ -523,7 +768,7 @@ className="glass-input"
                         </tr>
                     </thead>
                     <tbody>
-                        {sortedCategories.map((cat: AssetCategory, index: number) => (
+                        {paginatedCategories.map((cat: AssetCategory, index: number) => (
                             <tr key={cat.id} className="stagger-item" style={{ animationDelay: `${index * 0.03}s` }}>
                                 <td style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace', letterSpacing: '0.05em' }}>
                                     {cat.code}
@@ -593,6 +838,93 @@ className="glass-input"
                                 ? 'No categories match your search.'
                                 : 'Create your first asset category to define GL assignments and depreciation rules.'}
                         </p>
+                    </div>
+                )}
+
+                {/* Pagination footer — visible whenever the result set spans
+                    more than one page. Mirrors the COA list layout: range
+                    summary on the left, page-size selector + prev/next on
+                    the right. */}
+                {totalCount > 0 && (
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '1rem 1.25rem',
+                        borderTop: '1px solid var(--color-border)',
+                        flexWrap: 'wrap',
+                        gap: '1rem',
+                    }}>
+                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                            Showing <strong>{Math.min(pageStart + 1, totalCount)}</strong>
+                            {' '}–{' '}
+                            <strong>{Math.min(pageEnd, totalCount)}</strong>
+                            {' '}of <strong>{totalCount}</strong> categor{totalCount === 1 ? 'y' : 'ies'}
+                            {searchTerm && <span style={{ marginLeft: '0.4rem', color: 'var(--text-muted)' }}>(filtered)</span>}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                                Rows:
+                                <select
+                                    value={pageSize}
+                                    onChange={(e) => setPageSize(Number(e.target.value))}
+                                    style={{
+                                        marginLeft: '0.5rem',
+                                        padding: '0.3rem 0.5rem',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--color-border)',
+                                        background: 'var(--color-surface)',
+                                        color: 'var(--text-primary)',
+                                        fontSize: 'var(--text-sm)',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </label>
+                            <button
+                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                disabled={safePage <= 1}
+                                style={{
+                                    display: 'inline-flex', alignItems: 'center',
+                                    padding: '0.4rem 0.7rem',
+                                    background: 'var(--color-surface)',
+                                    color: safePage <= 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: '6px',
+                                    fontSize: 'var(--text-sm)',
+                                    fontWeight: 600,
+                                    cursor: safePage <= 1 ? 'not-allowed' : 'pointer',
+                                    opacity: safePage <= 1 ? 0.5 : 1,
+                                }}
+                            >
+                                <ChevronLeft size={16} style={{ marginRight: '4px' }} /> Previous
+                            </button>
+                            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', minWidth: '90px', textAlign: 'center' }}>
+                                Page <strong>{safePage}</strong> of <strong>{totalPages}</strong>
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={safePage >= totalPages}
+                                style={{
+                                    display: 'inline-flex', alignItems: 'center',
+                                    padding: '0.4rem 0.7rem',
+                                    background: 'var(--color-surface)',
+                                    color: safePage >= totalPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                                    border: '1px solid var(--color-border)',
+                                    borderRadius: '6px',
+                                    fontSize: 'var(--text-sm)',
+                                    fontWeight: 600,
+                                    cursor: safePage >= totalPages ? 'not-allowed' : 'pointer',
+                                    opacity: safePage >= totalPages ? 0.5 : 1,
+                                }}
+                            >
+                                Next <ChevronRight size={16} style={{ marginLeft: '4px' }} />
+                            </button>
+                        </div>
                     </div>
                 )}
             </GlassCard>

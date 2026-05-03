@@ -34,26 +34,20 @@ logger = logging.getLogger(__name__)
 def create_commitment_for_po(po, committed_amount=None) -> bool:
     """Create (or update) a ProcurementBudgetLink row for this PO.
 
-    Matches on the 3 budget control pillars: Administrative (MDA),
-    Economic (first line's account), and Fund. Uses the ``legacy_*``
-    OneToOne bridges on NCoA segments to translate legacy FK ids to
-    the NCoA segment ids used by Appropriation.
+    Uses ``find_matching_appropriation`` (4 lookup strategies, including
+    code-based fallback) so commitment creation succeeds even when the
+    NCoA ``legacy_*`` FK bridges are not fully backfilled — the common
+    cause of silent zero-committed values in the Budget Appropriation view.
 
-    - Idempotent: if a link already exists for this PO, update its
-      ``committed_amount`` and ``status`` back to 'ACTIVE' instead of
-      raising.
-    - Safe: returns ``False`` (no-op) when prerequisites are missing
-      (no MDA/Fund/lines, no matching Appropriation, no NCoA bridge).
+    - Idempotent: updates an existing link if one already exists.
+    - Safe: returns ``False`` when no active Appropriation exists for the
+      PO's MDA/Fund/account combination; logs a specific warning.
     - Returns ``True`` if a link was created/refreshed.
-    - Logs a specific warning identifying which pillar failed so
-      operators can diagnose "why is my PO not showing in the
-      Execution Report?".
     """
     from procurement.models import ProcurementBudgetLink
-    from budget.models import Appropriation
-    from accounting.models.ncoa import (
-        AdministrativeSegment, EconomicSegment, FunctionalSegment,
-        ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
+    from accounting.models.ncoa import NCoACode
+    from accounting.services.budget_check_rules import (
+        find_matching_appropriation, check_policy,
     )
 
     if not po.mda or not po.fund or not po.lines.exists():
@@ -72,174 +66,113 @@ def create_commitment_for_po(po, committed_amount=None) -> bool:
         )
         return False
 
-    # When called from the save() hook, compute total from lines since
-    # ``total_amount`` may still be stale until after super().save().
+    # Compute committed amount from lines (total_amount may be stale on save()).
     if committed_amount is None:
-        from decimal import Decimal as _D
         committed_amount = sum(
             (line.quantity * line.unit_price for line in po.lines.all()),
-            _D('0'),
-        ) + (po.tax_amount or _D('0'))
+            Decimal('0'),
+        ) + (po.tax_amount or Decimal('0'))
 
-    admin_seg = AdministrativeSegment.objects.filter(legacy_mda=po.mda).first()
-    econ_seg = EconomicSegment.objects.filter(legacy_account=first_account).first()
-    fund_seg = FundSegment.objects.filter(legacy_fund=po.fund).first()
-    missing = [
-        name for name, seg in (
-            ('administrative', admin_seg),
-            ('economic', econ_seg),
-            ('fund', fund_seg),
-        ) if seg is None
-    ]
-    if missing:
+    fiscal_year = po.order_date.year if po.order_date else None
+    appro = find_matching_appropriation(
+        mda=po.mda, fund=po.fund, account=first_account,
+        fiscal_year=fiscal_year,
+    )
+
+    if not appro:
+        # Rule-driven policy: STRICT rule → hard block; WARNING/NONE → skip.
+        policy = check_policy(
+            account_code=first_account.code,
+            appropriation=None,
+            requested_amount=committed_amount,
+            transaction_label=f'PO {po.po_number}',
+            account_name=getattr(first_account, 'name', ''),
+        )
+        if policy.blocked:
+            from budget.services import BudgetExceededError
+            raise BudgetExceededError(policy.reason)
         logger.warning(
-            "Commitment skipped for PO %s: missing NCoA bridge(s) %s. "
-            "Check that legacy_mda/legacy_account/legacy_fund FKs are "
-            "populated on the NCoA segments.",
-            po.po_number, missing,
+            "Commitment skipped for PO %s: no ACTIVE Appropriation for "
+            "MDA=%s / account=%s / Fund=%s (fiscal year %s). "
+            "Policy level for this GL: %s.",
+            po.po_number,
+            getattr(po.mda, 'code', po.mda_id),
+            first_account.code,
+            getattr(po.fund, 'code', po.fund_id),
+            fiscal_year, policy.level,
         )
         return False
 
-    # Exact match first, then walk up the EconomicSegment parent chain so
-    # a PO coded to a leaf (e.g. 23100100 Acquisition of Land) can commit
-    # against an Appropriation created at the parent level (e.g. 23000000
-    # Capital Expenditure). This rollup behaviour matches how many IFMIS
-    # systems work — budget is set at a summary level, transactions post
-    # at the detail level.
-    candidates = [econ_seg]
-    cursor = econ_seg.parent
-    while cursor is not None:
-        candidates.append(cursor)
-        cursor = cursor.parent
-
-    # ── S1-10 — Atomic commitment under row lock ──────────────────────
-    # Wrap the read-check-write sequence in a transaction with
-    # ``select_for_update`` so two concurrent PO posts against the same
-    # appropriation cannot both pass when only one fits. Without this the
-    # 3-pillar ceiling is advisory only — classic TOCTOU bug.
     from django.db import transaction as _db_tx
 
     with _db_tx.atomic():
-        appro = (
-            Appropriation.objects
-            .select_for_update()
-            .filter(
-                administrative=admin_seg,
-                economic__in=candidates,
-                fund=fund_seg,
-                status='ACTIVE',
-            )
-            .first()
-        )
-        if not appro:
-            # Rule-driven policy: when the GL account has a STRICT rule,
-            # "no appropriation" is a HARD STOP — we raise so the PO
-            # approval fails loudly. For WARNING/NONE rules we keep the
-            # legacy silent-skip behaviour (the PO posts without a
-            # commitment record).
-            from accounting.services.budget_check_rules import check_policy
-            policy = check_policy(
-                account_code=first_account.code,
-                appropriation=None,
-                requested_amount=committed_amount,
-                transaction_label=f'PO {po.po_number}',
-            )
-            if policy.blocked:
-                from budget.services import BudgetExceededError
-                raise BudgetExceededError(policy.reason)
-            logger.warning(
-                "Commitment skipped for PO %s: no ACTIVE Appropriation for "
-                "MDA=%s / Econ=%s (or ancestors: %s) / Fund=%s. Approve an "
-                "appropriation for this combination to back the PO. "
-                "Policy level for this GL: %s.",
-                po.po_number, admin_seg.code, econ_seg.code,
-                [c.code for c in candidates[1:]] or 'none',
-                fund_seg.code, policy.level,
-            )
-            return False
+        # Re-fetch with row lock inside the atomic block.
+        from budget.models import Appropriation
+        locked_appro = Appropriation.objects.select_for_update().get(pk=appro.pk)
 
-        # Ceiling check: already-committed + already-expended + this PO
-        # must not exceed the approved appropriation.
-        existing = (appro.total_committed or Decimal('0'))
-        expended = (appro.total_expended or Decimal('0'))
-        # ``update_or_create`` may replace our own link — exclude its prior
-        # committed_amount from the ceiling so re-posting the same PO
-        # doesn't double-count.
+        # Ceiling check — exclude any prior link for this PO to stay idempotent.
         prior_link = ProcurementBudgetLink.objects.filter(
             purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
         ).first()
         prior_amt = prior_link.committed_amount if prior_link else Decimal('0')
-        effective_committed = existing - prior_amt
-        projected = effective_committed + expended + committed_amount
-        if projected > appro.amount_approved:
+        effective_committed = (locked_appro.total_committed or Decimal('0')) - prior_amt
+        projected = effective_committed + (locked_appro.total_expended or Decimal('0')) + committed_amount
+        if projected > locked_appro.amount_approved:
             from budget.services import BudgetExceededError
-            logger.warning(
-                "Commitment REJECTED for PO %s: projected %s exceeds "
-                "appropriation %s (approved %s).",
-                po.po_number, projected, appro.code if hasattr(appro, 'code') else appro.pk,
-                appro.amount_approved,
-            )
             raise BudgetExceededError(
                 f"PO {po.po_number} would push commitments to "
                 f"NGN {projected:,.2f} against an appropriation of "
-                f"NGN {appro.amount_approved:,.2f}. "
-                f"Shortfall: NGN {(projected - appro.amount_approved):,.2f}."
+                f"NGN {locked_appro.amount_approved:,.2f}. "
+                f"Shortfall: NGN {(projected - locked_appro.amount_approved):,.2f}."
             )
 
-        # ── S1-11 — Warrant (AIE) ceiling check at commitment time ──
-        # Appropriation is the annual legal ceiling; the warrant/AIE is
-        # the quarterly cash release that must cover the commitment. An
-        # MDA with an approved appropriation but no released warrant for
-        # the current quarter may NOT commit. Previously this check only
-        # ran at invoice time — we now enforce it at both commitment
-        # (here) and payment (post_payment view).
+        # Warrant (AIE) ceiling check — opt-in via WARRANT_ENFORCEMENT_STAGE.
         try:
-            from accounting.budget_logic import check_warrant_availability
-            allowed, warrant_msg, _info = check_warrant_availability(
-                dimensions={'mda': po.mda, 'fund': po.fund},
-                account=po.account if hasattr(po, 'account') else None,
-                amount=committed_amount,
-                exclude_po=po,
+            from accounting.budget_logic import (
+                check_warrant_availability, is_warrant_pre_payment_enforced,
             )
-            if not allowed:
-                from budget.services import BudgetExceededError
-                raise BudgetExceededError(
-                    f"Warrant ceiling breached for PO {po.po_number}: {warrant_msg}"
+            if is_warrant_pre_payment_enforced():
+                allowed, warrant_msg, _info = check_warrant_availability(
+                    dimensions={'mda': po.mda, 'fund': po.fund},
+                    account=first_account,
+                    amount=committed_amount,
+                    exclude_po=po,
                 )
+                if not allowed:
+                    from budget.services import BudgetExceededError
+                    raise BudgetExceededError(
+                        f"Warrant ceiling breached for PO {po.po_number}: {warrant_msg}"
+                    )
         except ImportError:
-            # check_warrant_availability missing — skip gracefully rather
-            # than blocking PO posting on a dev-only config.
             pass
 
-        # Optional reporting segments
-        func_seg = FunctionalSegment.objects.filter(legacy_function=po.function).first() if po.function else None
-        prog_seg = ProgrammeSegment.objects.filter(legacy_program=po.program).first() if po.program else None
-        geo_seg = GeographicSegment.objects.filter(legacy_geo=po.geo).first() if po.geo else None
-
+        # Build NCoA code from the matched Appropriation's own segments
+        # (avoids a second round of segment lookups).
         ncoa = NCoACode.get_or_create_code(
-            admin_id=admin_seg.pk,
-            economic_id=econ_seg.pk,
-            functional_id=func_seg.pk if func_seg else None,
-            programme_id=prog_seg.pk if prog_seg else None,
-            fund_id=fund_seg.pk,
-            geo_id=geo_seg.pk if geo_seg else None,
+            admin_id=locked_appro.administrative_id,
+            economic_id=locked_appro.economic_id,
+            functional_id=locked_appro.functional_id,
+            programme_id=locked_appro.programme_id,
+            fund_id=locked_appro.fund_id,
+            geo_id=locked_appro.geographic_id,
         )
 
         ProcurementBudgetLink.objects.update_or_create(
             purchase_order=po,
             defaults={
-                'appropriation': appro,
+                'appropriation': locked_appro,
                 'committed_amount': committed_amount,
                 'ncoa_code': ncoa,
                 'status': 'ACTIVE',
             },
         )
-        # P6-T2 — keep the denormalised Appropriation totals in sync.
+
         try:
             from accounting.services.appropriation_totals import refresh_totals
-            refresh_totals(appro)
+            refresh_totals(locked_appro)
         except Exception:
             pass
+
     return True
 
 
@@ -313,19 +246,107 @@ def mark_commitment_closed_for_po(po) -> int:
     The original ``committed_amount`` is left intact on the row so audit
     queries can still compute the lifecycle history (PO → GRN → VI).
 
-    Returns the number of rows updated (typically 1 from INVOICED, also
-    accepts ACTIVE for the rare "no-GRN direct invoice" path). Idempotent
-    — calling it again on a CLOSED link is a no-op.
+    Returns the number of rows updated. Idempotent — calling it again on a
+    CLOSED link is a no-op.
+
+    Robustness notes:
+      • Refreshes **every** distinct Appropriation touched by this PO, not
+        just the first link. A PO line splitting across multiple
+        appropriations would otherwise leave half the cache stale.
+      • Failures in the cache refresh are logged at ``error`` level (not
+        silently swallowed) — the appropriation cache is what every budget
+        execution report and dashboard reads, so silent staleness corrupts
+        every downstream report.
     """
     from procurement.models import ProcurementBudgetLink
-    link = ProcurementBudgetLink.objects.filter(purchase_order=po).first()
+
+    # Snapshot every appropriation this PO touches BEFORE the bulk update,
+    # so we can refresh every one of them after — not just .first().
+    appropriation_ids = list(
+        ProcurementBudgetLink.objects
+        .filter(purchase_order=po)
+        .values_list('appropriation_id', flat=True)
+        .distinct()
+    )
+
     n = ProcurementBudgetLink.objects.filter(
         purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
     ).update(status='CLOSED')
-    if n and link:
+
+    if appropriation_ids:
         try:
             from accounting.services.appropriation_totals import refresh_totals
-            refresh_totals(link.appropriation)
-        except Exception:
-            pass
+            from budget.models import Appropriation
+            for appr in Appropriation.objects.filter(pk__in=appropriation_ids):
+                refresh_totals(appr)
+        except Exception as exc:
+            logger.error(
+                'CRITICAL: Appropriation cache refresh failed after closing '
+                'commitment for PO %s (appr_ids=%s): %s. Run '
+                '`./manage.py resync_appropriation_totals` to recover.',
+                getattr(po, 'po_number', po.pk), appropriation_ids, exc,
+                exc_info=True,
+            )
     return n
+
+
+def refresh_appropriations_for_po(po) -> int:
+    """Belt-and-braces: refresh every Appropriation touched by this PO.
+
+    Used by the verify-and-post path as a defensive safety net in case the
+    JournalHeader post_save signal or the commitment-closure refresh missed
+    an appropriation (e.g., multi-line PO spanning multiple Appropriations,
+    or a PO with no ProcurementBudgetLink due to legacy data).
+
+    Walks PO lines and uses ``find_matching_appropriation`` to discover every
+    Appropriation that should reflect the now-recognised expenditure, then
+    refreshes each one's cached totals.
+
+    Returns the count of appropriations refreshed. Never raises — failures
+    are logged so the posting path is never broken by a cache issue.
+    """
+    refreshed_ids: set[int] = set()
+    try:
+        from procurement.models import ProcurementBudgetLink
+        from budget.models import Appropriation
+        from accounting.services.appropriation_totals import refresh_totals
+        from accounting.services.budget_check_rules import (
+            find_matching_appropriation,
+        )
+
+        # Source 1: ProcurementBudgetLink (commitment trail)
+        for appr_id in (
+            ProcurementBudgetLink.objects
+            .filter(purchase_order=po)
+            .values_list('appropriation_id', flat=True)
+            .distinct()
+        ):
+            if appr_id:
+                refreshed_ids.add(appr_id)
+
+        # Source 2: PO lines (works even when no commitment link exists)
+        fy = getattr(po, 'fiscal_year', None)
+        fy_year = getattr(fy, 'year', None) or (
+            po.order_date.year if getattr(po, 'order_date', None) else None
+        )
+        for line in po.lines.all():
+            account = getattr(line, 'account', None)
+            if account is None:
+                continue
+            appr = find_matching_appropriation(
+                mda=po.mda, fund=po.fund,
+                account=account, fiscal_year=fy_year,
+            )
+            if appr is not None:
+                refreshed_ids.add(appr.pk)
+
+        for appr in Appropriation.objects.filter(pk__in=refreshed_ids):
+            refresh_totals(appr)
+    except Exception as exc:
+        logger.error(
+            'CRITICAL: refresh_appropriations_for_po failed for PO %s: %s. '
+            'Run `./manage.py resync_appropriation_totals` to recover.',
+            getattr(po, 'po_number', getattr(po, 'pk', '?')), exc,
+            exc_info=True,
+        )
+    return len(refreshed_ids)

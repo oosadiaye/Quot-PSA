@@ -14,8 +14,8 @@ import { useQuery } from '@tanstack/react-query';
 import {
     ShieldAlert, AlertTriangle, CheckCircle2, Clock, User,
 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
+import { ListPageShell } from '../../components/layout';
 
 interface SODOverride {
     assignment_id: number;
@@ -70,9 +70,7 @@ export default function OverrideAuditPage() {
     });
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
-            <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+        <ListPageShell>
                 <div style={{ marginBottom: 20 }}>
                     <h1 style={{
                         fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
@@ -362,7 +360,6 @@ function SummaryCard({ label, value, accent, icon }: SummaryCardProps) {
                 }}>
                     {value}
                 </div>
-            </div>
-        </div>
+        </ListPageShell>
     );
 }

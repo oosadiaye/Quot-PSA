@@ -111,4 +111,10 @@ urlpatterns = [
     path('public/plans', views.public_subscription_plans, name='public_subscription_plans'),
     path('public/modules', views.public_module_pricing, name='public_module_pricing'),
     path('public/modules/<str:module_name>', views.public_module_pricing_detail, name='public_module_pricing_detail'),
+
+    # Email Templates
+    path('email-templates', views.email_template_list, name='email_template_list'),
+    path('email-templates/<int:pk>', views.email_template_detail, name='email_template_detail'),
+    path('email-templates/<int:pk>/preview', views.email_template_preview, name='email_template_preview'),
+    path('email-templates/<int:pk>/send-test', views.email_template_send_test, name='email_template_send_test'),
 ]

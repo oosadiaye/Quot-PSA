@@ -29,6 +29,12 @@ export interface SubscriptionPlan {
   trial_tenants?: number;
 }
 
+export type ProvisioningStatus =
+  | 'pending'
+  | 'provisioning'
+  | 'active'
+  | 'failed';
+
 export interface Tenant {
   id: number;
   name: string;
@@ -38,6 +44,12 @@ export interface Tenant {
   plan?: string;
   end_date?: string;
   domains?: string[];
+  // Async schema-creation state. Frontend polls the list endpoint until
+  // this flips to 'active' (or 'failed') after a tenant is created.
+  provisioning_status?: ProvisioningStatus;
+  provisioning_error?: string | null;
+  provisioning_started_at?: string | null;
+  provisioning_completed_at?: string | null;
 }
 
 export interface DashboardStats {
@@ -489,7 +501,17 @@ export const superadminApi = {
   // Tenants
   getTenants: () => apiClient.get<Tenant[]>('/superadmin/tenants'),
   getTenant: (id: number) => apiClient.get(`/superadmin/tenants/${id}`),
-  createTenant: (data: { organization_name: string }) => apiClient.post('/superadmin/tenants', data),
+  createTenant: (data: {
+    organization_name: string;
+    admin_email?: string;
+    admin_username?: string;
+    plan_type?: string;
+  }) =>
+    apiClient.post('/superadmin/tenants', data, {
+      // Provisioning returns 202 in <1s, but the fallback-inline path (if
+      // Celery broker is down) may take minutes. Hard-cap at 3 min.
+      timeout: 180_000,
+    }),
   updateTenant: (id: number, data: { name: string }) => apiClient.put(`/superadmin/tenants/${id}`, data),
   deleteTenant: (id: number) => apiClient.delete(`/superadmin/tenants/${id}`),
   changeTenantPlan: (tenantId: number, planId: number) =>
@@ -500,6 +522,16 @@ export const superadminApi = {
     apiClient.post(`/superadmin/tenants/${id}`, { action: 'extend', days }),
   resetTenantPassword: (id: number) =>
     apiClient.post(`/superadmin/tenants/${id}`, { action: 'reset_password' }),
+  // Re-queue a failed/stuck tenant for schema provisioning. Returns 202
+  // immediately; poll the list endpoint for status transitions.
+  retryTenantProvisioning: (
+    id: number,
+    payload?: { admin_username?: string; admin_email?: string; plan_type?: string },
+  ) =>
+    apiClient.post(`/superadmin/tenants/${id}`, {
+      action: 'retry_provisioning',
+      ...(payload ?? {}),
+    }),
 
   // Tenant Modules
   getTenantModules: (tenantId: number) =>
@@ -678,4 +710,39 @@ export const superadminApi = {
   createModulePricing: (data: any) => apiClient.post('/superadmin/module-pricing', data),
   updateModulePricing: (id: number, data: any) => apiClient.put(`/superadmin/module-pricing/${id}`, data),
   deleteModulePricing: (id: number) => apiClient.delete(`/superadmin/module-pricing/${id}`),
+
+  // ---- Email Templates ----
+  getEmailTemplates: (params?: { category?: string; language?: string; search?: string }) =>
+    apiClient.get<EmailTemplate[]>('/superadmin/email-templates', { params }),
+  getEmailTemplate: (id: number) => apiClient.get<EmailTemplate>(`/superadmin/email-templates/${id}`),
+  createEmailTemplate: (data: Partial<EmailTemplate>) =>
+    apiClient.post<EmailTemplate>('/superadmin/email-templates', data),
+  updateEmailTemplate: (id: number, data: Partial<EmailTemplate>) =>
+    apiClient.put<EmailTemplate>(`/superadmin/email-templates/${id}`, data),
+  deleteEmailTemplate: (id: number) => apiClient.delete(`/superadmin/email-templates/${id}`),
+  previewEmailTemplate: (id: number, context?: Record<string, unknown>) =>
+    apiClient.post<{ subject: string; html: string; text: string }>(
+      `/superadmin/email-templates/${id}/preview`, { context },
+    ),
+  sendTestEmailTemplate: (id: number, to_email: string, context?: Record<string, unknown>) =>
+    apiClient.post<{ ok: boolean; sent_to: string }>(
+      `/superadmin/email-templates/${id}/send-test`, { to_email, context },
+    ),
 };
+
+export interface EmailTemplate {
+  id: number;
+  key: string;
+  language: string;
+  category: 'auth' | 'billing' | 'support' | 'notification' | 'marketing' | 'system';
+  display_name: string;
+  description: string;
+  subject: string;
+  body_html: string;
+  body_text: string;
+  variables: string[];
+  is_active: boolean;
+  is_system: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+}

@@ -376,7 +376,40 @@ L'équipe de support QUOT ERP''',
 
 
 def get_email_template(template_name: str, language: str = 'en') -> Dict[str, str]:
-    """Get email template in the specified language, fallback to English."""
+    """Get email template in the specified language, fallback to English.
+
+    Resolution order:
+        1. Active DB row (EmailTemplate) for (template_name, language)
+        2. Active DB row for (template_name, 'en')
+        3. Hardcoded EMAIL_TEMPLATES dict in this module
+    DB rows take precedence so SuperAdmin edits go live without a deploy.
+    """
+    # 1 & 2: DB lookup
+    try:
+        from superadmin.models import EmailTemplate  # lazy — avoid app-load cycle
+        db_tpl = (
+            EmailTemplate.objects
+            .filter(key=template_name, language=language, is_active=True)
+            .first()
+        )
+        if db_tpl is None and language != 'en':
+            db_tpl = (
+                EmailTemplate.objects
+                .filter(key=template_name, language='en', is_active=True)
+                .first()
+            )
+        if db_tpl is not None:
+            return {
+                'subject': db_tpl.subject,
+                'greeting': '',  # DB templates fold greeting into body_html
+                'body': db_tpl.body_html,
+                'footer': '',
+                '_is_html': True,
+            }
+    except Exception as e:  # pragma: no cover — DB might not be ready during migrations
+        logger.debug('EmailTemplate DB lookup skipped: %s', e)
+
+    # 3: Hardcoded fallback
     template = EMAIL_TEMPLATES.get(template_name, {})
 
     if language in template:
@@ -455,7 +488,39 @@ def send_localized_email(
         # Get template
         template = get_email_template(template_name, language)
 
-        # Build email content
+        # DB-backed HTML template path — use beautified base layout.
+        if template.get('_is_html'):
+            from superadmin.email_rendering import base_layout, strip_html, substitute
+            from superadmin.models import SuperAdminSettings
+            sa = SuperAdminSettings.load()
+            subject = substitute(template['subject'], context)
+            body_html = substitute(template['body'], context)
+            html_content = base_layout(
+                title=subject,
+                content_html=body_html,
+                org_name=sa.organization_name or 'QUOT ERP',
+                support_email=sa.support_email or sa.smtp_from_email or '',
+                preheader=subject,
+            )
+            plain_content = strip_html(body_html)
+
+            email = EmailMultiAlternatives(
+                subject=subject,
+                body=plain_content,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[to_email],
+                cc=cc or [],
+                bcc=bcc or [],
+            )
+            email.attach_alternative(html_content, 'text/html')
+            if attachments:
+                for attachment in attachments:
+                    email.attach(*attachment)
+            email.send(fail_silently=False)
+            logger.info(f'Localized (DB) email sent to {to_email} in {language}')
+            return True
+
+        # Legacy hardcoded-dict path (retained as fallback).
         subject = template['subject'].format(**context)
         greeting = template['greeting'].format(**context)
         body = template['body'].format(**context)

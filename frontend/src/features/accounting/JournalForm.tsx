@@ -1,14 +1,52 @@
-import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useDimensions, useCreateJournal, useDownloadJournalTemplate, useBulkImportJournals } from './hooks/useJournal';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import SearchableSelect from '../../components/SearchableSelect';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../../api/client';
+import {
+    useDimensions, useCreateJournal, useUpdateJournal, useJournalDetail,
+    useDownloadJournalTemplate, useBulkImportJournals,
+} from './hooks/useJournal';
 import { useMDAs } from './hooks/useBudgetDimensions';
 import { useIsDimensionsEnabled } from '../../hooks/useTenantModules';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useToast } from '../../context/ToastContext';
 import { formatApiError } from '../../utils/apiError';
+import { parsePostingError } from './utils/parsePostingError';
 import AccountingLayout from './AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { Save, X, Plus, Trash2, AlertCircle, Download, Upload, FileUp, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import LoadingScreen from '../../components/common/LoadingScreen';
+
+/**
+ * Fixed-asset dropdown source for journal lines. Used for depreciation
+ * runs, disposal JVs, and cost-accumulation entries where the debit /
+ * credit should be tagged to the specific asset — so the Asset Register
+ * and Asset History reports can reconstruct the lifecycle from the GL.
+ */
+function useFixedAssets() {
+    return useQuery<Array<{ id: number; asset_number: string; name: string }>>({
+        queryKey: ['fixed-assets-dropdown'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/fixed-assets/', {
+                params: { page_size: 9999 },
+            });
+            return Array.isArray(data) ? data : (data?.results || []);
+        },
+        staleTime: 5 * 60 * 1000,
+    });
+}
+
+// Today's date as YYYY-MM-DD in the user's *local* timezone.
+// `toISOString()` first converts to UTC, which can roll the day backwards
+// for any user behind UTC, or for WAT users in the late-evening UTC window.
+const todayLocalISO = (): string => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
 
 interface JournalLine {
     id: string;
@@ -16,6 +54,7 @@ interface JournalLine {
     debit: number;
     credit: number;
     memo: string;
+    asset?: string;
 }
 
 interface JournalPayload {
@@ -33,19 +72,33 @@ interface JournalPayload {
 
 const JournalForm = () => {
     const navigate = useNavigate();
+    // /accounting/new           → create mode
+    // /accounting/journals/:id/edit → edit mode (Draft only; backend rejects Posted edits)
+    const { id: idParam } = useParams<{ id?: string }>();
+    const editingId = idParam ? Number(idParam) : null;
+    const isEditMode = editingId !== null && !Number.isNaN(editingId);
+
     const { data: dims, isLoading: dimsLoading } = useDimensions();
+    const { data: fixedAssets = [] } = useFixedAssets();
     const { isEnabled: dimensionsEnabled } = useIsDimensionsEnabled();
     const { formatCurrency } = useCurrency();
     const createJournal = useCreateJournal();
+    const updateJournal = useUpdateJournal();
+    const { data: existingJournal, isLoading: journalLoading } = useJournalDetail(isEditMode ? editingId : null);
     const downloadTemplate = useDownloadJournalTemplate();
     const bulkImport = useBulkImportJournals();
+    // One-shot hydration guard — populating state only the first time the
+    // journal data arrives prevents wiping the user's in-progress edits if
+    // React Query refetches in the background.
+    const [hydrated, setHydrated] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [formError, setFormError] = useState('');
     const [showImport, setShowImport] = useState(false);
+    const { addToast } = useToast();
     const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
 
     const [header, setHeader] = useState({
-        posting_date: new Date().toISOString().split('T')[0],
+        posting_date: todayLocalISO(),
         description: '',
         reference_number: '',
         mda: '',
@@ -61,15 +114,85 @@ const JournalForm = () => {
     const { data: mdas = [] } = useMDAs({ is_active: true });
 
     const [lines, setLines] = useState([
-        { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '' },
-        { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '' },
+        { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
+        { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
     ]);
+
+    // Pre-sort dimension lists by code ascending and shape them for SearchableSelect.
+    // Belt-and-braces: useDimensions also sorts accounts, but a stale React Query
+    // cache (entries fetched before the hook upgrade) would otherwise display
+    // unsorted; this guarantees order on every render.
+    type Coded = { id: number | string; code?: string; name?: string };
+    const toCodeOptions = (list: Coded[]) =>
+        [...list]
+            .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true }))
+            .map((x) => ({
+                value: String(x.id),
+                label: x.code ? `${x.code} — ${x.name ?? ''}` : (x.name ?? ''),
+                sublabel: x.code ? x.name : undefined,
+            }));
+
+    const accountOptions  = useMemo(() => toCodeOptions((dims?.accounts ?? []) as Coded[]),  [dims?.accounts]);
+    const fundOptions     = useMemo(() => toCodeOptions((dims?.funds ?? []) as Coded[]),     [dims?.funds]);
+    const functionOptions = useMemo(() => toCodeOptions((dims?.functions ?? []) as Coded[]), [dims?.functions]);
+    const programOptions  = useMemo(() => toCodeOptions((dims?.programs ?? []) as Coded[]),  [dims?.programs]);
+    const geoOptions      = useMemo(() => toCodeOptions((dims?.geos ?? []) as Coded[]),      [dims?.geos]);
+    const mdaOptions      = useMemo(() => toCodeOptions(mdas as Coded[]),                    [mdas]);
+    // Fixed assets use `asset_number` as their code, not `code`.
+    const assetOptions = useMemo(
+        () =>
+            [...(fixedAssets ?? [])]
+                .sort((a, b) => (a.asset_number ?? '').localeCompare(b.asset_number ?? '', undefined, { numeric: true }))
+                .map((a) => ({
+                    value: String(a.id),
+                    label: `${a.asset_number} — ${a.name}`,
+                    sublabel: a.name,
+                })),
+        [fixedAssets],
+    );
+
+    // Edit-mode hydration — runs once when the journal detail finishes loading.
+    // Posted/Approved entries are never editable: redirect back to the list.
+    useEffect(() => {
+        if (!isEditMode || hydrated || !existingJournal) return;
+        if (existingJournal.status && existingJournal.status !== 'Draft') {
+            navigate('/accounting', { replace: true });
+            return;
+        }
+        setHeader({
+            posting_date: existingJournal.posting_date || todayLocalISO(),
+            description: existingJournal.description || '',
+            reference_number: existingJournal.reference_number || '',
+            mda: existingJournal.mda ? String(existingJournal.mda) : '',
+            fund: existingJournal.fund ? String(existingJournal.fund) : '',
+            function: existingJournal.function ? String(existingJournal.function) : '',
+            program: existingJournal.program ? String(existingJournal.program) : '',
+            geo: existingJournal.geo ? String(existingJournal.geo) : '',
+        });
+        const incoming = Array.isArray(existingJournal.lines) ? existingJournal.lines : [];
+        setLines(
+            incoming.length
+                ? incoming.map((l: any) => ({
+                      id: crypto.randomUUID(),
+                      account: l.account ? String(l.account) : '',
+                      debit: String(l.debit ?? '0'),
+                      credit: String(l.credit ?? '0'),
+                      memo: l.memo ?? '',
+                      asset: l.asset ? String(l.asset) : '',
+                  }))
+                : [
+                      { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
+                      { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
+                  ],
+        );
+        setHydrated(true);
+    }, [isEditMode, hydrated, existingJournal, navigate]);
 
     const totalDebit = lines.reduce((sum, l) => sum + parseFloat(l.debit || '0'), 0);
     const totalCredit = lines.reduce((sum, l) => sum + parseFloat(l.credit || '0'), 0);
     const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
 
-    const addLine = () => setLines([...lines, { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '' }]);
+    const addLine = () => setLines([...lines, { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' }]);
     const removeLine = (index: number) => setLines(lines.filter((_, i) => i !== index));
 
     const updateLine = (index: number, field: string, value: string) => {
@@ -92,6 +215,9 @@ const JournalForm = () => {
                 debit: parseFloat(l.debit),
                 credit: parseFloat(l.credit),
                 memo: l.memo,
+                // Optional asset tag — omit when not selected so the
+                // payload stays minimal for non-asset journals.
+                ...(l.asset ? { asset: l.asset } : {}),
             })),
             ...(dimensionsEnabled ? {
                 mda: header.mda || null,
@@ -104,13 +230,22 @@ const JournalForm = () => {
 
         try {
             setFormError('');
-            await createJournal.mutateAsync(payload);
+            if (isEditMode && editingId !== null) {
+                await updateJournal.mutateAsync({ id: editingId, payload: payload as Record<string, unknown> });
+            } else {
+                await createJournal.mutateAsync(payload);
+            }
             navigate('/accounting');
-        } catch (err: any) {
-            // formatApiError parses DRF's {field: [...]} shape into a readable
-            // "mda: This field is required. · fund: This field is required."
-            // so the user knows WHICH field failed, not just that "a field" did.
-            setFormError(formatApiError(err, 'Failed to create journal entry.'));
+        } catch (err: unknown) {
+            // Try the structured-envelope parser first (catches budget /
+            // warrant / period_closed errors with the right priority);
+            // fall back to formatApiError for plain DRF field-level
+            // validation errors so the user still sees "mda: required".
+            const fallback = isEditMode ? 'Failed to update journal entry.' : 'Failed to create journal entry.';
+            const structured = parsePostingError(err, '');
+            const msg = structured || formatApiError(err, fallback);
+            setFormError(msg);
+            addToast(msg, 'error', 0);
         }
     };
 
@@ -130,46 +265,55 @@ const JournalForm = () => {
     };
 
     if (dimsLoading) return <AccountingLayout><div>Loading dimensions...</div></AccountingLayout>;
+    if (isEditMode && (journalLoading || !hydrated)) {
+        return <AccountingLayout><LoadingScreen message="Loading journal..." /></AccountingLayout>;
+    }
 
     return (
         <AccountingLayout>
             <form onSubmit={handleSubmit}>
                 <PageHeader
-                    title="New Journal Entry"
-                    subtitle={dimensionsEnabled
-                        ? 'Enter financial details with mandatory dimension tagging.'
-                        : 'Enter financial details.'}
+                    title={isEditMode ? `Edit Journal Entry${existingJournal?.reference_number ? ` — ${existingJournal.reference_number}` : ''}` : 'New Journal Entry'}
+                    subtitle={isEditMode
+                        ? 'Modify lines, GL accounts, amounts and dimensions. Posted journals cannot be edited — reverse them instead.'
+                        : (dimensionsEnabled
+                            ? 'Enter financial details with mandatory dimension tagging.'
+                            : 'Enter financial details.')}
                     icon={<Save size={22} />}
                     actions={
-                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                            <button
-                                type="button"
-                                className="btn btn-outline"
-                                onClick={() => downloadTemplate.mutate()}
-                                disabled={downloadTemplate.isPending}
-                                title="Download CSV template for bulk journal import"
-                            >
-                                <Download size={16} />
-                                {downloadTemplate.isPending ? 'Downloading...' : 'Download Template'}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn btn-outline"
-                                onClick={() => { setShowImport(v => !v); setImportResult(null); }}
-                                title="Import multiple journals from a CSV or Excel file"
-                            >
-                                <Upload size={16} />
-                                Import Journals
-                                {showImport ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {!isEditMode && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline"
+                                        onClick={() => downloadTemplate.mutate()}
+                                        disabled={downloadTemplate.isPending}
+                                        title="Download CSV template for bulk journal import"
+                                    >
+                                        <Download size={16} />
+                                        {downloadTemplate.isPending ? 'Downloading...' : 'Download Template'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline"
+                                        onClick={() => { setShowImport(v => !v); setImportResult(null); }}
+                                        title="Import multiple journals from a CSV or Excel file"
+                                    >
+                                        <Upload size={16} />
+                                        Import Journals
+                                        {showImport ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
 
-                            <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
+                                    <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
+                                </>
+                            )}
 
                             <button type="button" className="btn btn-outline" onClick={() => navigate('/accounting')}>
                                 <X size={18} /> Cancel
                             </button>
-                            <button type="submit" className="btn btn-primary" disabled={!isBalanced || createJournal.isPending}>
-                                <Save size={18} /> Save Draft
+                            <button type="submit" className="btn btn-primary" disabled={!isBalanced || createJournal.isPending || updateJournal.isPending}>
+                                <Save size={18} /> {isEditMode ? 'Save Changes' : 'Save Draft'}
                             </button>
                         </div>
                     }
@@ -187,8 +331,8 @@ const JournalForm = () => {
                 {/* ── Collapsible import panel ── */}
                 {showImport && (
                     <div className="card" style={{ marginBottom: '1.5rem', border: '1px dashed var(--border)' }}>
-                        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
-                            <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                            <div style={{ flex: '1 1 280px', minWidth: 0 }}>
                                 <p style={{ fontWeight: 600, marginBottom: '0.35rem', fontSize: 'var(--text-sm)' }}>
                                     Bulk Import from CSV / Excel
                                 </p>
@@ -274,56 +418,75 @@ const JournalForm = () => {
                 {dimensionsEnabled && (
                     <div className="card" style={{ marginBottom: '2.5rem' }}>
                         <h3 style={{ marginBottom: '1.25rem', fontSize: 'var(--text-base)' }}>Mandatory Dimensions</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
                             <div>
                                 <label className="label">MDA<span className="required-mark"> *</span></label>
-                                <select value={header.mda} onChange={e => setHeader({ ...header, mda: e.target.value })} required>
-                                    <option value="">Select MDA</option>
-                                    {(mdas as any[]).map((m: any) => (
-                                        <option key={m.id} value={m.id}>{m.code ? `${m.code} - ${m.name}` : m.name}</option>
-                                    ))}
-                                </select>
+                                <SearchableSelect
+                                    options={mdaOptions}
+                                    value={header.mda}
+                                    onChange={(v) => setHeader({ ...header, mda: v })}
+                                    placeholder="Search MDA…"
+                                    required
+                                />
                             </div>
                             <div>
                                 <label className="label">Fund<span className="required-mark"> *</span></label>
-                                <select value={header.fund} onChange={e => setHeader({ ...header, fund: e.target.value })} required>
-                                    <option value="">Select Fund</option>
-                                    {dims?.funds.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={fundOptions}
+                                    value={header.fund}
+                                    onChange={(v) => setHeader({ ...header, fund: v })}
+                                    placeholder="Search Fund…"
+                                    required
+                                />
                             </div>
                             <div>
                                 <label className="label">Function<span className="required-mark"> *</span></label>
-                                <select value={header.function} onChange={e => setHeader({ ...header, function: e.target.value })} required>
-                                    <option value="">Select Function</option>
-                                    {dims?.functions.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={functionOptions}
+                                    value={header.function}
+                                    onChange={(v) => setHeader({ ...header, function: v })}
+                                    placeholder="Search Function…"
+                                    required
+                                />
                             </div>
                             <div>
                                 <label className="label">Program<span className="required-mark"> *</span></label>
-                                <select value={header.program} onChange={e => setHeader({ ...header, program: e.target.value })} required>
-                                    <option value="">Select Program</option>
-                                    {dims?.programs.map((p: any) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={programOptions}
+                                    value={header.program}
+                                    onChange={(v) => setHeader({ ...header, program: v })}
+                                    placeholder="Search Program…"
+                                    required
+                                />
                             </div>
                             <div>
                                 <label className="label">Geography (Geo)<span className="required-mark"> *</span></label>
-                                <select value={header.geo} onChange={e => setHeader({ ...header, geo: e.target.value })} required>
-                                    <option value="">Select Geo</option>
-                                    {dims?.geos.map((g: any) => <option key={g.id} value={g.id}>{g.code} - {g.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={geoOptions}
+                                    value={header.geo}
+                                    onChange={(v) => setHeader({ ...header, geo: v })}
+                                    placeholder="Search Geo…"
+                                    required
+                                />
                             </div>
                         </div>
                     </div>
                 )}
 
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    {/* Horizontal scroll on narrow viewports keeps the line columns
+                        readable rather than squashing dropdowns into 40px cells. */}
+                    <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                         <thead>
                             <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px' }}>Debit</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px' }}>Credit</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Memo</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '220px' }} title="Tag this line to a Fixed Asset for depreciation / disposal / cost accumulation posting">
+                                    Asset <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
+                                </th>
                                 <th style={{ padding: '1rem', width: '50px' }}></th>
                             </tr>
                         </thead>
@@ -331,10 +494,13 @@ const JournalForm = () => {
                             {lines.map((line, idx) => (
                                 <tr key={line.id} style={{ borderBottom: '1px solid var(--border)' }}>
                                     <td style={{ padding: '0.75rem' }}>
-                                        <select value={line.account} onChange={e => updateLine(idx, 'account', e.target.value)} required>
-                                            <option value="">Select Account</option>
-                                            {dims?.accounts.map((a: any) => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                                        </select>
+                                        <SearchableSelect
+                                            options={accountOptions}
+                                            value={line.account}
+                                            onChange={(v) => updateLine(idx, 'account', v)}
+                                            placeholder="Search code or name…"
+                                            required
+                                        />
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
                                         <input type="number" step="0.01" value={line.debit} onChange={e => updateLine(idx, 'debit', e.target.value)} />
@@ -344,6 +510,14 @@ const JournalForm = () => {
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
                                         <input type="text" placeholder="Line memo" value={line.memo} onChange={e => updateLine(idx, 'memo', e.target.value)} />
+                                    </td>
+                                    <td style={{ padding: '0.75rem' }}>
+                                        <SearchableSelect
+                                            options={assetOptions}
+                                            value={line.asset || ''}
+                                            onChange={(v) => updateLine(idx, 'asset', v)}
+                                            placeholder="— No asset —"
+                                        />
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
                                         {lines.length > 2 && (
@@ -364,7 +538,7 @@ const JournalForm = () => {
                                 </td>
                                 <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalDebit)}</td>
                                 <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalCredit)}</td>
-                                <td colSpan={2} style={{ padding: '1rem' }}>
+                                <td colSpan={3} style={{ padding: '1rem' }}>
                                     {!isBalanced && totalDebit > 0 && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error)', fontSize: 'var(--text-xs)' }}>
                                             <AlertCircle size={14} /> Entry is not balanced
@@ -374,6 +548,7 @@ const JournalForm = () => {
                             </tr>
                         </tfoot>
                     </table>
+                    </div>
                 </div>
             </form>
             <style>{`

@@ -8,6 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     FileText, CheckCircle, XCircle, Send, AlertTriangle, ArrowLeft,
     Building2, Calendar, Receipt, Scale, TrendingUp, TrendingDown,
+    RotateCcw,
 } from 'lucide-react';
 import {
     useInvoiceMatching,
@@ -15,7 +16,9 @@ import {
     usePostMatching,
     useMatchInvoice,
     useRejectMatching,
+    useReverseMatching,
 } from './hooks/useProcurement';
+import { useJournal } from '../accounting/hooks/useJournal';
 import { useDialog } from '../../hooks/useDialog';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
@@ -41,11 +44,17 @@ export default function InvoiceMatchingView() {
 
     const matchingId = id ? Number(id) : null;
     const { data: m, isLoading, error } = useInvoiceMatching(matchingId);
+    // Pull the posted journal (header + lines) once it exists, so we can
+    // render the DR/CR breakdown the user expects to see post-posting.
+    const journalId: number | null =
+        m?.journal_entry_id ? Number(m.journal_entry_id) : null;
+    const { data: journal } = useJournal(journalId);
 
     const matchMutation   = useMatchInvoice();
     const rejectMutation  = useRejectMatching();
     const submitMutation  = useSubmitMatchingForApproval();
     const postMutation    = usePostMatching();
+    const reverseMutation = useReverseMatching();
 
     const flash = (msg: string, ok = true) => {
         setToast({ msg, ok });
@@ -81,10 +90,28 @@ export default function InvoiceMatchingView() {
     const downPayment   = parseFloat(m.down_payment_applied || 0);
     const netPayable    = parseFloat(m.net_payable || invoiceAmount) - downPayment;
 
+    // The GL is now auto-posted when the matching reaches 'Approved'
+    // (see InvoiceMatchingViewSet.submit_for_approval + workflow grant).
+    // Detect "already posted" via the linked Vendor Invoice being Posted
+    // OR a journal_entry_id having been attached — so the "Post to GL"
+    // button disappears automatically after the auto-post succeeds.
+    const isAlreadyPosted = (
+        m.vendor_invoice_status === 'Posted' ||
+        !!m.journal_entry_id ||
+        !!m.journal_reference
+    );
+    // Once a journal is reversed (REV-* journal exists, original carries
+    // ``is_reversed=True``), no further reversal is possible. The
+    // backend serializer surfaces this via the journal it references; we
+    // also accept an explicit ``journal_is_reversed`` flag if the
+    // serializer adds one in future.
+    const isAlreadyReversed = !!journal?.is_reversed || !!m.journal_is_reversed;
     const canMatchOverride = status === 'Variance';
-    const canReject        = !['Approved', 'Rejected'].includes(status);
+    const canReject        = !['Approved', 'Rejected'].includes(status) && !isAlreadyPosted;
     const canSubmit        = status === 'Matched';
-    const canPost          = ['Matched', 'Approved'].includes(status);
+    const canPost          = ['Matched', 'Approved'].includes(status) && !isAlreadyPosted;
+    // Reverse is the ONLY corrective action available once posted.
+    const canReverse       = isAlreadyPosted && !isAlreadyReversed;
 
     const handleMatch = async () => {
         const reason = await showPrompt('Enter variance reason (required for override):');
@@ -118,12 +145,31 @@ export default function InvoiceMatchingView() {
             onError: (err: any) => flash(err?.response?.data?.error || 'Failed to post', false),
         });
     };
+    const handleReverse = async () => {
+        const reason = await showPrompt(
+            'Enter reversal reason (required — recorded on the audit trail):',
+        );
+        if (!reason) return;
+        reverseMutation.mutate({ id: matchingId!, reason }, {
+            onSuccess: (data: any) => flash(
+                data?.reversal_journal_reference
+                    ? `Reversed. Reversing journal: ${data.reversal_journal_reference}`
+                    : 'Invoice verification reversed.',
+            ),
+            onError: (err: any) => flash(
+                err?.response?.data?.error || 'Failed to reverse', false,
+            ),
+        });
+    };
 
     return (
         <AccountingLayout>
             <PageHeader
-                title={`Invoice Verification ${m.invoice_reference || ''}`}
-                subtitle={`PO ${m.po_number || ''} — ${m.vendor_name || 'Vendor'}`}
+                title={`Invoice Verification ${m.verification_number || `IV-${m.id}`}`}
+                subtitle={
+                    `Vendor Invoice: ${m.invoice_reference || '—'} · `
+                    + `PO ${m.po_number || ''} — ${m.vendor_name || 'Vendor'}`
+                }
                 icon={<Receipt size={22} />}
                 onBack={() => navigate('/procurement/matching')}
                 actions={
@@ -141,6 +187,11 @@ export default function InvoiceMatchingView() {
                         {canPost && (
                             <button onClick={handlePost} disabled={postMutation.isPending} style={hdrBtn.success}>
                                 <CheckCircle size={16} /> {postMutation.isPending ? 'Posting…' : 'Post to GL'}
+                            </button>
+                        )}
+                        {canReverse && (
+                            <button onClick={handleReverse} disabled={reverseMutation.isPending} style={hdrBtn.warn}>
+                                <RotateCcw size={16} /> {reverseMutation.isPending ? 'Reversing…' : 'Reverse'}
                             </button>
                         )}
                         {canReject && (
@@ -274,11 +325,24 @@ export default function InvoiceMatchingView() {
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Posted GL Entries — visible once Post to GL has run */}
+                    {journalId && journal && Array.isArray(journal.lines) && journal.lines.length > 0 && (
+                        <PostedGlEntries
+                            journal={journal}
+                            formatCurrency={formatCurrency}
+                        />
+                    )}
                 </div>
 
                 {/* RIGHT — workflow next-step card */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    <NextStepCard status={status} payment_hold={!!m.payment_hold} />
+                    <NextStepCard
+                        status={status}
+                        payment_hold={!!m.payment_hold}
+                        isAlreadyPosted={isAlreadyPosted}
+                        isAlreadyReversed={isAlreadyReversed}
+                    />
 
                     {/* What happens on Post */}
                     {canPost && (
@@ -303,6 +367,145 @@ export default function InvoiceMatchingView() {
 }
 
 // ── Tiny presentational helpers ──────────────────────────────────────────────
+
+interface JournalLineDto {
+    id: number;
+    account_code?: string;
+    account_name?: string;
+    debit?: string | number | null;
+    credit?: string | number | null;
+    memo?: string | null;
+}
+
+interface JournalDto {
+    id: number;
+    document_number?: string | null;
+    reference_number?: string | null;
+    posting_date?: string | null;
+    description?: string | null;
+    lines: JournalLineDto[];
+    total_debit?: string | number | null;
+    total_credit?: string | number | null;
+}
+
+interface PostedGlEntriesProps {
+    journal: JournalDto;
+    formatCurrency: (v: number) => string;
+}
+
+function PostedGlEntries({ journal, formatCurrency }: PostedGlEntriesProps) {
+    const lines = journal.lines || [];
+    const totalDr = lines.reduce(
+        (sum, l) => sum + (parseFloat(String(l.debit ?? 0)) || 0), 0,
+    );
+    const totalCr = lines.reduce(
+        (sum, l) => sum + (parseFloat(String(l.credit ?? 0)) || 0), 0,
+    );
+    const balanced = Math.abs(totalDr - totalCr) < 0.005;
+    const journalRef =
+        journal.document_number || journal.reference_number || `JV-${journal.id}`;
+    const postingDate = journal.posting_date
+        ? new Date(journal.posting_date).toLocaleDateString('en-GB')
+        : '';
+
+    return (
+        <div className="card" style={{ padding: '1.75rem' }}>
+            <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem',
+            }}>
+                <h3 style={{
+                    margin: 0, fontSize: 'var(--text-base)', fontWeight: 700,
+                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                }}>
+                    <FileText size={16} color="#4f46e5" />
+                    Posted GL Entries
+                </h3>
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.75rem',
+                    fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)',
+                }}>
+                    <span>
+                        Journal: <strong style={{ color: 'var(--color-text)' }}>{journalRef}</strong>
+                    </span>
+                    {postingDate && <span>Posted: <strong style={{ color: 'var(--color-text)' }}>{postingDate}</strong></span>}
+                    <span style={{
+                        padding: '0.15rem 0.55rem', borderRadius: '999px',
+                        background: balanced ? '#dcfce7' : '#fef2f2',
+                        color: balanced ? '#15803d' : '#b91c1c',
+                        border: `1px solid ${balanced ? '#86efac' : '#fecaca'}`,
+                        fontWeight: 700,
+                    }}>
+                        {balanced ? 'Balanced' : 'Out of balance'}
+                    </span>
+                </div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: 'var(--text-sm)', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{
+                            background: 'rgba(148, 163, 184, 0.08)',
+                            borderBottom: '1px solid var(--color-border)',
+                        }}>
+                            <th style={glHeader}>GL Code</th>
+                            <th style={glHeader}>Account</th>
+                            <th style={glHeader}>Memo</th>
+                            <th style={{ ...glHeader, textAlign: 'right' }}>Debit</th>
+                            <th style={{ ...glHeader, textAlign: 'right' }}>Credit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {lines.map((line) => {
+                            const dr = parseFloat(String(line.debit ?? 0)) || 0;
+                            const cr = parseFloat(String(line.credit ?? 0)) || 0;
+                            return (
+                                <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                    <td style={{ ...glCell, fontFamily: 'monospace', fontWeight: 600 }}>
+                                        {line.account_code || '—'}
+                                    </td>
+                                    <td style={glCell}>{line.account_name || '—'}</td>
+                                    <td style={{ ...glCell, color: 'var(--color-text-muted)' }}>
+                                        {line.memo || '—'}
+                                    </td>
+                                    <td style={{ ...glCell, textAlign: 'right', fontFamily: 'monospace' }}>
+                                        {dr > 0 ? formatCurrency(dr) : ''}
+                                    </td>
+                                    <td style={{ ...glCell, textAlign: 'right', fontFamily: 'monospace' }}>
+                                        {cr > 0 ? formatCurrency(cr) : ''}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                    <tfoot>
+                        <tr style={{
+                            background: 'rgba(79, 70, 229, 0.04)',
+                            borderTop: '2px solid var(--color-border)',
+                        }}>
+                            <td style={{ ...glCell, fontWeight: 700 }} colSpan={3}>Total</td>
+                            <td style={{ ...glCell, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
+                                {formatCurrency(totalDr)}
+                            </td>
+                            <td style={{ ...glCell, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>
+                                {formatCurrency(totalCr)}
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+const glHeader: React.CSSProperties = {
+    padding: '0.6rem 0.75rem', textAlign: 'left',
+    fontSize: 'var(--text-xs)', textTransform: 'uppercase',
+    letterSpacing: '0.05em', color: 'var(--color-text-muted)', fontWeight: 700,
+};
+const glCell: React.CSSProperties = {
+    padding: '0.55rem 0.75rem', verticalAlign: 'top',
+};
 
 function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
     return (
@@ -360,11 +563,28 @@ function BreakdownRow({ label, value, bold, muted, accent }: {
     );
 }
 
-function NextStepCard({ status, payment_hold }: { status: string; payment_hold: boolean }) {
+interface NextStepCardProps {
+    status: string;
+    payment_hold: boolean;
+    isAlreadyPosted: boolean;
+    isAlreadyReversed: boolean;
+}
+
+function NextStepCard({ status, payment_hold, isAlreadyPosted, isAlreadyReversed }: NextStepCardProps) {
     let title = 'Next step';
     let body = '';
     let bg = 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)';
-    if (status === 'Draft') {
+
+    // Highest-priority states: Reversed > Posted > status-based.
+    if (isAlreadyReversed) {
+        title = 'Reversed';
+        body = 'This verification was reversed. The reversing journal is on the books; no further action is available on this record.';
+        bg = 'linear-gradient(135deg, #6b7280 0%, #9ca3af 100%)';
+    } else if (isAlreadyPosted) {
+        title = 'Posted';
+        body = 'This invoice has been posted to the GL. It cannot be posted again. The only corrective action is to Reverse — that writes a REV-* journal and reopens the budget commitment.';
+        bg = 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)';
+    } else if (status === 'Draft') {
         body = 'Calculate the match to compare PO/GRN/Invoice and assign a status.';
     } else if (status === 'Matched') {
         body = 'Click "Submit for Approval" to route this to finance. Small invoices auto-approve.';

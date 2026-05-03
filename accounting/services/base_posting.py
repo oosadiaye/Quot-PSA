@@ -97,7 +97,31 @@ class BasePostingService:
 
     @staticmethod
     def _validate_journal_balanced(journal):
-        """Ensure journal has >= 2 lines and debits equal credits."""
+        """Ensure journal has >= 2 lines and debits equal credits.
+
+        Asset auto-capitalisation runs HERE before the balance check —
+        every posting source (Journal, AP Invoice, GRN, PO, PV, Asset
+        Disposal, …) flows through this method, so capitalisation is
+        applied uniformly without per-source duplication. The contra +
+        recon lines added by the service balance to zero on their own
+        (DR recon = CR clearing = original debit), so the balance
+        invariant still holds after capitalisation.
+        """
+        # Apply SAP-style auto-capitalisation. Idempotent — already-
+        # capitalised lines (carrying _skip_auto_capitalize) are skipped.
+        # Failures (missing category, missing cost account) raise
+        # ValidationError, which the caller's @transaction.atomic
+        # rolls back atomically.
+        try:
+            from accounting.services.asset_capitalization import apply_asset_capitalization
+            apply_asset_capitalization(journal)
+        except Exception as exc:  # noqa: BLE001
+            # Surface as a posting error so the caller's standard
+            # error path translates it for the UI.
+            raise TransactionPostingError(
+                f"Asset auto-capitalisation failed for {journal.reference_number}: {exc}"
+            ) from exc
+
         line_count = journal.lines.count()
         if line_count < 2:
             raise TransactionPostingError(

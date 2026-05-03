@@ -338,6 +338,267 @@ class IPSASReportService:
         return items, total
 
     # =========================================================================
+    # IPSAS 24 — Budget Performance Statement (SoFP-shaped)
+    # =========================================================================
+    #
+    # Adjunct to the existing ``budget_vs_actual`` flat report. This one
+    # mirrors the Statement of Financial Performance layout (revenue →
+    # expenditure → surplus/deficit) but adds Budget and Variance columns
+    # alongside Actual so executives can read "what we planned vs what
+    # we did" in one glance using the same mental model as the I&E.
+
+    @classmethod
+    def budget_performance_statement(
+        cls, fiscal_year: int, period: int = None,
+    ) -> dict:
+        """Budget Performance Statement — SoFP layout, 4-column.
+
+        Columns produced per line:
+          * ``original_budget`` — as enacted (from ``Appropriation.original_amount``)
+          * ``final_budget``    — current approved (post supplementary / virement)
+          * ``actual``          — posted GL balance (same math as SoFP)
+          * ``variance``        — final_budget − actual
+          * ``variance_pct``    — variance / final_budget × 100 (zero-safe)
+          * ``favourable``      — bool; for expenditure, positive variance is
+                                  favourable (under-spend); for revenue, negative
+                                  variance is favourable (over-collection).
+
+        Sections mirror ``_sofperformance_for_period`` exactly, so the
+        frontend can reuse the same section order / labels without any
+        branching.
+        """
+        filters = {'fiscal_year': fiscal_year}
+        if period:
+            filters['period__lte'] = period
+        balances = GLBalance.objects.filter(**filters)
+
+        budget_by_prefix = cls._budget_buckets(fiscal_year)
+
+        # Revenue — 11xx, 12xx, 13xx, 14xx (credit-normal)
+        tax    = cls._bp_group(balances, '11', 'CREDIT', budget_by_prefix, 'revenue')
+        nontax = cls._bp_group(balances, '12', 'CREDIT', budget_by_prefix, 'revenue')
+        grants = cls._bp_group(balances, '13', 'CREDIT', budget_by_prefix, 'revenue')
+        other  = cls._bp_group(balances, '14', 'CREDIT', budget_by_prefix, 'revenue')
+
+        total_rev_orig   = tax['original_budget'] + nontax['original_budget'] + grants['original_budget'] + other['original_budget']
+        total_rev_budget = tax['final_budget']    + nontax['final_budget']    + grants['final_budget']    + other['final_budget']
+        total_rev_actual = tax['actual']          + nontax['actual']          + grants['actual']          + other['actual']
+        total_rev_var    = total_rev_budget - total_rev_actual
+
+        # Expenditure — 21xx–25xx (debit-normal)
+        pers   = cls._bp_group(balances, '21', 'DEBIT', budget_by_prefix, 'expenditure')
+        ovh    = cls._bp_group(balances, '22', 'DEBIT', budget_by_prefix, 'expenditure')
+        cap    = cls._bp_group(balances, '23', 'DEBIT', budget_by_prefix, 'expenditure')
+        debt   = cls._bp_group(balances, '24', 'DEBIT', budget_by_prefix, 'expenditure')
+        trans  = cls._bp_group(balances, '25', 'DEBIT', budget_by_prefix, 'expenditure')
+
+        total_exp_orig   = pers['original_budget'] + ovh['original_budget'] + cap['original_budget'] + debt['original_budget'] + trans['original_budget']
+        total_exp_budget = pers['final_budget']    + ovh['final_budget']    + cap['final_budget']    + debt['final_budget']    + trans['final_budget']
+        total_exp_actual = pers['actual']          + ovh['actual']          + cap['actual']          + debt['actual']          + trans['actual']
+        total_exp_var    = total_exp_budget - total_exp_actual
+
+        # Surplus/Deficit = Revenue − Expenditure
+        surplus_orig   = total_rev_orig   - total_exp_orig
+        surplus_budget = total_rev_budget - total_exp_budget
+        surplus_actual = total_rev_actual - total_exp_actual
+        surplus_var    = surplus_budget   - surplus_actual
+
+        def _pct(v: Decimal, base: Decimal) -> Decimal:
+            if base == 0:
+                return _zero()
+            return (v / base) * Decimal('100')
+
+        return {
+            'title':       'Budget Performance Statement',
+            'standard':    'IPSAS 24',
+            'fiscal_year': fiscal_year,
+            'period':      period,
+            'currency':    'NGN',
+            'revenue': {
+                'tax_revenue':      tax,
+                'non_tax_revenue':  nontax,
+                'grants_transfers': grants,
+                'other_revenue':    other,
+                'total': {
+                    'original_budget': total_rev_orig,
+                    'final_budget':    total_rev_budget,
+                    'actual':          total_rev_actual,
+                    'variance':        total_rev_var,
+                    'variance_pct':    _pct(total_rev_var, total_rev_budget),
+                    'favourable':      total_rev_var < 0,  # over-collection good
+                },
+            },
+            'expenditure': {
+                'personnel_costs':       pers,
+                'overhead_costs':        ovh,
+                'capital_expenditure':   cap,
+                'debt_service':          debt,
+                'transfers_subventions': trans,
+                'total': {
+                    'original_budget': total_exp_orig,
+                    'final_budget':    total_exp_budget,
+                    'actual':          total_exp_actual,
+                    'variance':        total_exp_var,
+                    'variance_pct':    _pct(total_exp_var, total_exp_budget),
+                    'favourable':      total_exp_var >= 0,  # under-spend good
+                },
+            },
+            'surplus_deficit': {
+                'original_budget': surplus_orig,
+                'final_budget':    surplus_budget,
+                'actual':          surplus_actual,
+                'variance':        surplus_var,
+                'variance_pct':    _pct(surplus_var, abs(surplus_budget) if surplus_budget else Decimal('1')),
+            },
+        }
+
+    @classmethod
+    def _budget_buckets(cls, fiscal_year: int) -> dict:
+        """Aggregate budget figures keyed by the first two digits of
+        the economic code, so they align with the SoFP section prefixes
+        (11, 12, ..., 25).
+
+        Expenditure buckets (21–25) pull from ``Appropriation``
+        (legislative appropriations are the expenditure ceiling).
+
+        Revenue buckets (11–14) pull from ``RevenueBudget.estimated_amount``
+        which is the public-sector equivalent for the revenue side — an
+        Appropriation row is the legal authority to *spend*, whereas a
+        RevenueBudget row is the authority's *estimate* of what will be
+        collected. Both contribute the ``final_budget`` / ``original_budget``
+        figures used in the performance report.
+        """
+        from budget.models import Appropriation, RevenueBudget
+
+        buckets: dict[str, dict] = {}
+
+        def _bucket(code: str) -> dict:
+            return buckets.setdefault(code, {
+                'original_budget': _zero(),
+                'final_budget':    _zero(),
+                'per_code':        {},
+            })
+
+        # Expenditure side — Appropriation
+        for appro in (
+            Appropriation.objects
+            .filter(fiscal_year__year=fiscal_year, status__in=['ACTIVE', 'ENACTED'])
+            .select_related('economic')
+        ):
+            code = (appro.economic.code or '')[:2]
+            if not code:
+                continue
+            b = _bucket(code)
+            final = appro.amount_approved or _zero()
+            original = appro.original_amount if appro.original_amount is not None else final
+            b['original_budget'] += original
+            b['final_budget']    += final
+            per = b['per_code'].setdefault(appro.economic.code, {
+                'original': _zero(), 'final': _zero(),
+            })
+            per['original'] += original
+            per['final']    += final
+
+        # Revenue side — RevenueBudget. The RevenueBudget model exposes a
+        # single ``estimated_amount`` column; there is no separate original
+        # vs final on the revenue side in the current schema, so we treat
+        # estimated as both (a supplementary revenue amendment, if ever
+        # added, would show up as a modified estimated_amount — the
+        # "original" column simply mirrors it until that feature exists).
+        try:
+            rev_qs = (
+                RevenueBudget.objects
+                .filter(fiscal_year__year=fiscal_year)
+                .select_related('economic')
+            )
+            # Some RevenueBudget implementations filter by status too;
+            # be liberal here and include any row the tenant has saved.
+            for rb in rev_qs:
+                code = (rb.economic.code or '')[:2]
+                if not code:
+                    continue
+                b = _bucket(code)
+                estimated = rb.estimated_amount or _zero()
+                b['original_budget'] += estimated
+                b['final_budget']    += estimated
+                per = b['per_code'].setdefault(rb.economic.code, {
+                    'original': _zero(), 'final': _zero(),
+                })
+                per['original'] += estimated
+                per['final']    += estimated
+        except Exception:
+            # RevenueBudget may not yet be populated in a fresh tenant —
+            # don't let its absence break the expenditure-only variant.
+            pass
+
+        return buckets
+
+    @classmethod
+    def _bp_group(
+        cls, balances_qs, prefix: str, side: str,
+        budget_by_prefix: dict, section: str,
+    ) -> dict:
+        """Build one budget-performance row group (e.g. ``tax_revenue``).
+
+        Produces the same per-line item list as ``_sum_posting_only`` but
+        with ``original_budget`` / ``final_budget`` / ``actual`` on each
+        row and computed variance. Zero-budget AND zero-actual lines are
+        skipped to keep the report readable (IPSAS 24 does not require
+        disclosure of nil-nil heads).
+        """
+        bucket = budget_by_prefix.get(prefix, {
+            'original_budget': _zero(),
+            'final_budget':    _zero(),
+            'per_code':        {},
+        })
+        per_code = bucket['per_code']
+
+        segments = (
+            EconomicSegment.objects
+            .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
+            .select_related('legacy_account')
+            .order_by('code')
+        )
+        items: list[dict] = []
+        for seg in segments:
+            if seg.legacy_account_id:
+                bal = balances_qs.filter(account_id=seg.legacy_account_id)
+            else:
+                bal = balances_qs.filter(account__code=seg.code)
+            actual = cls._aggregate_side(bal, side)
+            line_budget = per_code.get(seg.code, {'original': _zero(), 'final': _zero()})
+            original_line = line_budget['original']
+            final_line    = line_budget['final']
+            if actual == 0 and final_line == 0 and original_line == 0:
+                continue
+            variance = final_line - actual
+            items.append({
+                'code':            seg.code,
+                'name':            seg.name,
+                'original_budget': original_line,
+                'final_budget':    final_line,
+                'actual':          actual,
+                'variance':        variance,
+                'variance_pct':    (variance / final_line * Decimal('100')) if final_line else _zero(),
+                'favourable':      (variance >= 0) if section == 'expenditure' else (variance <= 0),
+            })
+
+        # Group totals — use bucket totals (includes budget for codes with
+        # no GL activity yet); for actuals, sum the per-line numbers we
+        # just walked (posting-level only, same rule as SoFP).
+        group_actual = sum((it['actual'] for it in items), _zero())
+        variance = bucket['final_budget'] - group_actual
+        return {
+            'items':           items,
+            'original_budget': bucket['original_budget'],
+            'final_budget':    bucket['final_budget'],
+            'actual':          group_actual,
+            'variance':        variance,
+            'variance_pct':    (variance / bucket['final_budget'] * Decimal('100')) if bucket['final_budget'] else _zero(),
+            'favourable':      (variance >= 0) if section == 'expenditure' else (variance <= 0),
+        }
+
+    # =========================================================================
     # IPSAS 2 — Cash Flow Statement (direct method)
     # =========================================================================
 

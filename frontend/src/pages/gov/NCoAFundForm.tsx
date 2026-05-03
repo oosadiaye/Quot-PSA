@@ -29,13 +29,12 @@ const lblStyle: React.CSSProperties = {
     textTransform: 'uppercase' as const, letterSpacing: '0.04em',
 };
 
-const MAIN_FUND_CODES = [
-    ['01', '01 - FAAC Statutory Allocation'], ['02', '02 - VAT Distribution'],
-    ['03', '03 - Excess Crude Account'], ['04', '04 - Ecological Fund'],
-    ['05', '05 - Development Partner / Donor'], ['06', '06 - Consolidated Revenue Fund'],
-    ['07', '07 - Capital Development Fund'], ['08', '08 - Internally Generated Revenue'],
-    ['09', '09 - Other Funds'],
-];
+// NCoA fund-hierarchy fields (main_fund_code, sub_fund_code, fund_source_code,
+// donor_name) are no longer surfaced in this form. The values still round-trip
+// through form state so edits don't wipe existing records, but users only see
+// / edit the essential identity fields (code, name, parent, restricted, active,
+// description). Backend serializer accepts legacy single-digit codes ('1' → '01')
+// and defaults main_fund_code to '01' when omitted.
 
 export default function NCoAFundForm() {
     const { id } = useParams<{ id: string }>();
@@ -124,21 +123,6 @@ export default function NCoAFundForm() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                             <div><label style={lblStyle}>Code *</label><input style={inputStyle} value={form.code} onChange={set('code')} placeholder="e.g. 01000" maxLength={5} required /></div>
                             <div><label style={lblStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={set('name')} placeholder="e.g. FAAC Statutory Allocation" required /></div>
-                            <div><label style={lblStyle}>Main Fund Code</label>
-                                <select style={selectStyle} value={form.main_fund_code} onChange={set('main_fund_code')}>
-                                    {MAIN_FUND_CODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                </select>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div><label style={lblStyle}>Sub-Fund Code</label><input style={inputStyle} value={form.sub_fund_code} onChange={set('sub_fund_code')} maxLength={1} /></div>
-                                <div><label style={lblStyle}>Fund Source Code</label><input style={inputStyle} value={form.fund_source_code} onChange={set('fund_source_code')} maxLength={2} /></div>
-                            </div>
-                            {form.main_fund_code === '05' && (
-                                <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={lblStyle}>Donor Name</label>
-                                    <input style={inputStyle} value={form.donor_name} onChange={set('donor_name')} placeholder="e.g. World Bank, DFID" />
-                                </div>
-                            )}
                             <div><label style={lblStyle}>Parent</label>
                                 <select style={selectStyle} value={form.parent} onChange={set('parent')}>
                                     <option value="">(Top level)</option>

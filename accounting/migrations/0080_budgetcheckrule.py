@@ -15,6 +15,13 @@ DEFAULT_RULES = [
     # Personnel Costs (21xxxxxx) — STRICT by default. Salary spend is the
     # single biggest government line item; "no appropriation, no cash" is
     # the correct discipline here out of the box.
+    #
+    # NOTE: Migration 0092 supersedes this rule on every existing
+    # tenant — it removes this narrow STRICT rule and replaces it with
+    # a wide WARNING rule on 20000000–29999999. Fresh tenants run 0080
+    # then immediately 0092, ending up at the same wide-WARNING end
+    # state. This narrow rule is preserved here as historical record
+    # only; do not modify it.
     {
         'gl_from': '21000000', 'gl_to': '21999999',
         'check_level': 'STRICT',

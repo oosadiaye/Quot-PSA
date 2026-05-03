@@ -1,3 +1,4 @@
+import logging
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -9,6 +10,8 @@ from django.core.exceptions import ValidationError
 from decimal import Decimal
 import pandas as pd
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 from .common import AccountingPagination
 from ..models import (
     Account, JournalHeader, JournalLine, Currency, GLBalance, MDA,
@@ -55,20 +58,76 @@ class AccountViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):
-        """Download a CSV template for account imports."""
+        """Download a CSV template for account imports.
+
+        The example codes follow the NCoA Economic Segment first-digit
+        convention so the legacy ``Account.account_type`` and the NCoA
+        ``account_type_code`` line up by construction:
+
+            1xxxxxxx  Revenue / Income
+            2xxxxxxx  Expenditure / Expense
+            3xxxxxxx  Assets
+            4xxxxxxx  Liabilities and Net Assets (Equity also lives here)
+
+        Comment lines (``# …``) at the top are skipped on import — see the
+        bulk_import body which also uses ``pd.read_csv(comment='#')``.
+        """
         import io
         import csv
         from django.http import HttpResponse
 
+        help_lines = [
+            'Chart of Accounts import template (NCoA-aligned).',
+            'REQUIRED columns: code (max 20 chars), name (max 200 chars), account_type.',
+            'OPTIONAL columns: is_active (default true), is_reconciliation (default false),',
+            '  reconciliation_type (e.g. bank_accounting, accounts_receivable, accounts_payable),',
+            '  auto_create_asset (true/false; default false), asset_category (Asset Category CODE).',
+            'account_type must be exactly one of: Asset, Liability, Equity, Income, Expense.',
+            'NCoA convention — the FIRST digit of the code encodes the account family:',
+            "  1xxxxxxx -> Income (Revenue)        e.g. 11000000  Tax Revenue",
+            "  2xxxxxxx -> Expense (Expenditure)   e.g. 21000000  Personnel Costs",
+            "  3xxxxxxx -> Asset                   e.g. 31000000  Cash and Cash Equivalents",
+            "  4xxxxxxx -> Liability or Equity     e.g. 41000000  Accounts Payable",
+            '',
+            'Asset auto-capitalisation (IPSAS): set auto_create_asset=true on a GL where',
+            'every debit should auto-create a FixedAsset and reroute the GL debit to the',
+            "category's cost account. The asset_category column must hold the CODE (not id)",
+            "of an Asset Category configured in Settings -> Asset Categories — the code is",
+            'looked up by the importer. Typical use: 23xxxxxx capex GLs paired with the',
+            'matching asset category (PLANT, BUILDINGS, VEHICLES, ICT, etc.).',
+            'Lines starting with # (like these) are ignored on import.',
+        ]
+
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['code', 'name', 'account_type', 'is_active', 'is_reconciliation', 'reconciliation_type'])
-        writer.writerow(['10100000', 'Cash and Cash Equivalents', 'Asset', 'true', 'true', 'bank_accounting'])
-        writer.writerow(['10200000', 'Accounts Receivable', 'Asset', 'true', 'true', 'accounts_receivable'])
-        writer.writerow(['20100000', 'Accounts Payable', 'Liability', 'true', 'true', 'accounts_payable'])
-        writer.writerow(['30100000', 'Fund Balance', 'Equity', 'true', 'false', ''])
-        writer.writerow(['40100000', 'Sales Revenue', 'Income', 'true', 'false', ''])
-        writer.writerow(['60100000', 'Salaries and Wages', 'Expense', 'true', 'false', ''])
+        for line in help_lines:
+            writer.writerow([f'# {line}'])
+        writer.writerow([
+            'code', 'name', 'account_type',
+            'is_active', 'is_reconciliation', 'reconciliation_type',
+            'auto_create_asset', 'asset_category',
+        ])
+        # Income (1xxxxxxx)
+        writer.writerow(['11000000', 'Tax Revenue',                       'Income',    'true',  'false', '',                     'false', ''])
+        writer.writerow(['11100100', 'Tax Revenue — PAYE',                'Income',    'true',  'false', '',                     'false', ''])
+        writer.writerow(['13000000', 'Grants and Transfers',              'Income',    'true',  'false', '',                     'false', ''])
+        # Expense (2xxxxxxx). Capex GLs (23xxxxxx) demonstrate auto-capitalisation;
+        # leave auto_create_asset blank/false for Personnel / O&M GLs.
+        writer.writerow(['21000000', 'Personnel Costs',                   'Expense',   'true',  'false', '',                     'false', ''])
+        writer.writerow(['21100500', 'Overtime Payments',                 'Expense',   'true',  'false', '',                     'false', ''])
+        writer.writerow(['22000000', 'Operations & Maintenance',          'Expense',   'true',  'false', '',                     'false', ''])
+        writer.writerow(['23100100', 'Purchase of Land',                  'Expense',   'true',  'false', '',                     'true',  'LAND'])
+        writer.writerow(['23100200', 'Purchase of Buildings',             'Expense',   'true',  'false', '',                     'true',  'BUILDINGS'])
+        writer.writerow(['23100400', 'Purchase of Plant and Equipment',   'Expense',   'true',  'false', '',                     'true',  'PLANT'])
+        writer.writerow(['23100500', 'Purchase of ICT Equipment',         'Expense',   'true',  'false', '',                     'true',  'ICT'])
+        # Asset (3xxxxxxx) — typically the cost-account targets that auto-capitalisation
+        # reroutes debits TO. Don't set auto_create_asset on these (would loop).
+        writer.writerow(['31000000', 'Cash and Cash Equivalents',         'Asset',     'true',  'true',  'bank_accounting',      'false', ''])
+        writer.writerow(['31200000', 'Accounts Receivable',               'Asset',     'true',  'true',  'accounts_receivable',  'false', ''])
+        writer.writerow(['32100100', 'Land (at cost)',                    'Asset',     'true',  'false', '',                     'false', ''])
+        # Liability / Equity (4xxxxxxx)
+        writer.writerow(['41000000', 'Accounts Payable',                  'Liability', 'true',  'true',  'accounts_payable',     'false', ''])
+        writer.writerow(['43100100', 'Accumulated Fund / Fund Balance',   'Equity',    'true',  'false', '',                     'false', ''])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="account_import_template.csv"'
@@ -91,11 +150,64 @@ class AccountViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Pre-strip ``# …`` comment lines (and their CSV-quoted forms ``"#…``,
+        # ``'#…``) so the help block at the top of the downloaded template
+        # round-trips cleanly. ``dtype=str`` + ``keep_default_na=False`` keep
+        # numeric-looking codes from being promoted to float64 and stringified
+        # back as e.g. ``'11000000.0'`` (13 chars instead of 8 — would trip the
+        # length validator). Mirror of the protections in
+        # accounting/views/common.py for dimension imports.
+        def _is_comment_cell(cell: str) -> bool:
+            s = (cell or '').strip()
+            return s.startswith('#') or s.startswith('"#') or s.startswith("'#")
+
         try:
             if file.name.endswith('.xlsx'):
-                df = pd.read_excel(file, nrows=10000)
+                df_raw = pd.read_excel(
+                    file, header=None, nrows=10000, dtype=str,
+                    keep_default_na=False, na_filter=False,
+                )
+                if df_raw.empty:
+                    return Response(
+                        {"error": "The uploaded spreadsheet is empty."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                header_idx = None
+                for i in range(len(df_raw)):
+                    first = str(df_raw.iloc[i, 0]) if df_raw.shape[1] else ''
+                    if first and first.strip() and not _is_comment_cell(first):
+                        header_idx = i
+                        break
+                if header_idx is None:
+                    return Response(
+                        {"error": "Could not find a header row (every row starts with '#')."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                cols = df_raw.iloc[header_idx].astype(str).tolist()
+                df = df_raw.iloc[header_idx + 1:].reset_index(drop=True)
+                df.columns = cols
+                if not df.empty:
+                    first_col = df.columns[0]
+                    mask = df[first_col].astype(str).map(_is_comment_cell)
+                    df = df[~mask].reset_index(drop=True)
             else:
-                df = pd.read_csv(file, nrows=10000)
+                import io as _io
+                raw = file.read()
+                text = (
+                    raw.decode('utf-8-sig', errors='replace')
+                    if isinstance(raw, bytes) else str(raw)
+                )
+                cleaned_lines = [ln for ln in text.splitlines() if not _is_comment_cell(ln)]
+                if not cleaned_lines:
+                    return Response(
+                        {"error": "The uploaded CSV is empty (or contains only comment lines)."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                df = pd.read_csv(
+                    _io.StringIO('\n'.join(cleaned_lines)),
+                    nrows=10000, dtype=str,
+                    keep_default_na=False, na_filter=False,
+                )
         except Exception as e:
             return Response(
                 {"error": f"Failed to parse file: {str(e)}"},
@@ -184,6 +296,41 @@ class AccountViewSet(viewsets.ModelViewSet):
                 if not is_reconciliation:
                     reconciliation_type = ''
 
+                # Asset auto-capitalisation (Phase 1 + 2). Two columns:
+                #   auto_create_asset — boolean toggle
+                #   asset_category    — Asset Category CODE (resolved to FK below)
+                # Resolution by code (not numeric FK id) keeps the CSV stable
+                # across tenants and reviewable by humans.
+                auto_create_asset = False
+                if 'auto_create_asset' in df.columns:
+                    raw_auto = str(row.get('auto_create_asset', 'false')).strip().lower()
+                    auto_create_asset = raw_auto in ('true', '1', 'yes')
+
+                asset_category_obj = None
+                if 'asset_category' in df.columns:
+                    cat_val = row.get('asset_category', '')
+                    cat_code = '' if pd.isna(cat_val) else str(cat_val).strip()
+                    if cat_code:
+                        from accounting.models.assets import AssetCategory
+                        asset_category_obj = AssetCategory.objects.filter(
+                            code__iexact=cat_code, is_active=True,
+                        ).first()
+                        if not asset_category_obj:
+                            errors.append(
+                                f"Row {row_num}: Asset Category code '{cat_code}' not found "
+                                f"(or inactive). Create it first under Settings -> Asset Categories."
+                            )
+                            continue
+
+                # Mirror the model.clean() invariant: enabling auto-create
+                # without a category is a configuration error — fail loud.
+                if auto_create_asset and not asset_category_obj:
+                    errors.append(
+                        f"Row {row_num}: auto_create_asset=true requires a non-empty "
+                        f"asset_category column referencing a live Asset Category code."
+                    )
+                    continue
+
                 if Account.objects.filter(code=code).exists():
                     skipped_count += 1
                     continue
@@ -195,6 +342,8 @@ class AccountViewSet(viewsets.ModelViewSet):
                     is_active=is_active,
                     is_reconciliation=is_reconciliation,
                     reconciliation_type=reconciliation_type,
+                    auto_create_asset=auto_create_asset,
+                    asset_category=asset_category_obj,
                 )
                 created_count += 1
 
@@ -206,6 +355,182 @@ class AccountViewSet(viewsets.ModelViewSet):
             'created': created_count,
             'skipped': skipped_count,
             'errors': errors,
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-reconcile')
+    def bulk_reconcile(self, request):
+        """
+        Mark (or clear) multiple GL accounts as Reconciliation accounts.
+
+        Request body:
+            ids: list[int]                 — account ids to update (max 200)
+            reconciliation_type: str|null  — one of accounts_payable,
+                                             accounts_receivable, inventory,
+                                             asset_accounting, bank_accounting.
+                                             Empty/null/missing = clear flag.
+
+        Behaviour:
+            * Asset / Liability accounts get is_reconciliation=True with the
+              chosen sub-type (or False if cleared). All other account types
+              are silently skipped — reconciliation is only meaningful for
+              Asset and Liability per the existing form / model rules.
+            * Per-row save() so signals (audit log, cache invalidation) fire.
+            * Returns counts and a list of skipped {id, code, account_type}
+              so the UI can surface partial-success cleanly.
+        """
+        ids = request.data.get('ids', [])
+        if not ids:
+            return Response(
+                {'error': 'No account IDs provided.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(ids) > 200:
+            return Response(
+                {'error': 'Maximum 200 items per bulk reconcile.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recon_type = (request.data.get('reconciliation_type') or '').strip()
+        valid_types = {
+            'accounts_payable', 'accounts_receivable',
+            'inventory', 'asset_accounting', 'bank_accounting',
+        }
+        clearing = (recon_type == '')
+        if not clearing and recon_type not in valid_types:
+            return Response(
+                {
+                    'error': (
+                        f"Invalid reconciliation_type '{recon_type}'. "
+                        f"Must be one of: {', '.join(sorted(valid_types))} (or empty to clear)."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        accounts = list(Account.objects.filter(id__in=ids))
+        updated = 0
+        skipped: list[dict] = []
+        with transaction.atomic():
+            for acc in accounts:
+                # Reconciliation is only valid on Asset / Liability rows
+                # (mirrors the per-row form rule and Account.clean() intent).
+                if acc.account_type not in ('Asset', 'Liability'):
+                    skipped.append({
+                        'id': acc.id,
+                        'code': acc.code,
+                        'account_type': acc.account_type,
+                    })
+                    continue
+                if clearing:
+                    acc.is_reconciliation = False
+                    acc.reconciliation_type = ''
+                else:
+                    acc.is_reconciliation = True
+                    acc.reconciliation_type = recon_type
+                acc.save(update_fields=['is_reconciliation', 'reconciliation_type'])
+                updated += 1
+
+        return Response({
+            'status': (
+                f'Cleared reconciliation flag on {updated} account(s).'
+                if clearing else
+                f'Marked {updated} account(s) as {recon_type} reconciliation.'
+            ),
+            'updated': updated,
+            'skipped_count': len(skipped),
+            'skipped': skipped,
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-set-auto-asset')
+    def bulk_set_auto_asset(self, request):
+        """
+        Mass-set (or clear) the IPSAS asset auto-capitalisation flag on
+        multiple GL accounts.
+
+        Request body:
+            ids: list[int]            — account ids to update (max 200)
+            asset_category_id: int|null
+                                     — Asset Category PK to link. If null/missing
+                                       the toggle is cleared (auto_create_asset=False
+                                       AND asset_category=NULL).
+                                       If set, the category must exist and be
+                                       active; auto_create_asset is forced to True.
+
+        Behaviour:
+            * Per-row save() so signals fire and audit trail is consistent.
+            * No GL-series restriction (intentional — eligibility is data-
+              driven via the per-account toggle, not a hardcoded prefix).
+            * Returns counts plus a list of skipped {id, code, reason} so
+              the UI can surface partial-success cleanly.
+        """
+        ids = request.data.get('ids', [])
+        if not ids:
+            return Response(
+                {'error': 'No account IDs provided.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(ids) > 200:
+            return Response(
+                {'error': 'Maximum 200 items per bulk update.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cat_id = request.data.get('asset_category_id')
+        clearing = (cat_id in (None, '', 0))
+        category = None
+        if not clearing:
+            from accounting.models.assets import AssetCategory
+            try:
+                category = AssetCategory.objects.get(id=int(cat_id), is_active=True)
+            except (ValueError, TypeError, AssetCategory.DoesNotExist):
+                return Response(
+                    {
+                        'error': (
+                            f"Asset Category id={cat_id} not found or inactive. "
+                            f"Pick an active category from Settings → Asset Categories."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not category.cost_account_id:
+                return Response(
+                    {
+                        'error': (
+                            f"Asset Category '{category.name}' has no cost account configured. "
+                            f"Set the Cost Account on the category before flagging GL accounts to it."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        accounts = list(Account.objects.filter(id__in=ids))
+        updated = 0
+        skipped: list[dict] = []
+        with transaction.atomic():
+            for acc in accounts:
+                if clearing:
+                    acc.auto_create_asset = False
+                    acc.asset_category = None
+                else:
+                    acc.auto_create_asset = True
+                    acc.asset_category = category
+                acc.save(update_fields=['auto_create_asset', 'asset_category'])
+                updated += 1
+
+        return Response({
+            'status': (
+                f'Cleared asset auto-capitalisation flag on {updated} account(s).'
+                if clearing else
+                f"Marked {updated} account(s) for auto-capitalisation to category "
+                f"'{category.code} — {category.name}'."
+            ),
+            'updated': updated,
+            'skipped_count': len(skipped),
+            'skipped': skipped,
+            'category': (
+                None if clearing else
+                {'id': category.id, 'code': category.code, 'name': category.name}
+            ),
         })
 
     @action(detail=False, methods=['post'], url_path='bulk-delete')
@@ -242,11 +567,25 @@ class JournalViewSet(viewsets.ModelViewSet):
     pagination_class = AccountingPagination
 
     def get_queryset(self):
-        # Annotate total_debit and total_credit for ordering support
-        return super().get_queryset().annotate(
+        # Annotate total_debit and total_credit for ordering support.
+        # Default ordering: most-recently-saved first (by pk desc). A
+        # just-saved draft must always land at the top of the list even
+        # when its posting_date is in the past — users expect "where did
+        # the thing I just clicked Save on go" to mean row #1. ``-id``
+        # is a reliable proxy for insertion order since pks are
+        # monotonically assigned. ``-posting_date`` is kept as a
+        # secondary tiebreaker for deterministic ordering across equal
+        # pk ranges (e.g. legacy-imported journals with sequential pks).
+        qs = super().get_queryset().annotate(
             total_debit=Coalesce(Sum('lines__debit'), Decimal('0'), output_field=DecimalField()),
             total_credit=Coalesce(Sum('lines__credit'), Decimal('0'), output_field=DecimalField())
         )
+        # Only apply the default ordering when the request hasn't asked
+        # for something specific via ?ordering= — otherwise the user's
+        # column-click sort would be clobbered.
+        if not self.request.query_params.get('ordering'):
+            qs = qs.order_by('-id', '-posting_date')
+        return qs
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -401,17 +740,16 @@ class JournalViewSet(viewsets.ModelViewSet):
                 journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
                 journal.save(update_fields=['document_number'], _allow_status_change=True)
 
-            # Budget validation for expense transactions (debits).
-            # Policy is driven by the tenant's BudgetCheckRule set — see
-            # accounting/services/budget_check_rules.py. The rule that
-            # covers this GL code dictates:
-            #   NONE    → skip check entirely
-            #   WARNING → post but record a warning (UI-surfaced)
-            #   STRICT  → block when no appropriation / over-budget
+            # Budget validation — rule-driven.
+            # The tenant's BudgetCheckRule set dictates the behaviour per
+            # GL-range. STRICT rules apply to EVERY posting that lands in
+            # the range (debit or credit, any account_type). WARNING rules
+            # fire when an expense-side line would push utilisation over
+            # the threshold. NONE rules are skipped entirely.
             budget_violations = []
             budget_warnings = []
             from accounting.services.budget_check_rules import (
-                check_policy, find_matching_appropriation,
+                check_policy, find_matching_appropriation, resolve_rule_for_account,
             )
 
             for line in journal.lines.all():
@@ -419,8 +757,36 @@ class JournalViewSet(viewsets.ModelViewSet):
                     line.document_number = journal.document_number
                     line.save(update_fields=['document_number'])
 
-                # Only expense debits are candidates for the check
-                if skip_budget_check or not (line.account.account_type == 'Expense' and line.debit and line.debit > 0):
+                if skip_budget_check:
+                    continue
+
+                # The "amount in play" for policy — debit if it's a debit
+                # line, credit if credit, else zero. Strict policies gate
+                # *any* non-zero touch on a covered GL; warning utilisation
+                # computations use the expense-side amount (debit).
+                amt = (line.debit or Decimal('0')) + (line.credit or Decimal('0'))
+                if amt <= 0:
+                    continue
+
+                # Budget consumption is a DEBIT-side concept; credits on
+                # any GL release / reverse budget rather than consume it.
+                # Skipping credits here means a correcting journal that
+                # credits an expense GL succeeds even when no appropriation
+                # matches the line — which is the correct behaviour for
+                # reversals. Mirrors the same skip in the signal handler
+                # in accounting/signals/budget_enforcement.py.
+                if not (line.debit and line.debit > 0):
+                    continue
+
+                # Short-circuit: if no rule covers this GL, we follow the
+                # legacy behaviour — only gate Expense-debit lines via the
+                # UnifiedBudget encumbrance path. Anything outside every
+                # rule is "uncontrolled" by design.
+                rule = resolve_rule_for_account(line.account.code)
+                if rule is None and not (
+                    line.account.account_type == 'Expense'
+                    and line.debit and line.debit > 0
+                ):
                     continue
 
                 # ── Rule-driven policy evaluation ──────────────
@@ -433,14 +799,15 @@ class JournalViewSet(viewsets.ModelViewSet):
                 result = check_policy(
                     account_code=line.account.code,
                     appropriation=appropriation,
-                    requested_amount=line.debit,
+                    requested_amount=line.debit or Decimal('0'),
                     transaction_label='journal',
+                    account_name=line.account.name,
                 )
                 if result.blocked:
                     budget_violations.append({
                         'account': line.account.code,
                         'account_name': line.account.name,
-                        'requested': str(line.debit),
+                        'requested': str(line.debit or line.credit),
                         'level': result.level,
                         'message': result.reason,
                     })
@@ -450,6 +817,53 @@ class JournalViewSet(viewsets.ModelViewSet):
                         f'[{line.account.code}] {w}' for w in result.warnings
                     ])
 
+                # ── Warrant / AIE ceiling check ─────────────────
+                # PFM law (Nigerian Finance Regulations §§ 400–417, PFM
+                # Act 2007) requires a released warrant BEFORE expenditure
+                # recognition. check_policy() above covered the annual
+                # appropriation; this block covers the quarterly warrant.
+                # Applies only to expense-side debits that have a matching
+                # appropriation and a STRICT policy — WARNING / NONE ranges
+                # intentionally skip because an un-warranted posting on a
+                # non-strict GL is still the legitimate default for many
+                # statutory heads. Tenant-level ``enforce_warrant`` flag
+                # is the master switch — tenants that haven't digitised
+                # warrant issuance yet see no change in behaviour.
+                # Statutory-source JVs (debt service, pensions payroll,
+                # judicial salaries) carry standing warrants under
+                # Constitution §81(2) — whitelisted via source_module.
+                STATUTORY_SOURCES = {
+                    'debt_service', 'pension_payroll', 'pensions',
+                    'judicial_salary', 'statutory_charge', 'cfs',
+                }
+                if (
+                    result.level == 'STRICT'
+                    and appropriation is not None
+                    and line.account.account_type == 'Expense'
+                    and line.debit and line.debit > 0
+                    and (journal.source_module or '') not in STATUTORY_SOURCES
+                ):
+                    from budget.services import _is_warrant_enforced
+                    from accounting.budget_logic import (
+                        check_warrant_availability,
+                        is_warrant_pre_payment_enforced,
+                    )
+                    if _is_warrant_enforced() and is_warrant_pre_payment_enforced():
+                        warrant_ok, warrant_msg, _info = check_warrant_availability(
+                            dimensions={'mda': journal.mda, 'fund': journal.fund},
+                            account=line.account,
+                            amount=line.debit,
+                        )
+                        if not warrant_ok:
+                            budget_violations.append({
+                                'account': line.account.code,
+                                'account_name': line.account.name,
+                                'requested': str(line.debit),
+                                'level': 'WARRANT',
+                                'message': warrant_msg,
+                            })
+                            continue
+
                 # ── Encumbrance bookkeeping ─────────────────────
                 # NOTE: STRICT/WARNING gate decisions are already made by
                 # check_policy() above. The UnifiedBudget path below no
@@ -457,6 +871,8 @@ class JournalViewSet(viewsets.ModelViewSet):
                 # for reporting on accounts that carry a UnifiedBudget row.
                 if result.level == 'NONE':
                     continue
+                if line.account.account_type != 'Expense' or not (line.debit and line.debit > 0):
+                    continue  # encumbrances are expense-side only
                 budget = UnifiedBudget.get_budget_for_transaction(
                     dimensions={'fund': journal.fund, 'mda': journal.mda},
                     account=line.account,
@@ -485,83 +901,121 @@ class JournalViewSet(viewsets.ModelViewSet):
                     'detail': '; '.join(v['message'] for v in budget_violations),
                 })
 
+            # ── IPSAS Asset Auto-Capitalisation (SAP-style sub-ledger) ────
+            # Delegated to the shared service so every posting path
+            # (Journal, AP Invoice, GRN, Payment Voucher) ends up with the
+            # same audit trail, the same contra-entries, and the same
+            # FixedAsset record shape. See accounting/services/asset_capitalization.py
+            # for the full design rationale.
+            from accounting.services.asset_capitalization import apply_asset_capitalization
+            auto_assets_created = apply_asset_capitalization(journal)
+
             # Post to GL balances (atomic F()-based)
             from accounting.services import update_gl_from_journal
             update_gl_from_journal(journal)
+
+            # The service already logs internally; nothing further needed
+            # here. ``auto_assets_created`` is a list of dicts with keys
+            # source_gl / recon_gl / asset_number / amount / name — used
+            # by the bulk-post UI to surface a per-asset success summary.
+
+            # NOTE: Appropriation totals are refreshed by the JournalHeader
+            # post-save signal (accounting/signals/budget_enforcement.py).
+            # Doing it here would be premature — the journal is still
+            # 'Draft' at this point and total_expended only sums
+            # status='Posted' lines. Post-save fires after the caller
+            # flips status to 'Posted', which is the correct moment.
 
             # Attach any non-blocking warnings to the journal's meta so the
             # caller (post_journal action) can include them in its response.
             if budget_warnings:
                 journal._budget_warnings = budget_warnings
 
-    @action(detail=True, methods=['post'])
-    def post_journal(self, request, pk=None):
-        """Post journal entry to GL balances in real-time."""
+    def _perform_post(self, journal, user):
+        """
+        Core posting routine — shared by ``post_journal`` (per-row) and
+        ``bulk_post``. Validates period, balance, line presence; writes
+        GL balances; runs asset auto-capitalisation; flips status.
+
+        Returns a success-payload dict on completion. Raises on failure
+        — the caller is responsible for catching and shaping the
+        response (per-row returns a 400 Response, bulk returns a per-row
+        ``failed`` entry and continues).
+        """
         from accounting.models import BudgetPeriod
 
-        journal = self.get_object()
-
         if journal.status == 'Posted':
-            return Response(
-                {"error": "Journal is already posted."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValueError('Journal is already posted.')
 
         # Validate period is open for posting
         period = BudgetPeriod.get_period_for_date(journal.posting_date)
         if period and not period.can_post():
-            return Response(
-                {"error": f"Cannot post to period {period}. Period status is: {period.get_status_display()}"},
-                status=status.HTTP_400_BAD_REQUEST
+            raise ValueError(
+                f"Cannot post to period {period}. "
+                f"Period status is: {period.get_status_display()}"
             )
 
-        # Validate journal is balanced
+        # Validate balance
         total_debit = journal.lines.aggregate(total=Sum('debit'))['total'] or 0
         total_credit = journal.lines.aggregate(total=Sum('credit'))['total'] or 0
-
         if total_debit != total_credit:
-            return Response(
-                {"error": f"Cannot post unbalanced journal. Debits: {total_debit}, Credits: {total_credit}"},
-                status=status.HTTP_400_BAD_REQUEST
+            raise ValueError(
+                f"Cannot post unbalanced journal. Debits: {total_debit}, Credits: {total_credit}"
             )
 
-        # Validate journal has lines
+        # Validate has lines
         if not journal.lines.exists():
-            return Response(
-                {"error": "Cannot post journal with no lines."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValueError('Cannot post journal with no lines.')
 
+        # Post to GL — this writes GLBalance rows AND, for any line whose
+        # account has auto_create_asset=True, auto-creates a FixedAsset and
+        # reroutes the GL debit to the asset category's cost account.
+        self._post_to_gl(journal, user)
+
+        # Mark inline-checked so the pre-save signal doesn't re-evaluate
+        # the same budget policy when we flip status. _totals_refreshed
+        # must NOT be set — the post-save signal needs to run after the
+        # status flip so total_expended (filtered on status='Posted')
+        # picks up the new posting.
+        journal._budget_checked = True
+
+        # Status change requires the explicit save kwarg — the model's
+        # save() guard refuses other modifications after Posted to keep
+        # audit trail integrity.
+        journal.status = 'Posted'
+        journal.save(_allow_status_change=True)
+
+        # Bust cached reports for this fiscal year.
         try:
-            # Post to GL
-            self._post_to_gl(journal, request.user)
+            from accounting.services.report_cache import invalidate_period_reports
+            invalidate_period_reports(fiscal_year=journal.posting_date.year)
+        except Exception:
+            pass
 
-            # Update status
-            journal.status = 'Posted'
-            journal.save(_allow_status_change=True)
+        return {
+            'journal_id': journal.id,
+            'total_debit': total_debit,
+            'total_credit': total_credit,
+            'fiscal_year': journal.posting_date.year,
+            'period': journal.posting_date.month,
+            'warnings': getattr(journal, '_budget_warnings', []),
+        }
 
-            # P6-T4 — bust cached reports for this fiscal year so the next
-            # dashboard load reflects the newly-posted journal.
-            try:
-                from accounting.services.report_cache import invalidate_period_reports
-                invalidate_period_reports(fiscal_year=journal.posting_date.year)
-            except Exception:
-                pass
-
-            return Response({
-                "status": "Journal posted successfully.",
-                "journal_id": journal.id,
-                "total_debit": total_debit,
-                "total_credit": total_credit,
-                "fiscal_year": journal.posting_date.year,
-                "period": journal.posting_date.month,
-                # Non-blocking budget warnings from the rule-driven policy
-                # (e.g. "Appropriation utilisation 87% is at or above the
-                # 80% warning threshold"). UI surfaces as a yellow banner.
-                "warnings": getattr(journal, '_budget_warnings', []),
-            })
+    @action(detail=True, methods=['post'])
+    def post_journal(self, request, pk=None):
+        """Post journal entry to GL balances in real-time."""
+        journal = self.get_object()
+        try:
+            payload = self._perform_post(journal, request.user)
+            return Response({'status': 'Journal posted successfully.', **payload})
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            from accounting.services.posting_errors import format_post_error
+            return Response(
+                format_post_error(e, context='journal entry'),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def unpost_journal(self, request, pk=None):
@@ -626,6 +1080,26 @@ class JournalViewSet(viewsets.ModelViewSet):
                     gl_balances_reversed=reversed_balances
                 )
 
+                # ── IPSAS Asset Auto-Capitalisation reversal (Phase 3) ─────
+                # Mark any FixedAsset created by this journal's lines as
+                # 'Retired' so the asset register reflects the reversal.
+                # We don't hard-delete because depreciation rows or disposal
+                # journals may already reference the asset; soft-retiring
+                # preserves audit trail. The original line's account/asset
+                # FK are left in place for the same reason — the reversal
+                # log shows what happened, not erases it.
+                from accounting.models.assets import FixedAsset
+                auto_assets = FixedAsset.objects.filter(
+                    created_from_journal_line__header=journal,
+                    status='Active',
+                )
+                retired_count = auto_assets.update(status='Retired')
+                if retired_count:
+                    logger.info(
+                        'Auto-capitalisation reversal: journal=%s retired %d asset(s).',
+                        journal.document_number, retired_count,
+                    )
+
             # P6-T4 — bust cached reports; the unpost removed GL balances.
             try:
                 from accounting.services.report_cache import invalidate_period_reports
@@ -657,6 +1131,75 @@ class JournalViewSet(viewsets.ModelViewSet):
         count = journals.count()
         journals.delete()
         return Response({'status': f'{count} journal(s) deleted successfully', 'deleted': count})
+
+    @action(detail=False, methods=['post'], url_path='bulk-post')
+    def bulk_post(self, request):
+        """
+        Bulk-post Draft journals to the General Ledger.
+
+        Reuses the per-row ``post_journal`` action on each journal so all
+        validations (balance, period-open, budget-check, dimension-required)
+        fire identically — no shortcut paths. Continues on individual
+        failures and returns a per-row breakdown:
+
+            {
+                "posted":  N,
+                "skipped": M,
+                "failed":  [{"id": …, "reference": …, "error": …}, …]
+            }
+
+        OrganizationFilterMixin scoping carries through via the queryset
+        filter, so SEPARATED-mode users can only post their own MDA's
+        drafts. Eligible rows: status == 'Draft' only — anything else is
+        silently skipped (it's already past Draft).
+        """
+        ids = request.data.get('ids', [])
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {'error': 'Provide a non-empty "ids" list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(ids) > 100:
+            return Response(
+                {'error': 'Maximum 100 items per bulk post.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        clean_ids: list[int] = []
+        for raw in ids:
+            try:
+                clean_ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+
+        scoped = JournalHeader.objects.filter(id__in=clean_ids)
+        draft_journals = list(scoped.filter(status='Draft'))
+        skipped_count = scoped.exclude(status='Draft').count()
+
+        posted_ids: list[int] = []
+        failed: list[dict] = []
+        for journal in draft_journals:
+            # Re-use the *exact* per-row posting path — same validations,
+            # same _post_to_gl call (asset auto-capitalisation included),
+            # same status-change-with-allow flag. Without this, bulk-post
+            # would (a) skip asset auto-create on 23xxxxxx GLs, and (b)
+            # be rejected by the JournalHeader.save() audit guard which
+            # forbids modifications without _allow_status_change=True.
+            try:
+                self._perform_post(journal, request.user)
+                posted_ids.append(journal.id)
+            except Exception as exc:  # noqa: BLE001
+                failed.append({
+                    'id': journal.id,
+                    'reference': journal.reference_number or f'JE-{journal.id}',
+                    'error': str(exc),
+                })
+
+        return Response({
+            'posted': len(posted_ids),
+            'skipped': skipped_count,
+            'failed': failed,
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):

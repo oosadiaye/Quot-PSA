@@ -236,52 +236,217 @@ class BudgetViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def variance_analysis(self, request):
-        """Get budget vs actual variance analysis - Optimized with aggregation"""
+        """Budget vs Actual variance analysis — sourced from Appropriation.
+
+        Returns one row per active Appropriation for the requested period's
+        fiscal year. Reads the denormalised ``cached_total_committed`` and
+        ``cached_total_expended`` columns so every JV / PO / AP invoice / PV
+        that has been posted (via any module) is reflected immediately —
+        the ``JournalHeader`` post-save signal keeps the cache current.
+
+        Query params:
+          * ``period`` — BudgetPeriod id. Fiscal year is derived from the
+            period and used to filter Appropriation rows.
+          * ``mda`` — optional: filter to one administrative segment.
+          * ``fund`` — optional: filter to one fund segment.
+          * ``compare_to`` — optional: a second BudgetPeriod id. Currently
+            reserved for future period-over-period diffs; ignored by the
+            core table payload.
+
+        Status buckets (IPSAS execution-rate convention):
+          * UNDER    — utilisation < 70 % (risk of unused funds)
+          * ON_TRACK — 70 % ≤ utilisation ≤ 95 %
+          * OVER     — utilisation > 95 % (no headroom, virement likely)
+        """
+        from budget.models import Appropriation
+        from accounting.models import BudgetPeriod
 
         period_id = request.query_params.get('period')
         if not period_id:
-            return Response({"error": "period parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "period parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            period = BudgetPeriod.objects.get(pk=period_id)
+        except BudgetPeriod.DoesNotExist:
+            return Response(
+                {"error": f"BudgetPeriod {period_id} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        # Optimized: Use select_related to reduce queries
-        budgets = self.get_queryset().filter(
-            period_id=period_id
-        ).select_related('account', 'mda', 'fund', 'function', 'program', 'geo')
+        mda_id = request.query_params.get('mda')
+        fund_id = request.query_params.get('fund')
 
-        # Pre-fetch encumbrance totals in one query
-        encumbrance_totals = BudgetEncumbrance.objects.filter(
-            budget__period_id=period_id,
-            status__in=['ACTIVE', 'PARTIALLY_LIQUIDATED']
-        ).values('budget_id').annotate(
-            total=Sum(F('amount') - F('liquidated_amount'))
-        )
-        encumbrance_map = {e['budget_id']: e['total'] or Decimal('0') for e in encumbrance_totals}
+        apros = Appropriation.objects.filter(
+            status__iexact='ACTIVE',
+            fiscal_year__year=period.fiscal_year,
+        ).select_related('administrative', 'economic', 'fund', 'fiscal_year')
+
+        if mda_id:
+            # administrative.legacy_mda_id bridges the legacy MDA FK the
+            # frontend dropdown emits onto the NCoA AdministrativeSegment.
+            apros = apros.filter(
+                Q(administrative_id=mda_id)
+                | Q(administrative__legacy_mda_id=mda_id),
+            )
+        if fund_id:
+            apros = apros.filter(
+                Q(fund_id=fund_id) | Q(fund__legacy_fund_id=fund_id),
+            )
 
         analysis = []
-        for budget in budgets:
-            allocated = budget.revised_amount if budget.revised_amount else budget.allocated_amount
-            encumbered = encumbrance_map.get(budget.id, Decimal('0'))
+        for a in apros:
+            allocated = a.amount_approved or Decimal('0')
+            # Revised carries supplementary amendments when present.
+            revised = getattr(a, 'revised_amount', None) or allocated
 
-            # Calculate expended from property (this still has a query but less critical)
-            expended = budget.expended_amount
-            available = allocated - encumbered - expended
-            variance_pct = (available / allocated * 100) if allocated else 0
+            # Prefer cached totals; fall through to live computation only
+            # when the cache row has never been populated.
+            committed = a.cached_total_committed
+            if committed is None:
+                committed = a.total_committed
+            expended = a.cached_total_expended
+            if expended is None:
+                expended = a.total_expended
+            committed = committed or Decimal('0')
+            expended = expended or Decimal('0')
+
+            total_used = committed + expended
+            available = revised - total_used
+            if revised and revised > 0:
+                util_pct = (total_used / revised) * Decimal('100')
+                variance_pct = (available / revised) * Decimal('100')
+            else:
+                util_pct = Decimal('0')
+                variance_pct = Decimal('0')
+
+            if util_pct > Decimal('95'):
+                row_status = 'OVER'
+            elif util_pct >= Decimal('70'):
+                row_status = 'ON_TRACK'
+            else:
+                row_status = 'UNDER'
 
             analysis.append({
-                'id': budget.id,
-                'budget_code': budget.budget_code,
-                'account': budget.account.code,
-                'account_name': budget.account.name,
-                'mda': budget.mda.name,
-                'allocated': allocated,
-                'encumbered': encumbered,
-                'expended': expended,
-                'available': available,
-                'variance': available,
-                'variance_percentage': round(variance_pct, 2),
-                'utilization_rate': round(((encumbered + expended) / allocated * 100) if allocated else 0, 2)
+                'id': a.pk,
+                'budget_code': (
+                    f"{a.administrative.code}/{a.economic.code}/{a.fund.code}"
+                ),
+                'account_code': a.economic.code,
+                'account_name': a.economic.name,
+                'mda': a.administrative.name,
+                'mda_code': a.administrative.code,
+                'fund': a.fund.name,
+                'fiscal_year': period.fiscal_year,
+                'allocated': str(allocated),
+                'revised': str(revised),
+                'encumbered': str(committed),
+                'expended': str(expended),
+                'total_used': str(total_used),
+                'available': str(available),
+                'variance_amount': str(available),
+                'variance_percentage': str(variance_pct.quantize(Decimal('0.01'))),
+                'utilization_rate': str(util_pct.quantize(Decimal('0.01'))),
+                'status': row_status,
             })
 
+        # Sort by utilisation descending so OVERs surface first.
+        analysis.sort(
+            key=lambda r: Decimal(r['utilization_rate']),
+            reverse=True,
+        )
+
         return Response(analysis)
+
+    @action(detail=False, methods=['get'], url_path='variance_summary')
+    def variance_summary(self, request):
+        """Portfolio-level KPI for the Variance Analysis page.
+
+        Aggregates the same Appropriation universe as ``variance_analysis``
+        and returns top-level totals + status distribution for the KPI
+        cards that sit above the detail table.
+        """
+        from budget.models import Appropriation
+        from accounting.models import BudgetPeriod
+
+        period_id = request.query_params.get('period')
+        if not period_id:
+            return Response(
+                {"error": "period parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            period = BudgetPeriod.objects.get(pk=period_id)
+        except BudgetPeriod.DoesNotExist:
+            return Response(
+                {"error": f"BudgetPeriod {period_id} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        apros = Appropriation.objects.filter(
+            status__iexact='ACTIVE',
+            fiscal_year__year=period.fiscal_year,
+        )
+        mda_id = request.query_params.get('mda')
+        fund_id = request.query_params.get('fund')
+        if mda_id:
+            apros = apros.filter(
+                Q(administrative_id=mda_id)
+                | Q(administrative__legacy_mda_id=mda_id),
+            )
+        if fund_id:
+            apros = apros.filter(
+                Q(fund_id=fund_id) | Q(fund__legacy_fund_id=fund_id),
+            )
+
+        total_allocated = Decimal('0')
+        total_committed = Decimal('0')
+        total_expended = Decimal('0')
+        buckets = {'UNDER': 0, 'ON_TRACK': 0, 'OVER': 0}
+        row_count = 0
+        for a in apros.only(
+            'amount_approved', 'cached_total_committed',
+            'cached_total_expended',
+        ):
+            allocated = a.amount_approved or Decimal('0')
+            committed = a.cached_total_committed or Decimal('0')
+            expended = a.cached_total_expended or Decimal('0')
+            total_allocated += allocated
+            total_committed += committed
+            total_expended += expended
+            used = committed + expended
+            if allocated and allocated > 0:
+                pct = (used / allocated) * Decimal('100')
+            else:
+                pct = Decimal('0')
+            if pct > Decimal('95'):
+                buckets['OVER'] += 1
+            elif pct >= Decimal('70'):
+                buckets['ON_TRACK'] += 1
+            else:
+                buckets['UNDER'] += 1
+            row_count += 1
+
+        total_used = total_committed + total_expended
+        total_available = total_allocated - total_used
+        if total_allocated and total_allocated > 0:
+            overall_util = (total_used / total_allocated) * Decimal('100')
+        else:
+            overall_util = Decimal('0')
+
+        return Response({
+            'fiscal_year': period.fiscal_year,
+            'period_id': period.pk,
+            'appropriation_count': row_count,
+            'total_allocated': str(total_allocated),
+            'total_committed': str(total_committed),
+            'total_expended': str(total_expended),
+            'total_used': str(total_used),
+            'total_available': str(total_available),
+            'overall_utilization_pct': str(overall_util.quantize(Decimal('0.01'))),
+            'status_counts': buckets,
+        })
 
     @action(detail=False, methods=['get'])
     def bulk_export(self, request):

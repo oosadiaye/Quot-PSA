@@ -291,6 +291,46 @@ export const useRejectPR = () => {
     });
 };
 
+export const useUpdatePR = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, data }: { id: number; data: PurchaseRequestPayload }) => {
+            const { data: result } = await apiClient.patch(`/procurement/requests/${id}/`, data);
+            return result;
+        },
+        onSuccess: (_data, { id }) => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-request', id] });
+        },
+    });
+};
+
+export const useBulkApprovePR = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (ids: number[]) => {
+            const { data } = await apiClient.post('/procurement/requests/bulk_approve/', { ids });
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+        },
+    });
+};
+
+export const useBulkDeletePR = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (ids: number[]) => {
+            const { data } = await apiClient.post('/procurement/requests/bulk_delete/', { ids });
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+        },
+    });
+};
+
 export const useConvertPRtoPO = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -345,6 +385,18 @@ export const useCreatePO = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+            // Creating a PO that links to a PR changes the PR's
+            // serialised ``active_po_id`` / ``active_po_number`` /
+            // ``active_po_status`` fields (computed by the
+            // PurchaseRequest serializer from existing
+            // non-Rejected POs). Without this invalidation the PR
+            // list keeps the cached pre-conversion snapshot —
+            // ``active_po_id=null`` — and the UI keeps showing the
+            // "Convert to PO" button on a PR that was already
+            // converted via the POForm flow at
+            // /procurement/orders/new.
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-request'] });
         },
     });
 };
@@ -356,6 +408,19 @@ export const usePostPO = () => {
             const { data } = await apiClient.post(`/procurement/orders/${id}/post_order/`);
             return data;
         },
+        onMutate: async (id: number) => {
+            // Cancel any in-flight refetches so they don't overwrite the optimistic update.
+            await queryClient.cancelQueries({ queryKey: ['purchase-orders'] });
+            // Optimistically flip the PO to Posted so the Post button disappears
+            // immediately — prevents double-click before the network round-trip completes.
+            queryClient.setQueriesData({ queryKey: ['purchase-orders'] }, (old: any) => {
+                if (!old) return old;
+                const patch = (item: any) => item.id === id ? { ...item, status: 'Posted' } : item;
+                if (Array.isArray(old)) return old.map(patch);
+                if (old?.results) return { ...old, results: old.results.map(patch) };
+                return old;
+            });
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
             queryClient.invalidateQueries({ queryKey: ['journals'] });
@@ -366,6 +431,10 @@ export const usePostPO = () => {
             // PO posting records DR Inventory / CR AP and increments vendor.balance
             queryClient.invalidateQueries({ queryKey: ['vendors'] });
             queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
+        },
+        onError: () => {
+            // Roll back the optimistic update by forcing a refetch.
+            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
         },
     });
 };
@@ -411,6 +480,16 @@ export const useRejectPO = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
             queryClient.invalidateQueries({ queryKey: ['purchase-order'] });
+            // Rejecting a PO drops it from the PR serializer's
+            // ``_active_po`` query (it filters
+            // ``.exclude(status='Rejected')``), which flips
+            // ``active_po_id`` back to null. Without these
+            // invalidations the PR list would keep showing the
+            // stale "View {po_number}" link instead of restoring
+            // the "Convert to PO" button so the PR can be
+            // re-converted.
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['purchase-request'] });
         },
     });
 };
@@ -768,6 +847,40 @@ export const usePostMatching = () => {
             // Cross-module invalidation: VI posting affects journals, AP, budget.
             queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
             queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['vendors'] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-encumbrances'] });
+            queryClient.invalidateQueries({ queryKey: ['budget-execution-report'] });
+        },
+    });
+};
+
+/**
+ * Reverse a posted Invoice Verification.
+ *
+ * Calls the backend ``reverse`` action which writes a REV-* journal,
+ * flips the vendor invoice back to Approved, and reopens the budget
+ * commitment. Required body: ``{ reason }``. The backend rejects empty
+ * reasons and reversals of already-reversed journals.
+ */
+export const useReverseMatching = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+            const { data } = await apiClient.post(
+                `/procurement/invoice-matching/${id}/reverse/`,
+                { reason },
+            );
+            return data;
+        },
+        onSuccess: (_data, vars) => {
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            queryClient.invalidateQueries({ queryKey: ['invoice-matching', vars.id] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['journal'] });
             queryClient.invalidateQueries({ queryKey: ['vendors'] });
             queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
             queryClient.invalidateQueries({ queryKey: ['budget-summary'] });

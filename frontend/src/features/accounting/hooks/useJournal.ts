@@ -106,6 +106,25 @@ export const useUnpostJournal = () => {
     });
 };
 
+/**
+ * Full update of a Draft journal: header + lines.
+ * Backend (core_gl.py:332) rejects with 400 if journal.status === 'Posted',
+ * so this hook is only useful while the journal is still Draft.
+ */
+export const useUpdateJournal = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, payload }: { id: number; payload: Record<string, unknown> }) => {
+            const { data } = await apiClient.put(`/accounting/journals/${id}/`, payload);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+        },
+    });
+};
+
 export const useUpdateJournalDescription = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -139,6 +158,31 @@ export const useBulkDeleteJournals = () => {
         mutationFn: async (ids: number[]) => {
             const { data } = await apiClient.post('/accounting/journals/bulk-delete/', { ids });
             return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['journals'] });
+            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+        },
+    });
+};
+
+/**
+ * Bulk-post draft journals to the General Ledger.
+ *
+ * Server returns ``{ posted, skipped, failed: [{id, reference, error}] }``.
+ * The mutation does not throw on partial failures — callers should
+ * inspect the response to surface per-row errors to the user.
+ */
+export const useBulkPostJournals = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (ids: number[]) => {
+            const { data } = await apiClient.post('/accounting/journals/bulk-post/', { ids });
+            return data as {
+                posted: number;
+                skipped: number;
+                failed: Array<{ id: number; reference: string; error: string }>;
+            };
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['journals'] });
@@ -192,23 +236,57 @@ export const useBulkImportJournals = () => {
     });
 };
 
+/**
+ * Tolerant response unwrapper: handles both DRF's paginated envelope
+ * ``{count, results: [...]}`` and plain-array shapes some lightweight
+ * endpoints return. Also survives a 4xx by defaulting to ``[]`` rather
+ * than letting one bad endpoint take the whole hook down.
+ */
+function _unwrapList<T = unknown>(resp: unknown): T[] {
+    const data = (resp as { data?: unknown })?.data;
+    if (Array.isArray(data)) return data as T[];
+    const results = (data as { results?: unknown })?.results;
+    return Array.isArray(results) ? (results as T[]) : [];
+}
+
 export const useDimensions = () => {
     return useQuery({
         queryKey: ['dimensions'],
         queryFn: async () => {
-            const [funds, functions, programs, geos, accounts] = await Promise.all([
-                apiClient.get('/accounting/funds/', { params: { page_size: 9999 } }),
-                apiClient.get('/accounting/functions/', { params: { page_size: 9999 } }),
-                apiClient.get('/accounting/programs/', { params: { page_size: 9999 } }),
-                apiClient.get('/accounting/geos/', { params: { page_size: 9999 } }),
-                apiClient.get('/accounting/accounts/', { params: { page_size: 9999 } }),
+            // ``Promise.allSettled`` so a single misbehaving dimension
+            // endpoint (e.g. /accounting/funds/ returning 500 because a
+            // tenant hasn't run the legacy bridge yet) doesn't blank out
+            // the entire dimensions cache. Each settled-rejected entry
+            // becomes [] in the unwrapper, so the form still loads with
+            // the dimensions that DID succeed. The user gets a partially
+            // working form instead of an entirely empty one.
+            const [fundsR, functionsR, programsR, geosR, accountsR] = await Promise.allSettled([
+                apiClient.get('/accounting/funds/',     { params: { page_size: 10000 } }),
+                apiClient.get('/accounting/functions/', { params: { page_size: 10000 } }),
+                apiClient.get('/accounting/programs/',  { params: { page_size: 10000 } }),
+                apiClient.get('/accounting/geos/',      { params: { page_size: 10000 } }),
+                // Server-side sort by code as a hint; client-side
+                // localeCompare below is the safety net.
+                apiClient.get('/accounting/accounts/',  { params: { page_size: 10000, ordering: 'code' } }),
             ]);
+
+            const pickValue = (r: PromiseSettledResult<unknown>): unknown =>
+                r.status === 'fulfilled' ? r.value : null;
+
+            const accounts = _unwrapList<{ code?: string }>(pickValue(accountsR));
+            // GL account ``code`` values are equal-length numeric strings
+            // (e.g. "10100000"); localeCompare with numeric collation
+            // matches both the equal-length and any future alphanumeric
+            // codes correctly.
+            const sortedAccounts = [...accounts].sort(
+                (a, b) => (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true }),
+            );
             return {
-                funds: funds.data.results,
-                functions: functions.data.results,
-                programs: programs.data.results,
-                geos: geos.data.results,
-                accounts: accounts.data.results,
+                funds:     _unwrapList(pickValue(fundsR)),
+                functions: _unwrapList(pickValue(functionsR)),
+                programs:  _unwrapList(pickValue(programsR)),
+                geos:      _unwrapList(pickValue(geosR)),
+                accounts:  sortedAccounts,
             };
         },
         staleTime: DIMENSIONS_STALE_TIME,

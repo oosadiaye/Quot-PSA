@@ -1,5 +1,35 @@
+import re
+from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django_tenants.models import TenantMixin, DomainMixin
+
+
+# DNS-label compatible: lowercase letters, digits, hyphens; cannot start
+# or end with a hyphen; minimum 2 chars; maximum 30 chars (DNS labels go
+# up to 63 but UX-wise short slugs read much better as subdomains —
+# ``oag-delta.erp.tryquot.com`` beats
+# ``office-of-accountant-general-delta-state.erp.tryquot.com``).
+SLUG_REGEX = r'^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$'
+SLUG_VALIDATOR = RegexValidator(
+    regex=SLUG_REGEX,
+    message=(
+        'Tenant slug must be lowercase letters, digits, or hyphens, '
+        '2-30 characters, and may not start or end with a hyphen.'
+    ),
+)
+
+
+def slugify_tenant_name(name: str, max_length: int = 30) -> str:
+    """Turn a free-text tenant name into a DNS-label-safe slug.
+
+    Falls back to ``tenant`` if the name produces an empty result so
+    the caller never has to handle the empty-string edge case.
+    """
+    s = name.lower().strip()
+    s = re.sub(r'[^a-z0-9]+', '-', s)   # non-alphanumeric → hyphen
+    s = re.sub(r'-+', '-', s).strip('-')  # collapse + trim hyphens
+    return (s or 'tenant')[:max_length].rstrip('-') or 'tenant'
 
 
 BUSINESS_CATEGORIES = [
@@ -30,6 +60,15 @@ GOVERNMENT_TIER_CHOICES = [
 
 class Client(TenantMixin):
     name = models.CharField(max_length=100)
+    # Short, DNS-safe identifier used as the subdomain prefix for the
+    # tenant's app URL — e.g. ``oag-delta`` → ``oag-delta.erp.tryquot.com``.
+    # Distinct from ``schema_name`` (which is the Postgres schema and
+    # may be longer/legacy). Always lowercase; validated on save.
+    slug = models.CharField(
+        max_length=30, unique=True, blank=True, default='',
+        validators=[SLUG_VALIDATOR],
+        help_text='Short URL slug used as subdomain prefix (e.g. "oag-delta").',
+    )
     created_on = models.DateField(auto_now_add=True)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -86,8 +125,72 @@ class Client(TenantMixin):
     email = models.EmailField(blank=True, default='')
     website = models.URLField(blank=True, default='')
 
-    # default true, schema will be automatically created and synced when it is saved
-    auto_create_schema = True
+    # ─── Provisioning state ─────────────────────────────────────
+    # Tenant rows save INSTANTLY now; a Celery worker handles the
+    # 100+ migrations asynchronously and flips status to 'active'.
+    PROVISIONING_CHOICES = [
+        ('pending', 'Pending — queued for schema creation'),
+        ('provisioning', 'Provisioning — migrations running'),
+        ('active', 'Active — ready for use'),
+        ('failed', 'Failed — see provisioning_error'),
+    ]
+    provisioning_status = models.CharField(
+        max_length=20, choices=PROVISIONING_CHOICES, default='pending',
+        help_text='Async schema-creation state. Frontend polls this.',
+    )
+    provisioning_started_at = models.DateTimeField(null=True, blank=True)
+    provisioning_completed_at = models.DateTimeField(null=True, blank=True)
+    provisioning_error = models.TextField(blank=True, default='')
+
+    # Schema creation is explicit — the Celery task calls create_schema()
+    # so the API request returns in milliseconds instead of minutes.
+    auto_create_schema = False
+    auto_drop_schema = True
+
+    def save(self, *args, **kwargs):
+        # Auto-generate a slug on first save if the caller didn't provide
+        # one. We collision-check against every other Client because the
+        # slug is the subdomain prefix and must be globally unique within
+        # the deployment. The probe loop terminates quickly because we
+        # append ``-2``, ``-3``, … until a free slot is found.
+        if not self.slug:
+            base = slugify_tenant_name(self.name or self.schema_name or 'tenant')
+            candidate = base
+            n = 2
+            while Client.objects.filter(slug=candidate).exclude(pk=self.pk).exists():
+                # Truncate ``base`` so ``base-N`` still fits in 30 chars.
+                suffix = f'-{n}'
+                candidate = base[: 30 - len(suffix)] + suffix
+                n += 1
+            self.slug = candidate
+        super().save(*args, **kwargs)
+
+    @property
+    def subdomain(self) -> str:
+        """Full hostname for this tenant — ``<slug>.<SUBDOMAIN_BASE>``.
+
+        ``SUBDOMAIN_BASE`` is read from settings so dev / staging / prod
+        can each point at a different apex (``erp.tryquot.com`` in prod,
+        ``localhost`` in dev). Falls back to the legacy ``dtsg.test``
+        suffix only if no setting is configured at all.
+        """
+        from django.conf import settings
+        base = getattr(settings, 'TENANT_SUBDOMAIN_BASE', None) or 'dtsg.test'
+        return f'{self.slug}.{base}'
+
+    def absolute_url(self, scheme: str | None = None) -> str:
+        """Convenience: full ``https://<slug>.erp.tryquot.com`` URL.
+
+        Used by ``select_tenant`` to tell the frontend exactly where to
+        redirect after the user picks an organisation. Honours the
+        ``TENANT_DEFAULT_SCHEME`` setting (``https`` in prod, ``http``
+        in dev) unless the caller forces a scheme.
+        """
+        from django.conf import settings
+        if scheme is None:
+            scheme = getattr(settings, 'TENANT_DEFAULT_SCHEME', 'https')
+        return f'{scheme}://{self.subdomain}'
+
 
 class Domain(DomainMixin):
     pass
@@ -101,6 +204,7 @@ AVAILABLE_MODULES = [
     ('treasury',   'Treasury & TSA',        'Treasury Single Account, Payment Vouchers, Payment Instructions, Cash Position'),
     ('revenue',    'Revenue (IGR)',          'Revenue Heads, Revenue Collection, PAYE, Fees & Fines, e-Collection'),
     ('procurement','Procurement',           'Purchase Requisitions, Purchase Orders, GRN, BPP Due Process, No Objection'),
+    ('contracts',  'Contracts & Milestones', 'Contract Ceiling Enforcement, IPCs, Retention, Mobilization, Tiered Variations'),
     ('inventory',  'Stores & Inventory',    'Government Stores, Stock Management, Warehouses'),
     ('hrm',        'Human Resources',       'Employees, Leave, Payroll, Pension (CPS), PAYE, IPPIS Alignment'),
     ('workflow',   'Workflow & Approvals',   'Approval Templates, Multi-level Workflows, Delegation'),

@@ -16,6 +16,133 @@ from accounting.services.base_posting import BasePostingService, TransactionPost
 logger = logging.getLogger(__name__)
 
 
+def get_vendor_ap_account(vendor):
+    """
+    Resolve the AP control account for a given vendor.
+
+    Lookup chain (in priority order, first hit wins):
+      1. ``vendor.category.reconciliation_account`` — the canonical
+         per-category AP recon GL. The ``VendorCategory.reconciliation_account``
+         FK is constrained at the model level to accounts with
+         ``reconciliation_type='accounts_payable'``, so this guarantees
+         a properly-flagged AP account when the vendor is categorised.
+      2. Any active ``Account`` flagged ``reconciliation_type='accounts_payable'``
+         in the Chart of Accounts. Used as a soft fallback when the
+         vendor or its category isn't fully configured — better than
+         hard-failing the posting.
+      3. Legacy ``DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE']`` settings code.
+         Last resort for tenants that haven't migrated to the
+         per-category model yet.
+
+    Returns:
+        (Account, source_label) tuple. ``source_label`` is a short
+        human description of which step in the chain matched —
+        useful for warning logs when fallbacks fire.
+
+    Raises:
+        TransactionPostingError with an actionable message naming the
+        broken link in the chain when no AP account can be resolved.
+    """
+    # Primary: vendor → category → recon account
+    if vendor is None:
+        raise TransactionPostingError(
+            "Cannot resolve AP account — invoice/payment has no vendor. "
+            "Attach a vendor before posting."
+        )
+    category = getattr(vendor, 'category', None)
+    if category is not None:
+        recon = getattr(category, 'reconciliation_account', None)
+        if recon is not None:
+            return recon, f'vendor category "{category.name}"'
+
+    # Fallback 1: any reconciliation_type='accounts_payable' account
+    fallback_recon = Account.objects.filter(
+        reconciliation_type='accounts_payable', is_active=True,
+    ).first()
+    if fallback_recon is not None:
+        logger.warning(
+            "AP fallback: vendor %s has no category recon account; "
+            "using global reconciliation_type='accounts_payable' account %s. "
+            "Configure a vendor category to silence this warning.",
+            getattr(vendor, 'code', vendor.pk), fallback_recon.code,
+        )
+        return fallback_recon, 'global reconciliation_type=accounts_payable'
+
+    # Fallback 2: legacy settings code
+    legacy = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
+    if legacy is not None:
+        logger.warning(
+            "AP fallback: vendor %s has no category recon account and no "
+            "Liability is flagged reconciliation_type=accounts_payable; "
+            "using legacy DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE'] = %s.",
+            getattr(vendor, 'code', vendor.pk), legacy.code,
+        )
+        return legacy, 'DEFAULT_GL_ACCOUNTS settings code'
+
+    # Nothing matched — name the missing link so the operator knows
+    # exactly where to fix it.
+    if category is None:
+        raise TransactionPostingError(
+            f"Vendor '{vendor.name}' has no category assigned. "
+            "Open Settings → Vendors, edit this vendor and assign a "
+            "vendor category whose reconciliation account is the "
+            "right AP control GL for this vendor's class "
+            "(e.g. Local Suppliers, Foreign Suppliers, Statutory)."
+        )
+    raise TransactionPostingError(
+        f"Vendor category '{category.name}' has no reconciliation account "
+        "configured. Open Settings → Vendor Categories, edit this "
+        "category and pick the AP control GL — only accounts flagged "
+        "reconciliation_type='accounts_payable' in Chart of Accounts "
+        "are selectable."
+    )
+
+
+def get_input_vat_account(tax_code_obj=None):
+    """Resolve the Input VAT GL account via a layered ladder.
+
+    Order (first hit wins):
+      1. ``tax_code.input_tax_account`` — operator's explicit per-code
+         configuration. The most precise signal of intent.
+      2. ``tax_code.tax_account`` — legacy single-account TaxCode field.
+      3. Any active ``Account`` flagged ``reconciliation_type='input_tax'``
+         or ``'vat_recoverable'`` in the Chart of Accounts. Lets a tenant
+         designate one VAT-recoverable control account once.
+      4. Legacy ``DEFAULT_GL_ACCOUNTS['INPUT_TAX']`` /
+         ``DEFAULT_GL_ACCOUNTS['TAX_PAYABLE']`` settings codes.
+      5. Heuristic: any active Asset whose name contains
+         "Input VAT" or "Input Tax".
+
+    Returns:
+        ``Account`` instance or ``None`` if no candidate matches. Callers
+        must handle ``None`` gracefully — typically by absorbing the tax
+        amount into the GR/IR debit so the journal still balances.
+    """
+    if tax_code_obj is not None:
+        acct = (
+            getattr(tax_code_obj, 'input_tax_account', None)
+            or getattr(tax_code_obj, 'tax_account', None)
+        )
+        if acct is not None:
+            return acct
+    # Reconciliation-type flag (CoA-portable; doesn't depend on numbering)
+    acct = Account.objects.filter(
+        reconciliation_type__in=['input_tax', 'vat_recoverable'],
+        is_active=True,
+    ).first()
+    if acct is not None:
+        return acct
+    # Legacy settings codes
+    for key in ('INPUT_TAX', 'TAX_PAYABLE'):
+        candidate = get_gl_account(key, 'Asset', 'Input Tax')
+        if candidate is not None:
+            return candidate
+    # Last-resort heuristic — Asset named "Input VAT/Tax".
+    return Account.objects.filter(
+        account_type='Asset', is_active=True, name__iregex=r'input.*(vat|tax)',
+    ).first()
+
+
 class ProcurementPostingService(BasePostingService):
     """
     GL posting service for the Procurement domain.
@@ -25,17 +152,41 @@ class ProcurementPostingService(BasePostingService):
     @transaction.atomic
     def post_purchase_order(po):
         """
-        Post a Purchase Order to the GL.
+        IPSAS 3-way match — a Purchase Order creates NO GL journal.
 
-        Creates journal entry for:
-        - Inventory/Asset (debit)
-        - Accounts Payable (credit)
+        In public-sector accounting a PO is only a *commitment* (the
+        legal promise to spend), not expenditure recognition. The GL
+        stays untouched until physical receipt (GRN) or invoice
+        verification. This function therefore returns ``None`` — we
+        keep it for call-site compatibility (``post_order`` expects
+        ``journal`` back) but no rows are ever written.
 
-        Args:
-            po: PurchaseOrder instance
+        The commitment itself is booked via
+        ``accounting.services.procurement_commitments.create_commitment_for_po``
+        at the Approve step — that's what rolls the appropriation's
+        ``total_committed`` up and also enforces warrant ceilings.
 
         Returns:
-            JournalHeader: The created journal entry
+            None — no journal is created at PO post.
+        """
+        if po.status != 'Posted':
+            raise TransactionPostingError(f"PO must be Posted status, got {po.status}")
+        # Commitment, warrant, and appropriation gates run during the
+        # Approve step; post_order is a UX nicety that flips the status
+        # for visibility. No ledger posting happens here.
+        return None
+
+    # The legacy implementation below (DR Inventory / CR AP at PO post)
+    # is retained for reference / reversible migration if a tenant ever
+    # opts back into private-sector semantics. It is no longer reachable
+    # from ``post_purchase_order`` above.
+    @staticmethod
+    def _legacy_post_purchase_order(po):  # pragma: no cover - kept for history
+        """Deprecated private-sector path — DR Inventory / CR AP at PO post.
+
+        No longer called. Reinstating requires restoring the original
+        ``post_purchase_order`` body and removing the early-return in
+        ``post_goods_received_note`` so the two don't double-post.
         """
         if po.status != 'Posted':
             raise TransactionPostingError(f"PO must be Posted status, got {po.status}")
@@ -50,13 +201,10 @@ class ProcurementPostingService(BasePostingService):
         tax_amount = po.tax_amount
         grand_total = total_amount + tax_amount
 
-        # Get AP account from configured defaults
-        ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
-        if not ap_account:
-            raise TransactionPostingError(
-                "No Accounts Payable account found. "
-                "Configure DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE'] in settings."
-            )
+        # AP discovery — driven by the vendor's category recon account,
+        # not a global default. See ``get_vendor_ap_account`` for the
+        # full lookup chain and operator-actionable error messages.
+        ap_account, ap_source = get_vendor_ap_account(po.vendor)
 
         # Create journal header
         journal = JournalHeader.objects.create(
@@ -225,12 +373,22 @@ class ProcurementPostingService(BasePostingService):
 
         po = grn.purchase_order
 
-        if po.status == 'Posted':
-            # Inventory and AP were already recognised when the PO was posted.
-            # GRN confirms physical receipt only — no GL entry required.
-            return None
-
-        # PO was not yet posted — GRN is the first accounting entry for this purchase.
+        # IPSAS 3-way match — the GRN is ALWAYS the first GL event for a
+        # purchase, regardless of whether ``post_order`` was run on the
+        # PO earlier. Previously this block returned ``None`` when the
+        # PO was already Posted, relying on a legacy "PO-post creates
+        # DR Inventory / CR AP" path that conflates the commitment,
+        # receipt and obligation stages into one entry. That conflicts
+        # with the public-sector doctrine we enforce elsewhere:
+        #   - PO approve  → commitment (create_commitment_for_po)
+        #   - GRN post    → DR Inventory / CR GR/IR Clearing   ← here
+        #   - Invoice     → DR GR/IR / CR AP
+        #   - Payment     → DR AP / CR Bank
+        # So we drop the early-return — every GRN now creates its own
+        # journal so the trial balance, Budget Performance, Variance
+        # Analysis, and Warrant Utilization reports reflect receipts
+        # in real time.
+        #
         # 3-way match: DR Inventory / CR GR/IR Clearing (NOT AP directly).
         # AP is recognised only when the vendor invoice is matched and posted.
         grn_ir_account = get_gl_account('GOODS_RECEIPT_CLEARING', 'Liability', 'GR/IR')
@@ -238,7 +396,8 @@ class ProcurementPostingService(BasePostingService):
             raise TransactionPostingError(
                 "GR/IR Clearing account not found. "
                 "Configure DEFAULT_GL_ACCOUNTS['GOODS_RECEIPT_CLEARING'] in settings "
-                "and ensure account 20600000 exists in the Chart of Accounts."
+                "and ensure a Liability account in the 41xxxxxx series "
+                "(default code: 41090000 — GR/IR Clearing Account) exists in the Chart of Accounts."
             )
 
         journal = JournalHeader.objects.create(
@@ -251,7 +410,11 @@ class ProcurementPostingService(BasePostingService):
             program=po.program,
             geo=po.geo,
             status='Posted',
-            source_module='procurement',
+            # Distinct source_module so GRN, PO and Invoice pks can't
+            # collide on the unique (source_module, source_document_id)
+            # constraint. Previously all three used 'procurement' which
+            # meant PO #1 and GRN #1 fought over the same slot.
+            source_module='grn',
             source_document_id=grn.pk,
         )
 
@@ -364,9 +527,18 @@ class ProcurementPostingService(BasePostingService):
             function=invoice.function,
             program=invoice.program,
             geo=invoice.geo,
-            status='Posted',
+            status='Draft',
             source_module='procurement',
             source_document_id=invoice.pk,
+        )
+
+        # Pre-fetch all invoice lines once with related objects to avoid N+1 queries.
+        invoice_lines = list(
+            invoice.lines.all().select_related(
+                'account',
+                'tax_code', 'tax_code__input_tax_account', 'tax_code__tax_account',
+                'withholding_tax', 'withholding_tax__withholding_account',
+            )
         )
 
         # 3-way match: if this invoice is linked to a GRN (via a PO that was NOT pre-posted),
@@ -380,85 +552,184 @@ class ProcurementPostingService(BasePostingService):
         )
 
         if has_grn_match:
-            # DR GR/IR Clearing (clears the liability created at GRN time)
-            if invoice.subtotal > 0:
+            # DR GR/IR Clearing — RESIDUAL APPROACH for always-balanced
+            # journals. We compute the GR/IR debit as
+            # ``invoice.total_amount - input_tax_dr_total`` (deferred
+            # below). When an Input VAT account resolves, GR/IR =
+            # subtotal (textbook SAP MIRO split). When no Input VAT GL is
+            # configured, GR/IR absorbs the tax — the journal still
+            # balances. The actual line is written AFTER VAT computation
+            # below; here we just remember that we owe a GR/IR debit.
+            grn_ir_pending = True
+        else:
+            grn_ir_pending = False
+            # Direct invoice (no prior GRN) — debit per invoice line so that
+            # per-line GL accounts (e.g. capex GLs with auto_create_asset=True)
+            # land in the journal and trigger asset auto-capitalisation correctly.
+            if invoice_lines:
+                for inv_line in invoice_lines:
+                    if inv_line.amount and inv_line.amount > 0 and inv_line.account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=inv_line.account,
+                            debit=inv_line.amount,
+                            credit=Decimal('0.00'),
+                            memo=(inv_line.description or inv_line.account.name or f"Invoice {invoice.invoice_number}")[:255],
+                        )
+            elif invoice.subtotal > 0 and invoice.account:
+                # Fallback for header-only invoices (no line items)
                 JournalLine.objects.create(
                     header=journal,
-                    account=grn_ir_account,
+                    account=invoice.account,
                     debit=invoice.subtotal,
                     credit=Decimal('0.00'),
-                    memo=f"GR/IR Clearing — Invoice {invoice.invoice_number}"
+                    memo=f"Invoice {invoice.invoice_number}",
                 )
-        else:
-            # Direct invoice (no prior GRN) — debit the expense/inventory account
-            if invoice.subtotal > 0:
-                expense_account = invoice.account
-                if expense_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=expense_account,
-                        debit=invoice.subtotal,
-                        credit=Decimal('0.00'),
-                        memo=f"Invoice {invoice.invoice_number}"
-                    )
 
-        # Credit: Accounts Payable
-        ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
-        if not ap_account:
-            raise TransactionPostingError(
-                "Accounts Payable account not found. "
-                "Configure DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE'] in settings."
-            )
+        # ── VAT computation from per-line tax_code ────────────────────────
+        #
+        # Nigerian IFMIS / FIRS practice is CASH-BASIS WHT recognition: the
+        # taxing event is the payment itself, not the invoice accrual.
+        # Accordingly, AP posting books the FULL gross (including VAT) to
+        # Accounts Payable — NO WHT is booked here. WHT, stamp duty and any
+        # other statutory deductions are recognised at payment time via the
+        # PaymentVoucher deduction lines (see accounting.views.treasury_revenue
+        # ._post_payment_journal).
+        #
+        # Public-sector AP posting model (accrual of expense + VAT only):
+        #   DR  Expense (or GR/IR)        = subtotal  (net of VAT)
+        #   DR  Input VAT Receivable      = Σ line.amount × line.tax_code.rate
+        #   CR  Accounts Payable          = subtotal + input_vat  (= total_amount)
+        #
+        # At payment time the PV posts:
+        #   DR  Accounts Payable          = total_amount
+        #   CR  TSA Cash                  = net payable to vendor
+        #   CR  WHT Payable               = WHT deduction
+        #   CR  Stamp Duty Payable        = statutory deduction
+        #   ... additional deduction lines as needed
+        #
+        # VAT preference order:
+        #   1. Per-line tax_code (preferred — drives compliant tax reporting)
+        #   2. Header-level invoice.tax_amount (legacy fallback when no line data)
+        input_vat_by_account: dict[int, tuple] = {}
+        line_computed_vat = Decimal('0.00')
+        has_line_tax_code = False
 
-        if invoice.total_amount > 0:
-            JournalLine.objects.create(
-                header=journal,
-                account=ap_account,
-                debit=Decimal('0.00'),
-                credit=invoice.total_amount,
-                memo=f"AP {invoice.invoice_number}"
-            )
+        for line in invoice_lines:
+            if line.tax_code and line.tax_code.rate and line.tax_code.rate > 0:
+                has_line_tax_code = True
+                # TaxCode.rate is stored as a percentage (e.g. 7.5 for 7.5% VAT)
+                rate = Decimal(str(line.tax_code.rate))
+                vat_amount = (line.amount * rate / Decimal('100')).quantize(Decimal('0.01'))
+                acct = (
+                    line.tax_code.input_tax_account
+                    or line.tax_code.tax_account
+                )
+                if acct:
+                    prev = input_vat_by_account.get(acct.id, (acct, Decimal('0.00')))
+                    input_vat_by_account[acct.id] = (acct, prev[1] + vat_amount)
+                    line_computed_vat += vat_amount
 
-        # Tax handling
-        if invoice.tax_amount > 0:
-            tax_account = get_gl_account('TAX_PAYABLE', 'Liability', 'Tax')
-            if tax_account:
+        # ── Withholding Tax determination (NOT booked at invoice) ─────
+        # Nigerian public-sector practice: WHT is DETERMINED at invoice
+        # verification (rate + exempt flag stored on the line / matching)
+        # but RECOGNISED at payment time on the PaymentVoucher's deduction
+        # rows — the taxing event is the cash outflow, not the accrual.
+        # See `accounting.views.treasury_revenue._post_payment_journal`.
+        #
+        # Therefore this method records NO WHT debit/credit on the invoice
+        # journal. AP is credited at the full gross (subtotal + VAT). The
+        # WHT FK on the line is left intact so PV creation can read it
+        # and auto-build the deduction row at payment time. If the line
+        # carries ``wht_exempt=True`` the PV builder will honour the
+        # exemption end-to-end.
+        line_computed_wht = Decimal('0.00')
+
+        # DR: Input VAT lines (one row per input_tax_account)
+        for _, (acct, amount) in input_vat_by_account.items():
+            if amount > 0:
+                JournalLine.objects.create(
+                    header=journal,
+                    account=acct,
+                    debit=amount,
+                    credit=Decimal('0.00'),
+                    memo=f"Input VAT — {invoice.invoice_number}",
+                )
+
+        # Legacy header-level tax fallback — only when no per-line tax_code was used.
+        # Uses the layered ``get_input_vat_account`` ladder so the GL is
+        # found via reconciliation_type / settings / heuristic, not just
+        # the legacy 'TAX_PAYABLE' code mapping. When NO Input VAT GL is
+        # resolvable we deliberately skip the tax line — the GR/IR
+        # residual write below absorbs the tax amount so DR = CR.
+        if not has_line_tax_code and invoice.tax_amount and invoice.tax_amount > 0:
+            tax_account = get_input_vat_account(getattr(invoice, 'tax_code', None))
+            if tax_account is not None:
                 JournalLine.objects.create(
                     header=journal,
                     account=tax_account,
                     debit=invoice.tax_amount,
                     credit=Decimal('0.00'),
-                    memo=f"Input Tax {invoice.invoice_number}"
+                    memo=f"Input Tax (header) — {invoice.invoice_number}",
                 )
+                line_computed_vat = invoice.tax_amount  # contributes to AP below
 
-        # Withholding tax handling — compute from invoice lines
-        wht_totals = {}  # {withholding_account_id: (account, amount)}
-        for line in invoice.lines.all():
-            if line.withholding_tax and line.withholding_tax.rate > 0:
-                wht = line.withholding_tax
-                wht_amount = (line.amount * wht.rate / Decimal('100')).quantize(Decimal('0.01'))
-                wht_acct = wht.withholding_account
-                if wht_acct:
-                    if wht_acct.id not in wht_totals:
-                        wht_totals[wht_acct.id] = (wht_acct, Decimal('0'))
-                    acct, running = wht_totals[wht_acct.id]
-                    wht_totals[wht_acct.id] = (acct, running + wht_amount)
+        # CR: Accounts Payable — booked at FULL GROSS (subtotal + VAT).
+        # WHT is intentionally NOT deducted here — Nigerian PFM is
+        # cash-basis (recognised at payment voucher time). AP via vendor
+        # → category → recon_account chain.
+        ap_account, ap_source = get_vendor_ap_account(invoice.vendor)
 
-        for acct_id, (acct, amount) in wht_totals.items():
-            if amount > 0:
+        ap_credit = invoice.total_amount or Decimal('0.00')
+        if ap_credit > 0:
+            JournalLine.objects.create(
+                header=journal,
+                account=ap_account,
+                debit=Decimal('0.00'),
+                credit=ap_credit,
+                memo=f"AP {invoice.invoice_number}",
+            )
+
+        # ── GR/IR residual write (deferred from above) ────────────────
+        # The GR/IR debit is computed AS the residual that balances the
+        # journal so DR = CR by construction. Algebra:
+        #   CR side = AP + Σ WHT = (total − WHT_total) + WHT_total = total_amount
+        #   DR side must also = total_amount = GR/IR + Σ Input VAT
+        #     ⇒ GR/IR = total_amount − Σ Input VAT
+        # When per-line or header Input VAT GLs resolved, GR/IR =
+        # subtotal (textbook SAP MIRO split). When no Input VAT GL was
+        # found, Σ Input VAT = 0 and GR/IR absorbs the tax so the
+        # journal still balances. Either way, no operator config gap
+        # produces an out-of-balance entry.
+        if grn_ir_pending and grn_ir_account is not None:
+            input_vat_total_dr = sum(
+                (amt for _, (_a, amt) in input_vat_by_account.items()),
+                Decimal('0.00'),
+            )
+            # Add the header-fallback tax if it was actually written
+            # (line_computed_vat is non-zero only after a successful write).
+            if not has_line_tax_code:
+                input_vat_total_dr += line_computed_vat
+            grn_ir_debit = (
+                (invoice.total_amount or Decimal('0.00')) - input_vat_total_dr
+            ).quantize(Decimal('0.01'))
+            if grn_ir_debit > 0:
                 JournalLine.objects.create(
                     header=journal,
-                    account=acct,
-                    debit=Decimal('0.00'),
-                    credit=amount,
-                    memo=f"WHT Liability {invoice.invoice_number}"
+                    account=grn_ir_account,
+                    debit=grn_ir_debit,
+                    credit=Decimal('0.00'),
+                    memo=f"GR/IR Clearing — Invoice {invoice.invoice_number}",
                 )
-
-        invoice.journal_entry = journal
-        invoice.save()
 
         ProcurementPostingService._validate_journal_balanced(journal)
         ProcurementPostingService._update_gl_balances(journal)
+
+        journal.status = 'Posted'
+        journal.save(update_fields=['status'], _allow_status_change=True)
+
+        invoice.journal_entry = journal
+        invoice.save(_allow_status_change=True)
         return journal
 
     @staticmethod
@@ -483,9 +754,8 @@ class ProcurementPostingService(BasePostingService):
 
         amount = payment.total_amount
 
-        ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
-        if not ap_account:
-            raise TransactionPostingError("No Accounts Payable account found")
+        # AP via vendor → category → recon_account chain.
+        ap_account, ap_source = get_vendor_ap_account(payment.vendor)
 
         bank_gl_account = None
         if payment.bank_account and payment.bank_account.gl_account:

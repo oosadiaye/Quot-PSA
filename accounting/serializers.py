@@ -74,14 +74,43 @@ class AccountSerializer(serializers.ModelSerializer):
 
     current_balance = serializers.SerializerMethodField()
 
+    # Read-only convenience labels for the Asset Category linkage so the
+    # frontend list view can show "32100100 — Land" without resolving the FK.
+    asset_category_code = serializers.CharField(
+        source='asset_category.code', read_only=True, default='',
+    )
+    asset_category_name = serializers.CharField(
+        source='asset_category.name', read_only=True, default='',
+    )
+
     class Meta:
         model = Account
         fields = [
             'id', 'code', 'name', 'account_type', 'is_active',
             'is_reconciliation', 'reconciliation_type', 'reconciliation_type_display',
             'current_balance',
+            # Phase 1 asset auto-capitalisation linkage. Both fields are
+            # writable so the COA Add/Edit form can configure them; the
+            # ``*_code``/``*_name`` companions are read-only display helpers.
+            'auto_create_asset', 'asset_category',
+            'asset_category_code', 'asset_category_name',
         ]
-        read_only_fields = ['id', 'current_balance']
+        read_only_fields = ['id', 'current_balance', 'asset_category_code', 'asset_category_name']
+
+    def validate(self, attrs):
+        # Mirror the model's clean(): cannot enable auto-create without a
+        # category. Surface as a per-field error so the form highlights the
+        # right input.
+        merged_auto = attrs.get('auto_create_asset',
+                                getattr(self.instance, 'auto_create_asset', False))
+        merged_cat = attrs.get('asset_category',
+                               getattr(self.instance, 'asset_category', None))
+        if merged_auto and not merged_cat:
+            raise serializers.ValidationError({
+                'asset_category':
+                    'An Asset Category is required when "Auto-create asset on debit" is enabled.'
+            })
+        return attrs
 
     # ── Nigeria Chart of Accounts number-series map ─────────────────
     # Hard-coded here (was previously read from AccountingSettings)
@@ -238,18 +267,21 @@ class JournalHeaderSerializer(serializers.ModelSerializer):
 class JournalLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = JournalLine
-        fields = ['id', 'header', 'account', 'debit', 'credit', 'memo', 'document_number']
+        fields = ['id', 'header', 'account', 'debit', 'credit', 'memo', 'document_number', 'asset']
         read_only_fields = ['id', 'document_number']
 
 
 class JournalLineDetailSerializer(serializers.ModelSerializer):
     account_code = serializers.CharField(source='account.code', read_only=True, default='')
     account_name = serializers.CharField(source='account.name', read_only=True, default='')
+    asset_number = serializers.CharField(source='asset.asset_number', read_only=True, default='')
+    asset_name = serializers.CharField(source='asset.name', read_only=True, default='')
 
     class Meta:
         model = JournalLine
-        fields = ['id', 'account', 'account_code', 'account_name', 'debit', 'credit', 'memo', 'document_number']
-        read_only_fields = ['id', 'document_number']
+        fields = ['id', 'account', 'account_code', 'account_name', 'debit', 'credit', 'memo', 'document_number',
+                  'asset', 'asset_number', 'asset_name']
+        read_only_fields = ['id', 'document_number', 'asset_number', 'asset_name']
 
 
 class JournalDetailSerializer(JournalHeaderSerializer):
@@ -452,7 +484,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
             economic__in=econ_candidates,
             fund=fund_seg,
             fiscal_year=active_fy,
-            status='ACTIVE',
+            status__iexact='ACTIVE',
         ).first()
 
         if not appro:
@@ -684,6 +716,12 @@ class ReceiptAllocationSerializer(serializers.ModelSerializer):
 class FixedAssetSerializer(serializers.ModelSerializer):
     mda_name = serializers.CharField(source='mda.name', read_only=True, default='')
     net_book_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    # Auto-generated when blank (see FixedAsset._generate_asset_number).
+    # Tagging-imports that carry legacy numbers can still pass one in.
+    asset_number = serializers.CharField(
+        max_length=50, required=False, allow_blank=True, allow_null=True,
+        help_text='Leave blank to auto-generate FA-YYYY-NNNNN.',
+    )
 
     class Meta:
         model = FixedAsset
@@ -716,6 +754,89 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             for field in ['mda', 'fund', 'function', 'program', 'geo']:
                 self.fields[field].required = False
                 self.fields[field].allow_null = True
+
+    def validate(self, attrs):
+        """Pre-flight budget check on the asset's dimension tuple.
+
+        Runs the centralised ``check_policy`` engine against the
+        economic code of the asset's GL account (or, if no explicit
+        asset_account is set, the cost_account of the selected
+        AssetCategory). The policy is decided by the
+        ``BudgetCheckRule`` the tenant has configured for that GL
+        range:
+
+          * NONE    → allow silently
+          * WARNING → allow + attach a soft warning to the serializer
+          * STRICT  → refuse the save when no matching Appropriation
+                      exists for (MDA, Economic, Fund, FiscalYear)
+
+        The balance check runs later at AP invoice / PO invoice
+        verification time — at creation we don't yet know the cost.
+        """
+        attrs = super().validate(attrs)
+
+        # Resolve the three control dimensions + the economic account
+        mda = attrs.get('mda') or (self.instance.mda if self.instance else None)
+        fund = attrs.get('fund') or (self.instance.fund if self.instance else None)
+        asset_account = (
+            attrs.get('asset_account')
+            or (self.instance.asset_account if self.instance else None)
+        )
+
+        # Fall back to the category's cost_account if the asset doesn't
+        # have an explicit asset_account yet (the new form inherits
+        # everything from the category).
+        if asset_account is None:
+            category_label = attrs.get('asset_category') or (
+                self.instance.asset_category if self.instance else ''
+            )
+            if category_label:
+                from accounting.models.assets import AssetCategory
+                cat = AssetCategory.objects.filter(
+                    is_active=True, code=category_label,
+                ).first() or AssetCategory.objects.filter(
+                    is_active=True, name=category_label,
+                ).first()
+                if cat and cat.cost_account_id:
+                    asset_account = cat.cost_account
+
+        # Without the three control pillars there's nothing to check.
+        if not (mda and fund and asset_account):
+            return attrs
+
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
+        fiscal_year = (
+            attrs.get('acquisition_date')
+            or (self.instance.acquisition_date if self.instance else None)
+            or __import__('datetime').date.today()
+        ).year
+
+        appropriation = find_matching_appropriation(
+            mda=mda, fund=fund, account=asset_account,
+            fiscal_year=fiscal_year,
+        )
+        result = check_policy(
+            account_code=asset_account.code,
+            appropriation=appropriation,
+            requested_amount=None,  # cost not known at creation
+            transaction_label='asset acquisition',
+            account_name=asset_account.name,
+        )
+        if result.blocked:
+            raise serializers.ValidationError({
+                'non_field_errors': [result.reason],
+                'code': 'BUDGET_STRICT_BLOCK',
+                'mda_code': getattr(mda, 'code', None),
+                'fund_code': getattr(fund, 'code', None),
+                'economic_code': asset_account.code,
+            })
+
+        # Carry warnings through to the view so it can surface them
+        # (WARNING-level rule with no appropriation → soft notice).
+        self._bcr_warnings = list(result.warnings or [])
+        return attrs
 
 
 class DepreciationScheduleSerializer(serializers.ModelSerializer):
@@ -1645,6 +1766,11 @@ class AccountingSettingsSerializer(serializers.ModelSerializer):
             'default_currency_3_detail', 'default_currency_4_detail',
             'default_currency_5_detail',
             'require_vendor_registration_invoice',
+            # GL account credited when a vendor pays their registration
+            # invoice. Lets the tenant choose whichever Income account on
+            # their CoA represents registration revenue (no hardcoded
+            # NCoA code in the posting path).
+            'vendor_registration_revenue_account',
             'enable_sales_downpayment', 'downpayment_default_type',
             'downpayment_default_value', 'downpayment_gl_account',
         ]

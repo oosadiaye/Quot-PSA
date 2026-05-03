@@ -50,23 +50,29 @@ class PeriodControlService:
         Returns:
             BudgetPeriod instance or None
         """
-        from accounting.models import BudgetPeriod
+        from accounting.models import BudgetPeriod, FiscalPeriod
 
-        period = BudgetPeriod.objects.filter(
-            start_date__lte=posting_date,
-            end_date__gte=posting_date,
-            period_type=period_type
-        ).first()
-
-        if not period:
-            from accounting.models import FiscalPeriod
-            period = FiscalPeriod.objects.filter(
+        # The two callers ask by convention:
+        #   period_type='MONTHLY' → wants a BudgetPeriod (uppercase codes)
+        #   period_type='Monthly' → wants a FiscalPeriod (title-case codes)
+        # Routing by case keeps the returned row's attribute set
+        # consistent with the caller's expectations (BudgetPeriod has
+        # ``allow_postings`` / ``allow_adjustments``; FiscalPeriod has
+        # ``allow_journal_entry`` / ``allow_invoice`` / ``allow_payment``).
+        # Prior code had a silent fallback from BudgetPeriod →
+        # FiscalPeriod which caused AttributeError at post time when a
+        # tenant only had FiscalPeriod rows seeded.
+        if period_type and period_type.isupper():
+            return BudgetPeriod.objects.filter(
                 start_date__lte=posting_date,
                 end_date__gte=posting_date,
-                period_type__icontains=period_type.lower()
+                period_type=period_type,
             ).first()
-
-        return period
+        return FiscalPeriod.objects.filter(
+            start_date__lte=posting_date,
+            end_date__gte=posting_date,
+            period_type__icontains=(period_type or '').lower(),
+        ).first()
 
     @classmethod
     def check_period_status(
@@ -111,11 +117,14 @@ class PeriodControlService:
                 can_adjust = False
                 messages.append(f"Budget period {budget_period} is closed")
 
-            if not budget_period.allow_postings:
+            # Defensive getattr: older tenants may hold rows whose model
+            # is missing these columns (migration drift). Default to
+            # True so a missing flag never silently blocks posting.
+            if not getattr(budget_period, 'allow_postings', True):
                 can_post = False
                 messages.append("Budget period does not allow postings")
 
-            if not budget_period.allow_adjustments:
+            if not getattr(budget_period, 'allow_adjustments', True):
                 can_adjust = False
 
         if fiscal_period:

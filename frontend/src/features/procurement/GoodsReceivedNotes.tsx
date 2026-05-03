@@ -1,10 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, CheckCircle, Search, Package, FileText, XCircle, Trash2 } from 'lucide-react';
+import { Plus, CheckCircle, Search, Package, FileText, XCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { useGRNs, usePostGRN, useCancelGRN, useBulkCancelGRN } from './hooks/useProcurement';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import '../accounting/styles/glassmorphism.css';
+
+/**
+ * Flash-message helper — extracts a human-readable message from a DRF
+ * error response. Mirrors the shape used by GRNView so success / error
+ * UX is consistent across both pages. Falls back to a generic string
+ * if neither ``error`` nor ``detail`` keys are present.
+ */
+const extractErrorMessage = (err: any, fallback: string): string => {
+    return err?.response?.data?.error
+        || err?.response?.data?.detail
+        || (typeof err?.response?.data === 'string' ? err.response.data : null)
+        || err?.message
+        || fallback;
+};
 
 export default function GoodsReceivedNotes() {
     const navigate = useNavigate();
@@ -14,6 +28,19 @@ export default function GoodsReceivedNotes() {
     const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 20;
     const [confirmAction, setConfirmAction] = useState<{ id: number; action: string } | null>(null);
+
+    // Inline flash banner — surfaces post / cancel results so backend
+    // 400s ("PO not Approved", "Pending workflow approval", "Quantity
+    // exceeds remaining", etc.) don't disappear silently. Auto-clears
+    // success messages after 4s; errors persist until the operator
+    // dismisses or triggers another action.
+    const [flash, setFlash] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+    useEffect(() => {
+        if (flash?.kind === 'success') {
+            const t = setTimeout(() => setFlash(null), 4000);
+            return () => clearTimeout(t);
+        }
+    }, [flash]);
 
     const { data: grns, isLoading } = useGRNs({ status: statusFilter, search: searchTerm || undefined, page: currentPage, page_size: pageSize });
     const postMutation = usePostGRN();
@@ -28,10 +55,35 @@ export default function GoodsReceivedNotes() {
 
     const handleConfirmedAction = (id: number, action: string) => {
         if (action === 'post') {
-            postMutation.mutate(id);
+            // Wire onSuccess/onError so backend 400 reasons surface in
+            // the flash banner. Without these callbacks the mutation's
+            // error was silently swallowed — this is exactly the
+            // "no error message" symptom the operator hit.
+            postMutation.mutate(id, {
+                onSuccess: (resp: any) => {
+                    setFlash({
+                        kind: 'success',
+                        message: resp?.journal_number
+                            ? `GRN posted successfully. Journal: ${resp.journal_number}`
+                            : 'GRN posted successfully. Inventory updated.',
+                    });
+                },
+                onError: (err: any) => {
+                    setFlash({
+                        kind: 'error',
+                        message: extractErrorMessage(err, 'Failed to post GRN.'),
+                    });
+                },
+            });
         } else if (action === 'cancel') {
             cancelMutation.mutate(id, {
-                onSuccess: () => setSelectedIds(prev => prev.filter(i => i !== id)),
+                onSuccess: () => {
+                    setSelectedIds(prev => prev.filter(i => i !== id));
+                    setFlash({ kind: 'success', message: 'GRN cancelled.' });
+                },
+                onError: (err: any) => {
+                    setFlash({ kind: 'error', message: extractErrorMessage(err, 'Failed to cancel GRN.') });
+                },
             });
         }
         setConfirmAction(null);
@@ -154,6 +206,49 @@ export default function GoodsReceivedNotes() {
                         </button>
                     </div>
                 </div>
+
+                {/* Flash banner for post / cancel results. Surfaces
+                    backend 400 errors (PO not Approved, pending workflow,
+                    quantity over PO remaining, MDA mismatch, etc.) which
+                    were previously swallowed silently. Success messages
+                    auto-dismiss after 4s; errors stick until dismissed
+                    or replaced by a new action. */}
+                {flash && (
+                    <div
+                        role={flash.kind === 'error' ? 'alert' : 'status'}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.75rem 1rem',
+                            marginBottom: '1rem',
+                            borderRadius: '8px',
+                            background: flash.kind === 'success' ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                            border: `1px solid ${flash.kind === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                            color: flash.kind === 'success' ? '#15803d' : '#991b1b',
+                            fontSize: 'var(--text-sm)',
+                            fontWeight: 500,
+                        }}
+                    >
+                        {flash.kind === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                        <span style={{ flex: 1 }}>{flash.message}</span>
+                        <button
+                            onClick={() => setFlash(null)}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: 'inherit',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontWeight: 600,
+                            }}
+                            title="Dismiss"
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
 
                 <div style={{
                     display: 'flex',

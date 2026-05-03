@@ -100,6 +100,7 @@ __all__ = [
     'AssetDisposal',
     'DepreciationRun',
     'DepreciationDetail',
+    'DepreciationRunSchedule',
 
     # tax.py
     'TaxRegistration',
@@ -124,6 +125,7 @@ __all__ = [
     # treasury.py — TSA & Payment Vouchers
     'TreasuryAccount',
     'PaymentVoucherGov',
+    'PaymentVoucherDeduction',
     'PaymentInstruction',
 
     # revenue.py — IGR Revenue Collection

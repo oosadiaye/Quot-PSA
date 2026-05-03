@@ -27,42 +27,60 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
         default_gl = getattr(settings, 'DEFAULT_GL_ACCOUNTS', {})
 
-        ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
-        ar_account = Account.objects.filter(code=ar_code).first()
+        # AR discovery — reconciliation_type marker first (CoA-portable),
+        # then legacy code default, then name heuristic. Mirrors the AP
+        # discovery ladder in payables.py for consistency.
+        ar_account = Account.objects.filter(
+            account_type='Asset', is_reconciliation=True,
+            reconciliation_type='accounts_receivable',
+            is_active=True,
+        ).first()
+        if not ar_account:
+            ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
+            ar_account = Account.objects.filter(code=ar_code).first()
         if not ar_account:
             ar_account = Account.objects.filter(
-                account_type='Asset', is_reconciliation=True,
-                reconciliation_type='accounts_receivable'
+                account_type='Asset', name__icontains='Receivable',
             ).first()
 
         rev_code = default_gl.get('SALES_REVENUE', '40100000')
         revenue_account = Account.objects.filter(code=rev_code).first()
 
         if not ar_account or not revenue_account:
-            raise Exception("Required GL accounts (AR / Revenue) not found. Configure DEFAULT_GL_ACCOUNTS in settings.")
+            missing = []
+            if not ar_account:
+                missing.append("Accounts Receivable (flag an Asset account with reconciliation_type='accounts_receivable')")
+            if not revenue_account:
+                missing.append("Revenue (set DEFAULT_GL_ACCOUNTS['SALES_REVENUE'] in settings)")
+            raise Exception("Required GL accounts not found: " + '; '.join(missing) + ".")
 
         amount = invoice.total_amount
 
         with transaction.atomic():
-            # Generate document number for the invoice
+            # Assign invoice document number first.
             if not invoice.document_number:
                 invoice.document_number = TransactionSequence.get_next('invoice_doc', 'INV-')
                 invoice.save(update_fields=['document_number'])
 
-            # Create proper journal entry for audit trail
+            # Build journal as Draft, populate, then lock to Posted at
+            # the end. ImmutableModelMixin blocks any mutation once
+            # status='Posted', including line additions — building Draft
+            # then flipping is the only safe ordering. Reference number
+            # avoids a double-prefix when invoice_number already starts
+            # with CINV-.
+            ref_seed = invoice.invoice_number or invoice.document_number or ''
+            ref = ref_seed if ref_seed.startswith('CINV-') else f"CINV-{ref_seed}"
             journal = JournalHeader.objects.create(
-                reference_number=f"CINV-{invoice.invoice_number}",
+                reference_number=ref,
                 description=f"Customer Invoice: {invoice.invoice_number}",
                 posting_date=invoice.invoice_date,
                 fund=invoice.fund,
                 function=invoice.function,
                 program=invoice.program,
                 geo=invoice.geo,
-                status='Posted',
+                document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                status='Draft',
             )
-
-            journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-            journal.save(update_fields=['document_number'], _allow_status_change=True)
 
             # Debit AR (increase receivable)
             JournalLine.objects.create(
@@ -87,6 +105,10 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
             # Update GL balances from journal lines
             self._update_gl_from_journal(journal)
 
+            # Lock the journal — must be the last write to it.
+            journal.status = 'Posted'
+            journal.save(update_fields=['status'], _allow_status_change=True)
+
             # Link journal to invoice and persist
             invoice.journal_entry = journal
             invoice.save(update_fields=['journal_entry'])
@@ -110,7 +132,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         """Post customer invoice to GL in real-time."""
         invoice = self.get_object()
 
-        if invoice.status == 'Posted':
+        if str(invoice.status).lower() == 'posted':
             return Response({"error": "Invoice already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
         # S1-06 — fiscal period gate.
@@ -152,7 +174,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
         if invoice.document_type != 'Credit Memo':
             return Response({"error": "This document is not a Credit Memo."}, status=status.HTTP_400_BAD_REQUEST)
-        if invoice.status == 'Posted':
+        if str(invoice.status).lower() == 'posted':
             return Response({"error": "Credit memo already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
         # S1-06 — fiscal period gate.
@@ -168,20 +190,31 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         from django.conf import settings as django_settings
         default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
-        ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
-        ar_account = Account.objects.filter(code=ar_code).first()
+        # AR discovery — reconciliation_type first.
+        ar_account = Account.objects.filter(
+            account_type='Asset', is_reconciliation=True,
+            reconciliation_type='accounts_receivable',
+            is_active=True,
+        ).first()
+        if not ar_account:
+            ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
+            ar_account = Account.objects.filter(code=ar_code).first()
         if not ar_account:
             ar_account = Account.objects.filter(
-                account_type='Asset', is_reconciliation=True,
-                reconciliation_type='accounts_receivable'
+                account_type='Asset', name__icontains='Receivable',
             ).first()
 
         rev_code = default_gl.get('SALES_REVENUE', '40100000')
         revenue_account = Account.objects.filter(code=rev_code).first()
 
         if not ar_account or not revenue_account:
+            missing = []
+            if not ar_account:
+                missing.append("Accounts Receivable (flag an Asset account with reconciliation_type='accounts_receivable')")
+            if not revenue_account:
+                missing.append("Revenue (set DEFAULT_GL_ACCOUNTS['SALES_REVENUE'] in settings)")
             return Response(
-                {"error": "Required GL accounts (AR / Revenue) not found. Configure DEFAULT_GL_ACCOUNTS in settings."},
+                {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -193,18 +226,21 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                     invoice.document_number = TransactionSequence.get_next('credit_memo_ar_doc', 'ARCM-')
                     invoice.save(update_fields=['document_number'])
 
+                # Build the journal Draft, lock Posted at the end —
+                # same Posted-immutability discipline as AP.
+                cm_seed = invoice.invoice_number or invoice.document_number or ''
+                cm_ref = cm_seed if cm_seed.startswith('ARCM-') else f"ARCM-{cm_seed}"
                 journal = JournalHeader.objects.create(
-                    reference_number=f"ARCM-{invoice.invoice_number}",
+                    reference_number=cm_ref,
                     description=f"AR Credit Memo: {invoice.invoice_number}",
                     posting_date=invoice.invoice_date,
                     fund=invoice.fund,
                     function=invoice.function,
                     program=invoice.program,
                     geo=invoice.geo,
-                    status='Posted',
+                    document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                    status='Draft',
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 # Dr Revenue (reverses revenue earned)
                 JournalLine.objects.create(
@@ -226,6 +262,10 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 )
 
                 CustomerInvoiceViewSet._update_gl_from_journal(journal)
+
+                # Lock journal — must be the last write to it.
+                journal.status = 'Posted'
+                journal.save(update_fields=['status'], _allow_status_change=True)
 
                 invoice.journal_entry = journal
                 invoice.status = 'Posted'
@@ -342,7 +382,7 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        if receipt.status == 'Posted':
+        if str(receipt.status).lower() == 'posted':
             return Response({"error": "Receipt already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Advance / downpayment receipts do not require invoice allocations
@@ -365,40 +405,64 @@ class ReceiptViewSet(viewsets.ModelViewSet):
             default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
             with transaction.atomic():
-                # Resolve GL accounts
-                ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
-                ar_account = Account.objects.filter(code=ar_code).first()
+                # AR discovery — reconciliation_type marker first, then
+                # legacy code default, then name heuristic. Mirrors AP/AR
+                # invoice posting.
+                ar_account = Account.objects.filter(
+                    account_type='Asset', is_reconciliation=True,
+                    reconciliation_type='accounts_receivable',
+                    is_active=True,
+                ).first()
+                if not ar_account:
+                    ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
+                    ar_account = Account.objects.filter(code=ar_code).first()
                 if not ar_account:
                     ar_account = Account.objects.filter(account_type='Asset', name__icontains='Receivable').first()
 
+                # Bank/Cash discovery — prefer the receipt's bank
+                # account's configured GL, then bank_accounting
+                # reconciliation marker, then legacy CASH_ACCOUNT code,
+                # then name heuristic. Same ladder as payment posting.
                 bank_gl_account = None
                 if receipt.bank_account:
                     bank_gl_account = receipt.bank_account.gl_account
                 if not bank_gl_account:
+                    bank_gl_account = Account.objects.filter(
+                        reconciliation_type='bank_accounting', is_active=True,
+                    ).first()
+                if not bank_gl_account:
                     cash_code = default_gl.get('CASH_ACCOUNT', '10100000')
                     bank_gl_account = Account.objects.filter(code=cash_code).first()
-                    if not bank_gl_account:
-                        bank_gl_account = Account.objects.filter(account_type='Asset', name__icontains='Bank').first()
+                if not bank_gl_account:
+                    bank_gl_account = Account.objects.filter(account_type='Asset', name__icontains='Bank').first()
 
                 if not bank_gl_account:
-                    return Response({"error": "Required GL account (Bank / Cash) not found."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response(
+                        {"error": "Required GL account (Bank / Cash) not found. Set gl_account on the bank account, or flag an Asset with reconciliation_type='bank_accounting'."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 amount = receipt.total_amount
 
-                # Create journal entry
-                journal = JournalHeader.objects.create(
-                    reference_number=f"RCT-{receipt.receipt_number}",
-                    description=f"{'Downpayment' if receipt.is_advance else 'Receipt'}: {receipt.receipt_number}",
-                    posting_date=receipt.receipt_date,
-                    status='Posted'
-                )
-
-                # Assign Document Numbers
+                # Assign receipt document number first.
                 if not receipt.document_number:
                     receipt.document_number = TransactionSequence.get_next('receipt_doc', 'RCT-')
 
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
+                # Build journal Draft, populate, lock to Posted at the
+                # end. ImmutableModelMixin blocks mutation once Posted —
+                # creating Posted upfront then adding lines was failing
+                # silently or raising the immutability error.
+                # Reference number avoids RCT-RCT- double-prefix when
+                # receipt_number already starts with RCT-.
+                ref_seed = receipt.receipt_number or receipt.document_number or ''
+                ref = ref_seed if ref_seed.startswith('RCT-') else f"RCT-{ref_seed}"
+                journal = JournalHeader.objects.create(
+                    reference_number=ref,
+                    description=f"{'Downpayment' if receipt.is_advance else 'Receipt'}: {receipt.receipt_number}",
+                    posting_date=receipt.receipt_date,
+                    document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                    status='Draft',
+                )
 
                 # Debit Bank (increase asset)
                 JournalLine.objects.create(
@@ -453,6 +517,10 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
                 # Update GL balances
                 self._update_gl_from_journal(journal)
+
+                # Lock journal — must be the last write to it.
+                journal.status = 'Posted'
+                journal.save(update_fields=['status'], _allow_status_change=True)
 
                 # Link journal to receipt and update status
                 receipt.journal_entry = journal

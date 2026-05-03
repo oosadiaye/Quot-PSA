@@ -127,6 +127,47 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
     geo_name = serializers.ReadOnlyField(source='geo.name')
     cost_center_name = serializers.CharField(source='cost_center.name', read_only=True, default='')
     requested_by_name = serializers.CharField(source='requested_by.get_full_name', read_only=True, allow_null=True)
+    # Convert-to-PO guard — the UI uses these to hide the "Convert to PO"
+    # button and show a "View PO" link once the PR has been converted.
+    active_po_id = serializers.SerializerMethodField()
+    active_po_number = serializers.SerializerMethodField()
+    active_po_status = serializers.SerializerMethodField()
+
+    def get_active_po_id(self, obj):
+        po = self._active_po(obj)
+        return po.id if po else None
+
+    def get_active_po_number(self, obj):
+        po = self._active_po(obj)
+        return po.po_number if po else None
+
+    def get_active_po_status(self, obj):
+        po = self._active_po(obj)
+        return po.status if po else None
+
+    def _active_po(self, obj):
+        """Return the single non-Rejected PO linked to this PR, if any.
+
+        One-PO-per-PR is enforced by the DB constraint
+        ``uniq_active_po_per_purchase_request`` so this will always be 0
+        or 1 rows. Cached on the serializer instance per-obj to avoid
+        re-querying inside the same render.
+        """
+        cache = getattr(self, '_active_po_cache', None)
+        if cache is None:
+            cache = self._active_po_cache = {}
+        if obj.pk in cache:
+            return cache[obj.pk]
+        from procurement.models import PurchaseOrder
+        po = (
+            PurchaseOrder.objects
+            .filter(purchase_request_id=obj.pk)
+            .exclude(status='Rejected')
+            .only('id', 'po_number', 'status')
+            .first()
+        )
+        cache[obj.pk] = po
+        return po
 
     class Meta:
         model = PurchaseRequest
@@ -135,8 +176,12 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
             'priority', 'status', 'mda', 'mda_name', 'fund', 'fund_name', 'function', 'function_name',
             'program', 'program_name', 'geo', 'geo_name', 'cost_center', 'cost_center_name',
             'lines', 'created_at', 'updated_at',
+            'active_po_id', 'active_po_number', 'active_po_status',
         ]
-        read_only_fields = ['id', 'request_number', 'requested_date', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'request_number', 'requested_date', 'created_at', 'updated_at',
+            'active_po_id', 'active_po_number', 'active_po_status',
+        ]
 
     def validate(self, data):
         # P2P-H5: PR Budget Period Date Validation
@@ -195,6 +240,20 @@ class PurchaseOrderLineSerializer(PositiveDecimalMixin, serializers.ModelSeriali
 class PurchaseOrderSerializer(serializers.ModelSerializer):
     lines = PurchaseOrderLineSerializer(many=True)
     vendor_name = serializers.ReadOnlyField(source='vendor.name')
+    # Vendor-master defaults surfaced read-only so the Invoice Verification
+    # form can pre-select the WHT code and honour a permanent exemption
+    # without a second API call.
+    vendor_wht_code = serializers.PrimaryKeyRelatedField(
+        source='vendor.withholding_tax_code', read_only=True, allow_null=True,
+    )
+    vendor_wht_code_label = serializers.SerializerMethodField()
+    vendor_wht_exempt = serializers.ReadOnlyField(source='vendor.wht_exempt')
+
+    def get_vendor_wht_code_label(self, obj):
+        wht = getattr(obj.vendor, 'withholding_tax_code', None) if obj.vendor else None
+        if not wht:
+            return ''
+        return f"{wht.code} · {wht.name} ({wht.rate}%)"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -233,7 +292,9 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrder
         fields = [
-            'id', 'po_number', 'vendor', 'vendor_name', 'purchase_request', 'order_date',
+            'id', 'po_number', 'vendor', 'vendor_name',
+            'vendor_wht_code', 'vendor_wht_code_label', 'vendor_wht_exempt',
+            'purchase_request', 'order_date',
             'expected_delivery_date', 'delivery_address', 'delivery_contact', 'payment_terms',
             'tax_rate', 'tax_amount', 'subtotal', 'total_amount', 'notes', 'terms_and_conditions',
             'tax_code', 'wht_exempt',
@@ -441,6 +502,21 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
     net_payable = serializers.ReadOnlyField()
     # Convenience: how much unspent advance is still available for this PO's DPR (if any)
     available_down_payment = serializers.SerializerMethodField()
+    # Posted-state flags — let the UI hide "Post to GL" once the
+    # auto-post fires on Approval (VendorInvoice goes to Posted and
+    # its journal_entry is populated). Without these the button would
+    # linger on the Approved screen even though the work is done.
+    vendor_invoice_status = serializers.ReadOnlyField(source='vendor_invoice.status')
+    journal_entry_id = serializers.SerializerMethodField()
+    journal_reference = serializers.SerializerMethodField()
+
+    def get_journal_entry_id(self, obj):
+        return obj.vendor_invoice.journal_entry_id if obj.vendor_invoice_id else None
+
+    def get_journal_reference(self, obj):
+        if obj.vendor_invoice_id and obj.vendor_invoice.journal_entry_id:
+            return obj.vendor_invoice.journal_entry.reference_number
+        return None
 
     def get_available_down_payment(self, obj):
         if not obj.purchase_order_id:
@@ -463,15 +539,24 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceMatching
         fields = [
-            'id', 'purchase_order', 'po_number', 'vendor_name', 'goods_received_note', 'grn_number',
+            'id', 'verification_number',
+            'purchase_order', 'po_number', 'vendor_name', 'goods_received_note', 'grn_number',
             'invoice_reference', 'invoice_date', 'invoice_amount', 'invoice_tax_amount', 'invoice_subtotal',
             'po_amount', 'grn_amount', 'match_type',
             'status', 'variance_amount', 'variance_percentage', 'variance_reason', 'matched_date',
             'payment_hold', 'down_payment_applied', 'net_payable', 'available_down_payment',
             'notes',
+            # Tax codes — selected on the matching, drive VAT / WHT at post-to-GL
+            'tax_code', 'withholding_tax', 'wht_amount',
+            'wht_exempt', 'wht_exempt_reason',
+            # Posted-state flags (read-only)
+            'vendor_invoice', 'vendor_invoice_status', 'journal_entry_id', 'journal_reference',
         ]
-        read_only_fields = ['id', 'po_amount', 'grn_amount', 'match_type', 'status', 'matched_date',
-                            'net_payable', 'available_down_payment']
+        read_only_fields = ['id', 'verification_number',
+                            'po_amount', 'grn_amount', 'match_type', 'status', 'matched_date',
+                            'net_payable', 'available_down_payment', 'wht_amount',
+                            'vendor_invoice', 'vendor_invoice_status',
+                            'journal_entry_id', 'journal_reference']
 
     def validate_invoice_amount(self, value):
         if value is not None and value <= 0:
@@ -491,6 +576,41 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
                 'invoice_date': "Invoice date cannot be before the purchase order date."
             })
         return data
+
+    def _recompute_tax_totals(self, instance):
+        """Compute invoice_tax_amount from tax_code and wht_amount from
+        withholding_tax, both against invoice_subtotal. Called after create()
+        and update() so saved rows always carry consistent totals."""
+        from decimal import Decimal as _D
+        subtotal = instance.invoice_subtotal or _D('0')
+        if instance.tax_code and instance.tax_code.rate:
+            instance.invoice_tax_amount = (
+                subtotal * _D(str(instance.tax_code.rate)) / _D('100')
+            ).quantize(_D('0.01'))
+        elif not instance.invoice_tax_amount:
+            instance.invoice_tax_amount = _D('0')
+        if instance.withholding_tax and instance.withholding_tax.rate:
+            instance.wht_amount = (
+                subtotal * _D(str(instance.withholding_tax.rate)) / _D('100')
+            ).quantize(_D('0.01'))
+        else:
+            instance.wht_amount = _D('0')
+        # Keep invoice_amount = subtotal + tax (vendor bills gross of VAT; WHT
+        # is a deduction at payment, not a line on the invoice itself).
+        if subtotal > 0 and instance.tax_code:
+            instance.invoice_amount = subtotal + instance.invoice_tax_amount
+        instance.save(update_fields=[
+            'invoice_tax_amount', 'wht_amount', 'invoice_amount',
+        ])
+        return instance
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        return self._recompute_tax_totals(instance)
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        return self._recompute_tax_totals(instance)
 
 
 class VendorCreditNoteSerializer(serializers.ModelSerializer):

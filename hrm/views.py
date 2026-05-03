@@ -525,6 +525,72 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
 
         return Response(PayrollRunSerializer(payroll_run).data)
 
+    @action(detail=True, methods=['post'], url_path='auto-process')
+    def auto_process(self, request, pk=None):
+        """Phase 3 — deterministic payroll pipeline.
+
+        Uses :func:`hrm.services.payroll_runner.run_payroll` to compute
+        every active employee's line with full Nigerian statutory
+        handling (PAYE, pension, NHF) in a single atomic transaction.
+        """
+        from hrm.services.payroll_runner import run_payroll
+
+        payroll_run = self.get_object()
+        try:
+            summary = run_payroll(payroll_run, user=request.user)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # pragma: no cover - surface any unexpected failure
+            logger.exception('auto_process failed for run %s', payroll_run.pk)
+            return Response(
+                {'error': f'Payroll processing failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({
+            'run': PayrollRunSerializer(payroll_run).data,
+            'summary': {
+                'employees_processed': summary.employees_processed,
+                'total_gross': str(summary.total_gross),
+                'total_deductions': str(summary.total_deductions),
+                'total_net': str(summary.total_net),
+            },
+        })
+
+    @action(detail=True, methods=['get'], url_path='preview')
+    def preview(self, request, pk=None):
+        """Dry-run the deterministic pipeline without persisting.
+
+        Returns a per-employee preview — useful for HR to spot
+        outliers before committing a run.
+        """
+        from hrm.services.payroll_runner import compute_line
+
+        payroll_run = self.get_object()
+        period = payroll_run.period
+        employees = Employee.objects.filter(
+            status__in=['Active', 'Probation']
+        ).select_related('salary_structure', 'user')[:500]
+
+        preview_rows = []
+        for emp in employees:
+            calc = compute_line(emp, period)
+            preview_rows.append({
+                'employee_id': emp.pk,
+                'employee_number': emp.employee_number,
+                'full_name': emp.user.get_full_name() or emp.user.username,
+                'basic_salary': str(calc.basic_salary),
+                'gross_salary': str(calc.gross_salary),
+                'tax_deduction': str(calc.tax_deduction),
+                'pension_deduction': str(calc.pension_deduction),
+                'nhf_deduction': str(calc.nhf_deduction),
+                'other_deductions': str(calc.other_deductions),
+                'total_deductions': str(calc.total_deductions),
+                'net_salary': str(calc.net_salary),
+                'employer_pension': str(calc.employer_pension),
+            })
+        return Response({'count': len(preview_rows), 'results': preview_rows})
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         payroll_run = self.get_object()

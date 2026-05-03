@@ -29,6 +29,33 @@ import SearchableSelect from '../../components/SearchableSelect';
 import '../../features/accounting/styles/glassmorphism.css';
 import { useCreatePV, useNCoASegments } from '../../hooks/useGovForms';
 import apiClient from '../../api/client';
+import { useWithholdingTaxes } from '../../features/accounting/hooks/useAccountingEnhancements';
+import { useAccounts } from '../../features/accounting/hooks/useBudgetDimensions';
+import { Plus, X } from 'lucide-react';
+
+type DeductionType =
+    | 'WHT' | 'STAMP_DUTY' | 'VAT_WITHHELD'
+    | 'HANDLING' | 'INSURANCE' | 'RETENTION' | 'OTHER';
+
+const DEDUCTION_TYPES: Array<[DeductionType, string]> = [
+    ['WHT',          'Withholding Tax'],
+    ['STAMP_DUTY',   'Stamp Duty'],
+    ['VAT_WITHHELD', 'VAT Withheld at Source'],
+    ['HANDLING',     'Bank / Handling Charges'],
+    ['INSURANCE',    'Insurance Premium'],
+    ['RETENTION',    'Contract Retention'],
+    ['OTHER',        'Other Deduction'],
+];
+
+interface DeductionRow {
+    _uid: number;
+    deduction_type: DeductionType;
+    description: string;
+    withholding_tax: string;   // FK id as string, optional
+    rate: string;              // percent, for informational display / compute
+    amount: string;
+    gl_account: string;        // FK id as string
+}
 
 const inputStyle: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
@@ -114,11 +141,63 @@ export default function PaymentVoucherForm() {
     const set = (field: string, value: string) =>
         setForm(prev => ({ ...prev, [field]: value }));
 
+    // ── Deduction lines ───────────────────────────────────────────────
+    // Each row posts one CR line to the deduction's GL account at
+    // payment time. Net paid to vendor = gross − Σ amount.
+    const [deductions, setDeductions] = useState<DeductionRow[]>([]);
+    const nextDeductionUid = useRef(1);
+
+    const { data: whtData } = useWithholdingTaxes({ is_active: true });
+    const whtCodes: Array<{ id: number; code: string; name: string; rate: number | string; withholding_account?: number }> =
+        Array.isArray(whtData) ? whtData : (whtData?.results ?? []);
+    const { data: liabilityAccts } = useAccounts({ account_type: 'Liability', is_active: true });
+    const { data: expenseAccts } = useAccounts({ account_type: 'Expense', is_active: true });
+    const allAccts: Array<{ id: number; code: string; name: string; account_type: string }> = [
+        ...(Array.isArray(liabilityAccts) ? liabilityAccts : (liabilityAccts?.results ?? [])),
+        ...(Array.isArray(expenseAccts)   ? expenseAccts   : (expenseAccts?.results   ?? [])),
+    ];
+
+    const addDeduction = (type: DeductionType = 'WHT') => {
+        setDeductions(prev => [...prev, {
+            _uid: nextDeductionUid.current++,
+            deduction_type: type,
+            description: '',
+            withholding_tax: '',
+            rate: '',
+            amount: '0',
+            gl_account: '',
+        }]);
+    };
+    const removeDeduction = (uid: number) =>
+        setDeductions(prev => prev.filter(d => d._uid !== uid));
+    const updateDeduction = (uid: number, field: keyof DeductionRow, value: string) =>
+        setDeductions(prev => prev.map(d => {
+            if (d._uid !== uid) return d;
+            const next = { ...d, [field]: value };
+            // WHT: when a WHT code is picked, copy its rate + GL account and
+            // recompute the amount from the current gross subtotal.
+            if (field === 'withholding_tax' && value) {
+                const wht = whtCodes.find(w => String(w.id) === value);
+                if (wht) {
+                    const gross = parseFloat(form.gross_amount) || 0;
+                    const rate = parseFloat(String(wht.rate || '0'));
+                    next.rate = String(rate);
+                    next.amount = gross > 0 ? (gross * rate / 100).toFixed(2) : next.amount;
+                    if (wht.withholding_account) next.gl_account = String(wht.withholding_account);
+                    if (!next.description) next.description = `${wht.code} ${wht.name}`;
+                }
+            }
+            return next;
+        }));
+
+    const totalDeductions = useMemo(
+        () => deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0),
+        [deductions],
+    );
     const netAmount = useMemo(() => {
         const gross = parseFloat(form.gross_amount) || 0;
-        const wht = parseFloat(form.wht_amount) || 0;
-        return Math.max(0, gross - wht);
-    }, [form.gross_amount, form.wht_amount]);
+        return Math.max(0, gross - totalDeductions);
+    }, [form.gross_amount, totalDeductions]);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -219,7 +298,20 @@ export default function PaymentVoucherForm() {
             payment_type: form.payment_type, ncoa_code: ncoaCodeId,
             payee_name: form.payee_name, payee_account: form.payee_account,
             payee_bank: form.payee_bank, payee_sort_code: form.payee_sort_code,
-            gross_amount: form.gross_amount, wht_amount: form.wht_amount || '0',
+            gross_amount: form.gross_amount,
+            // wht_amount kept at 0 on the header when deduction lines are used;
+            // the backend reads the sum of WHT-typed deduction rows.
+            wht_amount: deductions.length > 0 ? '0' : (form.wht_amount || '0'),
+            deductions: deductions
+                .filter(d => parseFloat(d.amount) > 0 && d.gl_account)
+                .map(d => ({
+                    deduction_type: d.deduction_type,
+                    description: d.description,
+                    withholding_tax: d.withholding_tax ? parseInt(d.withholding_tax) : null,
+                    rate: parseFloat(d.rate || '0') || 0,
+                    amount: parseFloat(d.amount),
+                    gl_account: parseInt(d.gl_account),
+                })),
             narration: form.narration,
             source_document: form.source_document,
             invoice_number: form.invoice_number,
@@ -403,22 +495,33 @@ export default function PaymentVoucherForm() {
                         </div>
                     </div>
 
-                    {/* ── 4. Amount & Narration ────────────────────── */}
+                    {/* ── 4. Amount & Deductions ───────────────────── */}
                     <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
                         <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>
-                            4. Amount &amp; Narration
+                            4. Amount &amp; Deductions
                         </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
                             <div>
                                 <label style={lblStyle}>Gross Amount (NGN) <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={{ ...inputStyle, fontSize: 'var(--text-base)', fontWeight: 700 }} type="number" step="0.01" min="0.01" required value={form.gross_amount} onChange={e => set('gross_amount', e.target.value)} placeholder="0.00" />
+                                <input style={{ ...inputStyle, fontSize: 'var(--text-base)', fontWeight: 700 }}
+                                    type="number" step="0.01" min="0.01" required
+                                    value={form.gross_amount}
+                                    onChange={e => set('gross_amount', e.target.value)} placeholder="0.00" />
                             </div>
                             <div>
-                                <label style={lblStyle}>WHT Deduction (NGN)</label>
-                                <input style={inputStyle} type="number" step="0.01" min="0" value={form.wht_amount} onChange={e => set('wht_amount', e.target.value)} placeholder="0.00" />
+                                <label style={lblStyle}>Total Deductions</label>
+                                <div style={{
+                                    ...inputStyle,
+                                    background: 'rgba(234,179,8,0.06)',
+                                    fontWeight: 700,
+                                    color: '#ca8a04',
+                                    display: 'flex', alignItems: 'center',
+                                }}>
+                                    {fmtNGN(totalDeductions)}
+                                </div>
                             </div>
                             <div>
-                                <label style={lblStyle}>Net Amount</label>
+                                <label style={lblStyle}>Net Paid to Vendor</label>
                                 <div style={{
                                     ...inputStyle,
                                     background: 'rgba(25,30,106,0.04)',
@@ -430,9 +533,111 @@ export default function PaymentVoucherForm() {
                                 </div>
                             </div>
                         </div>
-                        <div style={{ marginTop: '0.75rem' }}>
+
+                        {/* Deduction lines */}
+                        <div style={{
+                            border: '1px solid var(--color-border)',
+                            borderRadius: '8px',
+                            padding: '0.75rem',
+                            background: 'rgba(0,0,0,0.02)',
+                        }}>
+                            <div style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                marginBottom: '0.5rem',
+                            }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                                    Deduction Lines · posted at payment time
+                                </span>
+                                <button type="button"
+                                    onClick={() => addDeduction('WHT')}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '0.25rem',
+                                        padding: '0.3rem 0.55rem', fontSize: '0.7rem',
+                                        borderRadius: '6px', border: '1px solid var(--color-border)',
+                                        background: 'var(--color-surface)', cursor: 'pointer',
+                                        color: 'var(--color-text)',
+                                    }}>
+                                    <Plus size={12} /> Add Deduction
+                                </button>
+                            </div>
+                            {deductions.length === 0 && (
+                                <p style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', margin: '0.5rem 0 0' }}>
+                                    No deductions. Add WHT, stamp duty, handling charges, etc. —
+                                    each line posts one credit row at payment time.
+                                </p>
+                            )}
+                            {deductions.map(d => (
+                                <div key={d._uid} style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1.1fr 1.3fr 0.8fr 1fr 1.5fr auto',
+                                    gap: '0.4rem',
+                                    marginTop: '0.5rem',
+                                    alignItems: 'center',
+                                }}>
+                                    <select style={{ ...inputStyle, fontSize: '0.7rem' }}
+                                        value={d.deduction_type}
+                                        onChange={e => updateDeduction(d._uid, 'deduction_type', e.target.value)}>
+                                        {DEDUCTION_TYPES.map(([v, lbl]) =>
+                                            <option key={v} value={v}>{lbl}</option>
+                                        )}
+                                    </select>
+                                    {d.deduction_type === 'WHT' ? (
+                                        <select style={{ ...inputStyle, fontSize: '0.7rem' }}
+                                            value={d.withholding_tax}
+                                            onChange={e => updateDeduction(d._uid, 'withholding_tax', e.target.value)}>
+                                            <option value="">— pick WHT code —</option>
+                                            {whtCodes.map(w => (
+                                                <option key={w.id} value={w.id}>
+                                                    {w.code} · {w.name} ({w.rate}%)
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input style={{ ...inputStyle, fontSize: '0.7rem' }}
+                                            placeholder="Description"
+                                            value={d.description}
+                                            onChange={e => updateDeduction(d._uid, 'description', e.target.value)} />
+                                    )}
+                                    <input style={{ ...inputStyle, fontSize: '0.7rem' }}
+                                        type="number" step="0.01" min="0"
+                                        placeholder="Rate %"
+                                        value={d.rate}
+                                        onChange={e => updateDeduction(d._uid, 'rate', e.target.value)} />
+                                    <input style={{ ...inputStyle, fontSize: '0.7rem', fontWeight: 600 }}
+                                        type="number" step="0.01" min="0"
+                                        placeholder="Amount"
+                                        value={d.amount}
+                                        onChange={e => updateDeduction(d._uid, 'amount', e.target.value)} />
+                                    <select style={{ ...inputStyle, fontSize: '0.7rem' }}
+                                        value={d.gl_account}
+                                        onChange={e => updateDeduction(d._uid, 'gl_account', e.target.value)}>
+                                        <option value="">— GL account —</option>
+                                        {allAccts.map(a => (
+                                            <option key={a.id} value={a.id}>
+                                                {a.code} · {a.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button type="button"
+                                        onClick={() => removeDeduction(d._uid)}
+                                        title="Remove deduction"
+                                        style={{
+                                            padding: '0.3rem', border: 'none', background: 'none',
+                                            cursor: 'pointer', color: '#ef4444',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        }}>
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ marginTop: '1rem' }}>
                             <label style={lblStyle}>Narration <span style={{ color: '#ef4444' }}>*</span></label>
-                            <textarea style={{ ...inputStyle, minHeight: '60px' }} required value={form.narration} onChange={e => set('narration', e.target.value)} placeholder="Description of goods/services..." />
+                            <textarea style={{ ...inputStyle, minHeight: '60px' }} required
+                                value={form.narration}
+                                onChange={e => set('narration', e.target.value)}
+                                placeholder="Description of goods/services..." />
                         </div>
                     </div>
 

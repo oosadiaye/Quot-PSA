@@ -126,7 +126,13 @@ class EconomicSegment(AuditBaseModel):
         ('Expense',   'Expense / Expenditure'),
     ]
 
-    code               = models.CharField(max_length=8, unique=True, db_index=True)
+    # ``max_length=20`` (was 8) so any code from the legacy Chart of Accounts
+    # — which is ``CharField(max_length=20)`` on accounting.Account — can be
+    # mirrored across without truncation. The NCoA spec describes 8-digit
+    # composite codes, but tenants frequently extend with sub-codes; widening
+    # is non-destructive (existing 8-char rows fit unchanged) and the
+    # first-digit family rule (clean()) is unaffected.
+    code               = models.CharField(max_length=20, unique=True, db_index=True)
     name               = models.CharField(max_length=200)
     account_type_code  = models.CharField(
         max_length=1, choices=ACCOUNT_TYPE_CHOICES, db_index=True,

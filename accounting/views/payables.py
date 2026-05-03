@@ -14,7 +14,44 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
     serializer_class = VendorInvoiceSerializer
     filterset_fields = ['status', 'vendor', 'invoice_date']
     search_fields = ['invoice_number', 'reference', 'vendor__name', 'description']
+    ordering_fields = ['invoice_date', 'invoice_number', 'status', 'total_amount']
     pagination_class = AccountingPagination
+
+    def get_queryset(self):
+        # Default: most-recently-saved first (by pk desc). A draft
+        # invoice just captured by the user must appear at the top of
+        # the list regardless of its invoice_date — otherwise back-dated
+        # drafts get buried. ``-invoice_date`` stays as a secondary
+        # tiebreaker. User can still override via ?ordering=.
+        qs = super().get_queryset()
+        if not self.request.query_params.get('ordering'):
+            qs = qs.order_by('-id', '-invoice_date')
+        return qs
+
+    # Project rule (memory: feedback_draft_immutable_after_post): non-Draft
+    # documents are immutable. Only Drafts can be edited; users who need to
+    # change a Posted/Approved invoice must reverse it (issue a credit memo).
+    # Frontend hides the Edit affordance on non-Draft rows; this guard is the
+    # backend defense in depth.
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status != 'Draft':
+            return Response(
+                {'error': f'Cannot modify a {instance.status.lower()} vendor invoice. '
+                          f'Issue a credit memo to reverse it.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status != 'Draft':
+            return Response(
+                {'error': f'Cannot modify a {instance.status.lower()} vendor invoice. '
+                          f'Issue a credit memo to reverse it.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().partial_update(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def payable(self, request):
@@ -218,94 +255,152 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
 
         invoice = self.get_object()
         default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
-
-        # Resolve accounts, falling back to settings defaults.
         has_po = bool(invoice.purchase_order_id)
 
-        # Debit side (1 of 2 paths)
-        debit_account = None
-        debit_memo_prefix = 'Expense'
-        if has_po:
-            gr_ir_code = default_gl.get('GOODS_RECEIPT_CLEARING', '20601000')
-            debit_account = Account.objects.filter(code=gr_ir_code).first()
-            debit_memo_prefix = 'GR/IR Clearing'
-        if not debit_account:
-            debit_account = invoice.account
-        if not debit_account:
-            exp_code = default_gl.get('PURCHASE_EXPENSE', '50100000')
-            debit_account = Account.objects.filter(code=exp_code).first()
-
-        # Tax account (only if invoice has tax)
-        tax_amount = invoice.tax_amount or Decimal('0')
-        tax_account = None
-        if tax_amount > 0:
-            tax_account = Account.objects.filter(
-                account_type='Asset', name__icontains='Input Tax'
-            ).first() or Account.objects.filter(
-                name__icontains='VAT Receivable'
-            ).first() or Account.objects.filter(
-                code=default_gl.get('TAX_PAYABLE', '20500000')
-            ).first()
-
-        # AP account (always on credit side)
-        ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
-        ap_account = Account.objects.filter(code=ap_code).first()
+        # AP account discovery — same ladder as post_invoice():
+        #   1. reconciliation_type='accounts_payable' (CoA-portable)
+        #   2. DEFAULT_GL_ACCOUNTS code
+        #   3. Liability + name~"Payable" heuristic
+        ap_account = Account.objects.filter(
+            reconciliation_type='accounts_payable', is_active=True,
+        ).first()
+        if not ap_account:
+            ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
+            ap_account = Account.objects.filter(code=ap_code).first()
         if not ap_account:
             ap_account = Account.objects.filter(
                 account_type='Liability', name__icontains='Payable',
             ).first()
 
-        # Build proposed lines — matches JournalLineDetailSerializer shape
-        # so the frontend can render with the same component.
-        lines = []
-        subtotal = invoice.subtotal or Decimal('0')
-        net_amount = subtotal if subtotal > 0 else (invoice.total_amount or Decimal('0')) - tax_amount
-        total_amount = invoice.total_amount or Decimal('0')
+        # Build proposed lines by ITERATING the invoice's line items —
+        # the form is line-driven, so per-line account + amount + tax
+        # code + WHT code is the canonical source. Earlier revisions
+        # used header-level ``invoice.account`` and ``invoice.subtotal``
+        # which were always empty for line-driven entries, producing
+        # an empty preview ("No entries to display") even when the
+        # invoice clearly carried lines.
+        lines: list = []
+        warnings: list = []
 
-        if debit_account and net_amount > 0:
-            lines.append({
-                'account': debit_account.pk,
-                'account_code': debit_account.code,
-                'account_name': debit_account.name,
-                'debit': str(net_amount.quantize(Decimal('0.01'))),
-                'credit': '0.00',
-                'memo': f'{debit_memo_prefix}: {invoice.reference or invoice.invoice_number}',
-            })
+        invoice_lines = list(invoice.lines.all().select_related('account', 'tax_code', 'withholding_tax'))
 
-        if tax_account and tax_amount > 0:
-            lines.append({
-                'account': tax_account.pk,
-                'account_code': tax_account.code,
-                'account_name': tax_account.name,
-                'debit': str(tax_amount.quantize(Decimal('0.01'))),
-                'credit': '0.00',
-                'memo': f'Input Tax: {invoice.reference or invoice.invoice_number}',
-            })
+        # Optional GR/IR clearing override for PO-backed invoices
+        gr_ir_account = None
+        if has_po:
+            gr_ir_code = default_gl.get('GOODS_RECEIPT_CLEARING', '20601000')
+            gr_ir_account = Account.objects.filter(code=gr_ir_code).first()
 
-        if ap_account and total_amount > 0:
+        sum_lines = Decimal('0')
+        sum_tax = Decimal('0')
+        sum_wht = Decimal('0')
+
+        for ln in invoice_lines:
+            line_amt = Decimal(str(ln.amount or 0))
+            if line_amt <= 0:
+                continue
+            sum_lines += line_amt
+
+            # DR Expense / Asset / GL — line's own account.
+            # PO-backed: route DR to GR/IR Clearing instead (3-way
+            # match flow), keeping the line's own account in memo so
+            # the preview still shows what was selected.
+            dr_acc = gr_ir_account if (has_po and gr_ir_account) else ln.account
+            if dr_acc:
+                lines.append({
+                    'account': dr_acc.pk,
+                    'account_code': dr_acc.code,
+                    'account_name': dr_acc.name,
+                    'debit': str(line_amt.quantize(Decimal('0.01'))),
+                    'credit': '0.00',
+                    'memo': (
+                        f'GR/IR Clearing ({ln.account.code})' if (has_po and gr_ir_account and ln.account)
+                        else (ln.description or f'Line: {ln.account.code}' if ln.account else 'Line')
+                    ),
+                })
+            else:
+                warnings.append(
+                    f'Line {invoice_lines.index(ln) + 1}: no GL account selected — '
+                    'preview cannot show a debit row for this line.'
+                )
+
+            # DR Input VAT — pulled from the line's tax_code's
+            # input_tax_account (or its tax_account fallback).
+            tc = ln.tax_code
+            if tc and tc.rate and Decimal(str(tc.rate)) > 0:
+                tax_amt = (line_amt * Decimal(str(tc.rate)) / Decimal('100')).quantize(Decimal('0.01'))
+                if tax_amt > 0:
+                    sum_tax += tax_amt
+                    tax_acc = (
+                        getattr(tc, 'input_tax_account', None)
+                        or getattr(tc, 'tax_account', None)
+                    )
+                    if tax_acc:
+                        lines.append({
+                            'account': tax_acc.pk,
+                            'account_code': tax_acc.code,
+                            'account_name': tax_acc.name,
+                            'debit': str(tax_amt),
+                            'credit': '0.00',
+                            'memo': f'Input VAT @ {tc.rate}% ({tc.code})',
+                        })
+                    else:
+                        warnings.append(
+                            f'Tax code {tc.code} has no Input Tax / Tax account '
+                            'configured — tax will land on the expense account on Post.'
+                        )
+
+            # WHT is DETERMINED at invoice but RECOGNISED at payment time
+            # (Nigerian PFM cash-basis). The simulator therefore shows
+            # NO WHT credit on the invoice journal — AP gets the full
+            # gross. The WHT FK on the line is preserved for the PV
+            # builder to read at payment time. ``sum_wht`` stays zero
+            # so the AP credit below resolves to gross.
+
+        # Fallback: no usable lines — fall back to header-level fields
+        # (legacy invoices created before line-driven entry, or test
+        # data). Mirrors the original simulator's heuristic.
+        if not invoice_lines or sum_lines == 0:
+            tax_amount = invoice.tax_amount or Decimal('0')
+            header_total = invoice.total_amount or Decimal('0')
+            header_subtotal = invoice.subtotal or (header_total - tax_amount)
+            debit_account = invoice.account or (
+                Account.objects.filter(code=default_gl.get('PURCHASE_EXPENSE', '50100000')).first()
+            )
+            if debit_account and header_subtotal > 0:
+                lines.append({
+                    'account': debit_account.pk,
+                    'account_code': debit_account.code,
+                    'account_name': debit_account.name,
+                    'debit': str(header_subtotal.quantize(Decimal('0.01'))),
+                    'credit': '0.00',
+                    'memo': f'Expense: {invoice.reference or invoice.invoice_number}',
+                })
+                sum_lines = header_subtotal
+                sum_tax = tax_amount
+            elif not debit_account:
+                warnings.append(
+                    'No debit account on invoice header and no line items — '
+                    'add a line with an account in the form, or set the header account.'
+                )
+
+        # CR AP — full gross (subtotal + VAT). WHT is recognised at
+        # payment time on the PV journal, not here. Mirrors what
+        # post_invoice() will book under cash-basis WHT.
+        ap_amount = (sum_lines + sum_tax) if invoice_lines else (invoice.total_amount or Decimal('0'))
+        if ap_account and ap_amount > 0:
             lines.append({
                 'account': ap_account.pk,
                 'account_code': ap_account.code,
                 'account_name': ap_account.name,
                 'debit': '0.00',
-                'credit': str(total_amount.quantize(Decimal('0.01'))),
+                'credit': str(ap_amount.quantize(Decimal('0.01'))),
                 'memo': f'AP: {invoice.vendor.name if invoice.vendor else "vendor"}',
             })
 
-        # Warnings — surface configuration gaps so the finance team sees
-        # them BEFORE attempting a Post and hitting a hard-stop.
-        warnings = []
-        if not debit_account:
-            warnings.append(
-                'No debit account configured (invoice.account is empty and '
-                'PURCHASE_EXPENSE default is missing).'
-            )
         if not ap_account:
-            warnings.append('Accounts Payable account is not configured.')
-        if tax_amount > 0 and not tax_account:
             warnings.append(
-                'Invoice has tax but no Input Tax account is configured — '
-                'the tax will land on the expense account on Post.'
+                'Accounts Payable not configured — flag a Liability account '
+                "with reconciliation_type='accounts_payable' in Chart of Accounts."
             )
 
         total_debit = sum((Decimal(l['debit']) for l in lines), Decimal('0'))
@@ -405,36 +500,56 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 invoice.refresh_from_db()
 
         # ── Budget Validation (Appropriation availability) ──────────
-        # Like SAP FB60: budget check + posting happen together. Validates
-        # that the appropriation has enough remaining capacity for this
-        # invoice. Returns a structured 400 with `appropriation_exceeded`
-        # so the frontend can render a clear "budget overrun" modal.
-        if invoice.mda and invoice.account and invoice.fund:
+        # Like SAP FB60: budget check + posting happen together.
+        #
+        # We check per-line so that every charged GL account (e.g. capex
+        # clearing 23040108) is validated against its own economic-segment
+        # appropriation. Using only the header account would silently bypass
+        # budget control for lines whose account differs from the header.
+        #
+        # When no invoice lines exist (header-only invoice), we fall back to
+        # the header-level account + total amount (legacy path).
+        if invoice.mda and invoice.fund:
             try:
                 from budget.services import BudgetValidationService, BudgetExceededError
                 from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
                 from accounting.models.advanced import FiscalYear
 
                 admin_seg = AdministrativeSegment.objects.filter(legacy_mda=invoice.mda).first()
-                econ_seg  = EconomicSegment.objects.filter(legacy_account=invoice.account).first()
                 fund_seg  = FundSegment.objects.filter(legacy_fund=invoice.fund).first()
                 active_fy = FiscalYear.objects.filter(is_active=True).first()
 
-                if admin_seg and econ_seg and fund_seg and active_fy:
-                    try:
-                        BudgetValidationService.validate_expenditure(
-                            administrative_id=admin_seg.pk,
-                            economic_id=econ_seg.pk,
-                            fund_id=fund_seg.pk,
-                            fiscal_year_id=active_fy.pk,
-                            amount=invoice.total_amount,
-                            source='VENDOR_INVOICE',
-                        )
-                    except BudgetExceededError as e:
-                        return Response({
-                            "error": f"Appropriation exceeded: {str(e)}",
-                            "appropriation_exceeded": True,
-                        }, status=status.HTTP_400_BAD_REQUEST)
+                if admin_seg and fund_seg and active_fy:
+                    # Build a list of (account, amount) pairs to validate.
+                    # Per-line takes priority — gives accurate per-GL-code control.
+                    budget_lines = [
+                        (ln.account, Decimal(str(ln.amount or 0)))
+                        for ln in invoice.lines.select_related('account').all()
+                        if ln.account_id and ln.amount and ln.amount > 0
+                    ]
+                    if not budget_lines and invoice.account and invoice.total_amount:
+                        # Header-only fallback (legacy invoices without line items)
+                        budget_lines = [(invoice.account, Decimal(str(invoice.total_amount)))]
+
+                    for acct, line_amount in budget_lines:
+                        econ_seg = EconomicSegment.objects.filter(legacy_account=acct).first()
+                        if not econ_seg:
+                            continue  # No NCoA mapping — skip (e.g. internal clearing accounts)
+                        try:
+                            BudgetValidationService.validate_expenditure(
+                                administrative_id=admin_seg.pk,
+                                economic_id=econ_seg.pk,
+                                fund_id=fund_seg.pk,
+                                fiscal_year_id=active_fy.pk,
+                                amount=line_amount,
+                                source='VENDOR_INVOICE',
+                            )
+                        except BudgetExceededError as e:
+                            return Response({
+                                "error": f"Appropriation exceeded for {acct.code} {acct.name}: {str(e)}",
+                                "appropriation_exceeded": True,
+                                "account_code": acct.code,
+                            }, status=status.HTTP_400_BAD_REQUEST)
             except ImportError:
                 pass  # Budget module not available — skip validation
 
@@ -445,8 +560,19 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         # layer — must pass before AP can be recognised. For PO-backed
         # invoices the PO's commitment is excluded from the consumption
         # sum (otherwise we'd double-count).
-        if invoice.mda and invoice.account and invoice.fund:
-            from accounting.budget_logic import check_warrant_availability
+        # Gated by ``is_warrant_pre_payment_enforced`` — under the
+        # default ``WARRANT_ENFORCEMENT_STAGE='payment'`` setting the
+        # invoice posts without warrant interrogation; the ceiling is
+        # checked at payment time instead. Set the setting to
+        # ``'invoice'`` to restore legacy strict behaviour.
+        from accounting.budget_logic import (
+            check_warrant_availability,
+            is_warrant_pre_payment_enforced,
+        )
+        if (
+            is_warrant_pre_payment_enforced()
+            and invoice.mda and invoice.account and invoice.fund
+        ):
             allowed, msg, info = check_warrant_availability(
                 dimensions={'mda': invoice.mda, 'fund': invoice.fund},
                 account=invoice.account,
@@ -468,97 +594,253 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
             with transaction.atomic():
-                # Expense account: use invoice.account or fallback to settings
+                # ── Expense account discovery ───────────────────────
+                # Discovery ladder, in order of trust:
+                #   1. ``invoice.account`` — header-level expense account
+                #      if the legacy form path set it.
+                #   2. First non-null line account — the new line-driven
+                #      form path stores the operator's choice on the
+                #      lines, not the header. This is the right answer
+                #      for the new tenant flow.
+                #   3. Hardcoded ``DEFAULT_GL_ACCOUNTS['PURCHASE_EXPENSE']``
+                #      (legacy fallback for tenants that mirror the
+                #      build's chart codes).
+                #   4. Name heuristic — last-resort match on
+                #      ``account_type='Expense'`` + a Purchase-ish name.
                 expense_account = invoice.account
+                if not expense_account:
+                    first_line_acc = invoice.lines.exclude(account__isnull=True).values_list('account', flat=True).first()
+                    if first_line_acc:
+                        expense_account = Account.objects.filter(pk=first_line_acc).first()
                 if not expense_account:
                     exp_code = default_gl.get('PURCHASE_EXPENSE', '50100000')
                     expense_account = Account.objects.filter(code=exp_code).first()
                     if not expense_account:
                         expense_account = Account.objects.filter(account_type='Expense', name__icontains='Purchase').first()
 
-                # AP account: ALWAYS from settings (separate from expense)
-                ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
-                ap_account = Account.objects.filter(code=ap_code).first()
+                # ── AP account discovery ────────────────────────────
+                # Discovery ladder:
+                #   1. ``reconciliation_type='accounts_payable'`` — the
+                #      tenant-portable CoA marker (works regardless of
+                #      what code numbering scheme the tenant adopted).
+                #   2. ``DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE']`` code
+                #      (legacy code-match fallback).
+                #   3. ``Liability`` + name~"Payable" heuristic.
+                # Falls through error only if all three miss — meaning
+                # the tenant has not configured an AP control account
+                # at all, in which case the operator must add one.
+                ap_account = Account.objects.filter(
+                    reconciliation_type='accounts_payable', is_active=True,
+                ).first()
+                if not ap_account:
+                    ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
+                    ap_account = Account.objects.filter(code=ap_code).first()
                 if not ap_account:
                     ap_account = Account.objects.filter(account_type='Liability', name__icontains='Payable').first()
 
                 if not expense_account or not ap_account:
-                    return Response({"error": "Required GL accounts (Expense / AP) not found."}, status=status.HTTP_400_BAD_REQUEST)
+                    missing = []
+                    if not expense_account:
+                        missing.append('Expense (no line account, no PURCHASE_EXPENSE default, no Expense+Purchase match)')
+                    if not ap_account:
+                        missing.append('Accounts Payable (no account flagged reconciliation_type=accounts_payable, no ACCOUNTS_PAYABLE default, no Liability+Payable match)')
+                    return Response(
+                        {"error": "Required GL accounts not found: " + '; '.join(missing) + ". Configure a Liability account with reconciliation_type='accounts_payable' in Chart of Accounts, or add the corresponding code to DEFAULT_GL_ACCOUNTS in settings."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 amount = invoice.total_amount
 
-                # Create journal entry
+                # Assign invoice document number first so the journal
+                # can reference it without two trips through the DB.
+                if not invoice.document_number:
+                    invoice.document_number = TransactionSequence.get_next('vendor_invoice_doc', 'VINV-')
+
+                # Create journal entry as Draft, populate it, then flip
+                # to Posted at the very end. ImmutableModelMixin (see
+                # JournalHeader) blocks ANY mutation once status='Posted',
+                # including ``document_number`` and line additions — even
+                # with ``_allow_status_change=True`` (that flag only
+                # exempts the status field itself). Building the journal
+                # in Draft, locking it Posted last, is the only safe
+                # ordering. Reference number uses the bare invoice
+                # number to avoid the legacy ``VINV-VINV-…`` double
+                # prefix when invoice_number already starts with VINV-.
+                ref_seed = invoice.invoice_number or invoice.document_number or ''
+                journal_ref = ref_seed if ref_seed.startswith('VINV-') else f"VINV-{ref_seed}"
+                # ``mda`` MUST propagate from invoice → journal. The
+                # budget enforcement signal reads ``instance.mda`` to
+                # call ``find_matching_appropriation``; if it's null
+                # the lookup returns None and STRICT rules block the
+                # post even when an appropriation legitimately covers
+                # the line. Earlier code passed every dimension EXCEPT
+                # mda, which is exactly the missing axis the
+                # appropriation FK joins on (administrative__legacy_mda
+                # = mda). Adding it here keeps the journal's
+                # dimensional context complete and the budget check
+                # consistent with the form's real-time pill.
                 journal = JournalHeader.objects.create(
-                    reference_number=f"VINV-{invoice.invoice_number}",
+                    reference_number=journal_ref,
                     description=f"Vendor Invoice: {invoice.invoice_number}",
                     posting_date=invoice.invoice_date,
+                    mda=invoice.mda,
                     fund=invoice.fund,
                     function=invoice.function,
                     program=invoice.program,
                     geo=invoice.geo,
-                    status='Posted'
+                    document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                    status='Draft',
                 )
 
-                # Assign Document Numbers
-                if not invoice.document_number:
-                    invoice.document_number = TransactionSequence.get_next('vendor_invoice_doc', 'VINV-')
+                # PF-6: Split expense and tax into separate lines.
+                #
+                # Money convention (matches the form payload, IPSAS,
+                # and the appropriation roll-up):
+                #   subtotal     = expense recognised (line gross, ex-VAT)
+                #   tax_amount   = input VAT (debit to Input VAT GL)
+                #   total_amount = subtotal + tax_amount  (vendor gross)
+                #   WHT          = computed at posting from line codes;
+                #                  CR WHT Payable + reduce CR AP
+                #
+                # Earlier code derived expense as ``amount - tax_amount``,
+                # which produced a wrong number when ``total_amount``
+                # was set to grandTotal (= subtotal + tax - wht). That
+                # made the appropriation's expended column understate
+                # the actual expense by the WHT amount. Booking
+                # ``DR Expense = subtotal`` directly is unambiguous
+                # and makes the appropriation report the recognised
+                # expense (not the cash-out amount).
+                # ── Per-line DR entries ───────────────────────────────────────
+                # Iterate invoice lines so each line's own GL account lands in
+                # the journal. This is required for SAP-style asset
+                # auto-capitalisation: capex GLs flagged auto_create_asset=True
+                # must appear as JournalLines so apply_asset_capitalization can
+                # detect them and add the clearing contra + asset recon pair.
+                # Fallback to the header-level expense_account for invoices that
+                # were created without explicit line items (legacy path).
+                invoice_lines = list(
+                    invoice.lines.all()
+                    .select_related('account', 'tax_code', 'withholding_tax')
+                )
+                input_vat_by_account: dict = {}
+                wht_by_account: dict = {}
+                line_computed_vat = Decimal('0.00')
+                line_computed_wht = Decimal('0.00')
 
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
-
-                # PF-6: Split expense and tax into separate lines
-                tax_amount = getattr(invoice, 'tax_amount', None) or Decimal('0.00')
-                tax_account = None
-                if tax_amount > 0:
-                    tax_account = Account.objects.filter(
-                        account_type='Asset', name__icontains='Input Tax'
-                    ).first() or Account.objects.filter(
-                        name__icontains='VAT Receivable'
-                    ).first()
-
-                if tax_amount > 0 and tax_account:
-                    net_amount = amount - tax_amount
+                if invoice_lines:
+                    for inv_line in invoice_lines:
+                        line_amt = Decimal(str(inv_line.amount or 0))
+                        if line_amt <= 0 or not inv_line.account:
+                            continue
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=inv_line.account,
+                            debit=line_amt,
+                            credit=Decimal('0.00'),
+                            memo=(
+                                inv_line.description
+                                or inv_line.account.name
+                                or f"Vendor invoice {invoice.invoice_number}"
+                            )[:255],
+                            document_number=journal.document_number,
+                        )
+                        # Per-line Input VAT
+                        tc = inv_line.tax_code
+                        if tc and tc.rate and Decimal(str(tc.rate)) > 0:
+                            vat_amt = (
+                                line_amt * Decimal(str(tc.rate)) / Decimal('100')
+                            ).quantize(Decimal('0.01'))
+                            if vat_amt > 0:
+                                vat_acct = (
+                                    getattr(tc, 'input_tax_account', None)
+                                    or getattr(tc, 'tax_account', None)
+                                )
+                                if vat_acct:
+                                    prev = input_vat_by_account.get(vat_acct.id, (vat_acct, Decimal('0.00')))
+                                    input_vat_by_account[vat_acct.id] = (vat_acct, prev[1] + vat_amt)
+                                    line_computed_vat += vat_amt
+                        # WHT is DETERMINED at invoice verification but
+                        # RECOGNISED at payment time (Nigerian PFM cash-
+                        # basis). The line's withholding_tax FK is left
+                        # intact for the PV builder to read; no WHT
+                        # journal line is written here. AP is credited
+                        # at the full gross. ``line_computed_wht`` stays
+                        # 0 so the AP credit below resolves to gross.
+                        pass
                 else:
-                    net_amount = amount
+                    # Fallback: header-only invoice (no line items)
+                    tax_amount = getattr(invoice, 'tax_amount', None) or Decimal('0.00')
+                    expense_amount = getattr(invoice, 'subtotal', None) or (amount - tax_amount)
+                    if expense_amount > 0 and expense_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=expense_account,
+                            debit=expense_amount,
+                            credit=Decimal('0.00'),
+                            memo=f"Vendor invoice {invoice.invoice_number}",
+                            document_number=journal.document_number,
+                        )
+                    if tax_amount > 0:
+                        tax_account = (
+                            Account.objects.filter(
+                                account_type='Asset', name__icontains='Input Tax',
+                            ).first()
+                            or Account.objects.filter(name__icontains='VAT Receivable').first()
+                        )
+                        if tax_account:
+                            input_vat_by_account[-1] = (tax_account, tax_amount)
+                            line_computed_vat = tax_amount
 
-                # Debit Expense (net amount, or full amount if no tax split)
-                JournalLine.objects.create(
-                    header=journal,
-                    account=expense_account,
-                    debit=net_amount,
-                    credit=Decimal('0.00'),
-                    memo=f"Vendor invoice {invoice.invoice_number}"
-                )
+                # DR Input VAT (one row per input_tax_account)
+                for _, (vat_acct, vat_amt) in input_vat_by_account.items():
+                    if vat_amt > 0:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=vat_acct,
+                            debit=vat_amt,
+                            credit=Decimal('0.00'),
+                            memo=f"Input VAT — {invoice.invoice_number}",
+                            document_number=journal.document_number,
+                        )
 
-                # Debit Input Tax (if applicable and account exists)
-                if tax_amount > 0 and tax_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=tax_account,
-                        debit=tax_amount,
-                        credit=Decimal('0.00'),
-                        memo=f"Input Tax: {invoice.invoice_number}"
-                    )
+                # WHT is no longer credited at invoice posting — it's
+                # deferred to payment time per Nigerian PFM cash-basis.
+                # AP credit below is the full gross (subtotal + VAT).
 
-                # Credit AP (total amount)
+                # CR AP — full gross. WHT will be deducted on the PV
+                # journal at payment time (see treasury_revenue
+                # ._post_payment_journal which credits each
+                # PaymentVoucherDeduction.gl_account).
+                ap_credit = invoice.total_amount or Decimal('0.00')
                 JournalLine.objects.create(
                     header=journal,
                     account=ap_account,
                     debit=Decimal('0.00'),
-                    credit=amount,
+                    credit=ap_credit,
                     memo=f"AP: {invoice.vendor.name if invoice.vendor else 'vendor'}",
-                    document_number=journal.document_number
+                    document_number=journal.document_number,
                 )
 
-                # Set line document numbers
-                for line in journal.lines.all():
-                    line.document_number = journal.document_number
-                    line.save(update_fields=['document_number'])
+                # SAP-style asset auto-capitalisation + journal balance check.
+                # _validate_journal_balanced calls apply_asset_capitalization
+                # which adds CR clearing (23040108) + DR asset recon for any
+                # debit line whose account has auto_create_asset=True, then
+                # verifies DR total == CR total. Must run BEFORE
+                # update_gl_from_journal so the contra/recon lines are
+                # included in the GL balance roll-up.
+                from accounting.services.base_posting import BasePostingService
+                BasePostingService._validate_journal_balanced(journal)
 
-                # Update GL balances (atomic F()-based)
+                # Update GL balances — includes auto-cap lines added above.
                 from accounting.services import update_gl_from_journal
                 update_gl_from_journal(journal, fund=invoice.fund, function=invoice.function,
                                        program=invoice.program, geo=invoice.geo)
+
+                # Lock the journal — flip Draft → Posted. ImmutableModelMixin
+                # blocks further mutations once Posted, so this is the last
+                # write to journal in this transaction.
+                journal.status = 'Posted'
+                journal.save(update_fields=['status'], _allow_status_change=True)
 
                 # Link the journal back to the invoice so the AP View modal
                 # (and any other journal-drill-down reports) can traverse
@@ -585,6 +867,7 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                     try:
                         from accounting.services.procurement_commitments import (
                             mark_commitment_closed_for_po,
+                            refresh_appropriations_for_po,
                         )
                         closed_count = mark_commitment_closed_for_po(invoice.purchase_order)
                         if closed_count == 0:
@@ -597,6 +880,10 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                                 invoice.invoice_number,
                                 invoice.purchase_order.po_number,
                             )
+                        # Belt-and-braces: guarantee Appropriation cache
+                        # reflects the recognised expenditure regardless of
+                        # whether ProcurementBudgetLink existed.
+                        refresh_appropriations_for_po(invoice.purchase_order)
                     except Exception as exc:
                         import logging
                         logging.getLogger(__name__).warning(
@@ -624,7 +911,11 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 "amount": str(amount)
             })
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            from accounting.services.posting_errors import format_post_error
+            return Response(
+                format_post_error(e, context='AP invoice'),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def post_credit_memo(self, request, pk=None):
@@ -677,15 +968,21 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
             with transaction.atomic():
-                # AP account: always from settings
-                ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
-                ap_account = Account.objects.filter(code=ap_code).first()
+                # AP discovery — see post_invoice() docstring for the
+                # full ladder. Same logic here so credit-memo posting
+                # works on any tenant CoA without legacy code numbering.
+                ap_account = Account.objects.filter(
+                    reconciliation_type='accounts_payable', is_active=True,
+                ).first()
+                if not ap_account:
+                    ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
+                    ap_account = Account.objects.filter(code=ap_code).first()
                 if not ap_account:
                     ap_account = Account.objects.filter(
                         account_type='Liability', name__icontains='Payable'
                     ).first()
 
-                # Expense account: from invoice.account or line items or fallback
+                # Expense discovery — same ladder as post_invoice.
                 expense_account = invoice.account
                 if not expense_account and invoice.lines.exists():
                     expense_account = invoice.lines.first().account
@@ -698,30 +995,40 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                         ).first()
 
                 if not ap_account or not expense_account:
+                    missing = []
+                    if not ap_account:
+                        missing.append('Accounts Payable (set reconciliation_type=accounts_payable on a Liability account)')
+                    if not expense_account:
+                        missing.append('Expense (set on the credit memo line)')
                     return Response(
-                        {"error": "Required GL accounts (AP / Expense) not found."},
-                        status=status.HTTP_400_BAD_REQUEST
+                        {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
                 amount = invoice.total_amount
 
+                # Assign invoice document number first.
+                if not invoice.document_number:
+                    invoice.document_number = TransactionSequence.get_next('credit_memo_doc', 'CM-')
+
+                # Build the journal as Draft, lock to Posted at the end
+                # — same Posted-immutability constraint as post_invoice.
+                cm_seed = invoice.invoice_number or invoice.document_number or ''
+                cm_ref = cm_seed if cm_seed.startswith('CM-') else f"CM-{cm_seed}"
+                # ``mda`` propagated for budget-enforcement signal
+                # consistency — see post_invoice rationale.
                 journal = JournalHeader.objects.create(
-                    reference_number=f"CM-{invoice.invoice_number}",
+                    reference_number=cm_ref,
                     description=f"Credit Memo: {invoice.invoice_number} — {invoice.vendor.name if invoice.vendor else ''}",
                     posting_date=invoice.invoice_date,
+                    mda=invoice.mda,
                     fund=invoice.fund,
                     function=invoice.function,
                     program=invoice.program,
                     geo=invoice.geo,
-                    status='Posted',
+                    document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                    status='Draft',
                 )
-
-                # Assign document numbers
-                if not invoice.document_number:
-                    invoice.document_number = TransactionSequence.get_next('credit_memo_doc', 'CM-')
-
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 # Dr AP — reduces the accounts payable liability
                 JournalLine.objects.create(
@@ -743,6 +1050,10 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                     document_number=journal.document_number,
                 )
 
+                # Balance check (also triggers auto-cap if a capex GL was debited)
+                from accounting.services.base_posting import BasePostingService
+                BasePostingService._validate_journal_balanced(journal)
+
                 # Update GL balances
                 from accounting.services import update_gl_from_journal
                 update_gl_from_journal(
@@ -752,6 +1063,10 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                     program=invoice.program,
                     geo=invoice.geo,
                 )
+
+                # Lock journal — must be the last write to it.
+                journal.status = 'Posted'
+                journal.save(update_fields=['status'], _allow_status_change=True)
 
                 invoice.status = 'Posted'
                 invoice.save(_allow_status_change=True)
@@ -888,44 +1203,47 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # S1-11 — Re-check warrant availability at payment time. A warrant
-        # released at invoice time may have been suspended or fully
-        # consumed by other disbursements before this cheque goes out.
-        # Walk through each allocation and ensure aggregate MDA/fund
-        # commitment stays under warrant ceiling.
-        try:
-            from accounting.budget_logic import check_warrant_availability
-            from collections import defaultdict
-            buckets: dict = defaultdict(lambda: {'amount': Decimal('0'), 'mda': None, 'fund': None, 'account': None})
-            for alloc in payment.allocations.select_related('invoice').all():
-                inv = alloc.invoice
-                if not inv or not inv.mda or not inv.fund:
-                    continue
-                key = (inv.mda_id, inv.fund_id, getattr(inv, 'account_id', None))
-                b = buckets[key]
-                b['amount'] += alloc.amount or Decimal('0')
-                b['mda'] = inv.mda
-                b['fund'] = inv.fund
-                b['account'] = getattr(inv, 'account', None)
-            for b in buckets.values():
-                if b['amount'] == 0:
-                    continue
-                allowed, warrant_msg, info = check_warrant_availability(
-                    dimensions={'mda': b['mda'], 'fund': b['fund']},
-                    account=b['account'],
-                    amount=b['amount'],
+        # Payment-stage warrant gate — UNCONDITIONAL across all
+        # tenants and all configurations. The pre-payment stages
+        # (PO commitment, invoice, contract, journal) skip warrant
+        # interrogation under the default ``WARRANT_ENFORCEMENT_STAGE
+        # = 'payment'`` policy, which makes this check the single
+        # line of defence against cash leaving the consolidated
+        # account beyond released warrants. It is therefore not
+        # gated by any tenant flag, stage flag, or import-failure
+        # fallback — if the warrant module is unreachable, the
+        # payment posting must FAIL loudly rather than silently
+        # bypass the ceiling.
+        from accounting.budget_logic import check_warrant_availability
+        from collections import defaultdict
+        buckets: dict = defaultdict(lambda: {'amount': Decimal('0'), 'mda': None, 'fund': None, 'account': None})
+        for alloc in payment.allocations.select_related('invoice').all():
+            inv = alloc.invoice
+            if not inv or not inv.mda or not inv.fund:
+                continue
+            key = (inv.mda_id, inv.fund_id, getattr(inv, 'account_id', None))
+            b = buckets[key]
+            b['amount'] += alloc.amount or Decimal('0')
+            b['mda'] = inv.mda
+            b['fund'] = inv.fund
+            b['account'] = getattr(inv, 'account', None)
+        for b in buckets.values():
+            if b['amount'] == 0:
+                continue
+            allowed, warrant_msg, info = check_warrant_availability(
+                dimensions={'mda': b['mda'], 'fund': b['fund']},
+                account=b['account'],
+                amount=b['amount'],
+            )
+            if not allowed:
+                return Response(
+                    {
+                        "error": f"Warrant ceiling breached at payment time: {warrant_msg}",
+                        "warrant_exceeded": True,
+                        "info": info,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-                if not allowed:
-                    return Response(
-                        {
-                            "error": f"Warrant ceiling breached at payment time: {warrant_msg}",
-                            "warrant_exceeded": True,
-                            "info": info,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-        except ImportError:
-            pass
 
         # Validate allocations sum equals payment total
         allocation_sum = payment.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
@@ -990,15 +1308,27 @@ class PaymentViewSet(viewsets.ModelViewSet):
             default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
             with transaction.atomic():
-                # Resolve GL accounts
-                ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
-                ap_account = Account.objects.filter(code=ap_code).first()
+                # AP discovery — reconciliation_type marker first, then
+                # legacy code default, then name heuristic.
+                ap_account = Account.objects.filter(
+                    reconciliation_type='accounts_payable', is_active=True,
+                ).first()
+                if not ap_account:
+                    ap_code = default_gl.get('ACCOUNTS_PAYABLE', '20100000')
+                    ap_account = Account.objects.filter(code=ap_code).first()
                 if not ap_account:
                     ap_account = Account.objects.filter(account_type='Liability', name__icontains='Payable').first()
 
+                # Bank/cash GL — prefer the bank_account's configured
+                # GL, then the bank_accounting reconciliation marker,
+                # then the legacy CASH_ACCOUNT code, then a name match.
                 bank_gl_account = None
                 if payment.bank_account:
                     bank_gl_account = payment.bank_account.gl_account
+                if not bank_gl_account:
+                    bank_gl_account = Account.objects.filter(
+                        reconciliation_type='bank_accounting', is_active=True,
+                    ).first()
                 if not bank_gl_account:
                     cash_code = default_gl.get('CASH_ACCOUNT', '10100000')
                     bank_gl_account = Account.objects.filter(code=cash_code).first()
@@ -1006,7 +1336,15 @@ class PaymentViewSet(viewsets.ModelViewSet):
                         bank_gl_account = Account.objects.filter(account_type='Asset', name__icontains='Bank').first()
 
                 if not ap_account or not bank_gl_account:
-                    return Response({"error": "Required GL accounts (AP / Bank) not found."}, status=status.HTTP_400_BAD_REQUEST)
+                    missing = []
+                    if not ap_account:
+                        missing.append('Accounts Payable (flag a Liability account with reconciliation_type=accounts_payable)')
+                    if not bank_gl_account:
+                        missing.append('Bank/Cash (set gl_account on the payment\'s bank account, or flag an Asset with reconciliation_type=bank_accounting)')
+                    return Response(
+                        {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 amount = payment.total_amount
 
@@ -1016,24 +1354,30 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 first_invoice = payment.allocations.select_related('invoice').first()
                 inv = first_invoice.invoice if first_invoice else None
 
-                # Create journal entry with dimensions from invoice
+                # Assign payment document number first.
+                if not payment.document_number:
+                    payment.document_number = TransactionSequence.get_next('payment_doc', 'PAY-')
+
+                # Build the journal as Draft, lock to Posted at the end
+                # — same Posted-immutability constraint as post_invoice.
+                pay_seed = payment.payment_number or payment.document_number or ''
+                pay_ref = pay_seed if pay_seed.startswith('PAY-') else f"PAY-{pay_seed}"
+                # ``mda`` propagated from source invoice for budget-
+                # enforcement signal consistency — see post_invoice
+                # rationale. Without this, the payment journal triggers
+                # the same false STRICT block at signal time.
                 journal = JournalHeader.objects.create(
-                    reference_number=f"PAY-{payment.payment_number}",
+                    reference_number=pay_ref,
                     description=f"Payment: {payment.payment_number}",
                     posting_date=payment.payment_date,
-                    status='Posted',
+                    document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
+                    status='Draft',
+                    mda=getattr(inv, 'mda', None),
                     fund=getattr(inv, 'fund', None),
                     function=getattr(inv, 'function', None),
                     program=getattr(inv, 'program', None),
                     geo=getattr(inv, 'geo', None),
                 )
-
-                # Assign Document Numbers
-                if not payment.document_number:
-                    payment.document_number = TransactionSequence.get_next('payment_doc', 'PAY-')
-
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 # Debit AP (reduce liability)
                 JournalLine.objects.create(
@@ -1041,7 +1385,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     account=ap_account,
                     debit=amount,
                     credit=Decimal('0.00'),
-                    memo=f"Payment to {payment.vendor.name if payment.vendor else 'vendor'}"
+                    memo=f"Payment to {payment.vendor.name if payment.vendor else 'vendor'}",
+                    document_number=journal.document_number,
                 )
 
                 # Credit Bank (reduce asset)
@@ -1051,16 +1396,15 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     debit=Decimal('0.00'),
                     credit=amount,
                     memo=f"Bank payment {payment.payment_number}",
-                    document_number=journal.document_number
+                    document_number=journal.document_number,
                 )
-
-                # Set line document numbers
-                for line in journal.lines.all():
-                    line.document_number = journal.document_number
-                    line.save(update_fields=['document_number'])
 
                 # Update GL balances
                 self._update_gl_from_journal(journal)
+
+                # Lock journal — must be the last write to it.
+                journal.status = 'Posted'
+                journal.save(update_fields=['status'], _allow_status_change=True)
 
                 # Link journal to payment and update status
                 payment.journal_entry = journal

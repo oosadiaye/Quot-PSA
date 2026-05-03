@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import SearchableSelect from '../../../components/SearchableSelect';
 import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, Receipt, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
@@ -131,11 +132,14 @@ export default function TaxManagement() {
     const deleteWHT = useDeleteWithholdingTax();
 
     // ── GL Account dropdowns ──────────────────────────────────
+    // page_size bumped to 9999 so the searchable dropdown shows the full
+    // CoA — at typical 200–500 active accounts the cost of one fetch is
+    // trivial vs. the previous 200-cap that silently truncated the list.
     const { data: allAccounts } = useQuery<AccountOption[]>({
         queryKey: ['accounts', 'all-active'],
         queryFn: async () => {
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { is_active: true, page_size: 200 },
+                params: { is_active: true, page_size: 9999 },
             });
             return data.results;
         },
@@ -146,12 +150,35 @@ export default function TaxManagement() {
         queryKey: ['accounts', 'liability'],
         queryFn: async () => {
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { account_type: 'Liability', is_active: true, page_size: 200 },
+                params: { account_type: 'Liability', is_active: true, page_size: 9999 },
             });
             return data.results;
         },
         staleTime: 5 * 60 * 1000,
     });
+
+    // Pre-shape the account lists once for SearchableSelect. The component
+    // expects {value, label, sublabel} — we put the code in the sublabel so
+    // typing either the code OR the name filters correctly. Sorted by code
+    // (numeric-aware, so '11000000' < '21000000' even mixed with leading-zero
+    // codes like '01100100').
+    const toAccountOption = (acc: AccountOption) => ({
+        value: String(acc.id),
+        label: `${acc.code} — ${acc.name}`,
+        sublabel: acc.code,
+    });
+    const allAccountOptions = useMemo(
+        () => [...(allAccounts || [])]
+            .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true }))
+            .map(toAccountOption),
+        [allAccounts],
+    );
+    const liabilityAccountOptions = useMemo(
+        () => [...(liabilityAccounts || [])]
+            .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true }))
+            .map(toAccountOption),
+        [liabilityAccounts],
+    );
 
     // ── Tax Code handlers ─────────────────────────────────────
     const resetTaxCodeForm = () => { setTaxCodeForm(initialTaxCodeForm); setEditingTaxCode(null); };
@@ -471,29 +498,25 @@ export default function TaxManagement() {
                                             {(taxCodeForm.direction === 'purchase' || taxCodeForm.direction === 'both') && (
                                                 <div>
                                                     <label style={labelStyle}>Input Tax GL Account (Purchase)<span className="required-mark"> *</span></label>
-                                                    <select value={taxCodeForm.input_tax_account}
-                                                        onChange={(e) => setTaxCodeForm({ ...taxCodeForm, input_tax_account: e.target.value ? Number(e.target.value) : '' })}
-                                                        className="glass-input" style={{ width: '100%', fontSize: 'var(--text-sm)' }}
-                                                    >
-                                                        <option value="">-- Select Input VAT Account --</option>
-                                                        {(allAccounts || []).map(acc => (
-                                                            <option key={acc.id} value={acc.id}>{acc.code} — {acc.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={allAccountOptions}
+                                                        value={taxCodeForm.input_tax_account ? String(taxCodeForm.input_tax_account) : ''}
+                                                        onChange={(v) => setTaxCodeForm({ ...taxCodeForm, input_tax_account: v ? Number(v) : '' })}
+                                                        placeholder="Search GL by code or name…"
+                                                        required
+                                                    />
                                                 </div>
                                             )}
                                             {(taxCodeForm.direction === 'sales' || taxCodeForm.direction === 'both') && (
                                                 <div>
                                                     <label style={labelStyle}>Output Tax GL Account (Sales)<span className="required-mark"> *</span></label>
-                                                    <select value={taxCodeForm.output_tax_account}
-                                                        onChange={(e) => setTaxCodeForm({ ...taxCodeForm, output_tax_account: e.target.value ? Number(e.target.value) : '' })}
-                                                        className="glass-input" style={{ width: '100%', fontSize: 'var(--text-sm)' }}
-                                                    >
-                                                        <option value="">-- Select Output VAT Account --</option>
-                                                        {(allAccounts || []).map(acc => (
-                                                            <option key={acc.id} value={acc.id}>{acc.code} — {acc.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={allAccountOptions}
+                                                        value={taxCodeForm.output_tax_account ? String(taxCodeForm.output_tax_account) : ''}
+                                                        onChange={(v) => setTaxCodeForm({ ...taxCodeForm, output_tax_account: v ? Number(v) : '' })}
+                                                        placeholder="Search GL by code or name…"
+                                                        required
+                                                    />
                                                 </div>
                                             )}
                                         </div>
@@ -715,15 +738,12 @@ export default function TaxManagement() {
                                         </div>
                                         <div>
                                             <label style={labelStyle}>Withholding GL Account</label>
-                                            <select value={whtForm.withholding_account}
-                                                onChange={(e) => setWHTForm({ ...whtForm, withholding_account: e.target.value ? Number(e.target.value) : '' })}
-                                                className="glass-input" style={{ width: '100%', fontSize: 'var(--text-sm)' }}
-                                            >
-                                                <option value="">-- Select Liability GL --</option>
-                                                {(liabilityAccounts || []).map(acc => (
-                                                    <option key={acc.id} value={acc.id}>{acc.code} — {acc.name}</option>
-                                                ))}
-                                            </select>
+                                            <SearchableSelect
+                                                options={liabilityAccountOptions}
+                                                value={whtForm.withholding_account ? String(whtForm.withholding_account) : ''}
+                                                onChange={(v) => setWHTForm({ ...whtForm, withholding_account: v ? Number(v) : '' })}
+                                                placeholder="Search Liability GL by code or name…"
+                                            />
                                         </div>
                                     </div>
 

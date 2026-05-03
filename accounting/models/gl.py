@@ -153,6 +153,36 @@ class Account(models.Model):
         max_length=30, choices=RECONCILIATION_TYPE_CHOICES, blank=True, default='',
     )
 
+    # ─── IPSAS Asset Auto-Capitalisation (Phase 1) ───────────────────────
+    # When ``auto_create_asset`` is True, every journal-line / AP-invoice line
+    # that DEBITS this account triggers creation of a FixedAsset in the chosen
+    # ``asset_category`` at posting time. The asset's name = the line memo (or
+    # the journal description if memo is empty). The actual GL debit is then
+    # rerouted to ``asset_category.cost_account`` so the balance lands on the
+    # asset GL (e.g. 32100100 Land), not on this account — which keeps this
+    # account free for budget appropriation tracking.
+    #
+    # Phase 1 (current) only persists the configuration; the posting-time
+    # interception arrives in Phase 2. Tenants can therefore tag accounts now
+    # without any behavioural change to existing journals.
+    #
+    # Not hardcoded to any GL series — the user-facing COA form exposes the
+    # toggle on every account; tenants decide which accounts (typically but
+    # not exclusively the 23xxxxxx capex series) opt in.
+    auto_create_asset = models.BooleanField(
+        default=False,
+        help_text='When ON, debits to this account auto-create a FixedAsset '
+                  'in the linked Asset Category and reroute the debit to that '
+                  'category\'s cost_account at posting time.',
+    )
+    asset_category = models.ForeignKey(
+        'accounting.AssetCategory', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='auto_create_accounts',
+        help_text='Asset Category whose cost_account receives the rerouted '
+                  'debit and whose depreciation rules apply to the new asset. '
+                  'Required when auto_create_asset is True.',
+    )
+
     class Meta:
         ordering = ['code']
 
@@ -170,6 +200,13 @@ class Account(models.Model):
                     break
                 visited.add(current.pk)
                 current = current.parent
+        # Asset auto-capitalisation requires a category — without it, posting
+        # would have no cost_account to reroute the debit to.
+        if self.auto_create_asset and not self.asset_category_id:
+            raise ValidationError({
+                'asset_category':
+                    'An Asset Category is required when "Auto-create asset on debit" is enabled.'
+            })
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -323,6 +360,25 @@ class JournalHeader(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
         ``ValidationError`` so callers trying to do this surface it cleanly.
         """
         from django.core.exceptions import ValidationError
+
+        # Auto-allocate ``document_number`` (JV-####) on first save when
+        # the caller hasn't supplied one. The Journal Entries list shows
+        # this in its DOCUMENT NO column; ~60 creation sites in the
+        # codebase set ``reference_number`` only, leaving the column
+        # blank ("-"). Putting the default here means every creation
+        # path — current, future, third-party — populates a JV-####
+        # number for free, while explicit assignments still win.
+        # ``TransactionSequence`` lives above in this same module so no
+        # import is needed; the broad except is intentional — sequence
+        # allocation must never block a save (blank document_number is
+        # tolerated by indexes & constraints, and the legacy fallback
+        # in JournalList.tsx still renders ``JE-{id}``).
+        if not self.pk and not self.document_number:
+            try:
+                self.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
+            except Exception:  # noqa: BLE001
+                pass
+
         # Trust callers that pass update_fields — we still intersect with the
         # mutable allow-list.
         update_fields = kwargs.get('update_fields')
@@ -378,6 +434,22 @@ class JournalLine(models.Model):
         'accounting.NCoACode', on_delete=models.PROTECT,
         null=True, blank=True, related_name='journal_lines',
         help_text="Full 52-digit NCoA composite code",
+    )
+
+    # Optional link to a specific Fixed Asset. Populated when the line
+    # represents an asset-related posting — cost accumulation during
+    # acquisition (DR asset account with this FK set), depreciation
+    # runs (DR dep expense / CR accum dep, both referencing the asset),
+    # or disposals (DR accum dep / CR asset, again both referencing
+    # the asset being retired). Having this FK on every line lets the
+    # Asset History and Fixed Asset Register reports reconstruct the
+    # full lifecycle of any asset straight from the GL without a
+    # parallel posting table.
+    asset = models.ForeignKey(
+        'accounting.FixedAsset', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='journal_lines',
+        help_text='Fixed asset this line relates to (optional; used by '
+                  'depreciation, disposal and cost-accumulation entries).',
     )
 
     def clean(self):

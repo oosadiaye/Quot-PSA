@@ -13,9 +13,9 @@ import {
     ShieldCheck, AlertTriangle, Check, X,
     Users as UsersIcon, Award, BadgeCheck,
 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
 import UserRoleAssignments from './UserRoleAssignments';
+import { ListPageShell } from '../../components/layout';
 
 interface Role {
     id: number;
@@ -119,9 +119,7 @@ export default function RolesAndPermissionsPage() {
     }, [filteredRoles]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
-            <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+        <ListPageShell>
                 <div style={{
                     display: 'flex', justifyContent: 'space-between',
                     alignItems: 'center', marginBottom: '24px',
@@ -414,7 +412,6 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
                         )}
                     </div>
                 ))}
-            </div>
-        </div>
+        </ListPageShell>
     );
 }

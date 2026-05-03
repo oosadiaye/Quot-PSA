@@ -13,8 +13,8 @@ import {
     CheckCircle, AlertTriangle, XCircle, RefreshCw,
     ChevronDown, ChevronRight, ShieldCheck,
 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
+import { ListPageShell } from '../../components/layout';
 
 type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -206,9 +206,7 @@ export default function DataQualityPage() {
     const overallMeta = data ? STATUS_META[data.overall] : STATUS_META.ok;
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
-            <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+        <ListPageShell>
                 <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: '24px',
@@ -331,7 +329,6 @@ function SummaryPill({ count, status }: SummaryPillProps) {
                 textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4,
             }}>
                 {meta.label}
-            </div>
-        </div>
+        </ListPageShell>
     );
 }

@@ -45,11 +45,12 @@ def get_active_budget(dimensions, account, date, tenant=None):
     if not dimensions or not any(dimensions.values()):
         return None
 
-    # Find active budget period for the date
+    # Find active budget period for the date — case-insensitive on
+    # status so seed scripts that wrote 'Active' or 'active' still match.
     period = BudgetPeriod.objects.filter(
         start_date__lte=date,
         end_date__gte=date,
-        status='ACTIVE'
+        status__iexact='ACTIVE'
     ).first()
 
     if not period:
@@ -113,6 +114,7 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
         appropriation=appropriation,
         requested_amount=amount,
         transaction_label=transaction_type or 'transaction',
+        account_name=account.name if account else '',
     )
     if policy.blocked:
         return False, policy.reason
@@ -160,6 +162,39 @@ def check_budget_availability(dimensions, account, amount, date, transaction_typ
         )
 
     return is_available, message
+
+
+def is_warrant_pre_payment_enforced() -> bool:
+    """Whether to enforce the warrant ceiling BEFORE the payment stage.
+
+    Public-sector accounting offers two valid stages at which the
+    warrant ceiling can bind:
+
+    - ``commitment`` / ``invoice`` (legacy strict): warrant is
+      consumed as soon as a commitment or obligation is recorded
+      (PO, vendor invoice, contract, journal). This is what GIFMIS
+      central practice does and what IPSAS 24 commitment-stage
+      reporting assumes. Pre-payment posting is blocked when no
+      warrant is released.
+    - ``payment`` (cash-control stage): commitments and obligations
+      can be recorded freely; the ceiling binds only at payment time
+      so cash never leaves the consolidated account beyond released
+      warrants. Useful for sub-national MDAs that release warrants
+      monthly against an annualised commitment ledger.
+
+    Controlled by Django setting ``WARRANT_ENFORCEMENT_STAGE``:
+
+    - ``'payment'`` (DEFAULT in this build) → returns ``False``;
+      pre-payment paths skip the warrant check.
+    - ``'invoice'`` / ``'commitment'`` / anything else → returns
+      ``True``; legacy strict behaviour.
+
+    Payment-stage enforcement is unconditional and not gated by
+    this helper — see the payment posting view.
+    """
+    from django.conf import settings
+    stage = getattr(settings, 'WARRANT_ENFORCEMENT_STAGE', 'payment')
+    return str(stage).lower() != 'payment'
 
 
 def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
@@ -224,7 +259,7 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
         administrative=admin_seg,
         economic__in=candidates,
         fund=fund_seg,
-        status='ACTIVE',
+        status__iexact='ACTIVE',
     ).first()
     if not appro:
         # No matching appropriation — let check_budget_availability handle the

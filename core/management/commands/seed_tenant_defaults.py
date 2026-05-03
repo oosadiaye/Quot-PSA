@@ -121,6 +121,7 @@ def seed_defaults(tenant_name='My Business'):
         'asset_categories': 0,
         'uoms': 0,
         'currency': 0,
+        'grir_clearing': 0,
     }
 
     # ── 1. Default Warehouse ─────────────────────────────────────────
@@ -208,6 +209,39 @@ def seed_defaults(tenant_name='My Business'):
         )
         if created:
             results['asset_categories'] += 1
+
+    # ── 5. GR/IR Clearing Account (3-way match P2P) ──────────────────
+    # Every tenant needs this Liability account to post GRNs. It's
+    # the parking liability between "goods received" (DR Inventory /
+    # CR GR/IR at GRN) and "invoice matched" (DR GR/IR / CR AP at
+    # invoice). Without it, GRN posting fails with "GR/IR Clearing
+    # account not found".
+    #
+    # Seeded here (alongside asset categories etc.) rather than in
+    # seed_coa because:
+    #   1. NCoA-first tenants skip seed_coa entirely — they'd have
+    #      no GR/IR account and GRN posting would always fail.
+    #   2. seed_tenant_defaults runs UNCONDITIONALLY on every
+    #      provisioning, regardless of CoA strategy.
+    #   3. get_or_create makes it idempotent — re-running this
+    #      function (manual operator command, re-provision, etc.)
+    #      is safe.
+    #
+    # Code 41090000 sits in the NCoA Liability series (4xxxxxxx).
+    # Migration 0095 renamed any legacy 20601000 row to this code,
+    # so the lookup below picks up the renamed row on tenants that
+    # previously ran seed_coa.
+    grir_code = gl.get('GOODS_RECEIPT_CLEARING', '41090000')
+    _, created = Account.objects.get_or_create(
+        code=grir_code,
+        defaults={
+            'name': 'GR/IR Clearing Account',
+            'account_type': 'Liability',
+            'is_active': True,
+        },
+    )
+    if created:
+        results['grir_clearing'] = 1
 
     return results
 

@@ -29,36 +29,27 @@ from django.utils import timezone
 
 
 def _compute_committed(appropriation) -> Decimal:
-    return appropriation.commitments.filter(
+    """Mirror ``Appropriation.total_committed`` live-path (open PO + direct).
+
+    Keep this in sync with the property so the cache and live read agree.
+    """
+    open_po = appropriation.commitments.filter(
         status__in=['ACTIVE', 'INVOICED'],
     ).aggregate(t=Sum('committed_amount'))['t'] or Decimal('0')
+    direct = appropriation._compute_direct_disbursements()
+    return open_po + direct
 
 
 def _compute_expended(appropriation) -> Decimal:
-    """Canonical expenditure figure — CLOSED commitments + direct AP + direct PV.
+    """Canonical expenditure — CLOSED PO commitments + direct disbursements.
 
-    Mirrors the fallback computation inside ``Appropriation.total_expended``
-    but lives outside the model so callers can compute without touching
-    the model property (which would recursively read the cache).
+    Mirrors ``Appropriation.total_expended`` without touching the cache
+    property (which would read itself recursively).
     """
     closed = appropriation.commitments.filter(status='CLOSED').aggregate(
         t=Sum('committed_amount'),
     )['t'] or Decimal('0')
-
-    # Direct-invoice and direct-PV contributions are computed by the
-    # model's live-path code. Re-running the full property with the
-    # cache set to None gives us the authoritative live number without
-    # duplicating the 60 lines of economic-parent-chain walking.
-    prior_expended = appropriation.cached_total_expended
-    prior_committed = appropriation.cached_total_committed
-    try:
-        appropriation.cached_total_expended = None
-        appropriation.cached_total_committed = None
-        live = appropriation.total_expended
-    finally:
-        appropriation.cached_total_expended = prior_expended
-        appropriation.cached_total_committed = prior_committed
-    return live if live else closed
+    return closed + appropriation._compute_direct_disbursements()
 
 
 @transaction.atomic

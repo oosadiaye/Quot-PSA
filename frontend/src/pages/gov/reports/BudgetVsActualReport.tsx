@@ -183,7 +183,20 @@ export default function BudgetVsActualReport() {
                                                     {item.mda}
                                                 </td>
                                                 <td style={{ padding: '10px 14px', fontSize: '13px' }}>
-                                                    {item.account}
+                                                    {item.account_code ? (
+                                                        <>
+                                                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
+                                                                {item.account_code}
+                                                            </span>
+                                                            {item.account && (
+                                                                <span style={{ marginLeft: 6, color: '#1e293b' }}>
+                                                                    — {item.account}
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        item.account
+                                                    )}
                                                 </td>
                                                 <td style={{ padding: '10px 14px', fontSize: '12px', color: '#64748b' }}>
                                                     {item.fund}

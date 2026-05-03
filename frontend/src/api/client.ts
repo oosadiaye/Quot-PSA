@@ -1,5 +1,6 @@
 import axios from 'axios';
 import logger from '../utils/logger';
+import { getActiveTenantDomain } from '../utils/tenantResolver';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1`;
 
@@ -22,8 +23,13 @@ apiClient.interceptors.request.use((config) => {
       config.headers['Authorization'] = `Token ${token}`;
     }
 
-    const tenantDomain = localStorage.getItem('tenantDomain') ?? sessionStorage.getItem('tenantDomain');
-    if (tenantDomain && tenantDomain !== 'null' && tenantDomain !== 'undefined') {
+    // Tenant resolution: hostname (subdomain) wins over localStorage so
+    // a stale tenant value in storage can't shadow an explicit
+    // subdomain URL. Apex/admin hosts fall through to the localStorage
+    // path, preserving the multi-tenant picker flow for users who
+    // have access to more than one organisation.
+    const tenantDomain = getActiveTenantDomain();
+    if (tenantDomain) {
       config.headers['X-Tenant-Domain'] = tenantDomain;
     }
 

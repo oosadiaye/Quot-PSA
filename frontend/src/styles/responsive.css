@@ -277,3 +277,35 @@ html, body {
 @media print {
     .hide-print { display: none !important; }
 }
+
+
+/* ThemedButton spinner */
+@keyframes themed-btn-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ───────────────────────────────────────────────────────────
+ * Legacy sidebar offset override — Quot PSE
+ *
+ * Many pages hardcode `style={{ marginLeft: '260px' }}` on the
+ * outer content wrapper (<main> or <div>). On mobile, the
+ * Sidebar becomes a drawer (off-canvas), so that offset leaves
+ * the content shifted off-screen. This rule zeroes it and adds
+ * top padding to clear the fixed mobile top bar.
+ *
+ * New code should use <ListPageShell> instead and let this
+ * override act as a safety net.
+ * ─────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+    main[style*="marginLeft: 260px"],
+    main[style*="margin-left: 260px"],
+    main[style*="marginLeft:260px"],
+    div[style*="marginLeft: 260px"],
+    div[style*="margin-left: 260px"],
+    div[style*="marginLeft:260px"] {
+        margin-left: 0 !important;
+        padding-top: 68px !important;
+        padding-left: 16px !important;
+        padding-right: 16px !important;
+    }
+}

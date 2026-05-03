@@ -226,15 +226,22 @@ const AccountProfile = () => {
     });
 
     const changePwMutation = useMutation({
-        mutationFn: (data: { current_password: string; new_password: string; new_password_confirm: string }) =>
+        mutationFn: (data: { old_password: string; new_password: string }) =>
             apiClient.post('/core/users/change_password/', data),
         onSuccess: () => {
             setCurrentPw(''); setNewPw(''); setConfirmPw('');
             setPwMsg({ text: 'Password changed successfully. All other sessions have been signed out.', type: 'success' });
         },
         onError: (err: any) => {
+            const data = err.response?.data;
+            // Backend returns either { error: "..." } or DRF per-field errors
+            // like { old_password: ["Current password is incorrect"] }.
+            const fieldError =
+                data && typeof data === 'object'
+                    ? Object.values(data).flat().find((v) => typeof v === 'string')
+                    : undefined;
             setPwMsg({
-                text: err.response?.data?.error || 'Failed to change password.',
+                text: data?.error || (fieldError as string) || 'Failed to change password.',
                 type: 'error',
             });
         },
@@ -283,9 +290,8 @@ const AccountProfile = () => {
             return;
         }
         changePwMutation.mutate({
-            current_password: currentPw,
+            old_password: currentPw,
             new_password: newPw,
-            new_password_confirm: confirmPw,
         });
     };
 

@@ -1,6 +1,7 @@
 from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 from core.models import AuditBaseModel
 
 
@@ -1731,3 +1732,709 @@ class NigeriaTaxBracket(models.Model):
     def __str__(self):
         upper = f"NGN {self.upper_bound:,.2f}" if self.upper_bound else "Above"
         return f"NGN {self.lower_bound:,.2f} - {upper} @ {self.rate}%"
+
+
+# =============================================================================
+# EMPLOYEE VERIFICATION & DOCUMENTS  (Phase 2 — PSA Ghost-Worker Compliance)
+# =============================================================================
+
+class EmployeeDocument(AuditBaseModel):
+    """A document uploaded by an employee as part of their personnel file.
+
+    Supports the PSA compliance requirement that every public servant has a
+    verifiable paper trail (ID, NIN, BVN proof, academic certs, pension PIN
+    letter, etc.) that HR can audit.
+    """
+
+    CATEGORY_CHOICES = [
+        ('national_id', 'National ID Card'),
+        ('passport', 'International Passport'),
+        ('drivers_license', "Driver's License"),
+        ('nin_proof', 'NIN Slip / Proof'),
+        ('bvn_proof', 'BVN Proof'),
+        ('academic_certificate', 'Academic Certificate'),
+        ('professional_cert', 'Professional Certificate'),
+        ('appointment_letter', 'Letter of Appointment'),
+        ('confirmation_letter', 'Letter of Confirmation'),
+        ('pension_letter', 'Pension PIN Letter'),
+        ('marriage_certificate', 'Marriage Certificate'),
+        ('birth_certificate', 'Birth Certificate'),
+        ('medical_report', 'Medical Report'),
+        ('other', 'Other'),
+    ]
+    STATUS_CHOICES = [
+        ('uploaded', 'Uploaded'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    ]
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='documents'
+    )
+    category = models.CharField(max_length=40, choices=CATEGORY_CHOICES)
+    title = models.CharField(max_length=200, blank=True)
+    file = models.FileField(upload_to='hr/employee-docs/%Y/%m/')
+    original_filename = models.CharField(max_length=255, blank=True)
+    content_type = models.CharField(max_length=100, blank=True)
+    size_bytes = models.PositiveBigIntegerField(default=0)
+    issued_on = models.DateField(null=True, blank=True)
+    expires_on = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='uploaded')
+    verified_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='verified_employee_documents',
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    hr_notes = models.TextField(blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['employee', 'category']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} — {self.get_category_display()}"
+
+
+class VerificationCycle(AuditBaseModel):
+    """A periodic ghost-worker verification cycle.
+
+    HR opens a cycle (quarterly/annual); the system auto-creates a
+    VerificationSubmission row for every active employee. Employees then
+    attest via the portal. Employees still in `pending` status after the
+    deadline are flagged non-compliant.
+    """
+
+    PERIOD_CHOICES = [
+        ('monthly', 'Monthly'),
+        ('quarterly', 'Quarterly'),
+        ('biannual', 'Bi-Annual'),
+        ('annual', 'Annual'),
+        ('adhoc', 'Ad-hoc'),
+    ]
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('active', 'Active'),
+        ('closed', 'Closed'),
+    ]
+
+    name = models.CharField(max_length=150)
+    period_type = models.CharField(max_length=20, choices=PERIOD_CHOICES, default='quarterly')
+    start_date = models.DateField()
+    deadline = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    instructions = models.TextField(blank=True, help_text="Instructions shown to employees in the portal")
+    opened_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='opened_verification_cycles',
+    )
+    opened_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-start_date']
+        indexes = [models.Index(fields=['status', 'deadline'])]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_period_type_display()})"
+
+
+class VerificationSubmission(AuditBaseModel):
+    """One row per employee per verification cycle.
+
+    `employee_attestation` is a JSON snapshot of what the employee attested
+    to (name, dept, bank last-4, dependants, etc.) frozen at submission time
+    — so audit can reconstruct the exact claim even if the employee's
+    profile later changes.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('submitted', 'Submitted'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    ]
+
+    cycle = models.ForeignKey(
+        VerificationCycle, on_delete=models.CASCADE, related_name='submissions'
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='verification_submissions'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    employee_attestation = models.JSONField(default=dict, blank=True)
+    documents = models.ManyToManyField(
+        EmployeeDocument, blank=True, related_name='verification_submissions'
+    )
+    verified_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='verified_submissions',
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    hr_notes = models.TextField(blank=True)
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = [('cycle', 'employee')]
+        ordering = ['-submitted_at', 'employee_id']
+        indexes = [
+            models.Index(fields=['cycle', 'status']),
+            models.Index(fields=['employee', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} — {self.cycle.name} [{self.status}]"
+
+
+# =============================================================================
+# PHASE 4 — LEAVE AUTOMATION
+# =============================================================================
+# Deterministic monthly accrual + multi-step approval chain.
+#
+# Design notes:
+#   * LeavePolicy — one row per LeaveType; drives accrual & carry-forward.
+#   * LeaveAccrualEntry — idempotent ledger row per (employee, leave_type,
+#     year, month). Re-running the accrual job is a no-op by DB constraint.
+#   * LeaveApprovalStep — ordered chain per LeaveRequest; replaces the
+#     single approved_by/approved_date with a queryable audit trail.
+
+
+class LeavePolicy(AuditBaseModel):
+    """Accrual and carry-forward rules per :class:`LeaveType`.
+
+    One policy per leave type. The accrual engine reads these to compute
+    monthly earned days. ``max_balance`` caps what can accumulate,
+    ``carry_forward_days`` is the maximum taken into the next year.
+    """
+
+    leave_type = models.OneToOneField(
+        LeaveType, on_delete=models.CASCADE, related_name='policy',
+    )
+    accrual_per_month = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('0.00'),
+        help_text='Days earned per completed month of service.',
+    )
+    max_balance = models.DecimalField(
+        max_digits=6, decimal_places=2, default=Decimal('0.00'),
+        help_text='Hard cap on accrued balance (0 = uncapped).',
+    )
+    carry_forward_days = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('0.00'),
+        help_text='Days carried into next year at reset.',
+    )
+    min_service_months = models.PositiveIntegerField(
+        default=0,
+        help_text='Employee must have N completed months before accrual starts.',
+    )
+    requires_hr_approval = models.BooleanField(
+        default=True,
+        help_text='If True, request must pass HR after line-manager approval.',
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name_plural = 'Leave policies'
+
+    def __str__(self):
+        return f"Policy for {self.leave_type}"
+
+
+class LeaveAccrualEntry(AuditBaseModel):
+    """One row per employee × leave_type × (year, month) credited.
+
+    DB-level ``unique_together`` makes the accrual job idempotent: calling
+    ``accrue_month(2026, 4)`` twice produces zero extra rows.
+    """
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='leave_accruals',
+    )
+    leave_type = models.ForeignKey(
+        LeaveType, on_delete=models.CASCADE, related_name='accrual_entries',
+    )
+    year = models.PositiveIntegerField()
+    month = models.PositiveSmallIntegerField()
+    days_credited = models.DecimalField(max_digits=5, decimal_places=2)
+    notes = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        unique_together = [('employee', 'leave_type', 'year', 'month')]
+        ordering = ['-year', '-month', 'employee_id']
+        indexes = [
+            models.Index(fields=['employee', 'leave_type', 'year']),
+            models.Index(fields=['year', 'month']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.employee} — {self.leave_type} "
+            f"{self.year}-{self.month:02d}: +{self.days_credited}"
+        )
+
+
+class LeaveApprovalStep(AuditBaseModel):
+    """One step in a leave request's approval chain.
+
+    Steps are ordered by ``step_order``. A request is fully approved when
+    every step has ``decision='Approved'``. A single ``Rejected`` short-
+    circuits the chain.
+    """
+
+    STEP_ROLE_CHOICES = [
+        ('Line_Manager', 'Line Manager'),
+        ('HR', 'HR'),
+        ('Head_of_Department', 'Head of Department'),
+    ]
+    DECISION_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+        ('Skipped', 'Skipped'),
+    ]
+
+    leave_request = models.ForeignKey(
+        LeaveRequest, on_delete=models.CASCADE, related_name='approval_steps',
+    )
+    step_order = models.PositiveSmallIntegerField()
+    role = models.CharField(max_length=30, choices=STEP_ROLE_CHOICES)
+
+    approver = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='leave_approval_steps',
+        help_text='User who actioned this step (filled on decision).',
+    )
+    assigned_to = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='assigned_leave_steps',
+        help_text='Specific user expected to approve (optional routing hint).',
+    )
+
+    decision = models.CharField(
+        max_length=20, choices=DECISION_CHOICES, default='Pending',
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    comments = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = [('leave_request', 'step_order')]
+        ordering = ['leave_request_id', 'step_order']
+        indexes = [
+            models.Index(fields=['decision']),
+            models.Index(fields=['assigned_to', 'decision']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.leave_request_id} step {self.step_order} "
+            f"({self.role}) → {self.decision}"
+        )
+
+
+# =============================================================================
+# PHASE 5 — GRADE / STEP SALARY SCALE (CONPSS / CONTISS / CONPCASS)
+# =============================================================================
+# Nigerian public-sector salary is driven by a grid: Grade Level × Step →
+# annual amount. Each scale is versioned by ``effective_from`` date so the
+# payroll engine can look up the correct grid for a past period.
+
+
+class SalaryScale(AuditBaseModel):
+    """A named, dated salary grid (CONPSS, CONTISS, CONPCASS, …)."""
+
+    SCALE_FAMILY_CHOICES = [
+        ('CONPSS', 'Consolidated Public Service Salary Structure'),
+        ('CONTISS', 'Consolidated Tertiary Institutions Salary Structure'),
+        ('CONPCASS', 'Consolidated Prof. & Chief Academics Salary Structure'),
+        ('CONMESS', 'Consolidated Medical Salary Structure'),
+        ('CONRAISS', 'Consolidated Research & Allied Institutions'),
+        ('CUSTOM', 'Custom / MDA-specific scale'),
+    ]
+
+    family = models.CharField(max_length=20, choices=SCALE_FAMILY_CHOICES)
+    name = models.CharField(
+        max_length=100,
+        help_text='Human-friendly label e.g. "CONPSS 2024 Review".',
+    )
+    effective_from = models.DateField()
+    effective_to = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = [('family', 'effective_from')]
+        ordering = ['family', '-effective_from']
+        indexes = [
+            models.Index(fields=['family', 'is_active']),
+            models.Index(fields=['effective_from', 'effective_to']),
+        ]
+
+    def __str__(self):
+        return f"{self.family} @ {self.effective_from:%Y-%m-%d}"
+
+
+class SalaryGrade(AuditBaseModel):
+    """A grade level within a :class:`SalaryScale` (e.g. GL01 – GL17)."""
+
+    scale = models.ForeignKey(
+        SalaryScale, on_delete=models.CASCADE, related_name='grades',
+    )
+    code = models.CharField(
+        max_length=10, help_text='e.g. GL01, GL08, CONPSS14.',
+    )
+    name = models.CharField(max_length=100, blank=True)
+    rank_order = models.PositiveSmallIntegerField(
+        help_text='Sort key; higher = more senior.',
+    )
+    max_steps = models.PositiveSmallIntegerField(default=15)
+    annual_increment_months = models.PositiveSmallIntegerField(
+        default=12,
+        help_text='Months between automatic step increments (typically 12).',
+    )
+
+    class Meta:
+        unique_together = [('scale', 'code')]
+        ordering = ['scale_id', 'rank_order']
+        indexes = [
+            models.Index(fields=['scale', 'rank_order']),
+        ]
+
+    def __str__(self):
+        return f"{self.scale.family} {self.code}"
+
+
+class SalaryStep(AuditBaseModel):
+    """A single (grade, step_number) cell with its annual basic amount."""
+
+    grade = models.ForeignKey(
+        SalaryGrade, on_delete=models.CASCADE, related_name='steps',
+    )
+    step_number = models.PositiveSmallIntegerField()
+    annual_basic = models.DecimalField(
+        max_digits=14, decimal_places=2,
+        help_text='Annual basic pay in NGN.',
+    )
+
+    class Meta:
+        unique_together = [('grade', 'step_number')]
+        ordering = ['grade_id', 'step_number']
+        indexes = [
+            models.Index(fields=['grade', 'step_number']),
+        ]
+
+    def __str__(self):
+        return f"{self.grade.code} Step {self.step_number}: {self.annual_basic:,}"
+
+    @property
+    def monthly_basic(self) -> Decimal:
+        return (self.annual_basic / Decimal('12')).quantize(Decimal('0.01'))
+
+
+class EmployeeGradePlacement(AuditBaseModel):
+    """Historical placement of an employee on a scale grid.
+
+    Insert-only ledger: a new row is created on promotion or step
+    increment; the latest row (by ``effective_from``) is the current.
+    """
+
+    REASON_CHOICES = [
+        ('Appointment', 'Appointment'),
+        ('Step_Increment', 'Annual Step Increment'),
+        ('Promotion', 'Promotion'),
+        ('Reinstatement', 'Reinstatement'),
+        ('Correction', 'Correction'),
+    ]
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='grade_placements',
+    )
+    step = models.ForeignKey(
+        SalaryStep, on_delete=models.PROTECT, related_name='placements',
+    )
+    effective_from = models.DateField()
+    reason = models.CharField(max_length=30, choices=REASON_CHOICES)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-effective_from', '-id']
+        indexes = [
+            models.Index(fields=['employee', '-effective_from']),
+            models.Index(fields=['step']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} ← {self.step} ({self.reason} {self.effective_from})"
+
+
+# =============================================================================
+# PHASE 6 — LIFECYCLE AUTOMATION (TRANSFER / RETIREMENT)
+# =============================================================================
+# Complements the existing :class:`Promotion` model with transfer and
+# retirement records. All three feed into the lifecycle service layer
+# which mutates :class:`Employee` state in a single atomic transaction.
+
+
+class EmployeeTransfer(AuditBaseModel):
+    """An inter-departmental / positional transfer event.
+
+    State machine: Draft → Pending → Approved → Implemented  (or Rejected).
+    Only ``Approved`` transfers are actioned by the lifecycle service.
+    """
+
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+        ('Implemented', 'Implemented'),
+        ('Cancelled', 'Cancelled'),
+    ]
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='transfers',
+    )
+    from_department = models.ForeignKey(
+        Department, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transfers_out',
+    )
+    to_department = models.ForeignKey(
+        Department, on_delete=models.PROTECT, related_name='transfers_in',
+    )
+    from_position = models.ForeignKey(
+        Position, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transfers_from',
+    )
+    to_position = models.ForeignKey(
+        Position, on_delete=models.PROTECT, related_name='transfers_to',
+    )
+
+    effective_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
+    reason = models.TextField(blank=True)
+
+    approved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='transfers_approved',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    implemented_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-effective_date', '-id']
+        indexes = [
+            models.Index(fields=['employee', '-effective_date']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.employee} → {self.to_department} "
+            f"({self.effective_date}, {self.status})"
+        )
+
+
+class RetirementRecord(AuditBaseModel):
+    """One row per retired (or about-to-retire) employee.
+
+    Created either manually by HR or automatically by the lifecycle
+    sweep when an employee hits the statutory triggers:
+        * age ≥ 60 OR
+        * continuous service ≥ 35 years
+    (whichever comes first — Public Service Rules §020908).
+    """
+
+    TRIGGER_CHOICES = [
+        ('Age_60', 'Statutory age (60)'),
+        ('Service_35', 'Statutory service (35 years)'),
+        ('Voluntary', 'Voluntary early retirement'),
+        ('Medical', 'Medical retirement'),
+        ('Mandatory', 'Mandatory / compulsory'),
+    ]
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Settled', 'Settled'),
+        ('Cancelled', 'Cancelled'),
+    ]
+
+    employee = models.OneToOneField(
+        Employee, on_delete=models.CASCADE, related_name='retirement',
+    )
+    trigger = models.CharField(max_length=20, choices=TRIGGER_CHOICES)
+    retirement_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+
+    final_settlement_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    gratuity_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    notes = models.TextField(blank=True)
+
+    approved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='retirements_approved',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-retirement_date']
+        indexes = [
+            models.Index(fields=['status', 'retirement_date']),
+            models.Index(fields=['trigger']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} retires {self.retirement_date} ({self.trigger})"
+
+
+# =============================================================================
+# PHASE 8 — BIOMETRIC INTEGRATION
+# =============================================================================
+# Hardware clock-in devices (fingerprint / face / RFID) push events to our
+# webhook. We keep a raw log of every event plus an enrollment table that
+# maps a device's internal user_id → our Employee. The ingest service
+# projects events into the existing :class:`Attendance` rows.
+
+
+class BiometricDevice(AuditBaseModel):
+    """A physical or virtual biometric clock-in device."""
+
+    DEVICE_TYPE_CHOICES = [
+        ('fingerprint', 'Fingerprint'),
+        ('face', 'Facial Recognition'),
+        ('rfid', 'RFID / Smart Card'),
+        ('qr', 'QR Code / Mobile App'),
+        ('hybrid', 'Hybrid / Multi-modal'),
+    ]
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('offline', 'Offline'),
+        ('disabled', 'Disabled'),
+        ('maintenance', 'Maintenance'),
+    ]
+
+    serial_number = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=120)
+    device_type = models.CharField(max_length=20, choices=DEVICE_TYPE_CHOICES)
+    location = models.CharField(max_length=200, blank=True)
+
+    # Shared secret used to verify HMAC signature on webhook payloads.
+    # Stored in plain text for dev — production should store a KMS reference.
+    webhook_secret = models.CharField(max_length=200, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    # Optional geofence for mobile-app "QR" devices.
+    geofence_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    geofence_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    geofence_radius_m = models.PositiveIntegerField(null=True, blank=True)
+
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['device_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} [{self.serial_number}]"
+
+
+class BiometricEnrollment(AuditBaseModel):
+    """Maps a device's internal user_id → our Employee.
+
+    One employee can enrol on many devices, but each (device, device_user_id)
+    is unique so we never collide on the lookup.
+    """
+
+    device = models.ForeignKey(
+        BiometricDevice, on_delete=models.CASCADE, related_name='enrollments',
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='biometric_enrollments',
+    )
+    device_user_id = models.CharField(
+        max_length=100,
+        help_text='Internal ID the device reports for this person.',
+    )
+    is_active = models.BooleanField(default=True)
+    enrolled_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = [('device', 'device_user_id')]
+        ordering = ['device_id', 'employee_id']
+        indexes = [
+            models.Index(fields=['employee', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} @ {self.device} (uid={self.device_user_id})"
+
+
+class BiometricEvent(AuditBaseModel):
+    """Raw event log from a biometric device (append-only).
+
+    Every webhook hit lands here first. The ingest service then projects
+    ``check_in``/``check_out`` events into :class:`Attendance`. Keeping the
+    raw log lets us replay the projection if the mapping changes later.
+    """
+
+    EVENT_TYPE_CHOICES = [
+        ('check_in', 'Check In'),
+        ('check_out', 'Check Out'),
+        ('unknown_user', 'Unknown User'),
+        ('enroll', 'Enrollment'),
+        ('heartbeat', 'Heartbeat'),
+    ]
+    PROCESS_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('matched', 'Matched to Employee'),
+        ('unmatched', 'No enrollment match'),
+        ('duplicate', 'Duplicate — ignored'),
+        ('error', 'Processing error'),
+    ]
+
+    device = models.ForeignKey(
+        BiometricDevice, on_delete=models.CASCADE, related_name='events',
+    )
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+    device_user_id = models.CharField(max_length=100, blank=True)
+    occurred_at = models.DateTimeField()
+    received_at = models.DateTimeField(default=timezone.now)
+
+    # Optional geo payload (mobile-app devices).
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='biometric_events',
+    )
+    process_status = models.CharField(
+        max_length=20, choices=PROCESS_STATUS_CHOICES, default='pending',
+    )
+    processing_notes = models.CharField(max_length=200, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-occurred_at', '-id']
+        indexes = [
+            models.Index(fields=['device', '-occurred_at']),
+            models.Index(fields=['employee', '-occurred_at']),
+            models.Index(fields=['process_status']),
+            models.Index(fields=['device_user_id', 'occurred_at']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.event_type} @ {self.device_id} "
+            f"uid={self.device_user_id} {self.occurred_at:%Y-%m-%d %H:%M}"
+        )

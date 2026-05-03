@@ -367,19 +367,39 @@ def select_tenant(request):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-    domain = tenant.domains.filter(is_primary=True).first()
-    domain_value = domain.domain if domain else tenant.schema_name
+    # Resolve domain. Preference order:
+    #   1. Domain row marked is_primary (covers tenants provisioned after
+    #      the subdomain rollout — this is now ``<slug>.erp.tryquot.com``).
+    #   2. Any non-deleted Domain row (legacy ``*.dtsg.test`` rows for
+    #      tenants created before the slug field existed).
+    #   3. Fall back to the model's computed ``subdomain`` property
+    #      (uses ``slug`` + ``TENANT_SUBDOMAIN_BASE``) — only useful
+    #      when no Domain row exists at all, which shouldn't happen in
+    #      production but keeps the response well-formed during dev.
+    domain = (
+        tenant.domains.filter(is_primary=True).first()
+        or tenant.domains.first()
+    )
+    domain_value = domain.domain if domain else getattr(tenant, 'subdomain', '')
 
     security_logger.info(
         'Tenant selected user_id=%s tenant=%s', request.user.pk, tenant.name,
     )
 
-    # Include role and permissions for the selected tenant
+    # Include role and permissions for the selected tenant.
+    # ``redirect_url`` is the absolute https URL the frontend should
+    # navigate to after a successful tenant pick. It's a hint, not a
+    # requirement — the frontend can choose to stay on the apex if
+    # multi-tenant header-based routing is preferred.
     # SEC: schema_name removed from API response to avoid leaking internal DB identifiers
+    from django.conf import settings as _settings
+    scheme = getattr(_settings, 'TENANT_DEFAULT_SCHEME', 'https')
     response_data = {
         'tenant_id': tenant.id,
         'tenant_name': tenant.name,
+        'tenant_slug': getattr(tenant, 'slug', '') or '',
         'domain': domain_value,
+        'redirect_url': f'{scheme}://{domain_value}' if domain_value else '',
     }
 
     if request.user.is_superuser:

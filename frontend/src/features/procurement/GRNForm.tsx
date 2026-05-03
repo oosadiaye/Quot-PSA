@@ -12,6 +12,7 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { safeAdd, safeMultiply } from '../accounting/utils/currency';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
+import SearchableSelect from '../../components/SearchableSelect';
 import '../accounting/styles/glassmorphism.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -247,7 +248,7 @@ const GRNForm = () => {
                     actions={
                         <>
                             <button type="button" className="btn btn-outline" onClick={() => navigate('/procurement/grn')}
-                                style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}>
+                                style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', color: 'white', borderColor: 'rgba(255,255,255,0.3)', background: 'transparent' }}>
                                 Cancel
                             </button>
                             <button type="submit" className="btn btn-primary"
@@ -294,20 +295,27 @@ const GRNForm = () => {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-                                {/* PO Selection */}
+                                {/* PO Selection — type-to-search via SearchableSelect.
+                                    The native <select> required scrolling through every
+                                    PO in the tenant; SearchableSelect lets the operator
+                                    type the PO number (e.g. "PO-2026-00003") or vendor
+                                    name and pick from a filtered list. ``label``
+                                    carries the headline match-text; ``sublabel`` shows
+                                    vendor + status so two POs from the same vendor
+                                    can be told apart at a glance. */}
                                 <div>
                                     <label style={labelStyle}>Purchase Order{requiredMark}</label>
-                                    <select style={selectStyle}
-                                        value={selectedPOId || ''}
-                                        onChange={e => setSelectedPOId(e.target.value ? Number(e.target.value) : null)}
-                                        required>
-                                        <option value="">— Select Purchase Order —</option>
-                                        {posList.map((po: any) => (
-                                            <option key={po.id} value={po.id}>
-                                                {po.po_number} — {po.vendor_name} [{po.status}]
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <SearchableSelect
+                                        options={posList.map((po: any) => ({
+                                            value: String(po.id),
+                                            label: `${po.po_number} — ${po.vendor_name}`,
+                                            sublabel: po.status ? `Status: ${po.status}` : undefined,
+                                        }))}
+                                        value={selectedPOId ? String(selectedPOId) : ''}
+                                        onChange={(v: string) => setSelectedPOId(v ? Number(v) : null)}
+                                        placeholder="Type PO number or vendor name..."
+                                        required
+                                    />
                                 </div>
 
                                 {/* Received Date */}
@@ -459,14 +467,41 @@ const GRNForm = () => {
                                                             <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontSize: 'var(--text-sm)', fontWeight: 600, color: '#4f46e5' }}>{line.pending_qty}</td>
                                                             {/* Unit price */}
                                                             <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontSize: 'var(--text-sm)' }}>{formatCurrency(line.unit_price)}</td>
-                                                            {/* Qty to receive */}
+                                                            {/* Qty to receive — clamped to the PO line's
+                                                                ``pending_qty`` (= ordered − already received).
+                                                                Three layers of defence: (1) ``max=pending_qty``
+                                                                browser attribute, (2) ``Math.min`` clamp on
+                                                                input so typing 88 against a pending of 4
+                                                                snaps the field to 4 immediately, (3) the
+                                                                pre-existing red banner + Save-button gate
+                                                                catches any value that bypasses the above.
+                                                                A user typing more than allowed will see the
+                                                                value visibly snap, which is the clearest
+                                                                signal that the cap exists. */}
                                                             <td style={{ padding: '0.35rem 0.5rem' }}>
                                                                 <input
                                                                     style={{ ...inputStyle, textAlign: 'right', borderColor: overQty ? '#dc2626' : undefined, background: overQty ? 'rgba(239,68,68,0.05)' : undefined }}
-                                                                    type="number" step="0.01" min="0"
+                                                                    type="number" step="0.01" min="0" max={line.pending_qty}
                                                                     placeholder="0"
                                                                     value={line.quantity_received}
-                                                                    onChange={e => updateLine(idx, 'quantity_received', e.target.value)}
+                                                                    onChange={e => {
+                                                                        const raw = e.target.value;
+                                                                        if (raw === '') {
+                                                                            updateLine(idx, 'quantity_received', '');
+                                                                            return;
+                                                                        }
+                                                                        const n = parseFloat(raw);
+                                                                        if (isNaN(n)) {
+                                                                            updateLine(idx, 'quantity_received', '');
+                                                                            return;
+                                                                        }
+                                                                        // Clamp [0, pending_qty]; preserve user's
+                                                                        // raw decimal precision unless the cap kicks in.
+                                                                        const clamped = Math.max(0, Math.min(n, line.pending_qty));
+                                                                        const out = clamped === n ? raw : String(clamped);
+                                                                        updateLine(idx, 'quantity_received', out);
+                                                                    }}
+                                                                    title={`Maximum ${line.pending_qty} (pending receipt against PO line)`}
                                                                 />
                                                             </td>
                                                             {/* Batch number */}
@@ -532,7 +567,7 @@ const GRNForm = () => {
                                     {[
                                         { label: 'PO Number',  value: selectedPO.po_number },
                                         { label: 'Vendor',     value: selectedPO.vendor_name },
-                                        { label: 'Order Date', value: selectedPO.order_date ? new Date(selectedPO.order_date).toLocaleDateString() : '—' },
+                                        { label: 'Order Date', value: selectedPO.order_date ? new Date(selectedPO.order_date).toLocaleDateString('en-GB') : '—' },
                                         { label: 'PO Total',   value: formatCurrency(selectedPO.total_amount || 0) },
                                         { label: 'Total Lines',value: selectedPO.lines?.length || 0 },
                                     ].map(({ label, value }) => (

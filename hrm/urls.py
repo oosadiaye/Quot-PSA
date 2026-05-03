@@ -75,6 +75,24 @@ router.register(r'statutory-deductions', StatutoryDeductionViewSet)
 router.register(r'dashboard', HRDashboardViewSet, basename='hr-dashboard')
 router.register(r'reports', HRReportsViewSet, basename='hr-reports')
 
+from hrm import views_leave_approval as _leave_approval
+from hrm import views_biometric as _biometric
+
 urlpatterns = [
     path('', include(router.urls)),
+    path(
+        'leave-approvals/pending/',
+        _leave_approval.pending_approvals,
+        name='hrm-leave-approvals-pending',
+    ),
+    path(
+        'leave-approvals/<int:pk>/decide/',
+        _leave_approval.decide_approval,
+        name='hrm-leave-approvals-decide',
+    ),
+    path(
+        'biometric/webhook/<str:serial>/',
+        _biometric.biometric_webhook,
+        name='hrm-biometric-webhook',
+    ),
 ]

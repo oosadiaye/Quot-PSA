@@ -35,12 +35,30 @@ export const useTenants = () =>
       return data || [];
     },
     staleTime: STALE_TIME,
+    // Auto-refetch every 3s while any tenant is still provisioning so the
+    // UI reflects pending → provisioning → active without manual reloads.
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? [];
+      const anyInFlight = rows.some(
+        (t) =>
+          t.provisioning_status === 'pending' ||
+          t.provisioning_status === 'provisioning',
+      );
+      return anyInFlight ? 3000 : false;
+    },
   });
+
+export interface CreateTenantPayload {
+  organization_name: string;
+  admin_email?: string;
+  admin_username?: string;
+  plan_type?: string;
+}
 
 export const useCreateTenant = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { organization_name: string }) => {
+    mutationFn: async (payload: CreateTenantPayload) => {
       const { data } = await superadminApi.createTenant(payload);
       return data;
     },
@@ -72,6 +90,9 @@ export const useTenantAction = () => {
         return res.data;
       } else if (action === 'reset_password') {
         const res = await superadminApi.resetTenantPassword(tenantId);
+        return res.data;
+      } else if (action === 'retry_provisioning') {
+        const res = await superadminApi.retryTenantProvisioning(tenantId, data);
         return res.data;
       } else if (action === 'delete') {
         const res = await superadminApi.deleteTenant(tenantId);

@@ -241,32 +241,66 @@ class VendorViewSet(viewsets.ModelViewSet):
         from datetime import timedelta
 
         ref = TransactionSequence.get_next('journal', 'JE-')
+        # ``document_number`` is the operator-facing JV-#### identifier
+        # the Journal Entries list shows in its DOCUMENT NO column.
+        # Earlier code only set ``reference_number``, which left the
+        # column rendering "-". Pulling the JV sequence here keeps the
+        # column populated for vendor-registration revenue postings the
+        # same way AP/AR/Payment journals do.
+        jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
         header = JournalHeader.objects.create(
             reference_number=ref,
             description=f"Vendor Registration: {vendor.name} — {invoice.invoice_number}",
             posting_date=timezone.now().date(),
+            document_number=jv_number,
             status='Draft',
             source_module='vendor_registration',
             source_document_id=invoice.pk,
         )
 
-        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
-        tsa_gl = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
-        if not tsa_gl:
+        # ── DR: TSA cash GL ──────────────────────────────────────
+        # Resolved via the central tsa_gl_resolver (per-TSA → tenant
+        # default → COA scan). Same code path as treasury revenue and
+        # payment voucher postings, so registration receipts can never
+        # disagree about which cash GL to hit. No hardcoded code.
+        from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
+        try:
+            tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
+        except Exception as exc:
             header.delete()
             return Response(
-                {'error': 'TSA Cash account (31100100) not found in Chart of Accounts. Configure it before confirming payments.'},
+                {'error': f'Cannot resolve TSA cash GL: {exc}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        rev_seg = EconomicSegment.objects.filter(code='12100200').first()
-        rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
-            account_type='Income', name__icontains='fee'
-        ).first()
+        # ── CR: Registration-fee revenue GL ──────────────────────
+        # Priority chain mirrors the cash side:
+        #   1. AccountingSettings.vendor_registration_revenue_account (FK)
+        #   2. Legacy NCoA bridge to 12100200 if the catalogue has it
+        #   3. Loud failure with operator-actionable message
+        from accounting.models import AccountingSettings
+        settings_obj = AccountingSettings.objects.first()
+        rev_gl = getattr(settings_obj, 'vendor_registration_revenue_account', None) if settings_obj else None
+        if rev_gl is None:
+            # Tenant hasn't configured the FK yet — try the conventional
+            # NCoA code as a soft fallback so existing seeded tenants
+            # keep working until an operator picks an explicit account.
+            rev_seg = EconomicSegment.objects.filter(code='12100200').first()
+            rev_gl = (
+                rev_seg.legacy_account if rev_seg
+                else Account.objects.filter(
+                    account_type='Income', name__icontains='registration',
+                ).first()
+            )
         if not rev_gl:
             header.delete()
             return Response(
-                {'error': 'Revenue account (Registration Fees / 12100200) not found in Chart of Accounts.'},
+                {'error': (
+                    'Registration-fee revenue account is not configured. Set it in '
+                    'Settings → Accounting → Vendor Registration Revenue Account, '
+                    'or add an Income account named like "Registration Fees" to the '
+                    'Chart of Accounts.'
+                )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -463,10 +497,15 @@ class VendorViewSet(viewsets.ModelViewSet):
         from accounting.services.treasury_service import TSABalanceService
 
         ref = TransactionSequence.get_next('journal', 'JE-')
+        # See companion fix in approve_registration_invoice — JV-####
+        # document number kept in sync with the JE- reference so the
+        # Journal Entries list always shows a populated DOCUMENT NO.
+        jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
         header = JournalHeader.objects.create(
             reference_number=ref,
             description=f"Vendor Renewal: {vendor.name} — {invoice.invoice_number}",
             posting_date=timezone.now().date(),
+            document_number=jv_number,
             status='Draft',
             source_module='vendor_renewal',
             source_document_id=invoice.pk,
@@ -625,8 +664,8 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         """Approve a purchase requisition"""
         pr = self.get_object()
-        if pr.status != 'Pending':
-            return Response({"error": "Only pending PRs can be approved."}, status=status.HTTP_400_BAD_REQUEST)
+        if pr.status not in ('Draft', 'Pending'):
+            return Response({"error": "Only Draft or Pending PRs can be approved."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
@@ -642,44 +681,72 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     amount = line.estimated_unit_price * line.quantity
                     budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
 
+                # ── Rule-driven budget check — same engine as JV / AP / PO ──
+                # Previously this block only consulted the legacy
+                # ``Budget`` table via ``get_active_budget``, which meant
+                # tenants running on ``Appropriation`` (the modern
+                # NCoA-segmented register) always got "No active budget
+                # found" even when ₦Xm was sitting active on the
+                # Appropriation report. Route through the centralised
+                # policy resolver so PR approval behaves identically to
+                # every other posting gate.
                 from accounting.budget_logic import get_active_budget
+                from accounting.services.budget_check_rules import (
+                    check_policy, find_matching_appropriation,
+                )
                 encumbrance_created = False
+                hard_block_messages: list[str] = []
 
-                missing_budget_keys = []
                 for (account, mda, fund), total_amount in budget_totals.items():
-                    budget = get_active_budget(
+                    # 1. Legacy Budget encumbrance — keep working for tenants
+                    #    still on the old Budget table. If a row exists,
+                    #    book the encumbrance; if not, we DO NOT treat it
+                    #    as a miss any more (Appropriation is the source
+                    #    of truth now).
+                    legacy_budget = get_active_budget(
                         dimensions={'mda': mda, 'fund': fund},
                         account=account,
-                        date=pr.requested_date
+                        date=pr.requested_date,
                     )
-
-                    if budget:
+                    if legacy_budget:
                         BudgetEncumbrance.objects.create(
-                            budget=budget,
+                            budget=legacy_budget,
                             reference_type='PR',
                             reference_id=pr.pk,
                             encumbrance_date=pr.requested_date,
                             amount=total_amount,
                             status='ACTIVE',
-                            description=f"Encumbrance for PR {pr.request_number}"
+                            description=f"Encumbrance for PR {pr.request_number}",
                         )
                         encumbrance_created = True
-                    else:
+
+                    # 2. Canonical policy evaluation — fires regardless of
+                    #    whether a legacy Budget row exists. Matches the
+                    #    tenant's BudgetCheckRule configuration + the
+                    #    Appropriation register.
+                    fiscal_year = pr.requested_date.year if pr.requested_date else None
+                    appropriation = find_matching_appropriation(
+                        mda=mda, fund=fund, account=account,
+                        fiscal_year=fiscal_year,
+                    )
+                    result = check_policy(
+                        account_code=account.code if account else '',
+                        appropriation=appropriation,
+                        requested_amount=total_amount,
+                        transaction_label='purchase requisition',
+                        account_name=getattr(account, 'name', '') if account else '',
+                    )
+                    if result.blocked:
                         mda_code = mda.code if mda else 'N/A'
                         fund_code = fund.code if fund else 'N/A'
                         acct_code = account.code if account else 'N/A'
-                        missing_budget_keys.append(f"MDA:{mda_code}/Econ:{acct_code}/Fund:{fund_code}")
+                        hard_block_messages.append(
+                            f"[{mda_code}/{acct_code}/{fund_code}] {result.reason}"
+                        )
 
-                # Budget check is a soft warning when no budget infrastructure exists.
-                # Hard-block only when budgets ARE configured but this specific
-                # dimension combination is missing (indicates a real miscoding).
-                from accounting.models import BudgetPeriod
-                budget_infra_exists = BudgetPeriod.objects.filter(status='ACTIVE').exists()
-
-                if missing_budget_keys and not encumbrance_created and budget_infra_exists:
+                if hard_block_messages:
                     raise ValueError(
-                        f"No active budget found for dimension(s): {', '.join(missing_budget_keys)}. "
-                        "Create or activate a budget for these dimensions before approving."
+                        'Cannot approve PR: ' + '; '.join(hard_block_messages)
                     )
 
                 pr.status = 'Approved'
@@ -687,16 +754,21 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
                 msg = "Purchase Requisition approved successfully."
                 if encumbrance_created:
-                    msg += f" Budget encumbrance created for {len(budget_totals)} line(s)."
-                if missing_budget_keys and not budget_infra_exists:
-                    msg += " Note: No active budget periods configured — budget enforcement skipped."
-                elif missing_budget_keys:
-                    msg += f" Warning: no active budget for {', '.join(missing_budget_keys)} — encumbrance skipped for those lines."
+                    msg += f" Legacy budget encumbrance created for {len(budget_totals)} line(s)."
+                else:
+                    msg += (
+                        " Budget check passed via Appropriation register — "
+                        "legacy encumbrance skipped."
+                    )
 
                 return Response({"status": msg})
         except Exception as e:
             logger.error(f"Failed to approve PR {pr.request_number}: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            from accounting.services.posting_errors import format_post_error
+            return Response(
+                format_post_error(e, context='purchase requisition'),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -714,6 +786,100 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             pr.notes = f"{pr.notes}\nRejected: {reason}".strip()
         pr.save()
         return Response({"status": "Purchase Requisition rejected."})
+
+    @action(detail=False, methods=['post'])
+    def bulk_approve(self, request):
+        """Approve multiple PRs in one call. Runs the same budget-check gate
+        as the single-item approve action — any PR that fails blocks only
+        itself; the rest continue."""
+        ids = request.data.get('ids', [])
+        if not ids:
+            return Response({"error": "No IDs provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(ids) > 100:
+            return Response({"error": "Maximum 100 items per bulk operation."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(pk__in=ids)
+        approved, skipped, errors = [], [], []
+
+        for pr in qs:
+            if pr.status not in ('Draft', 'Pending'):
+                skipped.append({"id": pr.pk, "number": pr.request_number, "reason": f"Status is '{pr.status}', must be Draft or Pending to approve"})
+                continue
+            try:
+                with transaction.atomic():
+                    from accounting.budget_logic import get_active_budget
+                    from accounting.services.budget_check_rules import check_policy, find_matching_appropriation
+
+                    budget_totals: dict = {}
+                    for line in pr.lines.all():
+                        if not line.account_id:
+                            continue
+                        key = (line.account, pr.mda, pr.fund)
+                        amount = line.estimated_unit_price * line.quantity
+                        budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
+
+                    hard_block_messages: list[str] = []
+                    for (account, mda, fund), total_amount in budget_totals.items():
+                        legacy_budget = get_active_budget(
+                            dimensions={'mda': mda, 'fund': fund},
+                            account=account,
+                            date=pr.requested_date,
+                        )
+                        if legacy_budget:
+                            BudgetEncumbrance.objects.create(
+                                budget=legacy_budget,
+                                reference_type='PR',
+                                reference_id=pr.pk,
+                                encumbrance_date=pr.requested_date,
+                                amount=total_amount,
+                                status='ACTIVE',
+                                description=f"Encumbrance for PR {pr.request_number}",
+                            )
+
+                        fiscal_year = pr.requested_date.year if pr.requested_date else None
+                        appropriation = find_matching_appropriation(mda=mda, fund=fund, account=account, fiscal_year=fiscal_year)
+                        result = check_policy(
+                            account_code=account.code if account else '',
+                            appropriation=appropriation,
+                            requested_amount=total_amount,
+                            transaction_label='purchase requisition',
+                            account_name=getattr(account, 'name', '') if account else '',
+                        )
+                        if result.blocked:
+                            hard_block_messages.append(result.reason)
+
+                    if hard_block_messages:
+                        raise ValueError('; '.join(hard_block_messages))
+
+                    pr.status = 'Approved'
+                    pr.save()
+                    approved.append({"id": pr.pk, "number": pr.request_number})
+            except Exception as exc:
+                errors.append({"id": pr.pk, "number": pr.request_number, "reason": str(exc)})
+
+        return Response({"approved": approved, "skipped": skipped, "errors": errors})
+
+    @action(detail=False, methods=['post'])
+    def bulk_delete(self, request):
+        """Delete multiple PRs. Only Draft or Rejected PRs can be deleted."""
+        ids = request.data.get('ids', [])
+        if not ids:
+            return Response({"error": "No IDs provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(ids) > 100:
+            return Response({"error": "Maximum 100 items per bulk operation."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(pk__in=ids)
+        deleted, skipped = [], []
+
+        for pr in qs:
+            if pr.status not in ('Draft', 'Rejected'):
+                skipped.append({"id": pr.pk, "number": pr.request_number, "reason": f"Cannot delete a '{pr.status}' PR"})
+                continue
+            pr_id, pr_num = pr.pk, pr.request_number
+            pr.delete()
+            deleted.append({"id": pr_id, "number": pr_num})
+
+        return Response({"deleted": deleted, "skipped": skipped})
 
     @action(detail=True, methods=['post'])
     def convert_to_po(self, request, pk=None):
@@ -800,7 +966,7 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     pagination_class = ProcurementPagination
 
     def get_queryset(self):
-        return PurchaseOrder.objects.select_related(
+        qs = PurchaseOrder.objects.select_related(
             'vendor', 'purchase_request', 'fund', 'function', 'program', 'geo'
         ).annotate(
             computed_subtotal=Coalesce(
@@ -809,6 +975,13 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 output_field=DecimalField(),
             )
         ).prefetch_related('lines')
+        # Most-recently-saved first (by pk desc) so a PO draft the user
+        # just captured is always at the top of the list, regardless of
+        # order_date (which might be backdated to match a requisition).
+        # Column-click sort via ?ordering= still wins.
+        if not self.request.query_params.get('ordering'):
+            qs = qs.order_by('-id', '-order_date')
+        return qs
 
     # ─── GRN lock helper ─────────────────────────────────────────────────────
     @staticmethod
@@ -841,7 +1014,47 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         return super().partial_update(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
-        """Create PO and optionally auto-create a DownPaymentRequest."""
+        """Create PO and optionally auto-create a DownPaymentRequest.
+
+        Enforces the "one active PO per PR" business rule BEFORE hitting
+        the DB constraint so the user gets an actionable message instead
+        of an IntegrityError. The DB constraint
+        ``uniq_active_po_per_purchase_request`` is the ultimate guard —
+        this pre-check is for the UX.
+        """
+        pr_id = request.data.get('purchase_request')
+        if pr_id:
+            from procurement.models import PurchaseOrder
+            existing = (
+                PurchaseOrder.objects
+                .filter(purchase_request_id=pr_id)
+                .exclude(status='Rejected')
+                .only('id', 'po_number', 'status')
+                .first()
+            )
+            if existing:
+                return Response(
+                    {
+                        'error': (
+                            f'This Purchase Requisition has already been '
+                            f'converted to Purchase Order '
+                            f'{existing.po_number} '
+                            f'(status: {existing.status}). A PR can only be '
+                            f'converted to one active PO. To re-convert, '
+                            f'reject the existing PO first.'
+                        ),
+                        'detail': (
+                            f'Duplicate conversion blocked. Existing PO: '
+                            f'{existing.po_number} (id {existing.id}, '
+                            f'{existing.status}).'
+                        ),
+                        'code': 'DUPLICATE_PR_CONVERSION',
+                        'existing_po_id': existing.id,
+                        'existing_po_number': existing.po_number,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         po = serializer.save(created_by=request.user)
@@ -912,7 +1125,11 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             po.save()
         except Exception as e:
             logger.error(f"Failed to approve PO {po.po_number}: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            from accounting.services.posting_errors import format_post_error
+            return Response(
+                format_post_error(e, context='purchase order'),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response({"status": "Purchase Order approved.", "po_status": po.status})
 
     @action(detail=True, methods=['post'])
@@ -943,18 +1160,38 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 order.status = 'Posted'
                 order.save()
 
-                # Post to GL in real-time
+                # Post to GL — IPSAS 3-way match keeps GL untouched at
+                # PO stage (PO = commitment, not expenditure). The
+                # service legitimately returns ``None`` to signal
+                # "commitment recorded, no journal needed". We must
+                # NOT dereference ``journal.reference_number`` in that
+                # branch — earlier code did and crashed with
+                # 'NoneType' has no attribute 'reference_number',
+                # surfacing as an opaque 400 to the operator.
                 journal = TransactionPostingService.post_purchase_order(order)
 
-            logger.info(f"PO {order.po_number} posted with journal {journal.reference_number}")
+            if journal is not None:
+                logger.info(f"PO {order.po_number} posted with journal {journal.reference_number}")
+                return Response({
+                    "status": "Purchase Order posted and budget reserved.",
+                    "journal_entry_id": journal.id,
+                    "journal_number": journal.reference_number,
+                })
+            # Commitment-only path (default IPSAS behaviour).
+            logger.info(f"PO {order.po_number} posted (commitment recorded, no GL journal at PO stage).")
             return Response({
-                "status": "Purchase Order posted and budget reserved.",
-                "journal_entry_id": journal.id,
-                "journal_number": journal.reference_number
+                "status": "Purchase Order posted. Commitment recorded against the appropriation; "
+                          "GL recognition will occur at GRN / invoice posting per IPSAS 3-way match.",
+                "journal_entry_id": None,
+                "journal_number": None,
             })
         except Exception as e:
             logger.error(f"Failed to post PO {order.po_number}: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            from accounting.services.posting_errors import format_post_error
+            return Response(
+                format_post_error(e, context='purchase order'),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def close_order(self, request, pk=None):
@@ -1229,35 +1466,16 @@ class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                # Budget check: verify GRN amount against PO encumbered budget
-                from accounting.budget_logic import check_budget_availability
+                # Compute GRN total for the partial-invoice cap check below.
+                # Budget availability is NOT re-checked here — it was already
+                # gated at PO approval time (create_commitment_for_po). A GRN
+                # converts existing commitment → expenditure; running
+                # check_budget_availability again would double-count the PO's
+                # committed amount and falsely block fully-committed appropriations.
                 grn_total = sum(
                     line.quantity_received * (line.po_line.unit_price or Decimal('0'))
                     for line in grn.lines.select_related('po_line').all()
                 )
-                if po.fund and grn_total > 0:
-                    # Use select_for_update on budget to prevent concurrent modifications
-                    from accounting.models import Budget as BudgetModel
-                    budget_qs = BudgetModel.objects.select_for_update().filter(
-                        fund=po.fund, function=po.function, program=po.program, geo=po.geo
-                    )
-                    # Force evaluation of select_for_update
-                    list(budget_qs[:1])
-
-                    # Budget control: MDA + Account (Economic) + Fund only
-                    allowed, msg = check_budget_availability(
-                        dimensions={'mda': po.mda, 'fund': po.fund},
-                        account=po.lines.first().account if po.lines.exists() else None,
-                        amount=grn_total,
-                        date=grn.received_date,
-                        transaction_type='GRN',
-                        transaction_id=grn.pk or 0,
-                    )
-                    if not allowed:
-                        return Response(
-                            {"error": f"Budget check failed for GRN: {msg}"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
 
                 # Validate GRN line quantities before posting (M2)
                 for grn_line in grn.lines.select_related('po_line').all():
@@ -1511,7 +1729,43 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
             msg = "Invoice verification submitted for approval."
 
         matching.save()
-        return Response({"status": msg, "approval_id": result.get('approval_id')})
+
+        # ── Auto-post to GL when auto-approved ──────────────────
+        # User expectation (confirmed in screenshot): once an invoice
+        # reaches Approved status, the system should post the GL
+        # journal (DR GR/IR / CR AP) and close the commitment without
+        # requiring an additional "Post to GL" click. Wrap in a
+        # try/except so the approval succeeds even if posting fails
+        # (posting errors surface on the /post_to_gl endpoint instead).
+        auto_post_info: dict = {}
+        if matching.status == 'Approved' and matching.purchase_order:
+            try:
+                with transaction.atomic():
+                    vi, journal, closed_count = self._post_matching_to_gl_inner(matching)
+                auto_post_info = {
+                    'journal_id':         journal.id if journal else None,
+                    'journal_reference':  journal.reference_number if journal else None,
+                    'vendor_invoice_id':  vi.id if vi else None,
+                    'commitment_closed':  bool(closed_count),
+                    'auto_posted':        True,
+                }
+                msg += ' Posted to GL automatically.'
+            except Exception as exc:
+                logger.warning(
+                    'Matching %s auto-approved but auto-post failed '
+                    '(user can retry via Post to GL): %s',
+                    matching.pk, exc,
+                )
+                auto_post_info = {
+                    'auto_posted': False,
+                    'auto_post_error': str(exc),
+                }
+
+        return Response({
+            'status': msg,
+            'approval_id': result.get('approval_id'),
+            **auto_post_info,
+        })
 
     @action(detail=True, methods=['post'])
     def match(self, request, pk=None):
@@ -1631,6 +1885,7 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                    partial_receipt, accounts_used }
         """
         from accounting.services.base_posting import get_gl_account
+        from accounting.models import Account  # used by reconciliation-type AP lookup below
         from django.conf import settings as dj_settings
 
         data = request.data or {}
@@ -1672,19 +1927,31 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
 
         po_total = po.total_amount or Decimal('0')
 
-        # 3-way match calculation (mirrors the model's calculate_match)
-        if invoice_amount == po_total == grn_total:
+        # 3-way match calculation — compares INVOICE SUBTOTAL (ex-VAT)
+        # against GRN value, both on a like-for-like basis. The GRN
+        # never books VAT (warehouse-side receipt), so comparing the
+        # GROSS invoice (which includes VAT) against the GRN's
+        # ex-VAT total fires a false variance equal to the tax rate
+        # on every VAT-bearing invoice. Using ``invoice_subtotal``
+        # for the comparison makes the check tax-neutral; the
+        # gross ``invoice_amount`` still drives AP-credit and the
+        # totals card, just not the variance gate.
+        compare_amount = invoice_subtotal if invoice_tax > 0 else invoice_amount
+        if compare_amount == po_total == grn_total:
             match_type, sim_status, variance_pct = 'Full', 'Matched', Decimal('0')
-        elif invoice_amount == grn_total:
+        elif compare_amount == grn_total:
             match_type = 'Full' if all(l.quantity_received >= l.quantity for l in po.lines.all()) else 'Partial'
             sim_status, variance_pct = 'Matched', Decimal('0')
         else:
-            base = grn_total or po_total or invoice_amount
-            variance_pct = abs((invoice_amount - base) / base * Decimal('100')) if base > 0 else Decimal('0')
+            base = grn_total or po_total or compare_amount
+            variance_pct = abs((compare_amount - base) / base * Decimal('100')) if base > 0 else Decimal('0')
             threshold = Decimal(str(getattr(dj_settings, 'PROCUREMENT_SETTINGS', {}).get('INVOICE_VARIANCE_THRESHOLD', 5.0)))
             sim_status = 'Matched' if variance_pct <= threshold else 'Variance'
-            match_type = 'Partial' if grn_total and invoice_amount != grn_total else 'None'
+            match_type = 'Partial' if grn_total and compare_amount != grn_total else 'None'
 
+        # Variance amount stays in gross terms because that's the
+        # number the operator typed and visually compares against
+        # the PO; only the percentage gate is normalised on subtotal.
         variance_amount = invoice_amount - (grn_total or po_total or Decimal('0'))
 
         # Detect partial receipt (purely informational for simulate)
@@ -1695,41 +1962,113 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         # Build the proposed DR/CR lines — exact same accounts the post
         # path will use, so the user sees the real GL hit.
         gr_ir = get_gl_account('GOODS_RECEIPT_CLEARING', 'Liability', 'GR/IR')
-        ap    = get_gl_account('ACCOUNTS_PAYABLE',       'Liability', 'Payable')
+
+        # AP discovery — mirrors the ladder in payables.py:post_invoice:
+        #   1. reconciliation_type='accounts_payable' (CoA-portable; the
+        #      tenant admin's explicit "this is the AP control account"
+        #      marker — works regardless of code numbering scheme)
+        #   2. DEFAULT_GL_ACCOUNTS code (legacy default)
+        #   3. account_type='Liability' + name~'Payable' (last resort)
+        # Without this layered lookup, NCoA-first tenants whose AP
+        # account doesn't match the legacy hard-coded settings code
+        # ended up with NO AP line in the simulation — total credit
+        # was zero and the journal flagged "NOT balanced".
+        ap = (
+            Account.objects.filter(
+                reconciliation_type='accounts_payable', is_active=True,
+            ).first()
+            or get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
+        )
+
+        # Resolve the explicit Input VAT and WHT GL accounts from the
+        # operator's chosen tax_code / withholding_tax (FK-driven —
+        # the right intent rather than a "first Liability whose name
+        # contains Tax" heuristic, which collided with WHT accounts
+        # like '41030103 UNREMITTED TAXES: WITHHOLDING TAX STATE'
+        # whenever VAT was the actual target).
+        tax_code_id = data.get('tax_code')
+        wht_id      = data.get('withholding_tax')
+        tax_code_obj = None
+        wht_obj = None
+        if tax_code_id:
+            try:
+                from accounting.models import TaxCode
+                tax_code_obj = TaxCode.objects.filter(pk=tax_code_id).first()
+            except Exception:
+                tax_code_obj = None
+        if wht_id:
+            try:
+                from accounting.models import WithholdingTax
+                wht_obj = WithholdingTax.objects.filter(pk=wht_id).first()
+            except Exception:
+                wht_obj = None
 
         lines = []
-        # DR GR/IR Clearing for the subtotal (3-way matched flow)
-        if gr_ir and invoice_subtotal > 0:
-            lines.append({
-                'account_code': gr_ir.code,
-                'account_name': gr_ir.name,
-                'account_type': gr_ir.account_type,
-                'debit':  str(invoice_subtotal.quantize(Decimal('0.01'))),
-                'credit': '0.00',
-                'memo':   f'Clear GR/IR for {data.get("invoice_reference", "invoice")}',
-            })
 
-        # DR Input Tax (if invoice has tax)
+        # DR Input Tax — resolved via the layered ``get_input_vat_account``
+        # ladder (tax_code FK → reconciliation_type → settings → name
+        # heuristic). Emit the tax line ONLY if a GL is found; otherwise
+        # the GR/IR residual below absorbs the tax so the journal
+        # balances regardless. We compute it FIRST so the GR/IR debit can
+        # subtract the resolved Input VAT total.
+        from accounting.services.procurement_posting import get_input_vat_account
+        input_tax_dr_total = Decimal('0.00')
         if invoice_tax > 0:
-            tax_acct = get_gl_account('TAX_PAYABLE', 'Liability', 'Tax')
-            if tax_acct:
+            tax_acct = get_input_vat_account(tax_code_obj)
+            if tax_acct is not None:
                 lines.append({
                     'account_code': tax_acct.code,
                     'account_name': tax_acct.name,
                     'account_type': tax_acct.account_type,
                     'debit':  str(invoice_tax.quantize(Decimal('0.01'))),
                     'credit': '0.00',
-                    'memo':   'Input Tax / VAT',
+                    'memo':   f'Input VAT @ {tax_code_obj.rate}% ({tax_code_obj.code})' if tax_code_obj else 'Input Tax / VAT',
+                })
+                input_tax_dr_total = invoice_tax
+
+        # DR GR/IR Clearing — RESIDUAL APPROACH so the simulated journal
+        # is ALWAYS balanced. Math:
+        #   CR side = AP + WHT = (invoice_amount − WHT) + WHT = invoice_amount
+        #   DR side must equal invoice_amount = GR/IR + Input VAT
+        #     ⇒ GR/IR debit = invoice_amount − input_tax_dr_total
+        # When Input VAT resolves, GR/IR debit = subtotal (textbook split).
+        # When it doesn't, GR/IR absorbs the tax — still balanced.
+        # The line is appended at the END (below) so the user sees the
+        # tax line first when reading top-down.
+
+        # WHT is DETERMINED at invoice level but RECOGNISED at payment
+        # (Nigerian PFM cash-basis). The simulator therefore shows NO
+        # WHT credit on the invoice journal; the WHT FK + rate are
+        # stored on the matching for the PV builder to read at payment
+        # time. ``wht_amount`` stays zero so the AP credit below is
+        # the full gross.
+        wht_amount = Decimal('0')
+
+        # DR GR/IR Clearing — RESIDUAL: balances the journal automatically.
+        # Inserted BEFORE the tax line in display order so the user reads
+        # the standard "DR GR/IR / DR Input VAT / CR AP / CR WHT" sequence.
+        if gr_ir:
+            gr_ir_debit = (invoice_amount - input_tax_dr_total).quantize(Decimal('0.01'))
+            if gr_ir_debit > 0:
+                lines.insert(0, {
+                    'account_code': gr_ir.code,
+                    'account_name': gr_ir.name,
+                    'account_type': gr_ir.account_type,
+                    'debit':  str(gr_ir_debit),
+                    'credit': '0.00',
+                    'memo':   f'Clear GR/IR for {data.get("invoice_reference", "invoice")}',
                 })
 
-        # CR Accounts Payable (full invoice total)
-        if ap:
+        # CR Accounts Payable — vendor's net liability = invoice_amount
+        # less WHT (which is paid directly to FIRS / state revenue).
+        ap_amount = (invoice_amount - wht_amount).quantize(Decimal('0.01'))
+        if ap and ap_amount > 0:
             lines.append({
                 'account_code': ap.code,
                 'account_name': ap.name,
                 'account_type': ap.account_type,
                 'debit':  '0.00',
-                'credit': str(invoice_amount.quantize(Decimal('0.01'))),
+                'credit': str(ap_amount),
                 'memo':   f'AP {po.vendor.name if po.vendor else "vendor"}',
             })
 
@@ -1805,6 +2144,7 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         )
         from accounting.services.procurement_commitments import (
             mark_commitment_closed_for_po,
+            refresh_appropriations_for_po,
         )
 
         data = request.data or {}
@@ -1924,9 +2264,17 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         # the warrant might have been suspended/reduced between PO approval
         # and invoice verification. Block posting if the cumulative
         # commitment + this invoice would exceed released warrants.
-        from accounting.budget_logic import check_warrant_availability
+        # Gated by ``is_warrant_pre_payment_enforced`` — see
+        # accounting.budget_logic. Default build setting
+        # ``WARRANT_ENFORCEMENT_STAGE='payment'`` skips this check at
+        # invoice-verification time; the ceiling is enforced at
+        # payment posting only.
+        from accounting.budget_logic import (
+            check_warrant_availability,
+            is_warrant_pre_payment_enforced,
+        )
         first_account = po.lines.first().account if po.lines.exists() else None
-        if first_account:
+        if is_warrant_pre_payment_enforced() and first_account:
             allowed, msg, info = check_warrant_availability(
                 dimensions={'mda': posting_mda, 'fund': po.fund},
                 account=first_account,
@@ -1946,6 +2294,44 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         # ── Create the matching + auto-calculate ────────────────────
         try:
             with transaction.atomic():
+                # Resolve optional tax_code / withholding_tax FKs with
+                # vendor-default + exemption ladder:
+                #   1. Transaction-level wht_exempt flag → zero WHT, period
+                #   2. Vendor.wht_exempt (master-data permanent exemption) → zero WHT
+                #   3. Explicit withholding_tax id from the payload → use it
+                #   4. Fallback to Vendor.withholding_tax_code default
+                from accounting.models import TaxCode, WithholdingTax
+                tax_code_id = data.get('tax_code')
+                wht_id = data.get('withholding_tax')
+                tax_code_obj = (
+                    TaxCode.objects.filter(pk=tax_code_id).first()
+                    if tax_code_id else None
+                )
+
+                # Exemption resolution
+                txn_wht_exempt = bool(data.get('wht_exempt'))
+                wht_exempt_reason = (data.get('wht_exempt_reason') or '').strip()
+                vendor_exempt = bool(getattr(po.vendor, 'wht_exempt', False)) if po.vendor else False
+                effective_exempt = txn_wht_exempt or vendor_exempt
+
+                if effective_exempt:
+                    wht_obj = None
+                elif wht_id:
+                    wht_obj = WithholdingTax.objects.filter(pk=wht_id).first()
+                else:
+                    wht_obj = (
+                        getattr(po.vendor, 'withholding_tax_code', None)
+                        if po.vendor else None
+                    )
+
+                # Compute WHT amount at creation so the stored figure matches
+                # what downstream posting / reports will recompute.
+                wht_amount = Decimal('0.00')
+                if wht_obj and wht_obj.rate and invoice_subtotal:
+                    wht_amount = (
+                        invoice_subtotal * Decimal(str(wht_obj.rate)) / Decimal('100')
+                    ).quantize(Decimal('0.01'))
+
                 matching = InvoiceMatching.objects.create(
                     purchase_order=po,
                     goods_received_note=grn,
@@ -1954,6 +2340,11 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                     invoice_amount=invoice_amount,
                     invoice_subtotal=invoice_subtotal,
                     invoice_tax_amount=invoice_tax,
+                    tax_code=tax_code_obj,
+                    withholding_tax=wht_obj,
+                    wht_amount=wht_amount,
+                    wht_exempt=txn_wht_exempt,
+                    wht_exempt_reason=wht_exempt_reason,
                     notes=(data.get('notes') or '').strip(),
                 )
                 matching.calculate_match()
@@ -2052,6 +2443,21 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                         matching.pk, exc,
                     )
 
+                # ── Belt-and-braces appropriation cache refresh ─────
+                # Guarantees ``cached_total_expended`` updates every time
+                # invoice verification posts to GL — even if the PO has no
+                # ProcurementBudgetLink, spans multiple appropriations, or
+                # the JournalHeader post_save signal failed to match the
+                # appropriation. This is what every budget execution
+                # report and dashboard reads.
+                try:
+                    refresh_appropriations_for_po(po)
+                except Exception as exc:
+                    logger.warning(
+                        "Matching %s: appropriation refresh failed (non-fatal): %s",
+                        matching.pk, exc,
+                    )
+
                 # ── Optional: apply down payment to the matching ────
                 dp_amount_raw = data.get('down_payment_amount')
                 if dp_amount_raw:
@@ -2082,6 +2488,157 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         except Exception as exc:
             logger.exception("verify_and_post failed: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @staticmethod
+    def _post_matching_to_gl_inner(matching):
+        """Core post-to-GL logic for an approved InvoiceMatching.
+
+        Extracted so the same flow runs from both the explicit
+        ``post_to_gl`` action and the auto-post that fires the
+        moment a matching is approved (see ``submit_for_approval``
+        below). Returns ``(vi, journal, closed_count)`` on success.
+        Callers wrap this in ``transaction.atomic()``.
+        """
+        from accounting.models import VendorInvoice
+        from accounting.services.procurement_posting import (
+            ProcurementPostingService,
+        )
+        from accounting.services.procurement_commitments import (
+            mark_commitment_closed_for_po,
+            refresh_appropriations_for_po,
+        )
+
+        po = matching.purchase_order
+
+        # ── Idempotency guard ────────────────────────────────────────
+        # An Invoice Verification that already produced a Posted vendor
+        # invoice cannot be posted twice — every additional post would
+        # double the AP credit, double the budget consumption, and
+        # double the GR/IR clearing. Once posted, the only valid
+        # corrective action is a Reverse (which writes a REV-* journal
+        # and reopens the commitment). Block re-posting at the service
+        # layer so every entry path (verify_and_post, post_to_gl,
+        # auto-post on approval) gets the same protection.
+        existing_vi = matching.vendor_invoice
+        if existing_vi and existing_vi.status == 'Posted':
+            from rest_framework.exceptions import ValidationError as DRFValidationError
+            raise DRFValidationError({
+                'error': (
+                    "This invoice verification has already been posted to the "
+                    "GL and cannot be posted again. To correct it, use the "
+                    "Reverse action — that creates a reversing journal "
+                    "(REV-*) and reopens the budget commitment so a new "
+                    "verification can be raised."
+                ),
+                'already_posted': True,
+                'journal_id': existing_vi.journal_entry_id,
+                'vendor_invoice_id': existing_vi.id,
+            })
+
+        # 1. Locate or create the VendorInvoice for this matching.
+        vi = matching.vendor_invoice
+        if vi and vi.status not in ('Draft', 'Approved'):
+            vi = None
+        if vi is None:
+            vi = VendorInvoice.objects.filter(
+                purchase_order=po, status='Draft',
+            ).exclude(invoicematching__isnull=False).order_by('-created_at').first()
+        if vi is None:
+            vi = VendorInvoice.objects.create(
+                vendor=po.vendor,
+                purchase_order=po,
+                reference=matching.invoice_reference,
+                description=(
+                    f"Invoice verification {matching.pk} — PO {po.po_number}"
+                ),
+                invoice_date=matching.invoice_date,
+                due_date=getattr(po, 'payment_due_date', None) or matching.invoice_date,
+                mda=po.mda,
+                fund=po.fund,
+                function=po.function,
+                program=po.program,
+                geo=po.geo,
+                account=po.lines.first().account if po.lines.exists() else None,
+                subtotal=matching.invoice_subtotal or matching.invoice_amount,
+                tax_amount=matching.invoice_tax_amount or Decimal('0'),
+                total_amount=matching.invoice_amount,
+                status='Draft',
+            )
+
+        vi.reference = matching.invoice_reference or vi.reference
+        vi.invoice_date = matching.invoice_date or vi.invoice_date
+        vi.subtotal = matching.invoice_subtotal or matching.invoice_amount
+        vi.tax_amount = matching.invoice_tax_amount or Decimal('0')
+        vi.total_amount = matching.invoice_amount
+        if vi.status == 'Draft':
+            vi.status = 'Approved'
+        vi.save()
+
+        # ── Propagate tax_code / withholding_tax selected on the matching
+        # onto a VendorInvoiceLine so procurement_posting can compute VAT/WHT.
+        # We rebuild the line each time this runs (the matching is the source of
+        # truth); if no taxes are selected we skip so legacy header-level
+        # invoice.tax_amount still posts via the fallback path.
+        #
+        # WHT exemption ladder honoured here:
+        #   matching.wht_exempt (transaction) → clear line WHT FK
+        #   vendor.wht_exempt (master)        → clear line WHT FK
+        # In both cases the posting service will also double-guard, but
+        # writing a null FK on the line makes the exemption legible in the
+        # VendorInvoiceLine record itself for audit.
+        if matching.tax_code_id or matching.withholding_tax_id or matching.wht_exempt:
+            from accounting.models import VendorInvoiceLine
+            VendorInvoiceLine.objects.filter(invoice=vi).delete()
+            expense_account = (
+                vi.account
+                or (po.lines.first().account if po and po.lines.exists() else None)
+            )
+            if expense_account:
+                vendor_exempt = bool(getattr(po.vendor, 'wht_exempt', False)) if po.vendor else False
+                effective_exempt = matching.wht_exempt or vendor_exempt
+                line_wht = None if effective_exempt else matching.withholding_tax
+                VendorInvoiceLine.objects.create(
+                    invoice=vi,
+                    account=expense_account,
+                    description=(
+                        f"Invoice {matching.invoice_reference} — "
+                        f"PO {po.po_number if po else ''}"
+                    )[:255],
+                    amount=vi.subtotal,
+                    tax_code=matching.tax_code,
+                    withholding_tax=line_wht,
+                )
+
+        journal = ProcurementPostingService.post_vendor_invoice(vi)
+
+        vi.status = 'Posted'
+        vi.save()
+
+        if matching.vendor_invoice_id != vi.pk:
+            matching.vendor_invoice = vi
+        if matching.status == 'Matched':
+            matching.status = 'Approved'
+        matching.save()
+
+        try:
+            closed_count = mark_commitment_closed_for_po(po)
+        except Exception as exc:
+            closed_count = 0
+            logger.warning(
+                "Matching %s: commitment CLOSED flip failed (non-fatal): %s",
+                matching.pk, exc,
+            )
+
+        # Belt-and-braces: guarantee appropriation cache reflects the
+        # newly-recognised expenditure for every report and dashboard.
+        try:
+            refresh_appropriations_for_po(po)
+        except Exception as exc:
+            logger.warning(
+                "Matching %s: appropriation refresh failed (non-fatal): %s",
+                matching.pk, exc,
+            )
+        return vi, journal, closed_count
 
     @action(detail=True, methods=['post'])
     def post_to_gl(self, request, pk=None):
@@ -2152,89 +2709,7 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                # 1. Locate or create the VendorInvoice for this matching.
-                #    Lookup priority:
-                #      a. VI explicitly linked to this matching (if Draft/Approved)
-                #      b. An UNCLAIMED Draft VI for the PO — i.e. one that has
-                #         no other InvoiceMatching pointing to it (the typical
-                #         GRN-auto-created shell VI)
-                #      c. Otherwise, create a fresh VI for this matching
-                #
-                #    We deliberately do NOT reuse another matching's
-                #    Approved VI — that's a different invoice payment and
-                #    should have its own VI record + journal.
-                vi = matching.vendor_invoice
-                if vi and vi.status not in ('Draft', 'Approved'):
-                    vi = None  # don't touch a Posted/Paid/Void VI
-                if vi is None:
-                    vi = VendorInvoice.objects.filter(
-                        purchase_order=po, status='Draft',
-                    ).exclude(
-                        # Skip Draft VIs already claimed by another matching
-                        invoicematching__isnull=False,
-                    ).order_by('-created_at').first()
-                if vi is None:
-                    # No prior VI — create a fresh one for this matching.
-                    vi = VendorInvoice.objects.create(
-                        vendor=po.vendor,
-                        purchase_order=po,
-                        reference=matching.invoice_reference,
-                        description=(
-                            f"Invoice verification {matching.pk} — "
-                            f"PO {po.po_number}"
-                        ),
-                        invoice_date=matching.invoice_date,
-                        due_date=getattr(po, 'payment_due_date', None) or matching.invoice_date,
-                        mda=po.mda,
-                        fund=po.fund,
-                        function=po.function,
-                        program=po.program,
-                        geo=po.geo,
-                        account=po.lines.first().account if po.lines.exists() else None,
-                        subtotal=matching.invoice_subtotal or matching.invoice_amount,
-                        tax_amount=matching.invoice_tax_amount or Decimal('0'),
-                        total_amount=matching.invoice_amount,
-                        status='Draft',
-                    )
-
-                # 2. Refresh VI fields from the verified matching record so
-                #    the GL journal reflects the *verified* amounts, not
-                #    whatever was on the auto-created draft.
-                vi.reference = matching.invoice_reference or vi.reference
-                vi.invoice_date = matching.invoice_date or vi.invoice_date
-                vi.subtotal = matching.invoice_subtotal or matching.invoice_amount
-                vi.tax_amount = matching.invoice_tax_amount or Decimal('0')
-                vi.total_amount = matching.invoice_amount
-                if vi.status == 'Draft':
-                    vi.status = 'Approved'  # service requires Approved/Paid to post
-                vi.save()
-
-                # 3. Post the GL journal (DR GR/IR Clearing, CR AP, +tax/WHT).
-                journal = ProcurementPostingService.post_vendor_invoice(vi)
-
-                # 4. Flip the VI to Posted (the service sets vi.journal_entry
-                #    but leaves status alone) and link the matching to it.
-                vi.status = 'Posted'
-                vi.save()
-
-                if matching.vendor_invoice_id != vi.pk:
-                    matching.vendor_invoice = vi
-                if matching.status == 'Matched':
-                    matching.status = 'Approved'
-                matching.save()
-
-                # 5. Close the budget commitment — INVOICED → CLOSED.
-                #    The expense is now formally in the GL via the journal
-                #    above, so the encumbrance can be released.
-                try:
-                    closed_count = mark_commitment_closed_for_po(po)
-                except Exception as exc:
-                    closed_count = 0
-                    logger.warning(
-                        "Matching %s: commitment CLOSED flip failed (non-fatal): %s",
-                        matching.pk, exc,
-                    )
-
+                vi, journal, closed_count = self._post_matching_to_gl_inner(matching)
             return Response({
                 "status": "Invoice posted to GL successfully.",
                 "journal_id": journal.id if journal else None,
@@ -2283,6 +2758,113 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         pending = InvoiceMatching.objects.filter(status__in=['Draft', 'Pending_Review', 'Variance'])
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def reverse(self, request, pk=None):
+        """Reverse a posted Invoice Verification — IPSAS audit-safe undo.
+
+        IPSAS does not allow deletion of posted entries; the canonical
+        correction is a reversing journal that mirrors the original DR/CR
+        with the signs swapped, leaving an immutable audit trail. This
+        endpoint orchestrates that reversal and the related cleanups:
+
+          1. Validates the matching has a Posted vendor invoice + journal.
+          2. Calls ``IPSASJournalService.reverse_journal`` to write a
+             ``REV-<original-ref>`` journal and post it. Both the original
+             and reversal stay on the books; the original gets
+             ``is_reversed=True``.
+          3. Flips the VendorInvoice back from Posted → Approved so the
+             matching is no longer marked "paid liability outstanding".
+             (We use Approved rather than Cancelled to keep the record
+             editable for a fresh re-post if needed.)
+          4. Reopens the commitment: ``ProcurementBudgetLink`` flips
+             from CLOSED back to INVOICED so the encumbrance returns to
+             ``total_committed`` and ``cached_total_expended`` shrinks.
+          5. Refreshes appropriation totals so dashboards and reports
+             reflect the reversal immediately.
+          6. Audit: ``JournalReversal`` row + ``TransactionAuditLog`` row
+             are written by ``reverse_journal`` itself.
+
+        Body: { "reason": "<required reversal narrative>" }
+        """
+        matching = self.get_object()
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response(
+                {"error": "Reversal reason is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        vi = matching.vendor_invoice
+        if not vi or vi.status != 'Posted':
+            return Response(
+                {"error": (
+                    "Only posted invoice verifications can be reversed. "
+                    f"Current vendor-invoice status: "
+                    f"{vi.status if vi else 'none'}."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        journal = vi.journal_entry
+        if not journal:
+            return Response(
+                {"error": "No GL journal linked to this invoice — nothing to reverse."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if getattr(journal, 'is_reversed', False):
+            return Response(
+                {"error": (
+                    "This invoice verification has already been reversed; "
+                    "no further reversal is possible."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        from accounting.services.procurement_commitments import (
+            refresh_appropriations_for_po,
+        )
+        from procurement.models import ProcurementBudgetLink
+
+        try:
+            with transaction.atomic():
+                reversal_journal = IPSASJournalService.reverse_journal(
+                    journal, request.user, reason,
+                )
+
+                # Flip the VendorInvoice back to Approved so it doesn't
+                # count as an outstanding posted liability.
+                vi.status = 'Approved'
+                vi.save(_allow_status_change=True)
+
+                # Reopen the commitment: CLOSED → INVOICED so the
+                # encumbrance is restored. We don't go all the way back
+                # to ACTIVE because the GRN is still posted.
+                if matching.purchase_order_id:
+                    ProcurementBudgetLink.objects.filter(
+                        purchase_order=matching.purchase_order,
+                        status='CLOSED',
+                    ).update(status='INVOICED')
+                    # Refresh appropriation cache so reports reflect the
+                    # liberated commitment immediately.
+                    refresh_appropriations_for_po(matching.purchase_order)
+
+            return Response({
+                "status": "Invoice verification reversed successfully.",
+                "reversal_journal_id": reversal_journal.id,
+                "reversal_journal_reference": reversal_journal.reference_number,
+                "original_journal_id": journal.id,
+                "original_journal_reference": journal.reference_number,
+                "vendor_invoice_id": vi.id,
+                "vendor_invoice_status": vi.status,
+            })
+        except Exception as exc:
+            logger.exception("Matching %s reverse failed: %s", matching.pk, exc)
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=True, methods=['post'])
     def apply_down_payment(self, request, pk=None):

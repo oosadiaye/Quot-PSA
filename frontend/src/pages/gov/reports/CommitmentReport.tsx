@@ -18,7 +18,10 @@ interface CommitmentRow {
     id: number;
     purchase_order: string;
     mda: string;
+    mda_code?: string;
     account: string;
+    account_code?: string;
+    account_name?: string;
     committed_amount: string;
     status: string;
     committed_at: string | null;
@@ -220,7 +223,20 @@ export default function CommitmentReport() {
                                             {row.purchase_order}
                                         </td>
                                         <td style={{ padding: '10px 14px', fontSize: '13px' }}>{row.mda || '—'}</td>
-                                        <td style={{ padding: '10px 14px', fontSize: '13px' }}>{row.account || '—'}</td>
+                                        <td style={{ padding: '10px 14px', fontSize: '13px' }}>
+                                            {row.account_code ? (
+                                                <>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
+                                                        {row.account_code}
+                                                    </span>
+                                                    <span style={{ marginLeft: 6, color: '#1e293b' }}>
+                                                        — {row.account_name || row.account}
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                row.account || '—'
+                                            )}
+                                        </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: '13px', color: '#64748b',
                                         }}>

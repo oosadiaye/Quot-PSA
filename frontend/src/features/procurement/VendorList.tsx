@@ -235,6 +235,21 @@ const VendorList = () => {
                 flash('Vendor updated successfully');
             } else {
                 await createVendor.mutateAsync(payload);
+                // The default LIST endpoint hides inactive vendors, so a freshly
+                // created supplier won't appear there until activation. Make it
+                // explicit where the record is so the user doesn't think
+                // creation silently failed.
+                if (invoiceGateEnabled) {
+                    flash(
+                        `Vendor "${payload.name}" created. ` +
+                        `Pending registration-invoice payment — see "Pending Activation" section above.`
+                    );
+                    // Make sure the pending list refetches immediately so the
+                    // user sees their new vendor without manual refresh.
+                    qc.invalidateQueries({ queryKey: ['vendors-pending'] });
+                } else {
+                    flash(`Vendor "${payload.name}" created and activated.`);
+                }
             }
             resetForm();
         } catch (err: any) {
@@ -410,6 +425,35 @@ const VendorList = () => {
                         </>
                     }
                 />
+
+                {/* Persistent gate-state banner — explains why new vendors
+                    don't immediately appear in the main list when the
+                    registration-invoice gate is enabled. Self-dismissing on
+                    pages where the gate is off so it doesn't add noise. */}
+                {invoiceGateEnabled && !showForm && (
+                    <div
+                        className="card"
+                        style={{
+                            marginBottom: '1rem', padding: '0.7rem 1rem',
+                            background: '#eff6ff',
+                            border: '1px solid #bfdbfe',
+                            color: '#1e40af',
+                            display: 'flex', alignItems: 'center', gap: '0.6rem',
+                            fontSize: 'var(--text-xs)',
+                        }}
+                    >
+                        <FileText size={14} />
+                        <span>
+                            <strong>Registration-invoice gate is ON.</strong>{' '}
+                            New vendors are created in <em>Pending Activation</em>{' '}
+                            (yellow section above the main list) until a registration
+                            invoice is generated and payment confirmed. Disable the
+                            gate in <strong>Settings → Accounting → Vendor
+                            Registration Invoice</strong> if you want vendors active
+                            immediately on creation.
+                        </span>
+                    </div>
+                )}
 
                 {showForm && (
                     <div className="card animate-fade" style={{ marginBottom: '2rem', padding: '1.5rem' }}>

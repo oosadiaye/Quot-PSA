@@ -86,7 +86,7 @@ const CreateForm: React.FC = () => {
                 allocated_amount: 0, revised_amount: '',
                 control_level: 'HARD_STOP', enable_encumbrance: true,
             });
-            setTimeout(() => setSuccess(''), 3000);
+            setTimeout(() => setSuccess(''), 5000);
         } catch (err: any) {
             const detail = err?.response?.data;
             if (detail && typeof detail === 'object') {

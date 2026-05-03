@@ -280,6 +280,42 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'appropriation', 'warrant', 'tsa_account',
         )
 
+    @action(detail=False, methods=['get'], url_path='derive-invoice-wht')
+    def derive_invoice_wht(self, request):
+        """Return the auto-derived WHT deduction implied by an invoice.
+
+        Used by the PV creation form (and the Outgoing Payments form)
+        to preview the WHT deduction the system will apply when the
+        operator picks an invoice. Returns:
+          • 200 with the derived row if WHT applies
+          • 200 with ``is_exempt=True, amount=0`` if the invoice is
+            exempt (vendor master OR per-transaction)
+          • 200 with ``{}`` if the invoice has no WHT determination
+          • 404 if the invoice number can't be found
+
+        Query params:
+            invoice_number (str, required)
+        """
+        from decimal import Decimal as _D
+        from accounting.services.wht_payment_derivation import (
+            derive_wht_for_invoice,
+        )
+        invoice_number = request.query_params.get('invoice_number', '').strip()
+        if not invoice_number:
+            return Response(
+                {'error': 'invoice_number query parameter is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        derived = derive_wht_for_invoice(invoice_number=invoice_number)
+        if derived is None:
+            return Response({})
+        # Stringify Decimals for JSON safety.
+        out = {
+            k: (str(v) if isinstance(v, _D) else v)
+            for k, v in derived.items()
+        }
+        return Response(out)
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve a PV (moves from CHECKED/AUDITED to APPROVED)."""
@@ -359,13 +395,28 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     def _post_payment_journal(self, pv: PaymentVoucherGov, user):
         """
-        Create and post IPSAS journal for a payment.
-        DR  Expenditure account (NCoA economic segment)  NGN gross
-        CR  TSA Sub-Account (31100100/31100200)          NGN net
-        CR  WHT Payable (41200600) if applicable         NGN wht
+        Create and post the IPSAS payment journal.
+
+        Payment-time recognition model (Nigerian IFMIS, cash basis):
+            DR  Expenditure / AP account        NGN gross
+            CR  TSA Cash                        NGN net paid
+            CR  <Deduction liability>           NGN (one row per deduction)
+            ...
+
+        Deductions come from ``pv.deductions`` (PaymentVoucherDeduction
+        child rows). Typical kinds: WHT, Stamp Duty, VAT withheld, Bank
+        Handling Charges, Insurance, Retention, Other. Each deduction row
+        carries its own ``gl_account`` so operators can pick the correct
+        liability/revenue account per the CoA.
+
+        Backward-compat: if no deduction lines exist but the legacy
+        ``pv.wht_amount`` is non-zero, a single WHT credit row is emitted
+        against the configured WHT NCoA code (41200600) so old records
+        continue to post correctly.
 
         All accounts resolved via NCoA -> legacy_account bridge.
         """
+        from decimal import Decimal
         from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
         from accounting.models.ncoa import EconomicSegment
         from accounting.services.ipsas_journal_service import IPSASJournalService
@@ -381,7 +432,8 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             posted_by=user,
         )
 
-        # DR: Expenditure account from NCoA bridge
+        # DR: Expenditure account from NCoA bridge (full gross — deductions
+        # are recognised as separate credits on the same journal).
         expenditure_account = pv.ncoa_code.economic.legacy_account
         if not expenditure_account:
             raise ValueError(
@@ -398,35 +450,59 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             ncoa_code=pv.ncoa_code,
         )
 
-        # CR: TSA account — use specific NCoA code 31100100 (Cash in TSA Main)
-        # or 31100200 (Cash in TSA Sub-Accounts)
-        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
-        tsa_gl_account = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
-        if not tsa_gl_account:
-            raise ValueError("TSA GL account (31100100) not found. Run: python manage.py seed_ncoa_as_coa")
+        # Resolve TSA cash GL account.
+        # Drives off the PV's configured TSA → its gl_cash_account FK,
+        # falling back to AccountingSettings.default_cash_account_code,
+        # then to the first 31* asset GL. Never hardcodes a code so a
+        # tenant can ship with any cash-account numbering scheme. See
+        # accounting.services.tsa_gl_resolver for the full priority chain.
+        from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
+        tsa_gl_account = resolve_tsa_cash_gl(
+            tsa_account=getattr(pv, 'tsa_account', None),
+        )
 
-        if pv.wht_amount > 0:
-            JournalLine.objects.create(
-                header=header, account=tsa_gl_account,
-                debit=0, credit=pv.net_amount,
-                memo=f"TSA payment: {pv.voucher_number}",
-            )
-            # CR: WHT Payable — NCoA code 41200600
+        # ── Deduction lines ──────────────────────────────────────────
+        deductions = list(pv.deductions.select_related('gl_account').all())
+        total_deductions = sum((d.amount for d in deductions), Decimal('0'))
+
+        # Legacy fallback: header-only wht_amount with no deduction rows.
+        if not deductions and (pv.wht_amount or Decimal('0')) > 0:
             wht_seg = EconomicSegment.objects.filter(code='41200600').first()
-            wht_account = wht_seg.legacy_account if wht_seg else Account.objects.filter(code='41200600').first()
-            if not wht_account:
-                # Fallback to any WHT payable
-                wht_account = Account.objects.filter(code__startswith='412', account_type='Liability').first()
-            JournalLine.objects.create(
-                header=header, account=wht_account,
-                debit=0, credit=pv.wht_amount,
-                memo=f"WHT on PV {pv.voucher_number}",
+            wht_account = (
+                wht_seg.legacy_account if wht_seg
+                else Account.objects.filter(code='41200600').first()
+                or Account.objects.filter(code__startswith='412', account_type='Liability').first()
             )
-        else:
+            if wht_account:
+                JournalLine.objects.create(
+                    header=header, account=wht_account,
+                    debit=0, credit=pv.wht_amount,
+                    memo=f"WHT on PV {pv.voucher_number}",
+                )
+                total_deductions = pv.wht_amount
+
+        # Emit one credit row per deduction line.
+        for d in deductions:
+            if d.amount and d.amount > 0 and d.gl_account:
+                JournalLine.objects.create(
+                    header=header, account=d.gl_account,
+                    debit=0, credit=d.amount,
+                    memo=(
+                        f"{d.get_deduction_type_display()} on PV {pv.voucher_number}"
+                        + (f" — {d.description}" if d.description else '')
+                    )[:255],
+                )
+
+        # CR: TSA cash = gross − Σ deductions (the amount actually paid out).
+        net_paid = (pv.gross_amount or Decimal('0')) - total_deductions
+        if net_paid > 0:
             JournalLine.objects.create(
                 header=header, account=tsa_gl_account,
-                debit=0, credit=pv.gross_amount,
-                memo=f"TSA payment: {pv.voucher_number}",
+                debit=0, credit=net_paid,
+                memo=(
+                    f"TSA payment: {pv.voucher_number}"
+                    + (f" (net of {total_deductions} deductions)" if total_deductions > 0 else "")
+                ),
             )
 
         IPSASJournalService.post_journal(header, user)
@@ -517,7 +593,7 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     def _post_revenue_journal(self, collection: RevenueCollection, user):
         """
         IPSAS Revenue Journal:
-        DR  Cash in TSA (31100100)           NGN amount
+        DR  Cash in TSA (resolved per-TSA)   NGN amount
         CR  Revenue Account (1xxxxxxx)       NGN amount
 
         All accounts resolved via NCoA -> legacy_account bridge.
@@ -536,11 +612,13 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             source_document_id=collection.pk,
         )
 
-        # DR: TSA account — NCoA code 31100100 (Cash in TSA Main)
-        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
-        tsa_gl = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
-        if not tsa_gl:
-            raise ValueError("TSA GL account (31100100) not found. Run: python manage.py seed_ncoa_as_coa")
+        # DR: TSA cash GL — driven off the collection's configured TSA
+        # (or tenant default), never a hardcoded code. See
+        # accounting.services.tsa_gl_resolver for the resolution chain.
+        from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
+        tsa_gl = resolve_tsa_cash_gl(
+            tsa_account=getattr(collection, 'tsa_account', None),
+        )
 
         JournalLine.objects.create(
             header=header, account=tsa_gl,

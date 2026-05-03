@@ -13,6 +13,7 @@ from .views import (
 from .views.organization import (
     OrganizationListCreate, OrganizationDetail,
     my_organizations, switch_organization, OrganizationUsers,
+    sync_from_ncoa,
 )
 from .views.audit import AuditLogListView
 from .views.notifications import NotificationViewSet
@@ -88,6 +89,7 @@ urlpatterns = [
     path('organizations/my/', my_organizations, name='org-my'),
     path('organizations/switch/', switch_organization, name='org-switch'),
     path('organizations/<int:org_id>/users/', OrganizationUsers.as_view(), name='org-users'),
+    path('organizations/sync-from-ncoa/', sync_from_ncoa, name='org-sync-from-ncoa'),
     # Audit Trail
     path('audit-trail/', AuditLogListView.as_view(), name='audit-trail'),
 ]

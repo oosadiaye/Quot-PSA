@@ -53,6 +53,7 @@ export default function InvoiceMatchingPage() {
     const matchingsList = matchings?.results || matchings || [];
 
     const filteredMatchings = Array.isArray(matchingsList) ? matchingsList.filter((m: any) =>
+        m.verification_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.invoice_reference?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
     ) : [];
@@ -238,6 +239,7 @@ export default function InvoiceMatchingPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Verification #</th>
                                 <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Invoice Ref</th>
                                 <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Vendor</th>
                                 <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>PO Number</th>
@@ -251,7 +253,7 @@ export default function InvoiceMatchingPage() {
                         <tbody>
                             {filteredMatchings.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={9} style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                         <FileText size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
                                         <p>No invoice verifications found</p>
                                     </td>
@@ -259,6 +261,9 @@ export default function InvoiceMatchingPage() {
                             ) : (
                                 filteredMatchings.map((m: any) => (
                                     <tr key={m.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                        <td style={{ padding: '0.75rem 1rem', fontWeight: 700, fontFamily: 'monospace', color: '#2471a3' }}>
+                                            {m.verification_number || `IV-${m.id}`}
+                                        </td>
                                         <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{m.invoice_reference}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{m.vendor_name}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{m.po_number}</td>

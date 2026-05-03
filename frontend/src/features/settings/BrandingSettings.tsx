@@ -40,7 +40,13 @@ const useUpdateBranding = () => {
             });
             return data;
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-branding'] }),
+        onSuccess: () => {
+            // Refresh BOTH the settings-form query and the app-wide
+            // BrandingContext query so the sidebar/header/login-page
+            // logo update in real time without a page reload.
+            qc.invalidateQueries({ queryKey: ['tenant-branding'] });
+            qc.invalidateQueries({ queryKey: ['tenant-public-branding'] });
+        },
     });
 };
 

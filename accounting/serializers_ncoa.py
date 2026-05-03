@@ -11,6 +11,22 @@ from accounting.models.ncoa import (
 class AdministrativeSegmentSerializer(serializers.ModelSerializer):
     full_path = serializers.CharField(source='get_full_path', read_only=True)
 
+    # Only ``code`` and ``name`` are mandatory. The historical NCoA fixed-choice
+    # taxonomies (level, sector_code, mda_type) are accepted as free strings so
+    # the import / form is not locked into a hardcoded number series — any code
+    # the tenant uses is preserved verbatim. The model still constrains length
+    # at the DB layer (CharField(max_length=…)) which is the only validation
+    # we need at the API boundary.
+    level = serializers.CharField(
+        required=False, allow_blank=True, max_length=15, default='ORGANIZATION',
+    )
+    sector_code = serializers.CharField(
+        required=False, allow_blank=True, max_length=2, default='01',
+    )
+    mda_type = serializers.CharField(
+        required=False, allow_blank=True, max_length=15, default='',
+    )
+
     class Meta:
         model = AdministrativeSegment
         fields = [
@@ -80,6 +96,35 @@ class ProgrammeSegmentSerializer(serializers.ModelSerializer):
 
 
 class FundSegmentSerializer(serializers.ModelSerializer):
+    # Only ``code`` and ``name`` are mandatory in the Add/Edit Fund Segment
+    # form. Every other column is hidden in the UI but still round-trips
+    # through the API; the serializer accepts blank/missing values and zero-
+    # pads legacy single-digit ``main_fund_code`` values (a real DB record had
+    # ``'1'`` stored, which is invalid against the model's choice list — see
+    # validate_main_fund_code below).
+    main_fund_code = serializers.CharField(
+        required=False, allow_blank=True, max_length=2, default='01',
+    )
+    sub_fund_code = serializers.CharField(
+        required=False, allow_blank=True, max_length=1, default='0',
+    )
+    fund_source_code = serializers.CharField(
+        required=False, allow_blank=True, max_length=2, default='00',
+    )
+    donor_name = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, default='',
+    )
+
+    def validate_main_fund_code(self, value: str) -> str:
+        """Normalize legacy single-digit codes (`'1'` → `'01'`) and fall back to
+        `'01'` (Federation Account) when blank."""
+        if value is None or value == '':
+            return '01'
+        v = str(value).strip()
+        if len(v) == 1 and v.isdigit():
+            return '0' + v
+        return v
+
     class Meta:
         model = FundSegment
         fields = [
@@ -92,6 +137,22 @@ class FundSegmentSerializer(serializers.ModelSerializer):
 
 
 class GeographicSegmentSerializer(serializers.ModelSerializer):
+    # Only ``code`` and ``name`` are mandatory in the Add/Edit Geographic
+    # Segment form; every other field has a sensible NCoA default. The model
+    # itself doesn't declare ``blank=True``/``default`` on ``zone_code`` (it
+    # lists choices but no default), so DRF would mark it required without
+    # this override. Defaulting to '1' (North-Central) matches the frontend's
+    # useState initial value so behavior is identical whether the request
+    # comes from the form or from a script.
+    zone_code = serializers.ChoiceField(
+        choices=GeographicSegment.GEO_ZONE_CHOICES,
+        required=False, default='1',
+    )
+    state_code = serializers.CharField(required=False, allow_blank=True, max_length=2, default='00')
+    senatorial_code = serializers.CharField(required=False, allow_blank=True, max_length=1, default='0')
+    lga_code = serializers.CharField(required=False, allow_blank=True, max_length=2, default='00')
+    ward_code = serializers.CharField(required=False, allow_blank=True, max_length=2, default='00')
+
     class Meta:
         model = GeographicSegment
         fields = [

@@ -25,9 +25,11 @@ v1_patterns = [
     path('inventory/', include('inventory.urls')),
     path('workflow/', include('workflow.urls')),
     path('hrm/', include('hrm.urls')),
+    path('my/', include('hrm.urls_portal')),
     path('core/', include('core.urls')),
     path('tenants/', include('tenants.urls')),
     path('superadmin/', include('superadmin.urls')),
+    path('contracts/', include('contracts.urls', namespace='contracts')),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3

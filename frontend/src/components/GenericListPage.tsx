@@ -2,12 +2,12 @@
  * GenericListPage — Glassmorphism-styled reusable list page for Quot PSE.
  * Uses PageHeader (gradient header) + glass-card table + CSS variable theming.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
 import Sidebar from './Sidebar';
 import PageHeader from './PageHeader';
-import { Search, Pencil, Trash2 } from 'lucide-react';
+import { Search, Pencil, Trash2, X } from 'lucide-react';
 import '../features/accounting/styles/glassmorphism.css';
 
 interface Column {
@@ -15,6 +15,14 @@ interface Column {
     label: string;
     format?: 'currency' | 'date' | 'percent' | 'number' | 'status';
     width?: string;
+    /**
+     * Optional custom cell renderer. When provided, takes precedence
+     * over the default `formatCell(item[key])` behaviour. Use this to
+     * combine multiple fields into a single cell — e.g. show
+     * `{code} — {name}` for an NCoA economic column so users can
+     * identify the row by either identifier.
+     */
+    render?: (item: Record<string, unknown>) => React.ReactNode;
 }
 
 interface ActionButton {
@@ -38,6 +46,25 @@ interface RowActions {
     custom?: CustomRowAction[];  // extra actions rendered before Edit/Delete
 }
 
+/**
+ * BulkAction — operates on the array of selected row items.
+ *
+ * Activating bulk mode by passing any element here automatically renders
+ * a leading checkbox column plus a contextual action bar that surfaces
+ * once at least one row is selected.
+ */
+interface BulkAction {
+    label: string;
+    icon?: React.ReactNode;
+    /**
+     * Called with the full record objects (not just ids) so handlers can
+     * access any field they need (e.g. `account_number` for an audit log).
+     * Return false to keep the selection after the action; default clears it.
+     */
+    onClick: (items: Record<string, unknown>[]) => void | Promise<void> | boolean | Promise<boolean>;
+    variant?: 'primary' | 'danger' | 'secondary';
+}
+
 interface GenericListPageProps {
     title: string;
     subtitle?: string;
@@ -47,6 +74,13 @@ interface GenericListPageProps {
     actions?: ActionButton[];
     onRowClick?: (item: Record<string, unknown>) => void;
     rowActions?: RowActions;
+    /**
+     * When provided, the table renders a leading checkbox column and a
+     * contextual action bar that appears once at least one row is selected.
+     * The bar lists each bulk action; clicking calls the action's onClick
+     * with the array of selected row records.
+     */
+    bulkActions?: BulkAction[];
 }
 
 const fmtNGN = (val: number | string): string => {
@@ -72,10 +106,15 @@ const formatCell = (value: unknown, format?: string): string => {
     return String(value);
 };
 
-const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowClick, rowActions }: GenericListPageProps) => {
+const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowClick, rowActions, bulkActions }: GenericListPageProps) => {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
     const pageSize = 25;
+    // Bulk-select state. Keys are stringified row ids (we tolerate numeric or
+    // uuid ids transparently). Cleared on page change so a user paging through
+    // the list isn't quietly accumulating off-screen selections.
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const bulkEnabled = !!bulkActions && bulkActions.length > 0;
 
     const { data: rawData, isLoading, error } = useQuery({
         queryKey: ['generic-list', endpoint, page],
@@ -93,6 +132,30 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
     const items = rawData?.results || [];
     const totalCount = rawData?.count || 0;
     const totalPages = Math.ceil(totalCount / pageSize);
+
+    // Reset selection on page change OR endpoint change (different rows visible).
+    useEffect(() => {
+        setSelectedIds(new Set());
+    }, [page, endpoint]);
+
+    const toggleRow = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const runBulkAction = async (action: BulkAction, currentItems: Record<string, unknown>[]) => {
+        const selectedItems = currentItems.filter(it => selectedIds.has(String(it.id)));
+        if (selectedItems.length === 0) return;
+        const result = await action.onClick(selectedItems);
+        // Default behaviour: clear selection. Handlers can return `false` to
+        // preserve the selection (e.g. when the action is non-destructive and
+        // the user is likely to chain another bulk action).
+        if (result !== false) setSelectedIds(new Set());
+    };
 
     const filtered = useMemo(() => {
         if (!search.trim()) return items;
@@ -164,6 +227,63 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                     )}
                 </div>
 
+                {/* Contextual bulk-action bar — visible only when at least
+                    one row on the current page is selected. */}
+                {bulkEnabled && selectedIds.size > 0 && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        gap: '0.75rem', padding: '0.75rem 1rem', marginBottom: '0.75rem',
+                        background: 'rgba(25, 30, 106, 0.06)',
+                        border: '1.5px solid rgba(25, 30, 106, 0.2)',
+                        borderRadius: '8px',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: 'var(--text-sm, 14px)' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--primary, #191e6a)' }}>
+                                {selectedIds.size} selected
+                            </span>
+                            <button
+                                onClick={() => setSelectedIds(new Set())}
+                                title="Clear selection"
+                                style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    padding: '3px 8px', border: '1px solid var(--color-border, #e2e8f0)',
+                                    borderRadius: 6, background: 'var(--color-surface, #fff)',
+                                    cursor: 'pointer', fontSize: 'var(--text-xs, 12px)',
+                                    color: 'var(--color-text-muted, #64748b)',
+                                }}
+                            >
+                                <X size={12} /> Clear
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            {bulkActions!.map((act, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => runBulkAction(act, filtered)}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                                        padding: '0.5rem 1rem',
+                                        border: act.variant === 'danger' ? '1px solid #ef4444'
+                                              : act.variant === 'primary' ? 'none'
+                                              : '1px solid var(--color-border, #e2e8f0)',
+                                        borderRadius: 6,
+                                        background: act.variant === 'danger' ? '#ef4444'
+                                                  : act.variant === 'primary'
+                                                      ? 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)'
+                                                      : 'var(--color-surface, #fff)',
+                                        color: (act.variant === 'danger' || act.variant === 'primary') ? '#fff' : 'var(--color-text, #1e293b)',
+                                        fontSize: 'var(--text-xs, 13px)', fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {act.icon}
+                                    {act.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Table */}
                 <div className="glass-card" style={{ overflow: 'hidden' }}>
                     {isLoading ? (
@@ -182,6 +302,23 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid var(--color-border, #e8ecf1)' }}>
+                                    {bulkEnabled && (
+                                        <th style={{ padding: '0.875rem 0.5rem 0.875rem 1rem', width: 36 }}>
+                                            <input
+                                                type="checkbox"
+                                                aria-label="Select all on page"
+                                                checked={filtered.length > 0 && filtered.every((it: Record<string, unknown>) => selectedIds.has(String(it.id)))}
+                                                onChange={e => {
+                                                    if (e.target.checked) {
+                                                        setSelectedIds(new Set(filtered.map((it: Record<string, unknown>) => String(it.id))));
+                                                    } else {
+                                                        setSelectedIds(new Set());
+                                                    }
+                                                }}
+                                                style={{ cursor: 'pointer', width: 16, height: 16, accentColor: 'var(--primary, #191e6a)' }}
+                                            />
+                                        </th>
+                                    )}
                                     {columns.map(col => (
                                         <th key={col.key} style={{
                                             padding: '0.875rem 1rem', textAlign: 'left',
@@ -207,23 +344,41 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((item: Record<string, unknown>, idx: number) => (
+                                {filtered.map((item: Record<string, unknown>, idx: number) => {
+                                    const rowId = String(item.id);
+                                    const checked = bulkEnabled && selectedIds.has(rowId);
+                                    return (
                                     <tr key={idx} style={{
                                         borderBottom: '1px solid var(--color-border, #f1f5f9)',
                                         transition: 'all var(--transition-fast, 150ms)',
                                         cursor: onRowClick ? 'pointer' : 'default',
+                                        background: checked ? 'rgba(25, 30, 106, 0.04)' : undefined,
                                     }}
                                         onClick={() => onRowClick?.(item)}
-                                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(25, 30, 106, 0.03)')}
-                                        onMouseLeave={e => (e.currentTarget.style.background = '')}
+                                        onMouseEnter={e => { if (!checked) e.currentTarget.style.background = 'rgba(25, 30, 106, 0.03)'; }}
+                                        onMouseLeave={e => { if (!checked) e.currentTarget.style.background = ''; }}
                                     >
+                                        {bulkEnabled && (
+                                            <td style={{ padding: '0.75rem 0.5rem 0.75rem 1rem', width: 36 }}
+                                                onClick={e => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    aria-label={`Select row ${rowId}`}
+                                                    checked={checked}
+                                                    onChange={() => toggleRow(rowId)}
+                                                    style={{ cursor: 'pointer', width: 16, height: 16, accentColor: 'var(--primary, #191e6a)' }}
+                                                />
+                                            </td>
+                                        )}
                                         {columns.map(col => (
                                             <td key={col.key} style={{
                                                 padding: '0.75rem 1rem',
                                                 fontSize: 'var(--text-sm, 14px)',
                                                 color: 'var(--color-text, #1e293b)',
                                             }}>
-                                                {col.format === 'status' ? (
+                                                {col.render ? (
+                                                    col.render(item)
+                                                ) : col.format === 'status' ? (
                                                     <span className="badge-glass" style={{
                                                         padding: '4px 10px',
                                                         borderRadius: '20px',
@@ -290,7 +445,8 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                                             </td>
                                         )}
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}

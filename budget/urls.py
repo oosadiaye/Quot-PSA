@@ -4,7 +4,8 @@ from .views import (
     UnifiedBudgetViewSet, UnifiedBudgetEncumbranceViewSet,
     UnifiedBudgetVarianceViewSet, UnifiedBudgetAmendmentViewSet,
     AppropriationViewSet, WarrantViewSet, BudgetExecutionView,
-    CommitmentReportView, RevenueBudgetViewSet,
+    CommitmentReportView, WarrantUtilizationReportView,
+    RevenueBudgetViewSet, AppropriationVirementViewSet,
 )
 
 router = DefaultRouter()
@@ -19,10 +20,12 @@ router.register(r'amendments', UnifiedBudgetAmendmentViewSet, basename='budget-a
 router.register(r'appropriations', AppropriationViewSet, basename='appropriation')
 router.register(r'warrants', WarrantViewSet, basename='warrant')
 router.register(r'revenue-budgets', RevenueBudgetViewSet, basename='revenue-budget')
+router.register(r'virements', AppropriationVirementViewSet, basename='virement')
 
 urlpatterns = [
     path('', include(router.urls)),
     path('execution-report/', BudgetExecutionView.as_view(), name='budget-execution'),
     path('validate/', BudgetExecutionView.as_view(), name='budget-validate'),
     path('commitment-report/', CommitmentReportView.as_view(), name='commitment-report'),
+    path('warrant-utilization/', WarrantUtilizationReportView.as_view(), name='warrant-utilization'),
 ]

@@ -2,43 +2,43 @@
  * Revenue Collection (IGR) — Journal-Style Entry — Quot PSE
  * Route: /accounting/revenue-collections/new
  *
- * Structured like a journal entry with mandatory double-entry:
- * - Header: Revenue details, payer, collection info
- * - Lines: Debit (TSA/Cash) and Credit (Revenue account) with auto-balance
- * - NCoA classification with full 52-digit code resolution
+ * Redesigned to match the Journal Entry layout:
+ *   - Header row (Collection Date, Reference, Narration)
+ *   - Mandatory NCoA dimensions (MDA, Fund, Function, Program, Geo)
+ *   - GL Journal lines (real Account FK pickers) with Dr/Cr balance check
+ *   - Collapsible optional Payer / Period card
+ *   - Single Post button
+ *
+ * The old "Revenue Head *" field is intentionally removed — the
+ * second (credit) line of the journal IS the revenue GL account, so
+ * keeping a separate Revenue Head dropdown caused the user to enter
+ * the same information twice. The GL account on the credit line is
+ * the single source of truth for which revenue is being collected.
  */
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, AlertCircle, Plus, Trash2, CheckCircle2, BookOpen } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
-import PageHeader from '../../components/PageHeader';
-import '../../features/accounting/styles/glassmorphism.css';
 import {
-    useCreateRevenueCollection, useRevenueHeadsList, useNCoASegments, useTSAAccounts,
-} from '../../hooks/useGovForms';
+    Save, AlertCircle, Plus, Trash2, CheckCircle2, BookOpen, ChevronDown, ChevronUp, User,
+} from 'lucide-react';
 import apiClient from '../../api/client';
+import AccountingLayout from '../../features/accounting/AccountingLayout';
+import PageHeader from '../../components/PageHeader';
+import {
+    useCreateRevenueCollection, useNCoASegments, useTSAAccounts,
+} from '../../hooks/useGovForms';
+import { useAccounts, useMDAs } from '../../features/accounting/hooks/useBudgetDimensions';
+import { useFunds, useFunctions, usePrograms, useGeos } from '../../features/accounting/hooks/useDimensions';
 
-const selectStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
-
-const COLLECTION_CHANNELS = [
-    ['BANK', 'Bank Deposit'], ['ONLINE', 'Online Payment'], ['USSD', 'USSD'],
-    ['AGENT', 'Collection Agent'], ['COUNTER', 'Counter'], ['POS', 'POS Terminal'],
+const COLLECTION_CHANNELS: Array<[string, string]> = [
+    ['BANK', 'Bank Deposit'],
+    ['ONLINE', 'Online Payment'],
+    ['USSD', 'USSD'],
+    ['AGENT', 'Collection Agent'],
+    ['COUNTER', 'Counter'],
+    ['POS', 'POS Terminal'],
 ];
-const MONTHS = Array.from({ length: 12 }, (_, i) => [
+
+const MONTHS = Array.from({ length: 12 }, (_, i): [string, string] => [
     String(i + 1), new Date(2000, i).toLocaleString('en', { month: 'long' }),
 ]);
 
@@ -47,393 +47,542 @@ const fmtNGN = (v: number): string =>
 
 interface JournalLine {
     id: string;
-    account_label: string;
-    account_code: string;
+    account: string;    // Account FK id
     debit: string;
     credit: string;
-    narration: string;
+    memo: string;
 }
+
+/**
+ * A minimal "new line" shape. The form opens with exactly two rows:
+ * Dr cash/TSA and Cr revenue, both blank — the user picks the accounts
+ * and amounts directly (same as the Journal Entry form).
+ */
+const newLine = (): JournalLine => ({
+    id: `l-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    account: '',
+    debit: '',
+    credit: '',
+    memo: '',
+});
 
 export default function RevenueCollectionForm() {
     const navigate = useNavigate();
     const createRevenue = useCreateRevenueCollection();
+
+    // Dimension data
     const { data: segments, isLoading: segsLoading } = useNCoASegments();
-    const { data: tsaAccounts } = useTSAAccounts();
-    const { data: revenueHeads } = useRevenueHeadsList();
+    const { data: tsaAccounts = [] } = useTSAAccounts();
+    const { data: mdas = [] } = useMDAs({ is_active: true });
+    const { data: funds = [] } = useFunds();
+    const { data: functionsList = [] } = useFunctions();
+    const { data: programs = [] } = usePrograms();
+    const { data: geos = [] } = useGeos();
+    const { data: accounts = [] } = useAccounts({ is_active: true });
 
     const [formError, setFormError] = useState('');
+    const [showPayer, setShowPayer] = useState(false);
 
-    // Header state
-    const [form, setForm] = useState({
-        revenue_head: '', collection_channel: 'BANK', collection_date: '',
-        amount: '', payment_reference: '', rrr: '',
-        payer_name: '', payer_tin: '', payer_phone: '', payer_address: '',
-        tsa_account: '', period_month: '', period_year: '', description: '',
-        admin_code: '', economic_code: '', functional_code: '',
-        programme_code: '', fund_code: '', geo_code: '',
+    // Header
+    const [header, setHeader] = useState({
+        collection_date: new Date().toISOString().split('T')[0],
+        payment_reference: '',
+        rrr: '',
+        description: '',
+        collection_channel: 'BANK',
+        tsa_account: '',
+        // NCoA 6-segment control (the mandatory dimensions)
+        admin_code: '',
+        economic_code: '',
+        functional_code: '',
+        programme_code: '',
+        fund_code: '',
+        geo_code: '',
+        // Optional payer + period
+        payer_name: '',
+        payer_tin: '',
+        payer_phone: '',
+        payer_address: '',
+        period_month: '',
+        period_year: '',
     });
 
-    // Journal lines state (auto-generated from header, but editable)
-    const [lines, setLines] = useState<JournalLine[]>([
-        { id: '1', account_label: 'TSA Cash Account', account_code: '31100100', debit: '', credit: '', narration: 'Revenue received into TSA' },
-        { id: '2', account_label: 'Revenue Account', account_code: '', debit: '', credit: '', narration: 'IGR revenue recognized' },
-    ]);
+    const setH = (field: string, value: string) =>
+        setHeader((prev) => ({ ...prev, [field]: value }));
 
-    const set = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+    // Journal lines — double-entry. Seeded as 2 empty rows: Dr Cash/TSA | Cr Revenue.
+    const [lines, setLines] = useState<JournalLine[]>([newLine(), newLine()]);
+    const updateLine = (idx: number, field: keyof JournalLine, value: string) =>
+        setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+    const addLine = () => setLines((prev) => [...prev, newLine()]);
+    const removeLine = (idx: number) => {
+        if (lines.length <= 2) return;
+        setLines((prev) => prev.filter((_, i) => i !== idx));
+    };
 
-    // Auto-update journal lines when amount or revenue head changes
-    const selectedHead = revenueHeads?.find((r: any) => String(r.id) === form.revenue_head);
-    const selectedTSA = (tsaAccounts || []).find((a: any) => String(a.id) === form.tsa_account);
-
-    // Compute totals
-    const totalDebit = useMemo(() => lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0), [lines]);
-    const totalCredit = useMemo(() => lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0), [lines]);
+    // Totals
+    const totalDebit = useMemo(
+        () => lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0),
+        [lines],
+    );
+    const totalCredit = useMemo(
+        () => lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0),
+        [lines],
+    );
     const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
-
-    // Auto-populate lines from amount
-    const autoPopulateLines = (amount: string) => {
-        const amt = amount || '';
-        setLines(prev => [
-            { ...prev[0], debit: amt, credit: '', account_label: selectedTSA ? `TSA: ${selectedTSA.account_name}` : 'TSA Cash Account', account_code: '31100100' },
-            { ...prev[1], debit: '', credit: amt, account_label: selectedHead ? `Revenue: ${selectedHead.name}` : 'Revenue Account', account_code: selectedHead?.ncoa_economic_code || '' },
-            ...prev.slice(2),
-        ]);
-    };
-
-    const updateLine = (index: number, field: keyof JournalLine, value: string) => {
-        setLines(prev => prev.map((l, i) => i === index ? { ...l, [field]: value } : l));
-    };
-
-    const addLine = () => {
-        setLines(prev => [...prev, {
-            id: String(Date.now()), account_label: '', account_code: '', debit: '', credit: '', narration: '',
-        }]);
-    };
-
-    const removeLine = (index: number) => {
-        if (lines.length <= 2) return; // Minimum 2 lines for double-entry
-        setLines(prev => prev.filter((_, i) => i !== index));
-    };
-
-    const handleAmountChange = (value: string) => {
-        set('amount', value);
-        autoPopulateLines(value);
-    };
-
-    const handleRevenueHeadChange = (value: string) => {
-        set('revenue_head', value);
-        const head = revenueHeads?.find((r: any) => String(r.id) === value);
-        setLines(prev => prev.map((l, i) =>
-            i === 1 ? { ...l, account_label: head ? `Revenue: ${head.name}` : 'Revenue Account', account_code: head?.ncoa_economic_code || '' } : l
-        ));
-    };
-
-    const handleTSAChange = (value: string) => {
-        set('tsa_account', value);
-        const tsa = (tsaAccounts || []).find((a: any) => String(a.id) === value);
-        setLines(prev => prev.map((l, i) =>
-            i === 0 ? { ...l, account_label: tsa ? `TSA: ${tsa.account_name}` : 'TSA Cash Account' } : l
-        ));
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setFormError('');
 
         if (!isBalanced) {
-            setFormError(`Journal entry is not balanced. Debit: ${fmtNGN(totalDebit)}, Credit: ${fmtNGN(totalCredit)}`);
+            setFormError(
+                `Journal is not balanced. Debit: ${fmtNGN(totalDebit)}, Credit: ${fmtNGN(totalCredit)}.`,
+            );
+            return;
+        }
+        if (lines.some((l) => !l.account)) {
+            setFormError('Every journal line must have a GL account selected.');
             return;
         }
 
-        // Resolve NCoA code
-        let ncoaCodeId: number | null = null;
-        if (form.admin_code && form.economic_code && form.functional_code &&
-            form.programme_code && form.fund_code && form.geo_code) {
-            try {
-                const { data } = await apiClient.post('/accounting/ncoa/codes/resolve/', {
-                    admin_code: form.admin_code, economic_code: form.economic_code,
-                    functional_code: form.functional_code, programme_code: form.programme_code,
-                    fund_code: form.fund_code, geo_code: form.geo_code,
-                });
-                ncoaCodeId = data.id;
-            } catch (err: any) {
-                setFormError(err.response?.data?.error || 'Failed to resolve NCoA code');
-                return;
-            }
-        } else {
-            setFormError('Please select all 6 NCoA segments');
+        // Resolve the 6-segment NCoA composite id (required by the
+        // backend so revenue gets the full classification).
+        const required = [
+            header.admin_code, header.economic_code, header.functional_code,
+            header.programme_code, header.fund_code, header.geo_code,
+        ];
+        if (required.some((v) => !v)) {
+            setFormError('Please select all 6 NCoA segments (MDA, Economic, Function, Program, Fund, Geo).');
             return;
         }
+        let ncoaCodeId: number | null = null;
+        try {
+            const { data } = await apiClient.post('/accounting/ncoa/codes/resolve/', {
+                admin_code: header.admin_code,
+                economic_code: header.economic_code,
+                functional_code: header.functional_code,
+                programme_code: header.programme_code,
+                fund_code: header.fund_code,
+                geo_code: header.geo_code,
+            });
+            ncoaCodeId = data.id;
+        } catch (err: any) {
+            setFormError(err?.response?.data?.error || 'Failed to resolve NCoA code');
+            return;
+        }
+
+        // Primary credit line = the revenue account being recognised.
+        // Backend expects a revenue_head or an economic_code; we send
+        // the economic_code from the NCoA dimensions (already captured).
+        const totalAmount = totalCredit.toFixed(2);
 
         const payload: Record<string, unknown> = {
-            revenue_head: parseInt(form.revenue_head) || null,
-            collection_channel: form.collection_channel,
-            collection_date: form.collection_date || null,
-            amount: form.amount,
-            payment_reference: form.payment_reference,
-            rrr: form.rrr,
-            payer_name: form.payer_name, payer_tin: form.payer_tin,
-            payer_phone: form.payer_phone, payer_address: form.payer_address,
+            collection_channel: header.collection_channel,
+            collection_date: header.collection_date || null,
+            amount: totalAmount,
+            payment_reference: header.payment_reference,
+            rrr: header.rrr,
+            payer_name: header.payer_name,
+            payer_tin: header.payer_tin,
+            payer_phone: header.payer_phone,
+            payer_address: header.payer_address,
             ncoa_code: ncoaCodeId,
-            tsa_account: parseInt(form.tsa_account) || null,
-            period_month: parseInt(form.period_month) || null,
-            period_year: parseInt(form.period_year) || null,
-            description: form.description,
+            tsa_account: parseInt(header.tsa_account) || null,
+            period_month: parseInt(header.period_month) || null,
+            period_year: parseInt(header.period_year) || null,
+            description: header.description,
+            // Journal lines forwarded raw so the backend can mirror
+            // the posting onto its own JournalHeader / JournalLine.
+            journal_lines: lines.map((l) => ({
+                account: parseInt(l.account),
+                debit: parseFloat(l.debit) || 0,
+                credit: parseFloat(l.credit) || 0,
+                memo: l.memo,
+            })),
         };
 
         try {
             await createRevenue.mutateAsync(payload);
             navigate('/accounting/revenue-collections');
         } catch (err: any) {
-            const d = err.response?.data;
+            const d = err?.response?.data;
             if (d?.detail) setFormError(d.detail);
             else if (d && typeof d === 'object') {
-                const msgs = Object.entries(d).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
-                setFormError(msgs.join(' | '));
-            } else setFormError(err.message || 'Failed to create');
+                setFormError(
+                    Object.entries(d)
+                        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+                        .join(' | '),
+                );
+            } else setFormError(err?.message || 'Failed to create');
         }
     };
 
     return (
-        <div style={{ display: 'flex' }}>
-            <Sidebar />
-            <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
-                <PageHeader title="Revenue Collection Entry" subtitle="Record IGR revenue with mandatory double-entry journal posting" icon={<BookOpen size={22} />} />
+        <AccountingLayout>
+            <PageHeader
+                title="Revenue Collection Entry"
+                subtitle="Record IGR revenue as a balanced GL journal (Dr Cash/TSA / Cr Revenue)"
+                icon={<BookOpen size={22} />}
+            />
 
-                {formError && (
-                    <div style={{ padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                        <AlertCircle size={14} /> {formError}
+            {formError && (
+                <div style={{
+                    padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626',
+                    borderRadius: 8, marginBottom: '1.5rem', fontSize: 'var(--text-sm)',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                    <AlertCircle size={16} /> {formError}
+                </div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+                {/* ── Header fields ───────────────────────────────── */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '1.5rem', marginBottom: '2rem',
+                }}>
+                    <div className="card">
+                        <label className="label">Collection Date<span className="required-mark"> *</span></label>
+                        <input type="date" required
+                            value={header.collection_date}
+                            onChange={(e) => setH('collection_date', e.target.value)}
+                        />
                     </div>
-                )}
+                    <div className="card">
+                        <label className="label">Channel</label>
+                        <select value={header.collection_channel}
+                            onChange={(e) => setH('collection_channel', e.target.value)}>
+                            {COLLECTION_CHANNELS.map(([v, l]) => (
+                                <option key={v} value={v}>{l}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="card">
+                        <label className="label">Payment Ref / Teller</label>
+                        <input type="text"
+                            placeholder="Bank teller / confirmation"
+                            value={header.payment_reference}
+                            onChange={(e) => setH('payment_reference', e.target.value)}
+                        />
+                    </div>
+                    <div className="card">
+                        <label className="label">RRR (Remita)</label>
+                        <input type="text"
+                            placeholder="Remita reference"
+                            value={header.rrr}
+                            onChange={(e) => setH('rrr', e.target.value)}
+                        />
+                    </div>
+                    <div className="card">
+                        <label className="label">TSA Account<span className="required-mark"> *</span></label>
+                        <select required value={header.tsa_account}
+                            onChange={(e) => setH('tsa_account', e.target.value)}>
+                            <option value="">Select TSA...</option>
+                            {(tsaAccounts as any[]).map((a: any) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.account_number} - {a.account_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="card" style={{ gridColumn: 'span 2' }}>
+                        <label className="label">Narration / Description<span className="required-mark"> *</span></label>
+                        <input type="text" required
+                            placeholder="Purpose of this collection"
+                            value={header.description}
+                            onChange={(e) => setH('description', e.target.value)}
+                        />
+                    </div>
+                </div>
 
-                <form onSubmit={handleSubmit}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        {/* Left Column: Revenue + Payer */}
-                        <div>
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Revenue Details</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div style={{ gridColumn: '1 / -1' }}>
-                                        <label style={lblStyle}>Revenue Head * <span style={{ fontWeight: 400, textTransform: 'none', color: '#94a3b8' }}>(what you're collecting)</span></label>
-                                        <select style={selectStyle} required value={form.revenue_head} onChange={e => handleRevenueHeadChange(e.target.value)}>
-                                            <option value="">Select revenue head...</option>
-                                            {(revenueHeads || []).map((r: any) => <option key={r.id} value={r.id}>{r.code} - {r.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>Amount (NGN) *</label>
-                                        <input style={{ ...inputStyle, fontSize: '16px', fontWeight: 700 }} type="number" step="0.01" min="0.01" required value={form.amount} onChange={e => handleAmountChange(e.target.value)} placeholder="0.00" />
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>Collection Date *</label>
-                                        <input style={inputStyle} type="date" required value={form.collection_date} onChange={e => set('collection_date', e.target.value)} />
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>Channel</label>
-                                        <select style={selectStyle} value={form.collection_channel} onChange={e => set('collection_channel', e.target.value)}>
-                                            {COLLECTION_CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>Payment Ref / Teller No.</label>
-                                        <input style={inputStyle} value={form.payment_reference} onChange={e => set('payment_reference', e.target.value)} placeholder="Bank teller number" />
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>RRR (Remita)</label>
-                                        <input style={inputStyle} value={form.rrr} onChange={e => set('rrr', e.target.value)} placeholder="Remita reference" />
-                                    </div>
-                                    <div>
-                                        <label style={lblStyle}>TSA Account *</label>
-                                        <select style={selectStyle} required value={form.tsa_account} onChange={e => handleTSAChange(e.target.value)}>
-                                            <option value="">Select TSA...</option>
-                                            {(tsaAccounts || []).map((a: any) => <option key={a.id} value={a.id}>{a.account_number} - {a.account_name}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
+                {/* ── Mandatory NCoA Dimensions ───────────────────── */}
+                <div className="card" style={{ marginBottom: '2rem' }}>
+                    <h3 style={{ marginBottom: '1rem', fontSize: 'var(--text-base)' }}>
+                        NCoA Classification <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(all 6 segments required)</span>
+                    </h3>
+                    {segsLoading ? (
+                        <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading NCoA segments...</div>
+                    ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                            <div>
+                                <label className="label">MDA (Admin)<span className="required-mark"> *</span></label>
+                                <select required value={header.admin_code}
+                                    onChange={(e) => setH('admin_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.administrative?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
                             </div>
-
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Payer Information</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div><label style={lblStyle}>Payer Name *</label><input style={inputStyle} required value={form.payer_name} onChange={e => set('payer_name', e.target.value)} placeholder="Full name" /></div>
-                                    <div><label style={lblStyle}>Payer TIN</label><input style={inputStyle} value={form.payer_tin} onChange={e => set('payer_tin', e.target.value)} placeholder="Tax ID" /></div>
-                                    <div><label style={lblStyle}>Phone</label><input style={inputStyle} value={form.payer_phone} onChange={e => set('payer_phone', e.target.value)} /></div>
-                                    <div><label style={lblStyle}>Period</label>
-                                        <div style={{ display: 'flex', gap: 6 }}>
-                                            <select style={{ ...selectStyle, flex: 1 }} value={form.period_month} onChange={e => set('period_month', e.target.value)}>
-                                                <option value="">Month</option>
-                                                {MONTHS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                            </select>
-                                            <input style={{ ...inputStyle, width: 80 }} type="number" min="2020" max="2099" value={form.period_year} onChange={e => set('period_year', e.target.value)} placeholder="Year" />
-                                        </div>
-                                    </div>
-                                </div>
+                            <div>
+                                <label className="label">Economic (Revenue Head)<span className="required-mark"> *</span></label>
+                                <select required value={header.economic_code}
+                                    onChange={(e) => setH('economic_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.economic?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="label">Function (COFOG)<span className="required-mark"> *</span></label>
+                                <select required value={header.functional_code}
+                                    onChange={(e) => setH('functional_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.functional?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="label">Programme<span className="required-mark"> *</span></label>
+                                <select required value={header.programme_code}
+                                    onChange={(e) => setH('programme_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.programme?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="label">Fund<span className="required-mark"> *</span></label>
+                                <select required value={header.fund_code}
+                                    onChange={(e) => setH('fund_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.fund?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="label">Geographic<span className="required-mark"> *</span></label>
+                                <select required value={header.geo_code}
+                                    onChange={(e) => setH('geo_code', e.target.value)}>
+                                    <option value="">Select...</option>
+                                    {segments?.geographic?.map((s: any) => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
+                    )}
+                </div>
 
-                        {/* Right Column: NCoA + Journal Lines */}
-                        <div>
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>NCoA Classification</h3>
-                                {segsLoading ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading...</div> : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                        <div><label style={lblStyle}>MDA *</label>
-                                            <select style={selectStyle} required value={form.admin_code} onChange={e => set('admin_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.administrative?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label style={lblStyle}>Economic *</label>
-                                            <select style={selectStyle} required value={form.economic_code} onChange={e => set('economic_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.economic?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label style={lblStyle}>Function *</label>
-                                            <select style={selectStyle} required value={form.functional_code} onChange={e => set('functional_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.functional?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label style={lblStyle}>Programme *</label>
-                                            <select style={selectStyle} required value={form.programme_code} onChange={e => set('programme_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.programme?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label style={lblStyle}>Fund *</label>
-                                            <select style={selectStyle} required value={form.fund_code} onChange={e => set('fund_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.fund?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label style={lblStyle}>Geographic *</label>
-                                            <select style={selectStyle} required value={form.geo_code} onChange={e => set('geo_code', e.target.value)}>
-                                                <option value="">Select...</option>
-                                                {segments?.geographic?.map((s: any) => <option key={s.code} value={s.code}>{s.code} - {s.name}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                )}
+                {/* ── GL Journal Lines (double-entry, Journal-style) ── */}
+                <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '2rem' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Debit (NGN)</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Credit (NGN)</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Memo</th>
+                                <th style={{ padding: '1rem', width: 50 }}></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {lines.map((line, idx) => (
+                                <tr key={line.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '0.5rem 0.75rem' }}>
+                                        <select required
+                                            value={line.account}
+                                            onChange={(e) => updateLine(idx, 'account', e.target.value)}
+                                            style={{ width: '100%' }}
+                                        >
+                                            <option value="">Select Account...</option>
+                                            {(accounts as any[]).map((a: any) => (
+                                                <option key={a.id} value={a.id}>
+                                                    {a.code} — {a.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </td>
+                                    <td style={{ padding: '0.5rem 0.5rem' }}>
+                                        <input type="number" step="0.01" min="0"
+                                            value={line.debit}
+                                            onChange={(e) => updateLine(idx, 'debit', e.target.value)}
+                                            placeholder="0.00"
+                                            style={{
+                                                width: '100%', textAlign: 'right',
+                                                background: line.debit ? '#f0fdf4' : '#fff',
+                                                fontWeight: 600,
+                                            }}
+                                        />
+                                    </td>
+                                    <td style={{ padding: '0.5rem 0.5rem' }}>
+                                        <input type="number" step="0.01" min="0"
+                                            value={line.credit}
+                                            onChange={(e) => updateLine(idx, 'credit', e.target.value)}
+                                            placeholder="0.00"
+                                            style={{
+                                                width: '100%', textAlign: 'right',
+                                                background: line.credit ? '#fef2f2' : '#fff',
+                                                fontWeight: 600,
+                                            }}
+                                        />
+                                    </td>
+                                    <td style={{ padding: '0.5rem 0.5rem' }}>
+                                        <input type="text"
+                                            placeholder="Line memo"
+                                            value={line.memo}
+                                            onChange={(e) => updateLine(idx, 'memo', e.target.value)}
+                                            style={{ width: '100%' }}
+                                        />
+                                    </td>
+                                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                        {lines.length > 2 && (
+                                            <button type="button" onClick={() => removeLine(idx)}
+                                                style={{
+                                                    background: 'none', border: 'none', cursor: 'pointer',
+                                                    color: '#ef4444', padding: 4,
+                                                }}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ borderTop: '2px solid var(--border)', background: '#f8fafc' }}>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                    <button type="button" onClick={addLine}
+                                        style={{
+                                            background: 'none', border: '1px dashed #94a3b8',
+                                            borderRadius: 6, padding: '4px 10px', fontSize: 12,
+                                            color: '#64748b', cursor: 'pointer',
+                                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        }}
+                                    >
+                                        <Plus size={12} /> Add Line
+                                    </button>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700, color: '#166534' }}>
+                                    {fmtNGN(totalDebit)}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                    {fmtNGN(totalCredit)}
+                                </td>
+                                <td colSpan={2} style={{ padding: '0.75rem 1rem' }}>
+                                    {isBalanced ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#166534', fontSize: 12, fontWeight: 600 }}>
+                                            <CheckCircle2 size={14} /> Balanced
+                                        </span>
+                                    ) : totalDebit > 0 || totalCredit > 0 ? (
+                                        <span style={{ color: '#dc2626', fontSize: 12, fontWeight: 600 }}>
+                                            Out of balance by {fmtNGN(Math.abs(totalDebit - totalCredit))}
+                                        </span>
+                                    ) : (
+                                        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                                            Enter amounts above
+                                        </span>
+                                    )}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                {/* ── Optional Payer / Period card (collapsible) ─── */}
+                <div className="card" style={{ marginBottom: '2rem' }}>
+                    <button type="button"
+                        onClick={() => setShowPayer((v) => !v)}
+                        style={{
+                            width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: 0, color: 'var(--color-text)', fontSize: 'var(--text-base)',
+                            fontWeight: 600,
+                        }}
+                    >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <User size={16} /> Payer Details
+                            <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(optional)</span>
+                        </span>
+                        {showPayer ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                    {showPayer && (
+                        <div style={{
+                            marginTop: '1rem',
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '1rem',
+                        }}>
+                            <div>
+                                <label className="label">Payer Name</label>
+                                <input type="text"
+                                    placeholder="Full name"
+                                    value={header.payer_name}
+                                    onChange={(e) => setH('payer_name', e.target.value)}
+                                />
                             </div>
-
-                            {/* Journal Entry Lines — the core double-entry */}
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem', border: '2px solid #c7d2fe' }}>
-                                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: '#4338ca', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <BookOpen size={16} /> Journal Entry Lines
-                                    <span style={{ fontWeight: 400, fontSize: 11, color: '#94a3b8', marginLeft: 'auto' }}>
-                                        Mandatory double-entry
-                                    </span>
-                                </div>
-
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                                    <thead>
-                                        <tr style={{ background: '#eef2ff' }}>
-                                            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#4338ca', fontSize: 10, textTransform: 'uppercase' }}>Account</th>
-                                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#4338ca', fontSize: 10, textTransform: 'uppercase', width: 110 }}>Debit (NGN)</th>
-                                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#4338ca', fontSize: 10, textTransform: 'uppercase', width: 110 }}>Credit (NGN)</th>
-                                            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#4338ca', fontSize: 10, textTransform: 'uppercase' }}>Narration</th>
-                                            <th style={{ width: 32 }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {lines.map((line, idx) => (
-                                            <tr key={line.id} style={{ borderBottom: '1px solid #e8ecf1' }}>
-                                                <td style={{ padding: '6px 8px' }}>
-                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b' }}>{line.account_label || '(Select account)'}</div>
-                                                    {line.account_code && <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{line.account_code}</div>}
-                                                </td>
-                                                <td style={{ padding: '6px 4px' }}>
-                                                    <input style={{ ...inputStyle, textAlign: 'right', padding: '6px 8px', fontSize: 13, fontWeight: 600, background: line.debit ? '#f0fdf4' : '#fff' }}
-                                                        type="number" step="0.01" min="0" placeholder="0.00"
-                                                        value={line.debit} onChange={e => updateLine(idx, 'debit', e.target.value)} />
-                                                </td>
-                                                <td style={{ padding: '6px 4px' }}>
-                                                    <input style={{ ...inputStyle, textAlign: 'right', padding: '6px 8px', fontSize: 13, fontWeight: 600, background: line.credit ? '#fef2f2' : '#fff' }}
-                                                        type="number" step="0.01" min="0" placeholder="0.00"
-                                                        value={line.credit} onChange={e => updateLine(idx, 'credit', e.target.value)} />
-                                                </td>
-                                                <td style={{ padding: '6px 4px' }}>
-                                                    <input style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }}
-                                                        value={line.narration} onChange={e => updateLine(idx, 'narration', e.target.value)} placeholder="Line memo" />
-                                                </td>
-                                                <td style={{ padding: '6px 2px' }}>
-                                                    {lines.length > 2 && (
-                                                        <button type="button" onClick={() => removeLine(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}>
-                                                            <Trash2 size={13} />
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                    <tfoot>
-                                        <tr style={{ borderTop: '2px solid #c7d2fe' }}>
-                                            <td style={{ padding: '8px 10px', fontWeight: 700, fontSize: 12, color: '#1e293b' }}>
-                                                Total
-                                                <button type="button" onClick={addLine} style={{
-                                                    marginLeft: 10, background: 'none', border: '1px dashed #94a3b8',
-                                                    borderRadius: 4, padding: '2px 8px', fontSize: 10, color: '#64748b',
-                                                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3,
-                                                }}>
-                                                    <Plus size={10} /> Add Line
-                                                </button>
-                                            </td>
-                                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#166534' }}>
-                                                {fmtNGN(totalDebit)}
-                                            </td>
-                                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#dc2626' }}>
-                                                {fmtNGN(totalCredit)}
-                                            </td>
-                                            <td style={{ padding: '8px 10px' }}>
-                                                {isBalanced ? (
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#166534', fontSize: 11, fontWeight: 600 }}>
-                                                        <CheckCircle2 size={13} /> Balanced
-                                                    </span>
-                                                ) : totalDebit > 0 || totalCredit > 0 ? (
-                                                    <span style={{ color: '#dc2626', fontSize: 11, fontWeight: 600 }}>
-                                                        Difference: {fmtNGN(Math.abs(totalDebit - totalCredit))}
-                                                    </span>
-                                                ) : (
-                                                    <span style={{ color: '#94a3b8', fontSize: 11 }}>Enter amounts above</span>
-                                                )}
-                                            </td>
-                                            <td></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
+                            <div>
+                                <label className="label">Payer TIN</label>
+                                <input type="text"
+                                    placeholder="Tax identification"
+                                    value={header.payer_tin}
+                                    onChange={(e) => setH('payer_tin', e.target.value)}
+                                />
                             </div>
-
-                            {/* Description */}
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                <label style={lblStyle}>Narration / Description</label>
-                                <textarea style={{ ...inputStyle, minHeight: '50px' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Revenue collection description..." />
+                            <div>
+                                <label className="label">Phone</label>
+                                <input type="text"
+                                    value={header.payer_phone}
+                                    onChange={(e) => setH('payer_phone', e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="label">Address</label>
+                                <input type="text"
+                                    value={header.payer_address}
+                                    onChange={(e) => setH('payer_address', e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="label">Period Month</label>
+                                <select value={header.period_month}
+                                    onChange={(e) => setH('period_month', e.target.value)}>
+                                    <option value="">—</option>
+                                    {MONTHS.map(([v, l]) => (
+                                        <option key={v} value={v}>{l}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="label">Period Year</label>
+                                <input type="number" min="2020" max="2099"
+                                    placeholder="e.g. 2026"
+                                    value={header.period_year}
+                                    onChange={(e) => setH('period_year', e.target.value)}
+                                />
                             </div>
                         </div>
-                    </div>
+                    )}
+                </div>
 
-                    {/* Submit Row */}
-                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                        <button type="button" onClick={() => navigate(-1)} className="glass-button" style={{
-                            padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--color-border)',
-                            background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                        }}>
-                            Cancel
-                        </button>
-                        <button type="submit" disabled={createRevenue.isPending || !isBalanced} style={{
-                            padding: '10px 24px', borderRadius: '8px', border: 'none',
-                            background: isBalanced ? 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)' : '#94a3b8', color: '#fff',
-                            fontSize: '13px', fontWeight: 600, cursor: isBalanced ? 'pointer' : 'not-allowed',
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            opacity: createRevenue.isPending ? 0.7 : 1,
-                            boxShadow: isBalanced ? '0 4px 12px rgba(15, 18, 64, 0.3)' : 'none',
-                        }}>
-                            <Save size={14} />
-                            {createRevenue.isPending ? 'Posting...' : 'Post Revenue Entry'}
-                        </button>
-                    </div>
-                </form>
-            </main>
-        </div>
+                {/* ── Actions ──────────────────────────────────── */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                    <button type="button" onClick={() => navigate(-1)}
+                        className="btn btn-outline"
+                        style={{ padding: '10px 20px' }}
+                    >
+                        Cancel
+                    </button>
+                    <button type="submit"
+                        disabled={createRevenue.isPending || !isBalanced}
+                        className="btn btn-primary"
+                        style={{
+                            padding: '10px 24px', opacity: (!isBalanced || createRevenue.isPending) ? 0.5 : 1,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                        }}
+                    >
+                        <Save size={14} />
+                        {createRevenue.isPending ? 'Posting...' : 'Post Revenue Entry'}
+                    </button>
+                </div>
+            </form>
+        </AccountingLayout>
     );
 }

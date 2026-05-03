@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Package, Calculator, Filter, FolderTree, Plus, LayoutList, LayoutGrid, ChevronUp, ChevronDown, Search, Play, X, Loader2, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useFixedAssets, useCalculateDepreciation, useBulkDepreciation } from '../hooks/useAccountingEnhancements';
+import { useFixedAssets, useCalculateDepreciation, useBulkDepreciation, useDepreciationSchedule, useSaveDepreciationSchedule, useRunScheduleNow } from '../hooks/useAccountingEnhancements';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -51,6 +51,57 @@ export default function FixedAssets() {
     const { data: assets, isLoading } = useFixedAssets({ category: categoryFilter });
     const calculateDepreciation = useCalculateDepreciation();
     const bulkDepreciation = useBulkDepreciation();
+    const { data: schedule } = useDepreciationSchedule();
+    const saveSchedule = useSaveDepreciationSchedule();
+    const runScheduleNow = useRunScheduleNow();
+    const [scheduleDay, setScheduleDay] = useState<number>(1);
+    const [scheduleActive, setScheduleActive] = useState<boolean>(true);
+    const [scheduleBanner, setScheduleBanner] = useState<string>('');
+
+    // Hydrate the schedule form with server state once fetched.
+    useMemo(() => {
+        if (schedule) {
+            setScheduleDay(schedule.day_of_month || 1);
+            setScheduleActive(!!schedule.is_active);
+        }
+    }, [schedule?.id, schedule?.day_of_month, schedule?.is_active]);
+
+    const handleSaveSchedule = async () => {
+        setScheduleBanner('');
+        try {
+            await saveSchedule.mutateAsync({
+                id: schedule?.id,
+                is_active: scheduleActive,
+                day_of_month: Math.max(1, Math.min(28, Number(scheduleDay) || 1)),
+            });
+            setScheduleBanner('✓ Schedule saved. Monthly auto-run will fire on the configured day.');
+            setTimeout(() => setScheduleBanner(''), 8000);
+        } catch (e: any) {
+            setScheduleBanner(`Failed to save: ${e?.response?.data?.detail || e?.message || 'unknown'}`);
+        }
+    };
+
+    const handleRunNow = async (simulate: boolean) => {
+        if (!schedule) {
+            setScheduleBanner('Save the schedule first, then use Run Now.');
+            return;
+        }
+        setScheduleBanner('');
+        try {
+            const result: any = await runScheduleNow.mutateAsync({
+                id: schedule.id,
+                simulate,
+            });
+            const s = result?.summary || {};
+            setScheduleBanner(
+                `${simulate ? 'Simulation' : 'Posted'} complete: ${s.posted ?? 0} asset(s), total ` +
+                `₦${Number(s.total_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}, ` +
+                `${s.skipped ?? 0} skipped.`
+            );
+        } catch (e: any) {
+            setScheduleBanner(`Run failed: ${e?.response?.data?.detail || e?.message || 'unknown'}`);
+        }
+    };
 
     const activeAssetIds = useMemo(() =>
         (assets || []).filter((a: any) => a.status === 'Active').map((a: any) => a.id),
@@ -219,6 +270,97 @@ export default function FixedAssets() {
                         </div>
                     }
                 />
+
+                {/* ── Monthly auto-depreciation schedule ─────────────── */}
+                <div className="glass-card" style={{
+                    padding: '1.25rem 1.5rem',
+                    marginBottom: '1rem',
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(220px, 1fr) 140px 110px 1fr',
+                    gap: '1rem',
+                    alignItems: 'end',
+                }}>
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                            <Clock size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                            Monthly Auto Depreciation
+                        </div>
+                        <div style={{ fontSize: 13, color: '#1e293b', lineHeight: 1.4 }}>
+                            {schedule ? (
+                                <>
+                                    Next run: <b>{schedule.next_run_date || '—'}</b>
+                                    {schedule.last_run_period_date && (
+                                        <> · Last: <b>{schedule.last_run_period_date}</b>
+                                        (posted {schedule.last_run_assets_posted}, total ₦
+                                        {Number(schedule.last_run_total_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })})</>
+                                    )}
+                                </>
+                            ) : (
+                                <>No schedule yet. Set the day-of-month below to create one.</>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Day of Month (1–28)</label>
+                        <input
+                            type="number" min={1} max={28}
+                            value={scheduleDay}
+                            onChange={(e) => setScheduleDay(Number(e.target.value))}
+                            style={{ width: '100%', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Active</label>
+                        <input
+                            type="checkbox"
+                            checked={scheduleActive}
+                            onChange={(e) => setScheduleActive(e.target.checked)}
+                            style={{ width: 20, height: 20 }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button
+                            onClick={handleSaveSchedule}
+                            disabled={saveSchedule.isPending}
+                            className="btn btn-outline"
+                            style={{ padding: '6px 12px', fontSize: 12 }}
+                        >
+                            {saveSchedule.isPending ? 'Saving…' : (schedule ? 'Update Schedule' : 'Create Schedule')}
+                        </button>
+                        <button
+                            onClick={() => handleRunNow(true)}
+                            disabled={!schedule || runScheduleNow.isPending}
+                            className="btn btn-outline"
+                            style={{ padding: '6px 12px', fontSize: 12 }}
+                            title="Dry-run preview without posting"
+                        >
+                            Simulate
+                        </button>
+                        <button
+                            onClick={() => handleRunNow(false)}
+                            disabled={!schedule || runScheduleNow.isPending}
+                            className="btn btn-primary"
+                            style={{ padding: '6px 14px', fontSize: 12 }}
+                            title="Fire the run immediately (bypasses next_run_date)"
+                        >
+                            Run Now
+                        </button>
+                    </div>
+                    {scheduleBanner && (
+                        <div style={{
+                            gridColumn: '1 / -1',
+                            padding: '6px 10px',
+                            fontSize: 12,
+                            background: scheduleBanner.startsWith('✓') ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+                            border: `1px solid ${scheduleBanner.startsWith('✓') ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)'}`,
+                            color: scheduleBanner.startsWith('✓') ? '#166534' : '#92400e',
+                            borderRadius: 6,
+                        }}>
+                            {scheduleBanner}
+                        </div>
+                    )}
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
                     <div style={{
                         display: 'flex', borderRadius: '8px', border: '1px solid var(--color-border)',

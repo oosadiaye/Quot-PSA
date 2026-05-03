@@ -185,6 +185,45 @@ class InterimPaymentCertificate(AuditBaseModel):
         related_name="ipcs",
         help_text="Source measurement book (three-way match control)",
     )
+    # ── Milestone link (origin of milestone-driven IPCs) ──────────────
+    # When non-null, this IPC was raised by converting an approved
+    # milestone via ``MilestoneScheduleViewSet.convert_to_ipc``. The
+    # link is one-to-one in practice but modelled FK so a future
+    # variation re-IPC can also reference the original milestone.
+    # ``unique=True`` prevents the same milestone being converted twice.
+    milestone = models.OneToOneField(
+        "contracts.MilestoneSchedule",
+        null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name="ipc",
+        help_text=(
+            "Source milestone for milestone-driven IPCs. "
+            "Each milestone yields at most one IPC."
+        ),
+    )
+
+    # ── Tax determination (parity with Invoice Verification) ──────────
+    # Auto-defaulted from the vendor master at submit time; the actual
+    # ``vat_amount`` / ``wht_amount`` are set at payment posting per
+    # the cash-basis recognition model (see invoice verification ─
+    # determination ≠ recognition). ``wht_exempt`` lets the operator
+    # override the vendor default for a one-off contract.
+    tax_code = models.ForeignKey(
+        "accounting.TaxCode",
+        null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="ipcs",
+        help_text="VAT / input-tax code applied to this IPC's gross.",
+    )
+    withholding_tax = models.ForeignKey(
+        "accounting.WithholdingTax",
+        null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="ipcs",
+        help_text="WHT code applied at payment time (Nigerian PFM cash-basis).",
+    )
+    wht_exempt = models.BooleanField(
+        default=False,
+        help_text="Override vendor's WHT default — exempts this IPC from WHT at payment.",
+    )
 
     # ── Posting date ───────────────────────────────────────────────────
     # Single effective-date stamp. Drives the fiscal-year boundary check

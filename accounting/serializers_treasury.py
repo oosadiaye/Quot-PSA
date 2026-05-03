@@ -15,6 +15,18 @@ class TreasuryAccountSerializer(serializers.ModelSerializer):
     parent_account_number = serializers.CharField(
         source='parent_account.account_number', read_only=True, default='',
     )
+    gl_cash_account_code = serializers.CharField(
+        source='gl_cash_account.code', read_only=True, default='',
+    )
+    gl_cash_account_name = serializers.CharField(
+        source='gl_cash_account.name', read_only=True, default='',
+    )
+    ncoa_cash_code_value = serializers.CharField(
+        source='ncoa_cash_code.code', read_only=True, default='',
+    )
+    ncoa_cash_code_name = serializers.CharField(
+        source='ncoa_cash_code.name', read_only=True, default='',
+    )
     sub_account_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -23,6 +35,8 @@ class TreasuryAccountSerializer(serializers.ModelSerializer):
             'id', 'account_number', 'account_name', 'bank', 'sort_code',
             'account_type', 'mda', 'mda_name', 'fund_segment', 'fund_name',
             'parent_account', 'parent_account_number',
+            'gl_cash_account', 'gl_cash_account_code', 'gl_cash_account_name',
+            'ncoa_cash_code', 'ncoa_cash_code_value', 'ncoa_cash_code_name',
             'is_active', 'current_balance', 'last_reconciled', 'description',
             'sub_account_count',
             'created_at', 'updated_at',
@@ -32,8 +46,59 @@ class TreasuryAccountSerializer(serializers.ModelSerializer):
     def get_sub_account_count(self, obj: TreasuryAccount) -> int:
         return obj.sub_accounts.count()
 
+    def validate_gl_cash_account(self, value):
+        """Enforce Asset-only and active GL accounts on the cash-side link."""
+        if value is None:
+            return value
+        if value.account_type != 'Asset':
+            raise serializers.ValidationError(
+                f"GL cash account must be of type 'Asset' — got '{value.account_type}'."
+            )
+        if not value.is_active:
+            raise serializers.ValidationError(
+                "GL cash account is inactive — activate it before assigning."
+            )
+        return value
+
 
 # ─── Payment Voucher ──────────────────────────────────────────────────
+
+
+class PaymentVoucherDeductionSerializer(serializers.ModelSerializer):
+    """Deduction / charge line on a PaymentVoucher.
+
+    Exposed as a nested writable serializer on the parent PV — clients
+    POST/PUT the full set of deductions with the PV body and the parent
+    serializer rebuilds the children in one transaction.
+    """
+    deduction_type_display = serializers.CharField(
+        source='get_deduction_type_display', read_only=True,
+    )
+    gl_account_code = serializers.CharField(source='gl_account.code', read_only=True)
+    gl_account_name = serializers.CharField(source='gl_account.name', read_only=True)
+    withholding_tax_code = serializers.CharField(
+        source='withholding_tax.code', read_only=True, allow_null=True,
+    )
+
+    class Meta:
+        from accounting.models.treasury import PaymentVoucherDeduction  # local to avoid circular
+        model = PaymentVoucherDeduction
+        fields = [
+            'id', 'deduction_type', 'deduction_type_display',
+            'description', 'withholding_tax', 'withholding_tax_code',
+            'rate', 'amount',
+            'gl_account', 'gl_account_code', 'gl_account_name',
+        ]
+        read_only_fields = [
+            'id', 'deduction_type_display',
+            'gl_account_code', 'gl_account_name', 'withholding_tax_code',
+        ]
+
+    def validate_amount(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError("Deduction amount must be greater than zero.")
+        return value
+
 
 class PaymentVoucherSerializer(serializers.ModelSerializer):
     ncoa_full_code = serializers.CharField(source='ncoa_code.full_code', read_only=True)
@@ -44,6 +109,8 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
         source='tsa_account.account_number', read_only=True,
     )
     has_instruction = serializers.SerializerMethodField()
+    deductions = PaymentVoucherDeductionSerializer(many=True, required=False)
+    total_deductions = serializers.SerializerMethodField()
 
     # Payee details are optional at PV creation time — the Treasury/Bank
     # processing workflow may capture them later (e.g., via vendor master
@@ -67,12 +134,110 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
             'source_document', 'invoice_number', 'invoice_date',
             'status', 'journal', 'notes',
             'has_instruction',
+            'deductions', 'total_deductions',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'voucher_number', 'net_amount',
+            'total_deductions',
             'created_at', 'updated_at', 'journal',
         ]
+
+    def get_total_deductions(self, obj: PaymentVoucherGov) -> str:
+        total = sum((d.amount for d in obj.deductions.all()), Decimal('0'))
+        return str(total)
+
+    def _sync_deductions(self, pv, deductions_data):
+        """Rebuild the deduction child rows from the payload.
+
+        Payment-time recognition: the caller sends the complete deduction
+        set on every save. We delete the previous rows and recreate them
+        inside the parent's transaction — simpler than diffing ids and
+        safer when a deduction is later corrected before payment.
+        """
+        from accounting.models.treasury import PaymentVoucherDeduction
+        if pv.status in ('PAID', 'REVERSED'):
+            raise serializers.ValidationError(
+                {'deductions': f"Cannot modify deductions on a {pv.status} voucher."}
+            )
+        PaymentVoucherDeduction.objects.filter(payment_voucher=pv).delete()
+        for d in (deductions_data or []):
+            # Nested serializer already validated amount/rate etc.
+            PaymentVoucherDeduction.objects.create(
+                payment_voucher=pv, **d,
+            )
+        # Force net_amount to refresh from the new set.
+        pv.save()
+
+    def create(self, validated_data):
+        deductions_data = validated_data.pop('deductions', None)
+        pv = super().create(validated_data)
+
+        # Auto-apply WHT from the linked invoice when:
+        #   • the operator referenced an invoice (invoice_number set), AND
+        #   • no explicit WHT deduction was sent in the payload.
+        # This mirrors Nigerian PFM cash-basis recognition: WHT is
+        # determined at invoice and *recognised* at payment. If the
+        # invoice is flagged exempt (vendor master OR per-transaction)
+        # the helper returns is_exempt=True and we skip the deduction.
+        derived_wht = None
+        if pv.invoice_number:
+            try:
+                from accounting.services.wht_payment_derivation import (
+                    derive_wht_for_invoice,
+                )
+                derived_wht = derive_wht_for_invoice(
+                    invoice_number=pv.invoice_number,
+                )
+            except Exception:
+                derived_wht = None  # never block PV creation on WHT lookup
+
+        # Decide whether to inject the auto-derived WHT.
+        # If the operator sent deductions but none of them is WHT, AND
+        # the invoice has a non-exempt WHT determination, append it so
+        # the deduction always lands on the PV. If the operator already
+        # sent a WHT deduction, respect their override.
+        if deductions_data is None:
+            deductions_data = []
+        already_has_wht = any(
+            (d.get('deduction_type') == 'WHT') for d in deductions_data
+        )
+        if (
+            derived_wht is not None
+            and not derived_wht.get('is_exempt', False)
+            and derived_wht.get('amount', 0) > 0
+            and not already_has_wht
+        ):
+            from accounting.models import WithholdingTax, Account
+            wht_obj = (
+                WithholdingTax.objects.filter(pk=derived_wht['withholding_tax']).first()
+                if derived_wht.get('withholding_tax') else None
+            )
+            gl_obj = (
+                Account.objects.filter(pk=derived_wht['gl_account']).first()
+                if derived_wht.get('gl_account') else None
+            )
+            if wht_obj and gl_obj:
+                deductions_data.append({
+                    'deduction_type': 'WHT',
+                    'description':    derived_wht.get('description', ''),
+                    'withholding_tax': wht_obj,
+                    'rate':            derived_wht.get('rate', 0),
+                    'amount':          derived_wht.get('amount', 0),
+                    'gl_account':      gl_obj,
+                })
+
+        # Always rebuild deduction rows from the (possibly augmented) set.
+        if deductions_data:
+            self._sync_deductions(pv, deductions_data)
+        return pv
+
+    def update(self, instance, validated_data):
+        deductions_data = validated_data.pop('deductions', None)
+        pv = super().update(instance, validated_data)
+        if deductions_data is not None:
+            self._sync_deductions(pv, deductions_data)
+        return pv
 
     def get_appropriation_ref(self, obj: PaymentVoucherGov) -> str:
         if obj.appropriation:
@@ -112,6 +277,12 @@ class PaymentVoucherCreateSerializer(PaymentVoucherSerializer):
         validated_data['voucher_number'] = TransactionSequence.get_next(
             'payment_voucher', prefix='PV-',
         )
+        # Pop deductions so BudgetValidationService doesn't choke on the
+        # nested payload — the parent serializer's create() will re-pop
+        # and sync them. We re-attach here to stay inside the same call.
+        deductions_holder = validated_data.pop('deductions', None)
+        if deductions_holder is not None:
+            validated_data['deductions'] = deductions_holder
         # Budget validation (if appropriation is set)
         if validated_data.get('appropriation'):
             from budget.services import BudgetValidationService, BudgetExceededError

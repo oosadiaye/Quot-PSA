@@ -41,7 +41,7 @@ if ALLOWED_HOSTS_CONFIG:
 elif DEBUG:
     # In development, allow all hosts so that django-tenants domain
     # rewriting (via TenantHeaderMiddleware) works correctly.
-    # Tenant domains like *.dtsg.test would otherwise be rejected.
+    # Tenant domains like *.quot-psa.test would otherwise be rejected.
     ALLOWED_HOSTS = ['*']
 else:
     raise ImproperlyConfigured(
@@ -188,6 +188,27 @@ DATABASE_ROUTERS = (
 TENANT_MODEL = 'tenants.Client'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'
 
+# ── Subdomain-based tenant routing ──────────────────────────────────
+# Each tenant lives at ``<tenant.slug>.<TENANT_SUBDOMAIN_BASE>`` —
+# e.g. ``oag-delta.erp.tryquot.com``. The base apex is configurable
+# per environment so dev / staging / prod can each point at their own
+# domain without any code change. ``TENANT_DEFAULT_SCHEME`` controls
+# whether redirects go to https (prod) or http (dev). The legacy
+# ``*.dtsg.test`` suffix is retained as a fallback via ``or 'dtsg.test'``
+# inside ``Client.subdomain`` so any tenant created before this rollout
+# still resolves.
+TENANT_SUBDOMAIN_BASE = os.environ.get('TENANT_SUBDOMAIN_BASE', 'erp.tryquot.com')
+TENANT_DEFAULT_SCHEME  = os.environ.get('TENANT_DEFAULT_SCHEME',  'https')
+
+# Apex / superadmin hostnames that are NOT tenant-specific. Hits to
+# these hostnames flow through the public schema. Anything else gets
+# treated as a tenant subdomain.
+TENANT_APEX_HOSTS = [
+    h.strip() for h in os.environ.get(
+        'TENANT_APEX_HOSTS', f'{TENANT_SUBDOMAIN_BASE},admin.{TENANT_SUBDOMAIN_BASE}',
+    ).split(',') if h.strip()
+]
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -273,6 +294,19 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000'
 ).split(',')
+# Regex auto-allow for tenant subdomains. With subdomain-based tenancy
+# every tenant lives at ``<slug>.<TENANT_SUBDOMAIN_BASE>``, so a regex
+# is the cleanest way to whitelist the entire tenant fleet without
+# having to enumerate every tenant in CORS_ALLOWED_ORIGINS. Apex +
+# admin host stay in the explicit list above so the regex is
+# additive, not a replacement.
+import re as _re
+_tenant_base_escaped = _re.escape(TENANT_SUBDOMAIN_BASE)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    rf'^https://[a-z0-9]([a-z0-9-]{{0,28}}[a-z0-9])?\.{_tenant_base_escaped}$',
+    # Plain http variant for dev / staging when TLS isn't terminated.
+    rf'^http://[a-z0-9]([a-z0-9-]{{0,28}}[a-z0-9])?\.{_tenant_base_escaped}$',
+]
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Allow all origins in development only
 # Credentials must be enabled in BOTH environments — token-authenticated axios
 # requests are treated as "credentialed" by browsers, and disabling this flag
@@ -452,6 +486,23 @@ AUTHENTICATION_BACKENDS = [
 # ACCOUNTING MODULE CONFIGURATION
 # =============================================================================
 
+# Stage at which the warrant ceiling enforcement binds:
+#
+#   'payment'  (default) — commitments (PO), obligations (invoice,
+#              contract) and journals post freely against released
+#              appropriations. Released-warrant ceiling is checked
+#              ONLY at payment posting. Cash cannot leave the
+#              consolidated account beyond released warrants.
+#   'invoice'  — legacy strict behaviour. Warrant ceiling re-checks
+#              at every commitment / obligation step (PO, invoice,
+#              contract, journal) AND at payment.
+#
+# IPSAS does not mandate a specific stage; this is a domestic PFM
+# control choice. Sub-national MDAs that release warrants monthly
+# against an annualised commitment ledger typically prefer
+# 'payment'. Central GIFMIS practice prefers 'invoice'.
+WARRANT_ENFORCEMENT_STAGE = 'payment'
+
 DEFAULT_GL_ACCOUNTS = {
     # ── Core Banking / Accounting ──────────────────────────────────────────────
     'CASH_ACCOUNT':               '10100000',   # Cash and Cash Equivalents
@@ -484,7 +535,15 @@ DEFAULT_GL_ACCOUNTS = {
     'PPV':                        '50501000',   # Purchase Price Variance (dedicated)
     # GOODS_RECEIPT_CLEARING: GR/IR clearing account for 3-way match P2P workflow.
     # DR Inventory / CR GR/IR at GRN time; DR GR/IR / CR AP at invoice match time.
-    'GOODS_RECEIPT_CLEARING':     '20601000',   # GR/IR Clearing Account
+    # GR/IR Clearing — moved from 20601000 to 41090000 to comply with the
+    # Nigeria CoA prefix rule enforced in AccountSerializer:
+    # 4xxxxxxx is the Liability series, while 2xxxxxxx is reserved for
+    # Expense. The legacy 2-series code violated that rule and
+    # blocked operators from manually creating / editing this account.
+    # Migration 0095 renames any existing 20601000 row to 41090000 so
+    # tenants provisioned before this change pick up the corrected
+    # code automatically.
+    'GOODS_RECEIPT_CLEARING':     '41090000',   # GR/IR Clearing Account (Liability)
 
     # ── Production Module ─────────────────────────────────────────────────────
     'RAW_MATERIALS':              '10301000',   # Inventory - Raw Materials
@@ -637,7 +696,7 @@ if REDIS_URL:
         'default': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',
             'LOCATION': REDIS_URL,
-            'KEY_PREFIX': 'dtsg',
+            'KEY_PREFIX': 'quot_psa',
             'TIMEOUT': 300,
             'OPTIONS': {
                 'socket_connect_timeout': 5,
@@ -648,13 +707,13 @@ if REDIS_URL:
         'tenant_cache': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',
             'LOCATION': REDIS_URL,
-            'KEY_PREFIX': 'dtsg_tenant',
+            'KEY_PREFIX': 'quot_psa_tenant',
             'TIMEOUT': 900,  # 15 min for domain/access lookups
         },
         'session_cache': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',
             'LOCATION': REDIS_URL,
-            'KEY_PREFIX': 'dtsg_session',
+            'KEY_PREFIX': 'quot_psa_session',
             'TIMEOUT': 86400,
         },
     }
@@ -667,12 +726,12 @@ else:
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'dtsg-erp-cache',
+            'LOCATION': 'quot-psa-cache',
             'TIMEOUT': 300,
         },
         'tenant_cache': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'dtsg-tenant-cache',
+            'LOCATION': 'quot-psa-tenant-cache',
             'TIMEOUT': 900,
         },
     }
@@ -691,6 +750,17 @@ CELERY_TASK_TIME_LIMIT = 600  # 10 min hard limit
 CELERY_TASK_SOFT_TIME_LIMIT = 540  # 9 min soft limit
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Fair scheduling for tenant tasks
 CELERY_TASK_ACKS_LATE = True  # Re-queue on worker crash
+
+# Fail fast on broker errors in dev. Without this, ``task.delay()`` retries
+# the broker connection for ~60–120s before raising, which blocks the HTTP
+# response even when we have a thread-based fallback. Production clusters
+# always have Redis up, so fail-fast is safe everywhere.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 0
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'socket_connect_timeout': 2,
+    'socket_timeout': 2,
+}
 
 # Celery Beat schedule for periodic tasks
 CELERY_BEAT_SCHEDULE = {
@@ -718,6 +788,23 @@ CELERY_BEAT_SCHEDULE = {
     'contracts-reconcile-balances': {
         'task': 'contracts.tasks.reconcile_contract_balances',
         'schedule': 86400,  # Daily
+    },
+    # HRM — Phase 7: scheduled reminders & digests
+    'hrm-verification-cycle-reminders': {
+        'task': 'hrm.send_verification_cycle_reminders',
+        'schedule': 86400,  # Daily
+    },
+    'hrm-nudge-pending-leave-approvals': {
+        'task': 'hrm.nudge_pending_leave_approvals',
+        'schedule': 86400,  # Daily
+    },
+    'hrm-retirement-lookahead-report': {
+        'task': 'hrm.retirement_lookahead_report',
+        'schedule': 604800,  # Weekly
+    },
+    'hrm-non-compliant-report': {
+        'task': 'hrm.non_compliant_report',
+        'schedule': 604800,  # Weekly
     },
 }
 

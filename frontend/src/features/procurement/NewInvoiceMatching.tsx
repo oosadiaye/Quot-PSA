@@ -25,12 +25,15 @@ import {
 import {
     usePurchaseOrders, useGRNs, usePurchaseOrder, useGRN,
     useDownPaymentForPO, useVerifyAndPost, useSimulateInvoice,
+    useInvoiceMatchings,
     type SimulationResult,
 } from './hooks/useProcurement';
 import { useMDAs } from '../accounting/hooks/useBudgetDimensions';
+import { useTaxCodes, useWithholdingTaxes } from '../accounting/hooks/useAccountingEnhancements';
 import { useDialog } from '../../hooks/useDialog';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
+import SearchableSelect from '../../components/SearchableSelect';
 import '../accounting/styles/glassmorphism.css';
 
 // ─── Style constants (kept inline to avoid a new file for one screen) ──────
@@ -795,8 +798,20 @@ export default function NewInvoiceMatching() {
         invoice_amount: '',
         invoice_tax_amount: '',
         invoice_subtotal: '',
+        tax_code: '',                // FK id — VAT / input-tax code
+        withholding_tax: '',         // FK id — WHT code (defaults from vendor master)
+        wht_exempt: false,           // transaction-level WHT exemption
+        wht_exempt_reason: '',
         notes: '',
     });
+
+    // Tax code dropdowns — VAT (purchase or both) + WHT (any active)
+    const { data: taxCodesData } = useTaxCodes({ is_active: true, direction: 'purchase' });
+    const { data: whtData } = useWithholdingTaxes({ is_active: true });
+    const taxCodes: Array<{ id: number; code: string; name: string; rate: number | string }> =
+        Array.isArray(taxCodesData) ? taxCodesData : (taxCodesData?.results ?? []);
+    const whtCodes: Array<{ id: number; code: string; name: string; rate: number | string }> =
+        Array.isArray(whtData) ? whtData : (whtData?.results ?? []);
     const [error, setError] = useState('');
     const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
     const [posted, setPosted] = useState<{ journalReference?: string; vendorInvoiceNumber?: string } | null>(null);
@@ -837,6 +852,62 @@ export default function NewInvoiceMatching() {
     });
     const grns = Array.isArray(grnsData) ? grnsData : (grnsData?.results ?? []);
 
+    // ── Posted-GRN gating ────────────────────────────────────────────
+    // Invoice verification only makes sense for goods that have
+    // ACTUALLY been received — i.e. POs with at least one Posted
+    // GRN. Draft GRNs represent pending paperwork; their goods
+    // haven't been physically received yet and posting an invoice
+    // against them would create a liability for goods that may
+    // never arrive. So:
+    //   1. The PO selector hides POs whose ONLY GRNs are Draft /
+    //      Cancelled.
+    //   2. The GRN selector below shows only Posted GRNs for the
+    //      chosen PO — even if the PO has Draft GRNs, those are
+    //      not selectable here.
+    // Computed as a Set of stringified PO ids for O(1) lookup
+    // when we filter the (potentially large) PO list.
+    const postedGrnPoIds = useMemo(() => {
+        const ids = new Set<string>();
+        for (const g of grns as any[]) {
+            if (g?.status === 'Posted' && g?.purchase_order != null) {
+                ids.add(String(g.purchase_order));
+            }
+        }
+        return ids;
+    }, [grns]);
+
+    // ── Already-posted-invoice gating ────────────────────────────────
+    // Once an Invoice Verification has been posted to the GL for a PO,
+    // posting another verification against the same PO would double the
+    // AP credit, double the GR/IR clearing and double-consume the
+    // appropriation. So we hide POs that already have a non-reversed
+    // Posted invoice matching from the source list. The only way to
+    // raise a fresh verification on such a PO is to first Reverse the
+    // existing one (which flips the journal's ``is_reversed`` flag and
+    // returns the PO to the eligible pool).
+    //
+    // The matching list endpoint surfaces ``vendor_invoice_status`` per
+    // matching; we treat any matching whose VI is Posted as "blocking"
+    // unless the matching itself has been moved out of the active set.
+    const { data: matchingsData } = useInvoiceMatchings({ page_size: 500 });
+    const matchings = Array.isArray(matchingsData)
+        ? matchingsData
+        : (matchingsData?.results ?? []);
+    const postedInvoicePoIds = useMemo(() => {
+        const ids = new Set<string>();
+        for (const m of matchings as any[]) {
+            const isPosted = (
+                m?.vendor_invoice_status === 'Posted'
+                || !!m?.journal_entry_id
+                || !!m?.journal_reference
+            );
+            if (isPosted && m?.purchase_order != null) {
+                ids.add(String(m.purchase_order));
+            }
+        }
+        return ids;
+    }, [matchings]);
+
     const selectedPoId  = form.purchase_order ? parseInt(form.purchase_order) : null;
     const selectedGrnId = form.goods_received_note ? parseInt(form.goods_received_note) : null;
 
@@ -862,9 +933,17 @@ export default function NewInvoiceMatching() {
         : null;
 
     // ── Filter GRNs to those linked to the selected PO ──────────────
+    // Only Posted GRNs are eligible for invoice verification (Draft /
+    // Received / Cancelled GRNs represent goods not yet booked into
+    // the GL via post_grn). Without this guard the operator could
+    // pick a Draft GRN and post an invoice that has no matching
+    // inventory increase — a 3-way-match contract violation.
     const filteredGrns = selectedPoId
-        ? grns.filter((g: any) => String(g.purchase_order) === String(selectedPoId))
-        : grns;
+        ? grns.filter((g: any) =>
+            String(g.purchase_order) === String(selectedPoId)
+            && g?.status === 'Posted',
+          )
+        : grns.filter((g: any) => g?.status === 'Posted');
 
     // ── Per-line PO/GRN comparison table ────────────────────────────
     const comparisonLines = useMemo(() => {
@@ -895,14 +974,41 @@ export default function NewInvoiceMatching() {
         const poSubtotal = parseFloat(poDetail.subtotal     ?? 0) || 0;
         const poTax      = parseFloat(poDetail.tax_amount   ?? 0) || 0;
         if (poTotal <= 0) return;
+        // Vendor-master defaults (SAP BP parity): prefill WHT from the
+        // vendor's default code; if the vendor is permanently exempt, leave
+        // WHT blank and flag the transaction exempt too so the user sees why.
+        const vendorWht = poDetail.vendor_wht_code
+            ? String(poDetail.vendor_wht_code)
+            : '';
+        const vendorExempt = !!poDetail.vendor_wht_exempt;
+        // Auto-pick tax_code: when the PO carries a non-zero tax amount,
+        // infer the implied rate (tax/subtotal × 100) and find the active
+        // TaxCode whose rate matches within 0.1%. SAP MIRO behaviour —
+        // user shouldn't have to re-pick what's already implied by the
+        // PO. Falls through to no-op when amounts don't match any code.
+        let inferredTaxCode = '';
+        const poImpliedSub = poSubtotal || (poTotal - poTax);
+        if (poTax > 0 && poImpliedSub > 0 && taxCodes.length > 0) {
+            const impliedRate = (poTax / poImpliedSub) * 100;
+            const match = taxCodes.find((t) => {
+                const r = parseFloat(String(t.rate)) || 0;
+                return Math.abs(r - impliedRate) < 0.1;
+            });
+            if (match) inferredTaxCode = String(match.id);
+        }
         setForm(prev => ({
             ...prev,
             invoice_amount:     prev.invoice_amount    || String(poTotal),
-            invoice_subtotal:   prev.invoice_subtotal  || String(poSubtotal || (poTotal - poTax)),
+            invoice_subtotal:   prev.invoice_subtotal  || String(poImpliedSub),
             invoice_tax_amount: prev.invoice_tax_amount || String(poTax),
             invoice_date:       prev.invoice_date      || new Date().toISOString().split('T')[0],
+            tax_code:           prev.tax_code          || inferredTaxCode,
+            withholding_tax:    prev.withholding_tax   || (vendorExempt ? '' : vendorWht),
+            wht_exempt:         prev.wht_exempt || vendorExempt,
+            wht_exempt_reason:  prev.wht_exempt_reason
+                || (vendorExempt ? 'Vendor is permanently exempt from WHT (master data)' : ''),
         }));
-    }, [poDetail]);
+    }, [poDetail, taxCodes]);
 
     // When PO changes: reset GRN + clear amount fields so the prefill effect repopulates.
     const handlePoChange = (val: string) => {
@@ -916,11 +1022,50 @@ export default function NewInvoiceMatching() {
             invoice_amount: '',
             invoice_subtotal: '',
             invoice_tax_amount: '',
+            tax_code: '',
+            withholding_tax: '',
+            wht_exempt: false,
+            wht_exempt_reason: '',
         }));
         // Reset the gates so a new PO starts clean.
         setAcknowledgePartial(false);
         setVarianceReason('');
     };
+
+    // ── Tax-code driven auto-calculation ────────────────────────────
+    // When the user picks a VAT code, we compute tax = subtotal × rate
+    // and sync the invoice total. WHT is previewed for the right-rail
+    // but never modifies the invoice total — WHT is a payment-time
+    // deduction, not a line on the vendor's invoice.
+    const selectedTaxCode = useMemo(
+        () => taxCodes.find(t => String(t.id) === form.tax_code) ?? null,
+        [taxCodes, form.tax_code],
+    );
+    const selectedWht = useMemo(
+        () => whtCodes.find(w => String(w.id) === form.withholding_tax) ?? null,
+        [whtCodes, form.withholding_tax],
+    );
+    useEffect(() => {
+        if (!selectedTaxCode) return;
+        const sub = parseFloat(form.invoice_subtotal || '0');
+        if (!sub || sub <= 0) return;
+        const rate = parseFloat(String(selectedTaxCode.rate || '0'));
+        const tax = +(sub * rate / 100).toFixed(2);
+        const total = +(sub + tax).toFixed(2);
+        setForm(prev => ({
+            ...prev,
+            invoice_tax_amount: String(tax),
+            invoice_amount: String(total),
+        }));
+    }, [selectedTaxCode, form.invoice_subtotal]);
+
+    const whtPreview = useMemo(() => {
+        if (form.wht_exempt) return 0;
+        if (!selectedWht) return 0;
+        const sub = parseFloat(form.invoice_subtotal || '0');
+        if (!sub) return 0;
+        return +(sub * parseFloat(String(selectedWht.rate || '0')) / 100).toFixed(2);
+    }, [selectedWht, form.invoice_subtotal, form.wht_exempt]);
 
     // ── Live amounts for the right-rail summary ─────────────────────
     const poTotal = poDetail ? parseFloat(poDetail.total_amount || 0) : null;
@@ -932,6 +1077,21 @@ export default function NewInvoiceMatching() {
         }, 0)
         : null;
     const invoiceAmt = form.invoice_amount ? parseFloat(form.invoice_amount) : null;
+
+    // ── GRN-vs-Invoice variance must compare on a like-for-like basis.
+    // GRN value is computed as qty_received × unit_price (no VAT —
+    // the warehouse never books tax), so a gross invoice with VAT
+    // ALWAYS shows a variance equal to the tax rate when compared
+    // against the GRN. To make the variance gate meaningful we strip
+    // the VAT from the invoice side: when ``invoice_tax_amount > 0``,
+    // use ``invoice_subtotal`` instead of the gross ``invoice_amount``.
+    // The PO-side comparison still uses gross-vs-gross (PO contracts
+    // include VAT) so the existing ``Inv vs PO`` pill is correct.
+    const invoiceTaxNum   = form.invoice_tax_amount ? parseFloat(form.invoice_tax_amount) : 0;
+    const invoiceSubNum   = form.invoice_subtotal   ? parseFloat(form.invoice_subtotal)   : 0;
+    const invoiceForGrnCompare = (invoiceTaxNum > 0 && invoiceSubNum > 0)
+        ? invoiceSubNum
+        : invoiceAmt;
 
     // ── Detect partial receipt for the modal gate ───────────────────
     const isPartiallyReceived = useMemo(() => {
@@ -948,6 +1108,12 @@ export default function NewInvoiceMatching() {
         invoice_amount: parseFloat(form.invoice_amount),
         invoice_subtotal: form.invoice_subtotal ? parseFloat(form.invoice_subtotal) : undefined,
         invoice_tax_amount: form.invoice_tax_amount ? parseFloat(form.invoice_tax_amount) : undefined,
+        tax_code: form.tax_code ? parseInt(form.tax_code) : null,
+        withholding_tax: form.wht_exempt
+            ? null
+            : (form.withholding_tax ? parseInt(form.withholding_tax) : null),
+        wht_exempt: form.wht_exempt,
+        wht_exempt_reason: form.wht_exempt ? form.wht_exempt_reason.trim() : '',
         notes: form.notes.trim() || undefined,
         acknowledge_partial: overrides?.acknowledge_partial ?? acknowledgePartial,
         variance_reason: overrides?.variance_reason ?? varianceReason,
@@ -1036,6 +1202,17 @@ export default function NewInvoiceMatching() {
                 invoice_amount: parseFloat(form.invoice_amount),
                 invoice_subtotal: form.invoice_subtotal ? parseFloat(form.invoice_subtotal) : undefined,
                 invoice_tax_amount: form.invoice_tax_amount ? parseFloat(form.invoice_tax_amount) : undefined,
+                // Tax + WHT codes are required for the backend to look
+                // up the correct Input VAT and WHT GL accounts via FK
+                // (TaxCode.input_tax_account / WithholdingTax.withholding_account)
+                // instead of the legacy "first Liability with 'Tax' in
+                // its name" heuristic that mis-resolved to the
+                // Withholding Tax account on tenants whose NCoA names
+                // every tax-related liability "UNREMITTED TAXES: ...".
+                tax_code: form.tax_code ? parseInt(form.tax_code) : undefined,
+                withholding_tax: (form.withholding_tax && !form.wht_exempt)
+                    ? parseInt(form.withholding_tax)
+                    : undefined,
             },
             {
                 onSuccess: (data) => setSimulation(data),
@@ -1084,8 +1261,12 @@ export default function NewInvoiceMatching() {
                             SAP MIRO-style: pick the PO, enter the invoice, post in one click.
                         </p>
                     </div>
-                    {/* Live match badge — updates as user types */}
-                    <LiveMatchBadge poTotal={poTotal} grnTotal={grnTotal} invoiceAmt={invoiceAmt} />
+                    {/* Live match badge — updates as user types.
+                        Pass ``invoiceForGrnCompare`` (subtotal when tax is
+                        present, else gross) as the variance numerator so
+                        VAT-on-top doesn't fire a false 7.5% variance
+                        against the ex-VAT GRN total. */}
+                    <LiveMatchBadge poTotal={poTotal} grnTotal={grnTotal} invoiceAmt={invoiceForGrnCompare} />
                 </div>
 
                 {/* Errors / toasts / posted-success */}
@@ -1168,16 +1349,42 @@ export default function NewInvoiceMatching() {
                                     <p style={sectionTitle}><ClipboardList size={15} /> Source Documents</p>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                                         <div>
+                                            {/* PO selector — type-to-search via SearchableSelect.
+                                                Native <select> required scrolling the entire PO
+                                                list; SearchableSelect lets the operator type the
+                                                PO number (e.g. "PO-2026-00003") or vendor name
+                                                and pick from a filtered list. ``label`` is the
+                                                human match-text; ``sublabel`` shows status so
+                                                Draft / Pending / Approved / Posted POs can be
+                                                distinguished without opening each one. */}
                                             <label style={lbl}>Purchase Order <span style={{ color: '#ef4444' }}>*</span></label>
-                                            <select style={inp} value={form.purchase_order}
-                                                onChange={e => handlePoChange(e.target.value)}>
-                                                <option value="">— Select PO —</option>
-                                                {pos.map((po: any) => (
-                                                    <option key={po.id} value={po.id}>
-                                                        {po.po_number} — {po.vendor_name || po.vendor}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            {/* Only POs that have at least one Posted GRN are
+                                                shown — Draft / Cancelled GRNs don't qualify, so a
+                                                PO whose only receipts are unposted is correctly
+                                                hidden. The Set-based ``postedGrnPoIds`` lookup
+                                                keeps this O(P) regardless of how many GRNs
+                                                exist in the tenant. */}
+                                            <SearchableSelect
+                                                options={pos
+                                                    .filter((po: any) =>
+                                                        postedGrnPoIds.has(String(po.id))
+                                                        // Hide POs that already have a Posted
+                                                        // Invoice Verification — Reverse the
+                                                        // existing one first to re-enable.
+                                                        && !postedInvoicePoIds.has(String(po.id))
+                                                    )
+                                                    .map((po: any) => ({
+                                                        value: String(po.id),
+                                                        label: `${po.po_number} — ${po.vendor_name || po.vendor}`,
+                                                        sublabel: po.status ? `Status: ${po.status}` : undefined,
+                                                    }))}
+                                                value={form.purchase_order ? String(form.purchase_order) : ''}
+                                                onChange={(v: string) => handlePoChange(v)}
+                                                placeholder={postedGrnPoIds.size === 0
+                                                    ? 'No POs with Posted GRNs available — receive goods first'
+                                                    : 'Type PO number or vendor name...'}
+                                                required
+                                            />
                                         </div>
                                         <div>
                                             <label style={{ ...lbl, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1263,12 +1470,98 @@ export default function NewInvoiceMatching() {
                                                     onChange={e => set('invoice_subtotal', e.target.value)} />
                                             </div>
                                             <div>
-                                                <label style={lbl}>Tax Amount</label>
+                                                <label style={lbl}>Tax Amount {selectedTaxCode && <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0 }}>(auto)</span>}</label>
                                                 <input type="number" style={inp} placeholder="0.00"
                                                     min="0" step="0.01" value={form.invoice_tax_amount}
+                                                    disabled={!!selectedTaxCode}
                                                     onChange={e => set('invoice_tax_amount', e.target.value)} />
                                             </div>
                                         </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                            <div>
+                                                <label style={lbl}>VAT / Tax Code</label>
+                                                <select style={inp} value={form.tax_code}
+                                                    onChange={e => set('tax_code', e.target.value)}>
+                                                    <option value="">— none —</option>
+                                                    {taxCodes.map(tc => (
+                                                        <option key={tc.id} value={tc.id}>
+                                                            {tc.code} · {tc.name} ({tc.rate}%)
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label style={lbl}>
+                                                    Withholding Tax
+                                                    {poDetail?.vendor_wht_code && !form.wht_exempt && (
+                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0, marginLeft: '0.3rem' }}>
+                                                            (vendor default)
+                                                        </span>
+                                                    )}
+                                                </label>
+                                                <select style={{ ...inp, opacity: form.wht_exempt ? 0.5 : 1 }}
+                                                    value={form.withholding_tax}
+                                                    disabled={form.wht_exempt}
+                                                    onChange={e => set('withholding_tax', e.target.value)}>
+                                                    <option value="">— none —</option>
+                                                    {whtCodes.map(w => (
+                                                        <option key={w.id} value={w.id}>
+                                                            {w.code} · {w.name} ({w.rate}%)
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {/* WHT exemption control — mirrors SAP BP transaction exemption */}
+                                        {(form.withholding_tax || form.wht_exempt || poDetail?.vendor_wht_exempt) && (
+                                            <div style={{
+                                                padding: '0.6rem 0.75rem',
+                                                borderRadius: '6px',
+                                                background: form.wht_exempt ? 'rgba(100,116,139,0.08)' : 'rgba(234,179,8,0.06)',
+                                                border: `1px solid ${form.wht_exempt ? 'rgba(100,116,139,0.3)' : 'rgba(234,179,8,0.3)'}`,
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '0.4rem',
+                                            }}>
+                                                <label style={{
+                                                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                                    fontSize: '0.72rem', fontWeight: 600,
+                                                    color: 'var(--color-text)', cursor: 'pointer',
+                                                }}>
+                                                    <input type="checkbox"
+                                                        checked={form.wht_exempt}
+                                                        onChange={e => setForm(prev => ({
+                                                            ...prev,
+                                                            wht_exempt: e.target.checked,
+                                                            wht_exempt_reason: e.target.checked ? prev.wht_exempt_reason : '',
+                                                        }))}
+                                                    />
+                                                    Exempt this transaction from Withholding Tax
+                                                    {poDetail?.vendor_wht_exempt && (
+                                                        <span style={{ fontWeight: 500, color: '#64748b', textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: '0.05em' }}>
+                                                            (vendor is exempt)
+                                                        </span>
+                                                    )}
+                                                </label>
+                                                {form.wht_exempt && (
+                                                    <input type="text" style={{ ...inp, fontSize: '0.7rem' }}
+                                                        placeholder="Reason for WHT exemption (audit trail)"
+                                                        value={form.wht_exempt_reason}
+                                                        onChange={e => set('wht_exempt_reason', e.target.value)} />
+                                                )}
+                                                {!form.wht_exempt && selectedWht && whtPreview > 0 && (
+                                                    <div style={{
+                                                        display: 'flex', justifyContent: 'space-between',
+                                                        fontSize: '0.7rem', color: 'var(--color-text-muted)',
+                                                    }}>
+                                                        <span>WHT to be withheld at payment ({selectedWht.rate}%):</span>
+                                                        <strong style={{ color: '#ca8a04' }}>
+                                                            {formatCurrency(whtPreview)}
+                                                        </strong>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                         <div>
                                             <label style={lbl}>Invoice Total <span style={{ color: '#ef4444' }}>*</span></label>
                                             <input type="number" style={{ ...inp, fontWeight: 600, fontSize: 'var(--text-base)' }}
@@ -1462,12 +1755,14 @@ export default function NewInvoiceMatching() {
                                                         {grnTotal !== null && (
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                                                                 <span>Inv vs GRN:</span>
-                                                                <VariancePill base={grnTotal} actual={invoiceAmt} />
+                                                                {/* Subtotal-vs-GRN — both ex-VAT */}
+                                                                <VariancePill base={grnTotal} actual={invoiceForGrnCompare} />
                                                             </div>
                                                         )}
                                                         {poTotal !== null && (
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                                                                 <span>Inv vs PO:</span>
+                                                                {/* Gross-vs-gross — PO contracts include VAT */}
                                                                 <VariancePill base={poTotal} actual={invoiceAmt} />
                                                             </div>
                                                         )}

@@ -7,14 +7,18 @@
  * - Linking (MDA segment, fund segment, parent account)
  * - Settings (active status, description)
  */
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Save, AlertCircle, Landmark } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
+import SearchableSelect from '../../components/SearchableSelect';
+import apiClient from '../../api/client';
 import '../../features/accounting/styles/glassmorphism.css';
 import {
-    useCreateTSAAccount, useNCoASegments, useTSAAccounts,
+    useCreateTSAAccount, useUpdateTSAAccount, useTSAAccount,
+    useNCoASegments, useTSAAccounts,
 } from '../../hooks/useGovForms';
 
 const selectStyle: React.CSSProperties = {
@@ -44,17 +48,79 @@ const ACCOUNT_TYPES = [
 
 export default function TSAAccountForm() {
     const navigate = useNavigate();
+    // Same component serves both routes:
+    //   /accounting/tsa-accounts/new           → ``id`` is undefined  → create mode
+    //   /accounting/tsa-accounts/:id/edit      → ``id`` is set       → edit mode
+    const { id } = useParams<{ id: string }>();
+    const isEditing = Boolean(id);
+
     const createTSA = useCreateTSAAccount();
+    const updateTSA = useUpdateTSAAccount();
+    const { data: existingTSA, isLoading: existingLoading } = useTSAAccount(id);
     const { data: segments, isLoading: segsLoading } = useNCoASegments();
     const { data: tsaAccounts } = useTSAAccounts();
+
+    // GL Asset accounts for the cash-control link (IPSAS requirement).
+    // page_size=10000 covers the full asset Chart of Accounts; bumped from
+    // 500 because real Nigerian COA can exceed that (asset family alone
+    // can hit 200-300 codes after NCoA expansion).
+    const { data: glAssetAccounts = [], isLoading: glLoading } = useQuery<any[]>({
+        queryKey: ['gl-asset-accounts'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/accounts/', {
+                params: { account_type: 'Asset', is_active: true, page_size: 10000, ordering: 'code' },
+            });
+            return Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+        },
+    });
+
+    // NCoA Economic Segments for optional economic classification.
+    // Source switched from the empty composite NCoACode store to the
+    // populated EconomicSegment taxonomy (1,147 rows in this tenant) —
+    // matches the FK retarget in accounting/models/treasury.py. URL
+    // also corrected: previous /accounting/ncoa-codes/ was a typo (404)
+    // for the registered /accounting/ncoa/economic/ endpoint.
+    const { data: ncoaCodes = [], isLoading: ncoaLoading } = useQuery<any[]>({
+        queryKey: ['ncoa-economic-segments'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/ncoa/economic/', {
+                params: { is_active: true, page_size: 10000, ordering: 'code' },
+            });
+            return Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+        },
+    });
 
     const [formError, setFormError] = useState('');
     const [form, setForm] = useState({
         account_number: '', account_name: '', bank: '', sort_code: '',
         account_type: 'SUB_ACCOUNT',
         mda: '', fund_segment: '', parent_account: '',
+        gl_cash_account: '', ncoa_cash_code: '',
         is_active: true, description: '',
     });
+
+    // Hydrate the form once the existing TSA loads in edit mode.
+    // Coerce every FK to its id-as-string because the form fields are all
+    // <input> / <select> / SearchableSelect — they expect string values
+    // and the serializer returns numeric ids. Without ``String(...)`` the
+    // SearchableSelect fails to match and the dropdown reads as empty.
+    useEffect(() => {
+        if (!isEditing || !existingTSA) return;
+        setForm({
+            account_number: existingTSA.account_number ?? '',
+            account_name: existingTSA.account_name ?? '',
+            bank: existingTSA.bank ?? '',
+            sort_code: existingTSA.sort_code ?? '',
+            account_type: existingTSA.account_type ?? 'SUB_ACCOUNT',
+            mda: existingTSA.mda != null ? String(existingTSA.mda) : '',
+            fund_segment: existingTSA.fund_segment != null ? String(existingTSA.fund_segment) : '',
+            parent_account: existingTSA.parent_account != null ? String(existingTSA.parent_account) : '',
+            gl_cash_account: existingTSA.gl_cash_account != null ? String(existingTSA.gl_cash_account) : '',
+            ncoa_cash_code: existingTSA.ncoa_cash_code != null ? String(existingTSA.ncoa_cash_code) : '',
+            is_active: existingTSA.is_active ?? true,
+            description: existingTSA.description ?? '',
+        });
+    }, [isEditing, existingTSA]);
 
     const set = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
@@ -71,12 +137,18 @@ export default function TSAAccountForm() {
             mda: form.mda ? parseInt(form.mda) : null,
             fund_segment: form.fund_segment ? parseInt(form.fund_segment) : null,
             parent_account: form.parent_account ? parseInt(form.parent_account) : null,
+            gl_cash_account: form.gl_cash_account ? parseInt(form.gl_cash_account) : null,
+            ncoa_cash_code: form.ncoa_cash_code ? parseInt(form.ncoa_cash_code) : null,
             is_active: form.is_active,
             description: form.description,
         };
 
         try {
-            await createTSA.mutateAsync(payload);
+            if (isEditing && id) {
+                await updateTSA.mutateAsync({ id, payload });
+            } else {
+                await createTSA.mutateAsync(payload);
+            }
             navigate('/accounting/tsa-accounts');
         } catch (err: any) {
             const d = err.response?.data;
@@ -87,7 +159,7 @@ export default function TSAAccountForm() {
                 );
                 setFormError(msgs.join(' | '));
             } else {
-                setFormError(err.message || 'Failed to create TSA Account');
+                setFormError(err.message || (isEditing ? 'Failed to update TSA Account' : 'Failed to create TSA Account'));
             }
         }
     };
@@ -97,7 +169,18 @@ export default function TSAAccountForm() {
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <div style={{ maxWidth: '900px' }}>
-                    <PageHeader title="New TSA Account" subtitle="Create a Treasury Single Account entry" icon={<Landmark size={22} />} />
+                    <PageHeader
+                        title={isEditing ? 'Edit TSA Account' : 'New TSA Account'}
+                        subtitle={isEditing
+                            ? `Update Treasury Single Account ${existingTSA?.account_number ?? ''}`.trim()
+                            : 'Create a Treasury Single Account entry'}
+                        icon={<Landmark size={22} />}
+                    />
+                    {isEditing && existingLoading && (
+                        <div style={{ padding: '1rem', color: '#64748b', fontSize: 'var(--text-sm)' }}>
+                            Loading existing TSA account…
+                        </div>
+                    )}
 
                     {formError && (
                         <div style={{
@@ -145,11 +228,16 @@ export default function TSAAccountForm() {
                             {segsLoading ? <div style={{ color: '#94a3b8' }}>Loading segments...</div> : (
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                     <div>
-                                        <label style={lblStyle}>MDA (Administrative Segment)</label>
+                                        <label style={lblStyle}>Owning MDA (if MDA-held bank account)</label>
                                         <select style={selectStyle} value={form.mda} onChange={e => set('mda', e.target.value)}>
-                                            <option value="">None</option>
+                                            <option value="">None — central TSA / consolidated</option>
                                             {segments?.administrative?.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
                                         </select>
+                                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
+                                            Select the ministry/department/agency that owns this bank account.
+                                            Required for sub-accounts, zero-balance accounts, and any MDA-held
+                                            operational account so postings flow to the correct administrative segment.
+                                        </p>
                                     </div>
                                     <div>
                                         <label style={lblStyle}>Fund Segment</label>
@@ -164,6 +252,48 @@ export default function TSAAccountForm() {
                                             <option value="">None (top-level)</option>
                                             {(tsaAccounts || []).map((a: any) => <option key={a.id} value={a.id}>{a.account_number} - {a.account_name}</option>)}
                                         </select>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* GL Mapping — IPSAS compliance */}
+                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
+                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.25rem 0' }}>
+                                GL Mapping <span style={{ color: '#94a3b8', fontWeight: 400 }}>(IPSAS cash flow)</span>
+                            </h3>
+                            <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0 0 1rem 0' }}>
+                                Link this TSA to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
+                            </p>
+                            {(glLoading || ncoaLoading) ? (
+                                <div style={{ color: '#94a3b8' }}>Loading GL accounts…</div>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <div>
+                                        <label style={lblStyle}>GL Cash Account (Asset) *</label>
+                                        <SearchableSelect
+                                            options={glAssetAccounts.map((a: any) => ({
+                                                value: String(a.id),
+                                                label: `${a.code} — ${a.name}`,
+                                                sublabel: a.code,
+                                            }))}
+                                            value={form.gl_cash_account}
+                                            onChange={(v) => set('gl_cash_account', v)}
+                                            placeholder="Search GL code or name…"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={lblStyle}>NCoA Economic Code (optional)</label>
+                                        <SearchableSelect
+                                            options={ncoaCodes.map((c: any) => ({
+                                                value: String(c.id),
+                                                label: `${c.code} — ${c.name}`,
+                                                sublabel: c.code,
+                                            }))}
+                                            value={form.ncoa_cash_code}
+                                            onChange={(v) => set('ncoa_cash_code', v)}
+                                            placeholder="Search Economic Segment code or name…"
+                                        />
                                     </div>
                                 </div>
                             )}
@@ -198,15 +328,17 @@ export default function TSAAccountForm() {
                             }}>
                                 Cancel
                             </button>
-                            <button type="submit" disabled={createTSA.isPending} style={{
+                            <button type="submit" disabled={createTSA.isPending || updateTSA.isPending} style={{
                                 padding: '12px 24px', borderRadius: '8px', border: 'none',
                                 background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)', color: '#fff', fontSize: '14px', fontWeight: 600,
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                                opacity: createTSA.isPending ? 0.7 : 1,
+                                opacity: (createTSA.isPending || updateTSA.isPending) ? 0.7 : 1,
                                 boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
                             }}>
                                 <Save size={16} />
-                                {createTSA.isPending ? 'Creating...' : 'Create TSA Account'}
+                                {isEditing
+                                    ? (updateTSA.isPending ? 'Saving…' : 'Save Changes')
+                                    : (createTSA.isPending ? 'Creating…' : 'Create TSA Account')}
                             </button>
                         </div>
                     </form>

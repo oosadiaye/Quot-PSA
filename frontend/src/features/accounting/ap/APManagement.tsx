@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Receipt, Filter, CheckCircle, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle } from 'lucide-react';
+import { Receipt, Filter, CheckCircle, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit } from 'lucide-react';
 import apiClient from '../../../api/client';
 import { useVendorInvoices, useApproveVendorInvoice, useCreateVendorInvoice } from '../hooks/useAccountingEnhancements';
 import { useJournal, useSimulatedInvoiceJournal } from '../hooks/useJournal';
@@ -22,6 +22,9 @@ export default function APManagement() {
     const { formatCurrency } = useCurrency();
     const [statusFilter, setStatusFilter] = useState('');
     const [showForm, setShowForm] = useState(false);
+    // When set, the form opens in EDIT mode for this Draft invoice's id.
+    // null = create mode. Closing/saving the form clears both.
+    const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
 
     const [actionsOpen, setActionsOpen] = useState(false);
     const actionsRef = useRef<HTMLDivElement>(null);
@@ -159,8 +162,9 @@ export default function APManagement() {
         return (
             <AccountingLayout>
                 <VendorInvoiceForm
-                    onCancel={() => setShowForm(false)}
-                    onSuccess={() => setShowForm(false)}
+                    editingInvoiceId={editingInvoiceId}
+                    onCancel={() => { setShowForm(false); setEditingInvoiceId(null); }}
+                    onSuccess={() => { setShowForm(false); setEditingInvoiceId(null); }}
                 />
             </AccountingLayout>
         );
@@ -414,6 +418,23 @@ export default function APManagement() {
                                                         </>
                                                     );
                                                 })()}
+                                                {/* Edit — Draft only. Project rule: non-Draft documents
+                                                    are immutable; user must reverse them via Credit Memo. */}
+                                                {invoice.status === 'Draft' && (
+                                                    <button
+                                                        onClick={() => { setEditingInvoiceId(invoice.id); setShowForm(true); }}
+                                                        style={{
+                                                            padding: '0.375rem 0.75rem', borderRadius: '6px',
+                                                            background: 'transparent', color: 'var(--color-text-muted)',
+                                                            border: '1px solid var(--color-border)',
+                                                            cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600,
+                                                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                                        }}
+                                                        title="Edit this draft invoice (lines, vendor, amounts, dimensions)"
+                                                    >
+                                                        <Edit size={14} /> Edit
+                                                    </button>
+                                                )}
                                                 {/* View — always available, opens detail modal with
                                                     invoice lines + linked journal DR/CR breakdown */}
                                                 <button
@@ -575,7 +596,16 @@ function InvoiceViewModal({ invoice, onClose, formatCurrency }: InvoiceViewModal
                     <DetailRow icon={<Calendar size={12} />} label="Invoice Date" value={invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString() : '—'} />
                     <DetailRow icon={<Calendar size={12} />} label="Due Date" value={invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : '—'} />
                     <DetailRow label="MDA" value={invoice.mda_name || (invoice.mda ? `#${invoice.mda}` : '—')} />
-                    <DetailRow label="Account" value={invoice.account_name || (invoice.account ? `#${invoice.account}` : '—')} />
+                    <DetailRow
+                        label="Account"
+                        value={
+                            invoice.account_code && invoice.account_name
+                                ? `${invoice.account_code} — ${invoice.account_name}`
+                                : invoice.account_name
+                                    || invoice.account_code
+                                    || (invoice.account ? `#${invoice.account}` : '—')
+                        }
+                    />
                     <DetailRow label="Fund" value={invoice.fund_name || (invoice.fund ? `#${invoice.fund}` : '—')} />
                 </div>
 

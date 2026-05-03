@@ -947,7 +947,46 @@ class Appropriation(AuditBaseModel):
             status='PAID', source_document='',
         ).aggregate(total=Sum('net_amount'))['total'] or Decimal('0')
 
-        return closed_commitments + direct_ap_invoices + direct_pv_paid
+        # 4. Direct Journal Entry expense — manual JVs posted to this
+        #    appropriation's GL. Without this source, capex booked via
+        #    a manual JV (or auto-capitalised by the JV path) leaks past
+        #    appropriation consumption tracking. See
+        #    ``_compute_direct_disbursements`` for the full
+        #    contra-aware logic.
+        direct_je = Decimal('0')
+        try:
+            from accounting.models.gl import JournalLine
+            if admin_legacy and fund_legacy and self.economic_id and legacy_accounts:
+                from django.db.models import Q as _Q
+                je_q = JournalLine.objects.filter(
+                    header__status='Posted',
+                    header__mda=admin_legacy,
+                    header__fund=fund_legacy,
+                    account_id__in=legacy_accounts,
+                ).filter(
+                    _Q(header__source_module__isnull=True)
+                    | _Q(header__source_module='')
+                )
+                if fy_start and fy_end:
+                    je_q = je_q.filter(
+                        header__posting_date__gte=fy_start,
+                        header__posting_date__lte=fy_end,
+                    )
+                elif fy and hasattr(fy, 'year') and fy.year:
+                    je_q = je_q.filter(header__posting_date__year=fy.year)
+                debits = je_q.aggregate(total=Sum('debit'))['total'] or Decimal('0')
+                # Exclude capitalisation contras (asset_id set + credit > 0).
+                reversal_credits = je_q.filter(
+                    asset__isnull=True,
+                ).aggregate(total=Sum('credit'))['total'] or Decimal('0')
+                direct_je = debits - reversal_credits
+        except Exception:
+            # Live-path is read-only; never let a join error break a
+            # report. The cached total path already handles this via
+            # ``_compute_direct_disbursements``.
+            direct_je = Decimal('0')
+
+        return closed_commitments + direct_ap_invoices + direct_pv_paid + direct_je
 
     @property
     def total_cash_paid(self):
@@ -998,6 +1037,123 @@ class Appropriation(AuditBaseModel):
         if self.monthly_spread and str(month) in self.monthly_spread:
             return Decimal(str(self.monthly_spread[str(month)]))
         return (self.amount_approved / Decimal('12')).quantize(Decimal('0.01'))
+
+    def _compute_direct_disbursements(self) -> Decimal:
+        """
+        Sum of expenditure recognised against this appropriation through
+        non-PO ("direct") channels. Composes three sources:
+
+          1. Direct AP Vendor Invoices  (no PO upstream, status=Posted)
+          2. Direct Payment Vouchers    (paid, source_document='')
+          3. Direct Journal Entries     (manual JV, status='Posted')
+
+        Source #3 is the critical addition — without it, manual journal
+        entries posted to capex/expense GLs (including auto-capitalised
+        capex) never reach the appropriation cache. This is what
+        refresh_totals() needs to count as expended.
+
+        Filtering rules (all sources):
+          • Match by MDA legacy bridge, fund legacy bridge
+          • Match by economic descendant chain (a child-coded line rolls
+            up to the parent appropriation; same pattern as the
+            commitment lookup used elsewhere)
+          • Restrict to this appropriation's fiscal year window
+
+        Asset auto-capitalisation contras
+        ---------------------------------
+        When a 23xxxxxx capex line auto-capitalises, the journal carries
+        BOTH the original DR and a CR clearing on the same GL. Net GL
+        movement is zero, but the appropriation should still see ₦100
+        expended because the capex commitment is real (the asset now
+        exists). We therefore sum **gross debits**, not net (debit −
+        credit), AND exclude credit lines that carry a populated
+        ``asset`` FK (i.e. capitalisation contras specifically).
+        Reversal credits — which legitimately reduce expended — never
+        carry an ``asset`` FK and so are correctly netted.
+        """
+        from django.db.models import Sum, Q
+        from accounting.models.receivables import VendorInvoice
+        from accounting.models.gl import JournalLine
+        from accounting.models.ncoa import EconomicSegment as _EconSeg
+
+        admin_legacy = getattr(self.administrative, 'legacy_mda', None) if self.administrative_id else None
+        fund_legacy  = getattr(self.fund,           'legacy_fund', None) if self.fund_id else None
+        if not (admin_legacy and fund_legacy and self.economic_id):
+            return Decimal('0')
+
+        # Walk the economic-segment subtree once and reuse for all sources.
+        descendant_econ_segs = [self.economic]
+        frontier = [self.economic]
+        while frontier:
+            children = list(_EconSeg.objects.filter(parent__in=frontier))
+            descendant_econ_segs.extend(children)
+            frontier = children
+        legacy_accounts = [
+            seg.legacy_account_id for seg in descendant_econ_segs
+            if seg.legacy_account_id
+        ]
+        if not legacy_accounts:
+            return Decimal('0')
+
+        # Year-window for filtering — keep prior-year postings out.
+        fy = getattr(self, 'fiscal_year', None)
+        fy_start = getattr(fy, 'start_date', None)
+        fy_end = getattr(fy, 'end_date', None)
+        fy_year = getattr(fy, 'year', None)
+
+        # ── 1. Direct AP Vendor Invoices ──────────────────────────────
+        vi_q = VendorInvoice.objects.filter(
+            status='Posted',
+            purchase_order__isnull=True,
+            mda=admin_legacy,
+            account_id__in=legacy_accounts,
+            fund=fund_legacy,
+        )
+        if fy_start and fy_end:
+            vi_q = vi_q.filter(invoice_date__gte=fy_start, invoice_date__lte=fy_end)
+        elif fy_year:
+            vi_q = vi_q.filter(invoice_date__year=fy_year)
+        direct_ap = vi_q.aggregate(t=Sum('total_amount'))['t'] or Decimal('0')
+
+        # ── 2. Direct Payment Vouchers ────────────────────────────────
+        direct_pv = self.payment_vouchers.filter(
+            status='PAID', source_document='',
+        ).aggregate(t=Sum('net_amount'))['t'] or Decimal('0')
+
+        # ── 3. Direct Journal Entry expense ───────────────────────────
+        # Sum DR on appropriation's GL minus reversal CRs (no asset FK)
+        # but EXCLUDING capitalisation contras (CR with asset FK set).
+        # ``source_module`` filter prevents double-counting: AP/PO/PV
+        # subsystems already produce their own appropriation rollups
+        # via sources 1+2. Only manual JVs (empty source_module) are
+        # counted here.
+        je_q = JournalLine.objects.filter(
+            header__status='Posted',
+            header__mda=admin_legacy,
+            header__fund=fund_legacy,
+            account_id__in=legacy_accounts,
+        ).filter(
+            Q(header__source_module__isnull=True)
+            | Q(header__source_module='')
+        )
+        if fy_start and fy_end:
+            je_q = je_q.filter(
+                header__posting_date__gte=fy_start,
+                header__posting_date__lte=fy_end,
+            )
+        elif fy_year:
+            je_q = je_q.filter(header__posting_date__year=fy_year)
+
+        # Gross debits — full appropriation consumption.
+        debits = je_q.aggregate(t=Sum('debit'))['t'] or Decimal('0')
+        # Credits NOT linked to an asset (i.e. genuine reversals only —
+        # capitalisation contras carry asset_id and are excluded here).
+        reversal_credits = je_q.filter(
+            asset__isnull=True,
+        ).aggregate(t=Sum('credit'))['t'] or Decimal('0')
+        direct_je = debits - reversal_credits
+
+        return direct_ap + direct_pv + direct_je
 
 
 class Warrant(AuditBaseModel):
@@ -1162,6 +1318,97 @@ class RevenueBudget(AuditBaseModel):
         if self.estimated_amount <= 0:
             return Decimal('0')
         return (self.actual_collected / self.estimated_amount) * 100
+
+
+class AppropriationVirement(AuditBaseModel):
+    """
+    Transfer of approved amount between two Appropriation rows.
+
+    A virement is a controlled budget reallocation: pull amount X from one
+    appropriation line and push it to another. Subject to workflow approval
+    before it is APPLIED to the underlying balances. Once APPLIED, the
+    source/target ``approved_amount`` columns are mutated and the before/after
+    snapshots are frozen on this record for audit.
+    """
+
+    STATUS_CHOICES = [
+        ('DRAFT',     'Draft'),
+        ('SUBMITTED', 'Submitted'),
+        ('APPROVED',  'Approved'),
+        ('APPLIED',   'Applied'),
+        ('REJECTED',  'Rejected'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+
+    reference_number   = models.CharField(
+        max_length=30, unique=True, db_index=True,
+        help_text='Auto-generated VIR-YYYY-####',
+    )
+    from_appropriation = models.ForeignKey(
+        'budget.Appropriation', on_delete=models.PROTECT,
+        related_name='virements_out',
+    )
+    to_appropriation   = models.ForeignKey(
+        'budget.Appropriation', on_delete=models.PROTECT,
+        related_name='virements_in',
+    )
+    amount             = models.DecimalField(max_digits=20, decimal_places=2)
+    reason             = models.TextField(
+        help_text='Business justification — required for audit.',
+    )
+    status             = models.CharField(
+        max_length=15, choices=STATUS_CHOICES, default='DRAFT', db_index=True,
+    )
+
+    submitted_by       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='virements_submitted',
+    )
+    submitted_at       = models.DateTimeField(null=True, blank=True)
+    approved_by        = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='virements_approved',
+    )
+    approved_at        = models.DateTimeField(null=True, blank=True)
+    applied_at         = models.DateTimeField(null=True, blank=True)
+    rejection_reason   = models.TextField(blank=True, default='')
+
+    # Frozen snapshots taken at apply-time for audit trail.
+    from_balance_before = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    from_balance_after  = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    to_balance_before   = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+    to_balance_after    = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True,
+    )
+
+    class Meta:
+        verbose_name = 'Appropriation Virement'
+        verbose_name_plural = 'Appropriation Virements'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['from_appropriation', 'status']),
+            models.Index(fields=['to_appropriation', 'status']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(from_appropriation=models.F('to_appropriation')),
+                name='virement_source_target_distinct',
+            ),
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name='virement_amount_positive',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.reference_number} — NGN {self.amount:,.2f} ({self.status})'
 
 
 # BudgetValidationService and BudgetExceededError are in budget/services.py

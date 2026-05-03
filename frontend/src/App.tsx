@@ -5,6 +5,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { AuthProvider } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
+import { ToastProvider } from './context/ToastContext';
+import ToastContainer from './components/ToastContainer';
 import LoadingScreen from './components/common/LoadingScreen';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -56,6 +58,7 @@ const AccrualDeferralForm = lazy(() => import('./features/accounting/AccrualDefe
 
 // ── Government IFMIS Pages (Phase 10) ────────────────────
 const AppropriationList = lazy(() => import('./pages/gov').then(m => ({ default: m.AppropriationList })));
+const AppropriationListByMda = lazy(() => import('./pages/gov').then(m => ({ default: m.AppropriationListByMda })));
 const WarrantList = lazy(() => import('./pages/gov').then(m => ({ default: m.WarrantList })));
 const RevenueBudgetList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueBudgetList })));
 const TSAAccountList = lazy(() => import('./pages/gov').then(m => ({ default: m.TSAAccountList })));
@@ -78,6 +81,8 @@ const PaymentVoucherForm = lazy(() => import('./pages/gov/PaymentVoucherForm'));
 const RevenueCollectionForm = lazy(() => import('./pages/gov/RevenueCollectionForm'));
 const AppropriationForm = lazy(() => import('./pages/gov/AppropriationForm'));
 const AppropriationDetail = lazy(() => import('./pages/gov/AppropriationDetail'));
+const AppropriationTransactions = lazy(() => import('./pages/gov/AppropriationTransactions'));
+const VirementForm = lazy(() => import('./pages/gov/VirementForm'));
 const WarrantForm = lazy(() => import('./pages/gov/WarrantForm'));
 const WarrantDetail = lazy(() => import('./pages/gov/WarrantDetail'));
 const RevenueBudgetForm = lazy(() => import('./pages/gov/RevenueBudgetForm'));
@@ -97,6 +102,8 @@ const RevenueCollectionDetail = lazy(() => import('./pages/gov/RevenueCollection
 // ── IPSAS Report Pages ───────────────────────────────────
 const FinancialPositionReport = lazy(() => import('./pages/gov/reports/FinancialPositionReport'));
 const FinancialPerformanceReport = lazy(() => import('./pages/gov/reports/FinancialPerformanceReport'));
+const BudgetPerformanceReport = lazy(() => import('./pages/gov/reports/BudgetPerformanceReport'));
+const WarrantUtilizationReport = lazy(() => import('./pages/gov/reports/WarrantUtilizationReport'));
 const CashFlowStatementReport = lazy(() => import('./pages/gov/reports/CashFlowStatementReport'));
 const ChangesInNetAssetsReport = lazy(() => import('./pages/gov/reports/ChangesInNetAssetsReport'));
 const NotesToFinancialStatementsReport = lazy(() => import('./pages/gov/reports/NotesToFinancialStatementsReport'));
@@ -208,6 +215,25 @@ const ExitManagement = lazy(() => import('./features/hrm/pages/ExitManagement'))
 // ── User Management ──────────────────────────────────────────
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 
+// ── Employee Self-Service Portal ─────────────────────────────
+const MyDashboard = lazy(() => import('./features/portal/pages/MyDashboard'));
+const MyPayslips  = lazy(() => import('./features/portal/pages/MyPayslips'));
+const MyLeave     = lazy(() => import('./features/portal/pages/MyLeave'));
+const MyProfile   = lazy(() => import('./features/portal/pages/MyProfile'));
+const MyDocuments = lazy(() => import('./features/portal/pages/MyDocuments'));
+
+// ── Contracts & Milestone Payments ───────────────────────────
+const ContractsDashboard  = lazy(() => import('./features/contracts/ContractsDashboard'));
+const ContractsList       = lazy(() => import('./features/contracts/ContractsList'));
+const ContractDetail      = lazy(() => import('./features/contracts/ContractDetail'));
+const ContractForm        = lazy(() => import('./features/contracts/ContractForm'));
+const IPCList             = lazy(() => import('./features/contracts/ipcs/IPCList'));
+const IPCSubmitForm       = lazy(() => import('./features/contracts/ipcs/IPCSubmitForm'));
+const IPCDetail           = lazy(() => import('./features/contracts/ipcs/IPCDetail'));
+const VariationList       = lazy(() => import('./features/contracts/variations/VariationList'));
+const VariationForm       = lazy(() => import('./features/contracts/variations/VariationForm'));
+const VariationDetail     = lazy(() => import('./features/contracts/variations/VariationDetail'));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -242,6 +268,7 @@ function App() {
           <BrandingProvider>
           <AuthProvider>
             <CurrencyProvider>
+              <ToastProvider>
               <ErrorBoundary>
                 <Router>
                   {/* Skip navigation link for keyboard / screen-reader users */}
@@ -290,6 +317,23 @@ function App() {
                       } />
                       <Route path="/dashboard/legacy" element={
                         <ProtectedRoute><Dashboard /></ProtectedRoute>
+                      } />
+
+                      {/* ── Employee Self-Service Portal ───────────────── */}
+                      <Route path="/portal" element={
+                        <ProtectedRoute><MyDashboard /></ProtectedRoute>
+                      } />
+                      <Route path="/portal/payslips" element={
+                        <ProtectedRoute><MyPayslips /></ProtectedRoute>
+                      } />
+                      <Route path="/portal/leave" element={
+                        <ProtectedRoute><MyLeave /></ProtectedRoute>
+                      } />
+                      <Route path="/portal/profile" element={
+                        <ProtectedRoute><MyProfile /></ProtectedRoute>
+                      } />
+                      <Route path="/portal/documents" element={
+                        <ProtectedRoute><MyDocuments /></ProtectedRoute>
                       } />
 
                       {/* ── SuperAdmin (no module guard) ──────────────── */}
@@ -343,6 +387,9 @@ function App() {
                           <ProtectedRoute><JournalList /></ProtectedRoute>
                         } />
                         <Route path="/accounting/new" element={
+                          <ProtectedRoute><JournalForm /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/journals/:id/edit" element={
                           <ProtectedRoute><JournalForm /></ProtectedRoute>
                         } />
                         <Route path="/accounting/coa" element={
@@ -481,6 +528,9 @@ function App() {
                         <Route path="/procurement/requisitions/new" element={
                           <ProtectedRoute><PurchaseRequisitionForm /></ProtectedRoute>
                         } />
+                        <Route path="/procurement/requisitions/:id/edit" element={
+                          <ProtectedRoute><PurchaseRequisitionForm /></ProtectedRoute>
+                        } />
                         <Route path="/procurement/requisitions/:id" element={
                           <ProtectedRoute><PurchaseRequisitionView /></ProtectedRoute>
                         } />
@@ -582,6 +632,7 @@ function App() {
 
                       {/* ── Government IFMIS Routes (Phase 10) ────── */}
                       <Route path="/budget/appropriations" element={<ProtectedRoute><AppropriationList /></ProtectedRoute>} />
+                      <Route path="/budget/appropriations/by-mda/:mda_id" element={<ProtectedRoute><AppropriationListByMda /></ProtectedRoute>} />
                       <Route path="/budget/warrants" element={<ProtectedRoute><WarrantList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget" element={<ProtectedRoute><RevenueBudgetList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget/new" element={<ProtectedRoute><RevenueBudgetForm /></ProtectedRoute>} />
@@ -617,7 +668,9 @@ function App() {
                       <Route path="/accounting/revenue-collections/new" element={<ProtectedRoute><RevenueCollectionForm /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections/:id" element={<ProtectedRoute><RevenueCollectionDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/new" element={<ProtectedRoute><AppropriationForm /></ProtectedRoute>} />
+                      <Route path="/budget/virements/new" element={<ProtectedRoute><VirementForm /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id" element={<ProtectedRoute><AppropriationDetail /></ProtectedRoute>} />
+                      <Route path="/budget/appropriations/:id/transactions" element={<ProtectedRoute><AppropriationTransactions /></ProtectedRoute>} />
                       <Route path="/budget/warrants/new" element={<ProtectedRoute><WarrantForm /></ProtectedRoute>} />
                       <Route path="/budget/warrants/:id" element={<ProtectedRoute><WarrantDetail /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts/new" element={<ProtectedRoute><TSAAccountForm /></ProtectedRoute>} />
@@ -628,6 +681,8 @@ function App() {
                       {/* ── IPSAS Report Pages ───────────────────── */}
                       <Route path="/accounting/ipsas/financial-position" element={<ProtectedRoute><FinancialPositionReport /></ProtectedRoute>} />
                       <Route path="/accounting/ipsas/financial-performance" element={<ProtectedRoute><FinancialPerformanceReport /></ProtectedRoute>} />
+                      <Route path="/accounting/ipsas/budget-performance" element={<ProtectedRoute><BudgetPerformanceReport /></ProtectedRoute>} />
+                      <Route path="/budget/warrant-utilization" element={<ProtectedRoute><WarrantUtilizationReport /></ProtectedRoute>} />
                       <Route path="/accounting/ipsas/cash-flow" element={<ProtectedRoute><CashFlowStatementReport /></ProtectedRoute>} />
                       <Route path="/accounting/ipsas/changes-in-net-assets" element={<ProtectedRoute><ChangesInNetAssetsReport /></ProtectedRoute>} />
                       <Route path="/accounting/ipsas/notes" element={<ProtectedRoute><NotesToFinancialStatementsReport /></ProtectedRoute>} />
@@ -715,6 +770,43 @@ function App() {
 
                       {/* Production, Quality removed — Quot PSE is public sector only */}
 
+                      {/* ── Contracts module ─────────────────────────── */}
+                      <Route element={<ModuleGuard module="contracts" />}>
+                        <Route path="/contracts/dashboard" element={
+                          <ProtectedRoute><ContractsDashboard /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts" element={
+                          <ProtectedRoute><ContractsList /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/new" element={
+                          <ProtectedRoute><ContractForm /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/:id/edit" element={
+                          <ProtectedRoute><ContractForm /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/:id" element={
+                          <ProtectedRoute><ContractDetail /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/:id/ipcs/new" element={
+                          <ProtectedRoute><IPCSubmitForm /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/:id/variations/new" element={
+                          <ProtectedRoute><VariationForm /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/ipcs" element={
+                          <ProtectedRoute><IPCList /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/ipcs/:id" element={
+                          <ProtectedRoute><IPCDetail /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/variations" element={
+                          <ProtectedRoute><VariationList /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/variations/:id" element={
+                          <ProtectedRoute><VariationDetail /></ProtectedRoute>
+                        } />
+                      </Route>
+
                       {/* ── Workflow module ──────────────────────────── */}
                       <Route element={<ModuleGuard module="workflow" />}>
                         <Route path="/approvals/dashboard" element={
@@ -751,7 +843,13 @@ function App() {
                     </Routes>
                   </Suspense>
                 </Router>
+                {/* ToastContainer is rendered OUTSIDE Router so it
+                    survives route transitions; it's still inside
+                    ToastProvider so it has access to the toasts list.
+                    Renders nothing when there are no active toasts. */}
+                <ToastContainer />
               </ErrorBoundary>
+              </ToastProvider>
             </CurrencyProvider>
           </AuthProvider>
           </BrandingProvider>

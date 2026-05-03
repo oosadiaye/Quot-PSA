@@ -14,6 +14,8 @@ import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { useCurrency } from '../../../context/CurrencyContext';
+import { useToast } from '../../../context/ToastContext';
+import { parsePostingError } from '../utils/parsePostingError';
 import '../styles/glassmorphism.css';
 
 // ─── styles ─────────────────────────────────────────────────────────────────
@@ -87,9 +89,19 @@ export default function IncomingPaymentsPage() {
     const postReceipt = usePostReceipt();
     const deleteReceipt = useDeleteReceipt();
 
+    const { addToast } = useToast();
+
     // ─── helpers ──────────────────────────────────────────────────────────────
+    // Local notification stays for in-context inline alerts; ALSO fire
+    // a sticky toast on errors so the operator catches the message even
+    // if they've scrolled away. Error toasts use ``duration: 0`` so they
+    // remain until manually dismissed — posting errors often need to be
+    // read carefully or shared with a colleague before acting.
     const showSuccess = (msg: string) => { setNotification({ msg, type: 'success' }); setTimeout(() => setNotification(null), 3500); };
-    const showError   = (msg: string) => { setNotification({ msg, type: 'error'   }); setTimeout(() => setNotification(null), 4500); };
+    const showError   = (msg: string) => {
+        setNotification({ msg, type: 'error' }); setTimeout(() => setNotification(null), 4500);
+        addToast(msg, 'error', 0);
+    };
 
     // ─── summary metrics ──────────────────────────────────────────────────────
     const todayStr       = new Date().toISOString().slice(0, 10);
@@ -123,7 +135,7 @@ export default function IncomingPaymentsPage() {
             setPaymentForm({ ...BLANK_RECEIPT });
             setShowPaymentForm(false);
         } catch (err: any) {
-            showError(err?.response?.data?.detail || err?.response?.data?.error || 'Failed to record payment.');
+            showError(parsePostingError(err, 'Failed to record payment.'));
         }
     };
 
@@ -144,7 +156,7 @@ export default function IncomingPaymentsPage() {
             setAdvanceForm({ ...BLANK_ADVANCE });
             setShowAdvanceForm(false);
         } catch (err: any) {
-            showError(err?.response?.data?.detail || err?.response?.data?.error || 'Failed to record downpayment.');
+            showError(parsePostingError(err, 'Failed to record downpayment.'));
         }
     };
 
@@ -154,7 +166,7 @@ export default function IncomingPaymentsPage() {
             await postReceipt.mutateAsync(postConfirm.id);
             showSuccess(`${postConfirm.number} posted to GL successfully.`);
         } catch (err: any) {
-            showError(err?.response?.data?.error || 'Failed to post receipt.');
+            showError(parsePostingError(err, 'Failed to post receipt.'));
         }
         setPostConfirm(null);
     };
@@ -165,7 +177,7 @@ export default function IncomingPaymentsPage() {
             await deleteReceipt.mutateAsync(deleteConfirm.id);
             showSuccess(`${deleteConfirm.number} deleted.`);
         } catch (err: any) {
-            showError(err?.response?.data?.detail || 'Failed to delete receipt.');
+            showError(parsePostingError(err, 'Failed to delete receipt.'));
         }
         setDeleteConfirm(null);
     };

@@ -1,12 +1,34 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, ShoppingCart, Send, CheckCircle, XCircle, FileText, Lock, Package } from 'lucide-react';
+import { Plus, Search, ShoppingCart, Send, CheckCircle, XCircle, FileText, Lock, Package, AlertCircle } from 'lucide-react';
 import { usePurchaseOrders, usePostPO, useSubmitPOForApproval, useApprovePO, useRejectPO, useClosePO } from './hooks/useProcurement';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import PageHeader from '../../components/PageHeader';
 import '../accounting/styles/glassmorphism.css';
+
+/** Pull the best human-readable message out of the backend's
+ * standard error envelope: { error, detail, code, budget_violations? }
+ * falling back through the possibilities so nothing the server sends
+ * gets silently dropped. */
+function extractActionError(err: any): { headline: string; detail: string; code?: string; violations?: any[] } {
+    const data = err?.response?.data || {};
+    const headline =
+        data.error
+        || data.detail
+        || data.message
+        || data.non_field_errors?.[0]
+        || err?.message
+        || 'Action failed. Please try again.';
+    const detail = data.detail && data.detail !== headline ? data.detail : '';
+    return {
+        headline: typeof headline === 'string' ? headline : JSON.stringify(headline),
+        detail:   typeof detail   === 'string' ? detail   : '',
+        code: data.code,
+        violations: data.budget_violations,
+    };
+}
 
 export default function PurchaseOrderList() {
     const navigate = useNavigate();
@@ -28,12 +50,39 @@ export default function PurchaseOrderList() {
     const totalCount = orders?.count || (Array.isArray(orders) ? orders.length : 0);
     const totalPages = Math.ceil(totalCount / pageSize);
 
+    // Structured error surface — when any PO action returns a 400 with
+    // a reason (budget block, duplicate, period closed, status
+    // mismatch, etc.) we show that message instead of letting the UI
+    // look broken.
+    const [actionError, setActionError] = useState<{
+        headline: string; detail: string; code?: string;
+        violations?: Array<{ account?: string; account_name?: string; message?: string }>;
+    } | null>(null);
+
     const handleConfirmedAction = (id: number, action: string) => {
-        if (action === 'submit') submitMutation.mutate(id);
-        else if (action === 'approve') approveMutation.mutate(id);
-        else if (action === 'reject') rejectMutation.mutate(id);
-        else if (action === 'post') postMutation.mutate(id);
-        else if (action === 'close') closeMutation.mutate(id);
+        setActionError(null);
+        const opts = {
+            onError: (err: any) => setActionError(extractActionError(err)),
+        };
+        if (action === 'submit') submitMutation.mutate(id, opts);
+        else if (action === 'approve') {
+            // SAP-FB60-style "Approve & Post" — chain the two
+            // mutations so a single click flips Pending → Approved
+            // → Posted in one user gesture. The endpoints stay
+            // separate on the backend so each remains individually
+            // retryable: if post fails (warrant ceiling, missing
+            // GL, period closed) the PO is left Approved and the
+            // standalone Post button below picks up the retry.
+            approveMutation.mutate(id, {
+                onError: opts.onError,
+                onSuccess: () => {
+                    postMutation.mutate(id, opts);
+                },
+            });
+        }
+        else if (action === 'reject') rejectMutation.mutate(id, opts);
+        else if (action === 'post') postMutation.mutate(id, opts);
+        else if (action === 'close') closeMutation.mutate(id, opts);
         setConfirmAction(null);
     };
 
@@ -105,6 +154,74 @@ export default function PurchaseOrderList() {
                     </button>
                 }
             />
+
+            {/* Action error banner — surfaces any 400 from submit / approve
+                / reject / post / close so users know WHY a button didn't
+                do what they expected. Sticks until dismissed so the user
+                has time to read the full reason. */}
+            {actionError && (
+                <div
+                    style={{
+                        marginBottom: '1rem',
+                        padding: '0.875rem 1rem',
+                        borderRadius: '10px',
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        color: '#b91c1c',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '0.625rem',
+                    }}
+                    role="alert"
+                >
+                    <AlertCircle size={18} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 'var(--text-sm)', lineHeight: 1.5 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 2 }}>
+                            Action failed{actionError.code ? ` — ${actionError.code}` : ''}
+                        </div>
+                        <div>{actionError.headline}</div>
+                        {actionError.violations && actionError.violations.length > 0 && (
+                            <ul style={{ margin: '0.375rem 0 0', paddingLeft: '1.25rem', fontSize: 'var(--text-xs)' }}>
+                                {actionError.violations.map((v, i) => (
+                                    <li key={i} style={{ marginBottom: '0.125rem' }}>
+                                        <b>{v.account}</b>{v.account_name ? ` — ${v.account_name}` : ''}: {v.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {actionError.detail && (
+                            <details style={{ marginTop: '0.375rem' }}>
+                                <summary style={{ fontSize: 'var(--text-xs)', cursor: 'pointer', color: '#7f1d1d' }}>
+                                    Technical detail
+                                </summary>
+                                <div style={{
+                                    marginTop: '0.25rem',
+                                    padding: '0.375rem 0.625rem',
+                                    background: 'rgba(0,0,0,0.04)',
+                                    borderRadius: 4,
+                                    fontSize: '0.7rem',
+                                    color: '#7f1d1d',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                }}>
+                                    {actionError.detail}
+                                </div>
+                            </details>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => setActionError(null)}
+                        style={{
+                            background: 'transparent', border: 'none', color: '#b91c1c',
+                            cursor: 'pointer', padding: '0 4px', fontSize: '1.25rem',
+                            lineHeight: 1, fontWeight: 700,
+                        }}
+                        aria-label="Dismiss"
+                    >
+                        ×
+                    </button>
+                </div>
+            )}
 
             <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem' }}>
@@ -244,10 +361,10 @@ export default function PurchaseOrderList() {
                                                                 alignItems: 'center',
                                                                 gap: '0.25rem',
                                                             }}
-                                                            title="Approve"
+                                                            title="Approve and post to GL in one step"
                                                         >
                                                             <CheckCircle size={14} />
-                                                            Approve
+                                                            Approve &amp; Post
                                                         </button>
                                                         <button
                                                             onClick={() => setConfirmAction({ id: po.id, action: 'reject' })}
@@ -295,6 +412,7 @@ export default function PurchaseOrderList() {
                                                 )}
                                                 {confirmAction?.id !== po.id && ['Approved', 'Posted'].includes(po.status) && (
                                                     <>
+                                                        {!po.has_active_grns && (
                                                         <button
                                                             onClick={() => navigate(`/procurement/grn/new?po=${po.id}`)}
                                                             style={{
@@ -315,6 +433,7 @@ export default function PurchaseOrderList() {
                                                             <Package size={14} />
                                                             Receive
                                                         </button>
+                                                        )}
                                                         <button
                                                             onClick={() => setConfirmAction({ id: po.id, action: 'close' })}
                                                             style={{

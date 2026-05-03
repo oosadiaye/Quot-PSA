@@ -390,9 +390,21 @@ def tenant_signup(request):
     if not selected_modules and plan.allowed_modules:
         selected_modules = plan.allowed_modules
 
+    # ── ASYNC PROVISIONING ──────────────────────────────────────────────
+    # Create the Client row + Domain synchronously in the public schema
+    # (~30ms), then dispatch the heavy lifting (CREATE SCHEMA, 170+
+    # migrations, admin user, subscription, modules, welcome email) to
+    # the Celery task `provision_tenant_schema`. The signup request
+    # returns 202 in well under a second; the frontend polls for
+    # `provisioning_status='active'` before redirecting to login.
     try:
         with transaction.atomic():
-            # Create tenant (auto-creates schema)
+            # Client.save() auto-generates a unique slug from ``name`` if
+            # the caller doesn't pass one; that slug becomes the
+            # subdomain prefix on the URL the user is redirected to
+            # post-login. ``schema_name`` stays as the (possibly longer)
+            # internal Postgres schema identifier — the two CAN be
+            # equal but no longer have to be.
             tenant = Client.objects.create(
                 name=org_name,
                 schema_name=schema_name,
@@ -402,118 +414,84 @@ def tenant_signup(request):
                 state_name=state_name,
                 lga_code=lga_code,
                 lga_name=lga_name,
+                provisioning_status='pending',
             )
-
-            # Add domain
-            domain_name = f"{schema_name}.dtsg.test"
-            Domain.objects.create(domain=domain_name, tenant=tenant, is_primary=True)
-
-            # Create admin user in PUBLIC schema (centralized auth)
-            with schema_context('public'):
-                admin_user = User.objects.create_user(
-                    username=admin_username.lower(),
-                    email=admin_email,
-                    password=admin_password,
-                    first_name=first_name,
-                    last_name=last_name,
-                    is_staff=True,
-                    is_superuser=False,
-                )
-
-                # Map user to tenant with admin role
-                UserTenantRole.objects.create(
-                    user=admin_user,
-                    tenant=tenant,
-                    role='admin',
-                    is_active=True,
-                )
-
-            # Create subscription with the chosen billing cycle
-            TenantSubscription.objects.create(
-                tenant=tenant,
-                plan=plan,
-                status='trial',
-                start_date=timezone.now().date(),
-                end_date=timezone.now().date() + timedelta(days=plan.trial_days or 14),
-                auto_renew=True,
+            # Primary subdomain on the configured apex (e.g.
+            # ``oag-delta.erp.tryquot.com``). This becomes the URL the
+            # frontend redirects to after the user picks the tenant.
+            from django.conf import settings as _s
+            base = getattr(_s, 'TENANT_SUBDOMAIN_BASE', None) or 'erp.tryquot.com'
+            primary_domain = f"{tenant.slug}.{base}"
+            Domain.objects.create(
+                domain=primary_domain, tenant=tenant, is_primary=True,
             )
-
-            # Activate selected modules in the tenant's schema
-            if selected_modules:
-                from core.models import TenantModule as PerTenantModule
-                with schema_context(schema_name):
-                    for mod_name in selected_modules:
-                        # Get a human-readable title from AVAILABLE_MODULES if possible
-                        mod_title = mod_name.replace('_', ' ').title()
-                        for key, title, _desc in AVAILABLE_MODULES:
-                            if key == mod_name:
-                                mod_title = title
-                                break
-                        PerTenantModule.objects.update_or_create(
-                            module_name=mod_name,
-                            defaults={
-                                'module_title': mod_title,
-                                'is_active': True,
-                            },
-                        )
-
-            # Seed tenant defaults: warehouse, asset categories, UOMs, base currency
-            try:
-                from core.management.commands.seed_tenant_defaults import seed_defaults
-                with schema_context(schema_name):
-                    seed_defaults(tenant_name=org_name)
-            except Exception as defaults_err:
-                logger.warning(
-                    'Tenant defaults seeding failed for %s: %s',
-                    schema_name, defaults_err, exc_info=True,
-                )
-
-            # Seed industry-specific defaults (CoA, BOMs, categories, work centers)
-            if business_category and business_category != 'other':
-                try:
-                    from core.services.industry_seed_service import seed_industry_defaults
-                    seed_industry_defaults(schema_name, business_category)
-                except Exception as seed_err:
-                    logger.warning(
-                        'Industry seeding failed for %s (%s): %s',
-                        schema_name, business_category, seed_err, exc_info=True,
-                    )
-            else:
-                # Still create a basic setup profile for the wizard
-                try:
-                    from core.services.industry_seed_service import _seed_setup_profile
-                    with schema_context(schema_name):
-                        _seed_setup_profile(business_category or 'other')
-                except Exception:
-                    pass
-
     except Exception as e:
-        logger.error('Tenant signup failed for %s: %s', org_name, e, exc_info=True)
-        return Response({'error': 'Failed to create organization. Please try again.'}, status=500)
+        logger.error('Tenant row creation failed for %s: %s', org_name, e, exc_info=True)
+        return Response(
+            {'error': 'Failed to create organization. Please try again.'},
+            status=500,
+        )
 
-    # Send welcome email (non-critical) — pass None for temp_password since user chose their own
+    # Dispatch the slow provisioning work. We use .delay() when a broker
+    # is reachable; if not (dev without redis), fall back to .apply()
+    # which runs inline — same result, just blocks the request like the
+    # old synchronous path did.
+    task_kwargs = {
+        'admin_username': admin_username,
+        'admin_email': admin_email,
+        'temp_password': admin_password,
+        'plan_type': plan.plan_type or plan_type or '',
+        'first_name': first_name,
+        'last_name': last_name,
+        'selected_modules': selected_modules,
+        'business_category': business_category,
+    }
     try:
-        send_tenant_welcome_email(tenant, admin_user, None, plan.name)
-    except Exception:
-        logger.warning('Welcome email failed for tenant %s', schema_name, exc_info=True)
+        from tenants.tasks import provision_tenant_schema
+        provision_tenant_schema.delay(tenant.id, **task_kwargs)
+    except Exception as broker_err:
+        # Broker down (dev without Redis). Run the task in a daemon thread
+        # so the HTTP response still returns 202 immediately; the single-
+        # threaded dev server isn't blocked by the 60-180s migration run.
+        logger.warning(
+            'Celery broker unavailable, provisioning in background thread: %s',
+            broker_err,
+        )
+        import threading
+        from tenants.tasks import provision_tenant_schema as _prov
 
-    # Invalidate dashboard cache
+        def _run_inline(tid, kwargs):
+            try:
+                _prov.apply(args=(tid,), kwargs=kwargs)
+            except Exception:
+                logger.exception('Inline provisioning thread crashed for %s', tid)
+
+        threading.Thread(
+            target=_run_inline,
+            args=(tenant.id, task_kwargs),
+            daemon=True,
+        ).start()
+
     cache.delete('superadmin_dashboard_stats')
 
     security_logger.info(
-        'TENANT_SIGNUP: org=%s schema=%s admin=%s modules=%s billing=%s category=%s',
+        'TENANT_SIGNUP_QUEUED: org=%s schema=%s admin=%s modules=%s billing=%s category=%s',
         org_name, schema_name, admin_username, selected_modules, billing_cycle, business_category,
     )
 
+    # 202 Accepted — the tenant row exists and is visible in the superadmin
+    # UI as `pending`; the frontend polls GET /api/v1/tenants/provisioning-status/
+    # (or the superadmin tenants list) until it flips to `active`.
     return Response({
-        'message': 'Organization created successfully! You can now sign in.',
+        'message': 'Organization queued for provisioning. You can sign in once it\'s ready.',
         'tenant_id': tenant.id,
         'schema_name': schema_name,
         'domain': domain_name,
         'login_url': django_settings.FRONTEND_URL,
         'modules_activated': len(selected_modules),
         'business_category': business_category,
-    }, status=201)
+        'provisioning_status': 'pending',
+    }, status=202)
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +637,11 @@ def tenant_list(request):
                 'plan': sub.plan.name if sub and sub.plan else None,
                 'end_date': sub.end_date if sub else None,
                 'domains': list(tenant.domains.values_list('domain', flat=True)),
+                # Async provisioning state — frontend polls until 'active'.
+                'provisioning_status': tenant.provisioning_status,
+                'provisioning_error': tenant.provisioning_error or None,
+                'provisioning_started_at': tenant.provisioning_started_at,
+                'provisioning_completed_at': tenant.provisioning_completed_at,
             })
         return Response(data)
 
@@ -692,76 +675,74 @@ def tenant_list(request):
         if User.objects.filter(email=admin_email).exists():
             return Response({'error': 'Email already registered'}, status=400)
 
-    # Resolve plan if provided
-    plan = None
-    if plan_type:
-        plan = SubscriptionPlan.objects.filter(plan_type=plan_type, is_active=True).first()
-
     temp_password = generate_temp_password()
 
+    # Create the tenant row + domain INSTANTLY. Because Client has
+    # ``auto_create_schema = False``, this is now ~30ms instead of 60–180s.
+    # The Celery task provision_tenant_schema does the heavy lifting:
+    # migrations, admin user, subscription, modules, welcome email.
     try:
         with transaction.atomic():
-            tenant = Client.objects.create(name=org_name, schema_name=schema_name)
+            tenant = Client.objects.create(
+                name=org_name, schema_name=schema_name,
+                provisioning_status='pending',
+            )
             domain_name = f"{schema_name}.dtsg.test"
-            Domain.objects.create(domain=domain_name, tenant=tenant, is_primary=True)
-
-            # Always create admin user — auto-generated credentials if not provided
-            with schema_context('public'):
-                admin_user = User.objects.create_user(
-                    username=admin_username.lower(),
-                    email=admin_email,
-                    password=temp_password,
-                    first_name='Admin',
-                    last_name=org_name,
-                    is_staff=True,
-                    is_superuser=False,
-                )
-                UserTenantRole.objects.create(
-                    user=admin_user,
-                    tenant=tenant,
-                    role='admin',
-                    is_active=True,
-                )
-
-            # Create subscription if plan selected
-            if plan:
-                TenantSubscription.objects.create(
-                    tenant=tenant,
-                    plan=plan,
-                    status='trial' if plan.trial_days else 'active',
-                    start_date=timezone.now().date(),
-                    end_date=timezone.now().date() + timedelta(
-                        days=plan.trial_days or (30 if plan.billing_cycle == 'monthly' else 365)
-                    ),
-                    auto_renew=True,
-                )
-
-                # Auto-enable plan modules in the tenant's own schema
-                _mod_title_map = {k: t for k, t, _d in AVAILABLE_MODULES}
-                with schema_context(tenant.schema_name):
-                    for mod_name in (plan.allowed_modules or []):
-                        PerTenantModule.objects.update_or_create(
-                            module_name=mod_name,
-                            defaults={
-                                'module_title': _mod_title_map.get(mod_name, mod_name),
-                                'description': f'Included in {plan.name} plan',
-                                'is_active': True,
-                            },
-                        )
+            Domain.objects.create(
+                domain=domain_name, tenant=tenant, is_primary=True,
+            )
     except Exception as e:
-        logger.error('Tenant creation failed: %s', e, exc_info=True)
+        logger.error('Tenant row creation failed: %s', e, exc_info=True)
         return Response({'error': 'Failed to create tenant'}, status=500)
 
-    # Send welcome email with temp password
-    send_tenant_welcome_email(tenant, admin_user, temp_password, plan.name if plan else 'None')
+    # Queue async provisioning.
+    try:
+        from tenants.tasks import provision_tenant_schema
+        provision_tenant_schema.delay(
+            tenant.id,
+            admin_username=admin_username,
+            admin_email=admin_email,
+            temp_password=temp_password,
+            plan_type=plan_type or '',
+        )
+    except Exception as e:
+        # Broker down → run in a daemon thread so the request still returns
+        # 202 immediately instead of blocking on 170+ migrations.
+        logger.warning(
+            'Celery broker unavailable, provisioning in background thread: %s', e,
+        )
+        import threading
+        from tenants.tasks import provision_tenant_schema as _prov
+
+        _kwargs = {
+            'admin_username': admin_username,
+            'admin_email': admin_email,
+            'temp_password': temp_password,
+            'plan_type': plan_type or '',
+        }
+
+        def _run_inline(tid, kwargs):
+            try:
+                _prov.apply(args=(tid,), kwargs=kwargs)
+            except Exception:
+                logger.exception('Inline provisioning thread crashed for %s', tid)
+
+        threading.Thread(
+            target=_run_inline,
+            args=(tenant.id, _kwargs),
+            daemon=True,
+        ).start()
 
     cache.delete('superadmin_dashboard_stats')
 
     security_logger.info(
-        'TENANT_CREATED: org=%s schema=%s admin=%s by=%s',
+        'TENANT_QUEUED: org=%s schema=%s admin=%s by=%s',
         org_name, schema_name, admin_username, request.user.username,
     )
 
+    # 202 Accepted — tenant row exists; provisioning is in-flight. The
+    # frontend polls GET /superadmin/tenants to see provisioning_status
+    # flip to 'active' (or 'failed').
     return Response({
         'id': tenant.id,
         'name': tenant.name,
@@ -769,7 +750,8 @@ def tenant_list(request):
         'domain': domain_name,
         'admin_username': admin_username,
         'temp_password': temp_password,
-    }, status=201)
+        'provisioning_status': 'pending',
+    }, status=202)
 
 
 @api_view(['GET', 'PUT', 'DELETE', 'POST'])
@@ -797,6 +779,11 @@ def tenant_detail(request, tenant_id):
             'end_date': sub.end_date if sub else None,
             'auto_renew': sub.auto_renew if sub else False,
             'domains': list(tenant.domains.values_list('domain', flat=True)),
+            # Async provisioning state (same shape as list endpoint).
+            'provisioning_status': tenant.provisioning_status,
+            'provisioning_error': tenant.provisioning_error or None,
+            'provisioning_started_at': tenant.provisioning_started_at,
+            'provisioning_completed_at': tenant.provisioning_completed_at,
         })
 
     if request.method == 'DELETE':
@@ -824,9 +811,17 @@ def tenant_detail(request, tenant_id):
 
         # Password reset — independent of subscription status
         if action == 'reset_password':
-            admin_role = UserTenantRole.objects.filter(
-                tenant=tenant, role='admin', is_active=True,
-            ).select_related('user').first()
+            # Exclude superusers — a global superuser must never be selected as
+            # the "tenant admin" target of a reset, because set_password would
+            # overwrite the superuser's own login (real incident: 2026-04).
+            admin_role = (
+                UserTenantRole.objects
+                .filter(tenant=tenant, role='admin', is_active=True)
+                .exclude(user__is_superuser=True)
+                .select_related('user')
+                .order_by('id')
+                .first()
+            )
             if not admin_role:
                 return Response({'error': 'No active admin user found for this tenant'}, status=404)
 
@@ -848,6 +843,70 @@ def tenant_detail(request, tenant_id):
                 'temp_password': temp_password,
                 'email_sent': email_sent,
             })
+
+        # Re-queue a failed (or stuck) provisioning job.
+        # Idempotent: the Celery task short-circuits on 'active', so re-running
+        # over a partially-migrated schema completes the remaining steps.
+        if action == 'retry_provisioning':
+            if tenant.provisioning_status not in ('failed', 'pending'):
+                return Response(
+                    {'error': f"Cannot retry a tenant in '{tenant.provisioning_status}' state"},
+                    status=400,
+                )
+
+            # Reuse the original admin if one exists; otherwise require payload.
+            admin_role = UserTenantRole.objects.filter(
+                tenant=tenant, role='admin',
+            ).select_related('user').first()
+
+            if admin_role:
+                admin_username = admin_role.user.username
+                admin_email = admin_role.user.email
+            else:
+                admin_username = request.data.get('admin_username')
+                admin_email = request.data.get('admin_email')
+                if not admin_username or not admin_email:
+                    return Response(
+                        {'error': 'admin_username and admin_email required — no prior admin found'},
+                        status=400,
+                    )
+
+            temp_password = generate_temp_password()
+
+            # Reset state so polling resumes from 'pending'.
+            tenant.provisioning_status = 'pending'
+            tenant.provisioning_error = ''
+            tenant.provisioning_started_at = None
+            tenant.provisioning_completed_at = None
+            tenant.save(update_fields=[
+                'provisioning_status', 'provisioning_error',
+                'provisioning_started_at', 'provisioning_completed_at',
+            ])
+
+            from tenants.tasks import provision_tenant_schema
+            task_kwargs = {
+                'admin_username': admin_username,
+                'admin_email': admin_email,
+                'temp_password': temp_password,
+                'plan_type': request.data.get('plan_type', ''),
+            }
+            try:
+                provision_tenant_schema.delay(tenant.id, **task_kwargs)
+            except Exception:  # pragma: no cover — broker-down fallback
+                logger.exception('Celery broker unavailable; running provisioning inline')
+                provision_tenant_schema.apply(args=(tenant.id,), kwargs=task_kwargs)
+
+            security_logger.info(
+                'TENANT_RETRY_PROVISIONING: id=%s name=%s by=%s',
+                tenant.id, tenant.name, request.user.username,
+            )
+            return Response({
+                'status': 'retry_queued',
+                'provisioning_status': 'pending',
+                'admin_username': admin_username,
+                'admin_email': admin_email,
+                'temp_password': temp_password,
+            }, status=202)
 
         # Subscription actions
         sub = getattr(tenant, 'subscription', None)
@@ -3963,3 +4022,220 @@ def module_pricing_detail(request, pk):
     # DELETE
     mp.delete()
     return Response(status=204)
+
+
+# ---------------------------------------------------------------------------
+# EMAIL TEMPLATES
+# ---------------------------------------------------------------------------
+
+from .models import EmailTemplate  # noqa: E402  (kept local to minimise churn)
+from .email_rendering import base_layout, strip_html, substitute  # noqa: E402
+
+
+def _serialize_email_template(tpl: EmailTemplate) -> dict:
+    return {
+        'id': tpl.id,
+        'key': tpl.key,
+        'language': tpl.language,
+        'category': tpl.category,
+        'display_name': tpl.display_name,
+        'description': tpl.description,
+        'subject': tpl.subject,
+        'body_html': tpl.body_html,
+        'body_text': tpl.body_text,
+        'variables': tpl.variables or [],
+        'is_active': tpl.is_active,
+        'is_system': tpl.is_system,
+        'updated_at': tpl.updated_at.isoformat() if tpl.updated_at else None,
+        'updated_by': tpl.updated_by.username if tpl.updated_by else None,
+    }
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsSuperAdminUser])
+def email_template_list(request):
+    """List or create email templates."""
+    if request.method == 'GET':
+        qs = EmailTemplate.objects.all()
+        category = request.query_params.get('category')
+        language = request.query_params.get('language')
+        search = request.query_params.get('search')
+        if category:
+            qs = qs.filter(category=category)
+        if language:
+            qs = qs.filter(language=language)
+        if search:
+            qs = qs.filter(
+                Q(key__icontains=search)
+                | Q(display_name__icontains=search)
+                | Q(subject__icontains=search)
+            )
+        return Response([_serialize_email_template(t) for t in qs])
+
+    # POST — create a new template
+    data = request.data
+    required = ['key', 'language', 'display_name', 'subject', 'body_html']
+    for field in required:
+        if not data.get(field):
+            return Response({'error': f'{field} is required'}, status=400)
+
+    if EmailTemplate.objects.filter(key=data['key'], language=data['language']).exists():
+        return Response({'error': 'A template with this key + language already exists'}, status=400)
+
+    tpl = EmailTemplate.objects.create(
+        key=data['key'],
+        language=data['language'],
+        category=data.get('category', 'notification'),
+        display_name=data['display_name'],
+        description=data.get('description', ''),
+        subject=data['subject'],
+        body_html=sanitize_html(data['body_html']),
+        body_text=data.get('body_text', ''),
+        variables=data.get('variables') or [],
+        is_active=data.get('is_active', True),
+        is_system=False,
+        updated_by=request.user if request.user.is_authenticated else None,
+    )
+    return Response(_serialize_email_template(tpl), status=201)
+
+
+@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsSuperAdminUser])
+def email_template_detail(request, pk):
+    """Retrieve, update, or delete a single template."""
+    try:
+        tpl = EmailTemplate.objects.get(pk=pk)
+    except EmailTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=404)
+
+    if request.method == 'GET':
+        return Response(_serialize_email_template(tpl))
+
+    if request.method == 'DELETE':
+        if tpl.is_system:
+            return Response(
+                {'error': 'System templates cannot be deleted. Deactivate instead.'},
+                status=400,
+            )
+        tpl.delete()
+        return Response(status=204)
+
+    # PUT / PATCH
+    data = request.data
+    editable_fields = [
+        'display_name', 'description', 'category', 'subject',
+        'body_text', 'variables', 'is_active',
+    ]
+    for f in editable_fields:
+        if f in data:
+            setattr(tpl, f, data[f])
+
+    if 'body_html' in data:
+        tpl.body_html = sanitize_html(data['body_html'])
+
+    # Key/language may only be changed for non-system rows and only if unique.
+    if not tpl.is_system:
+        if 'key' in data and data['key'] != tpl.key:
+            tpl.key = data['key']
+        if 'language' in data and data['language'] != tpl.language:
+            tpl.language = data['language']
+        # Unique constraint check
+        dup = EmailTemplate.objects.filter(
+            key=tpl.key, language=tpl.language,
+        ).exclude(pk=tpl.pk).exists()
+        if dup:
+            return Response({'error': 'Another template already uses this key + language'}, status=400)
+
+    tpl.updated_by = request.user if request.user.is_authenticated else None
+    tpl.save()
+    return Response(_serialize_email_template(tpl))
+
+
+@api_view(['POST'])
+@permission_classes([IsSuperAdminUser])
+def email_template_preview(request, pk):
+    """Render a template to HTML using sample values — returns wrapped output.
+
+    Body may include ``context`` (dict of placeholder values). Missing
+    placeholders are left literal so editors can see what's unresolved.
+    """
+    try:
+        tpl = EmailTemplate.objects.get(pk=pk)
+    except EmailTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=404)
+
+    context = request.data.get('context') or {}
+    # Provide sensible defaults for every declared variable.
+    for var in tpl.variables or []:
+        context.setdefault(var, f'<{var}>')
+
+    settings_obj = SuperAdminSettings.load()
+    org_name = settings_obj.organization_name or 'QUOT ERP'
+    support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
+
+    rendered_subject = substitute(tpl.subject, context)
+    rendered_body = substitute(tpl.body_html, context)
+    html = base_layout(
+        title=rendered_subject,
+        content_html=rendered_body,
+        org_name=org_name,
+        support_email=support_email,
+        preheader=rendered_subject,
+    )
+    text = substitute(tpl.body_text, context) if tpl.body_text else strip_html(rendered_body)
+
+    return Response({
+        'subject': rendered_subject,
+        'html': html,
+        'text': text,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsSuperAdminUser])
+def email_template_send_test(request, pk):
+    """Send a test email of this template to a specified address."""
+    try:
+        tpl = EmailTemplate.objects.get(pk=pk)
+    except EmailTemplate.DoesNotExist:
+        return Response({'error': 'Template not found'}, status=404)
+
+    to_email = request.data.get('to_email') or (request.user.email if request.user.is_authenticated else None)
+    if not to_email:
+        return Response({'error': 'to_email is required'}, status=400)
+
+    context = request.data.get('context') or {}
+    for var in tpl.variables or []:
+        context.setdefault(var, f'<{var}>')
+
+    settings_obj = SuperAdminSettings.load()
+    org_name = settings_obj.organization_name or 'QUOT ERP'
+    support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
+
+    rendered_subject = substitute(tpl.subject, context)
+    rendered_body = substitute(tpl.body_html, context)
+    html = base_layout(
+        title=rendered_subject,
+        content_html=rendered_body,
+        org_name=org_name,
+        support_email=support_email,
+        preheader=rendered_subject,
+    )
+    text = substitute(tpl.body_text, context) if tpl.body_text else strip_html(rendered_body)
+
+    from django.core.mail import EmailMultiAlternatives
+    from django.conf import settings as dj_settings
+    try:
+        msg = EmailMultiAlternatives(
+            subject=f'[TEST] {rendered_subject}',
+            body=text,
+            from_email=dj_settings.DEFAULT_FROM_EMAIL,
+            to=[to_email],
+        )
+        msg.attach_alternative(html, 'text/html')
+        msg.send(fail_silently=False)
+    except Exception as e:
+        logger.exception('Failed to send test email for template %s', tpl.pk)
+        return Response({'error': str(e)}, status=500)
+
+    return Response({'ok': True, 'sent_to': to_email})

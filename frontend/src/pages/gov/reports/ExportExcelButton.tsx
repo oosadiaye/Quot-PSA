@@ -79,9 +79,10 @@ export default function ExportExcelButton({
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Export failed';
             setError(msg);
-            // Auto-clear after 4 seconds so the UI doesn't stay in an
-            // error state indefinitely.
-            setTimeout(() => setError(null), 4000);
+            // Auto-clear after 12 seconds — long enough for users to
+            // read the error + copy the technical detail into a bug
+            // report, short enough not to block subsequent actions.
+            setTimeout(() => setError(null), 12000);
         } finally {
             setLoading(false);
         }

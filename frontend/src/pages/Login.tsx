@@ -145,13 +145,59 @@ const Login: React.FC = () => {
             const response = await apiClient.post('/core/auth/select-tenant/', {
                 tenant_id: tenant.id,
             });
-            const { domain, tenant_name, role, permissions } = response.data;
+            const { domain, tenant_name, role, permissions, redirect_url, setup_required } =
+                response.data;
             setTenantData(
                 { id: tenant.id, name: tenant_name, domain, role: role || tenant.role },
                 permissions || [],
             );
-            if (response.data.setup_required) navigate('/setup');
-            else navigate('/dashboard');
+
+            // Subdomain redirect: when the backend tells us the tenant
+            // lives at a different hostname (``<slug>.erp.tryquot.com``),
+            // navigate the browser there so subsequent requests come
+            // from the tenant subdomain. Cookies, ``X-Tenant-Domain``
+            // header, and visual context all flow from the URL after
+            // that. We only redirect when the host actually differs —
+            // otherwise an in-app SPA navigation is faster.
+            const targetPath = setup_required ? '/setup' : '/dashboard';
+            if (redirect_url) {
+                try {
+                    const target = new URL(redirect_url);
+                    if (target.host !== window.location.host) {
+                        // Cross-host redirect: ``localStorage`` doesn't
+                        // travel across origins, so we hand the auth
+                        // token + tenant info to the destination via
+                        // URL fragment. The fragment never reaches the
+                        // server (browsers strip ``#...`` from HTTP
+                        // requests) but the destination JS reads it on
+                        // mount, copies into its own ``localStorage``,
+                        // then strips the fragment from the URL bar
+                        // via ``history.replaceState`` so the token
+                        // doesn't sit in browser history.
+                        const token =
+                            localStorage.getItem('authToken') ??
+                            sessionStorage.getItem('authToken');
+                        const userJson =
+                            localStorage.getItem('user') ??
+                            sessionStorage.getItem('user');
+                        target.pathname = targetPath;
+                        const params = new URLSearchParams();
+                        if (token) params.set('t', token);
+                        if (userJson) params.set('u', btoa(unescape(encodeURIComponent(userJson))));
+                        params.set('d', domain);
+                        params.set('tn', tenant_name || '');
+                        if (role) params.set('r', String(role));
+                        if (permissions) params.set('p', btoa(JSON.stringify(permissions)));
+                        target.hash = params.toString();
+                        window.location.replace(target.toString());
+                        return; // Don't fall through to navigate() below.
+                    }
+                } catch {
+                    // Malformed redirect_url — fall through to in-app
+                    // navigation. The header-based path still works.
+                }
+            }
+            navigate(targetPath);
         } catch (err: unknown) {
             const msg =
                 (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||

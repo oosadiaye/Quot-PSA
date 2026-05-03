@@ -192,12 +192,36 @@ class FinancialReportService:
         - Financing: counterpart is Equity or long-term Liability
         """
         from accounting.models import JournalLine, Account
+        from accounting.models.treasury import TreasuryAccount
 
-        cash_accounts = Account.objects.filter(
-            Q(name__icontains='cash') | Q(name__icontains='bank'),
-            account_type='Asset',
-            is_active=True,
-        ).values_list('id', flat=True)
+        # Primary source: GL accounts explicitly mapped from TSA bank accounts.
+        # This is the IPSAS-correct path — every cash movement flows through a
+        # TSA, and each TSA declares its GL control account.
+        tsa_mapped_ids = set(
+            TreasuryAccount.objects
+            .filter(gl_cash_account__isnull=False, is_active=True)
+            .values_list('gl_cash_account_id', flat=True)
+        )
+
+        # Fallback: only used if NO TSA accounts have been mapped yet (fresh
+        # tenant, pre-backfill). Remove this fallback once all tenants have
+        # mapped their TSAs. Emits a warning so ops notices.
+        if not tsa_mapped_ids:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Cash Flow Statement: no TreasuryAccount has a gl_cash_account "
+                "mapping. Falling back to name-substring matching on Account. "
+                "Assign gl_cash_account on every TSA for deterministic reporting."
+            )
+            tsa_mapped_ids = set(
+                Account.objects.filter(
+                    Q(name__icontains='cash') | Q(name__icontains='bank'),
+                    account_type='Asset',
+                    is_active=True,
+                ).values_list('id', flat=True)
+            )
+
+        cash_accounts = tsa_mapped_ids
 
         cash_lines = JournalLine.objects.filter(
             header__posting_date__gte=start_date,

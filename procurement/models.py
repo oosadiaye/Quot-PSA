@@ -10,6 +10,37 @@ from decimal import Decimal
 from datetime import date
 
 
+# Cap the computed variance percentage at the LEGACY NUMERIC(5,2)
+# maximum (999.99) so the value saves cleanly on every tenant — those
+# still on the narrow column AND those already migrated to (10,2).
+# The exact percentage above 999.99 doesn't matter operationally:
+# anything above the configured threshold (typically 5 %) trips the
+# Variance gate and payment_hold flag, so capping preserves the
+# "wildly out of tolerance" semantics without requiring every tenant
+# to migrate before they can post over-threshold invoices.
+_VARIANCE_PCT_CAP = Decimal('999.99')
+
+
+def _cap_variance_pct(value):
+    """Clip a computed variance % to the column's maximum representable
+    value so save() never fails with numeric-field-overflow on tenants
+    still running the legacy NUMERIC(5,2) column.
+
+    Without this cap, a partial-receipt invoice (real variance > 999.99%)
+    would propagate Decimal('1226.07') to the ORM and the database would
+    reject the INSERT/UPDATE — blocking verification entirely. Capping
+    preserves "this is wildly out of tolerance" semantics while letting
+    the row save and the Variance status / payment_hold flag fire.
+    """
+    if value is None:
+        return Decimal('0')
+    if value > _VARIANCE_PCT_CAP:
+        return _VARIANCE_PCT_CAP
+    if value < -_VARIANCE_PCT_CAP:
+        return -_VARIANCE_PCT_CAP
+    return value
+
+
 class PurchaseType(models.Model):
     """Product types for procurement - links to inventory ProductType (deprecated - use inventory.ProductType)"""
     name = models.CharField(max_length=50)
@@ -213,7 +244,7 @@ class VendorRenewalInvoice(AuditBaseModel):
 class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
     """Initial request for purchase."""
     ALLOWED_TRANSITIONS = {
-        'Draft': ['Pending'],
+        'Draft': ['Pending', 'Approved'],
         'Pending': ['Approved', 'Rejected'],
         'Approved': [],
         'Rejected': ['Draft'],
@@ -546,6 +577,18 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                     "Commitment link failed for PO %s: %s", self.po_number, exc,
                 )
 
+        # Refresh commitment when an already-Approved/Posted PO is saved
+        # (e.g. header edit or price change before any GRN exists).
+        if self.pk and self.status in ['Approved', 'Posted'] and old_status in ['Approved', 'Posted']:
+            try:
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(self)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Commitment refresh failed for PO %s: %s", self.po_number, exc,
+                )
+
         if self.pk and old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
             self.cancel_budget_encumbrance()
             # Release the appropriation commitment when the PO is cancelled.
@@ -572,9 +615,19 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         Aggregates by economic account so a multi-line PO that spans
         several economic codes is checked per-appropriation.
         """
-        from accounting.budget_logic import check_warrant_availability
+        from accounting.budget_logic import (
+            check_warrant_availability,
+            is_warrant_pre_payment_enforced,
+        )
         from collections import defaultdict
         from decimal import Decimal as _D
+
+        # Pre-payment warrant enforcement is opt-in via
+        # ``WARRANT_ENFORCEMENT_STAGE``. Default build runs the check
+        # only at payment time, so PO commitment posts without
+        # warrant interrogation.
+        if not is_warrant_pre_payment_enforced():
+            return
 
         # Group line totals by their economic account so each
         # appropriation's warrant balance is checked independently.
@@ -605,69 +658,91 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
 
     def process_budget_encumbrance(self):
         """
-        Groups lines by budget (Account + Dimensions) and checks availability.
-        Creates BudgetEncumbrance records.
+        Groups lines by (account, mda, fund, function, program, geo), runs
+        dual-engine budget validation, and creates BudgetEncumbrance records.
+
+        Engine 1 — Legacy Budget table (backward-compat):
+          Creates a BudgetEncumbrance row when an active Budget row exists.
+          Tenants that have migrated fully to Appropriations won't have one,
+          so the encumbrance is skipped — but the Appropriation check below
+          still fires.
+
+        Engine 2 — Modern Appropriation / BudgetCheckRule policy:
+          Evaluates the tenant's configured check_policy against the
+          Appropriation register, identical to the gate used by PR approval
+          and AP Invoice posting. Hard blocks collected across all lines are
+          raised as a single ValidationError at the end so the user sees
+          every failing line in one response.
         """
-        budget_totals = {}
+        from accounting.budget_logic import get_active_budget
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
+        import logging as _logging
+        _log = _logging.getLogger('dtsg')
+
+        budget_totals: dict = {}
         for line in self.lines.all():
             key = (line.account, self.mda, self.fund, self.function, self.program, self.geo)
             amount = line.unit_price * line.quantity
             budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
 
+        hard_block_messages: list[str] = []
+
         for (account, mda, fund, function, program, geo), total_amount in budget_totals.items():
-            allowed, message = check_budget_availability(
-                dimensions={
-                    'mda': mda,
-                    'fund': fund,
-                    'function': function,
-                    'program': program,
-                    'geo': geo
-                },
-                account=account,
-                amount=total_amount,
-                date=self.order_date,
-                transaction_type='PO',
-                transaction_id=self.pk
-            )
-
-            if not allowed:
-                raise ValidationError(f"Budget Check Failed for {account.code}: {message}")
-
-            # Find the budget object (needed for encumbrance)
+            # ── Engine 1: legacy Budget encumbrance ──────────────────────────
             budget = get_active_budget(
                 dimensions={
-                    'mda': mda,
-                    'fund': fund,
-                    'function': function,
-                    'program': program,
-                    'geo': geo
+                    'mda': mda, 'fund': fund,
+                    'function': function, 'program': program, 'geo': geo,
                 },
                 account=account,
-                date=self.order_date
+                date=self.order_date,
             )
-
-            # FIX #15: Guard against None budget — if no active budget was found
-            # for this dimension combination, skip encumbrance creation to avoid
-            # an IntegrityError on the NOT NULL budget FK.
-            if budget is None:
-                import logging as _logging
-                _logging.getLogger('dtsg').warning(
-                    f"PO {getattr(self, 'po_number', '?')}: no active budget found "
-                    f"for account {getattr(account, 'code', account)} — encumbrance skipped."
+            if budget is not None:
+                BudgetEncumbrance.objects.update_or_create(
+                    budget=budget,
+                    reference_type='PO',
+                    reference_id=self.pk,
+                    defaults={
+                        'encumbrance_date': self.order_date,
+                        'amount': total_amount,
+                        'status': 'ACTIVE',
+                        'description': f"Encumbrance for PO {self.po_number}",
+                    },
                 )
-                continue
+            else:
+                _log.warning(
+                    "PO %s: no active legacy Budget for account %s — "
+                    "encumbrance skipped; Appropriation check still applies.",
+                    getattr(self, 'po_number', '?'),
+                    getattr(account, 'code', account),
+                )
 
-            # Create or update encumbrance
-            BudgetEncumbrance.objects.update_or_create(
-                budget=budget,
-                reference_type='PO',
-                reference_id=self.pk,
-                defaults={
-                    'encumbrance_date': self.order_date,
-                    'amount': total_amount,
-                    'status': 'ACTIVE',
-                    'description': f"Encumbrance for PO {self.po_number}"
-                }
+            # ── Engine 2: modern Appropriation / policy check ─────────────
+            fiscal_year = self.order_date.year if self.order_date else None
+            appropriation = find_matching_appropriation(
+                mda=mda, fund=fund, account=account,
+                fiscal_year=fiscal_year,
+            )
+            result = check_policy(
+                account_code=account.code if account else '',
+                appropriation=appropriation,
+                requested_amount=total_amount,
+                transaction_label='purchase order',
+                account_name=getattr(account, 'name', '') if account else '',
+            )
+            if result.blocked:
+                mda_code = mda.code if mda else 'N/A'
+                fund_code = fund.code if fund else 'N/A'
+                acct_code = account.code if account else 'N/A'
+                hard_block_messages.append(
+                    f"[{mda_code}/{acct_code}/{fund_code}] {result.reason}"
+                )
+
+        if hard_block_messages:
+            raise ValidationError(
+                'Cannot approve PO: ' + '; '.join(hard_block_messages)
             )
 
     def cancel_budget_encumbrance(self):
@@ -685,6 +760,19 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         ]
         permissions = [
             ('approve_purchaseorder', 'Can approve purchase orders'),
+        ]
+        constraints = [
+            # Business rule: a Purchase Requisition can have at most ONE
+            # active Purchase Order. "Active" means any status except
+            # Rejected — so if a PO gets rejected the PR is free to be
+            # converted again (with a fresh PO), but you cannot raise
+            # two simultaneous POs against the same PR. Previously the
+            # system silently allowed duplicate conversions.
+            models.UniqueConstraint(
+                fields=['purchase_request'],
+                condition=models.Q(purchase_request__isnull=False) & ~models.Q(status='Rejected'),
+                name='uniq_active_po_per_purchase_request',
+            ),
         ]
 
     def __str__(self):
@@ -739,6 +827,37 @@ class PurchaseOrderLine(models.Model):
 
     def __str__(self):
         return f"PO Line: {self.item_description}"
+
+    def _refresh_po_commitment(self):
+        """Refresh the parent PO's appropriation commitment after a line change."""
+        if self.po_id and self.po.status in ('Approved', 'Posted'):
+            try:
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(self.po)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Commitment refresh failed after line change on PO %s: %s",
+                    self.po.po_number, exc,
+                )
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._refresh_po_commitment()
+
+    def delete(self, *args, **kwargs):
+        po = self.po  # capture before deletion removes the FK
+        super().delete(*args, **kwargs)
+        if po.status in ('Approved', 'Posted'):
+            try:
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(po)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Commitment refresh failed after line deletion on PO %s: %s",
+                    po.po_number, exc,
+                )
 
 class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
     """Confirms receipt of goods/services."""
@@ -972,7 +1091,14 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
                 )
                 if all_fully_received:
                     po.status = 'Closed'
-                    po.save()
+                    # Posted -> Closed is a legitimate PO lifecycle
+                    # transition; ``ImmutableModelMixin.save`` otherwise
+                    # rejects any edit to a Posted row with
+                    # "Cannot modify a posted transaction". Flag the
+                    # save explicitly so the guard lets the status
+                    # move through while still refusing unrelated
+                    # edits elsewhere.
+                    po.save(_allow_status_change=True)
 
                 # 7.4: Auto-update vendor performance stats using atomic F() updates
                 vendor = po.vendor
@@ -1172,20 +1298,40 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
     WARN-3 FIX: now uses StatusTransitionMixin to enforce valid status transitions.
     Valid paths:
       Draft → Pending_Review (submit for approval)
-      Draft → Matched        (calculate_match without approval)
+      Draft → Matched        (calculate_match: variance ≤ threshold)
+      Draft → Variance       (calculate_match: variance > threshold)
       Pending_Review → Approved / Rejected
       Matched → Pending_Review (submit after manual match)
       Matched → Variance / Rejected
       Variance → Rejected / Matched
     """
     ALLOWED_TRANSITIONS = {
-        'Draft':          ['Pending_Review', 'Matched', 'Rejected'],
+        # ``Variance`` is reachable from Draft because ``calculate_match``
+        # (called from save()) computes the status based on variance %.
+        # A freshly-created matching with above-threshold variance is
+        # legitimately Variance from inception — without enumerating
+        # this path, every over-threshold post fails with
+        # "Invalid status transition from 'Draft' to 'Variance'".
+        'Draft':          ['Pending_Review', 'Matched', 'Variance', 'Rejected'],
         'Pending_Review': ['Approved', 'Rejected'],
         'Matched':        ['Pending_Review', 'Variance', 'Rejected', 'Approved'],
         'Variance':       ['Matched', 'Rejected'],
         'Approved':       [],
         'Rejected':       [],
     }
+    # System-allocated tracking number for the verification record itself.
+    # Distinct from ``invoice_reference`` (the vendor's number on their
+    # paperwork): this is the in-house IV-YYYY-NNNNN identifier that
+    # users quote when emailing/calling about the verification — every
+    # downstream document (VendorInvoice, PaymentVoucher, JournalEntry)
+    # also surfaces this so a single audit trail crosses subsystems.
+    # Allocated automatically in save() via TransactionSequence; existing
+    # rows get backfilled by migration 0047.
+    verification_number = models.CharField(
+        max_length=30, db_index=True, blank=True, default='',
+        help_text='In-house tracking number, e.g. IV-2026-00001.',
+    )
+
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, null=True, blank=True)
     goods_received_note = models.ForeignKey(GoodsReceivedNote, on_delete=models.PROTECT, null=True, blank=True)
     vendor_invoice = models.ForeignKey(
@@ -1203,6 +1349,37 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
     # Tax on invoice
     invoice_tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     invoice_subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+
+    # Tax code (VAT / input tax) and withholding tax selections.
+    # When set these FKs drive automatic VAT / WHT computation at post-to-GL
+    # time via the VendorInvoiceLine the matching provisions.
+    tax_code = models.ForeignKey(
+        'accounting.TaxCode', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='invoice_matchings',
+        help_text='VAT / input-tax code to apply to invoice subtotal.',
+    )
+    withholding_tax = models.ForeignKey(
+        'accounting.WithholdingTax', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='invoice_matchings',
+        help_text='Withholding tax code to apply to invoice subtotal.',
+    )
+    wht_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Computed WHT amount = subtotal × withholding_tax.rate.',
+    )
+    # Transaction-level WHT exemption override — analogous to SAP BP's
+    # per-document "exempt from withholding" flag. When set, WHT is NOT
+    # computed even if the vendor master carries a default WHT code.
+    # Separate from Vendor.wht_exempt (which is a permanent master-data
+    # exemption); this one is episodic (e.g. contract-by-contract).
+    wht_exempt = models.BooleanField(
+        default=False,
+        help_text='Exempt this transaction from withholding tax, overriding the vendor default.',
+    )
+    wht_exempt_reason = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Audit reason for the transaction-level WHT exemption.',
+    )
 
     po_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     grn_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
@@ -1225,7 +1402,14 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
     match_type = models.CharField(max_length=20, choices=MATCH_TYPE_CHOICES, blank=True)
 
     variance_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    variance_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    # Widened from (5,2) → (10,2) so over-threshold variances don't
+    # overflow Postgres NUMERIC(5,2). The legacy precision capped the
+    # field at 999.99% — but a partial GRN (e.g. ₦81k received vs
+    # ₦1.075M invoiced) yields a real variance of ~1226%, which is
+    # mathematically valid and must persist on the matching record so
+    # the variance gate / payment hold can act on it. (10,2) gives
+    # headroom up to 99,999,999.99% — safely beyond any sane data.
+    variance_percentage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     variance_reason = models.TextField(blank=True)
     matched_date = models.DateField(null=True, blank=True)
     payment_hold = models.BooleanField(
@@ -1298,12 +1482,29 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
 
         grn_amount = self.grn_amount or 0
 
+        # Tax-neutral comparison amount. GRN value is computed as
+        # qty × unit_price with no tax (the warehouse never books
+        # VAT), so comparing the gross invoice (which INCLUDES VAT)
+        # against the GRN fires a false variance equal to the tax
+        # rate on every VAT-bearing invoice. ``compare_amount``
+        # strips the VAT for the GRN comparison; the gross
+        # ``invoice_amount`` is still used in the PO comparison
+        # (PO contracts include VAT) and in the variance_amount
+        # reported to operators (so the on-screen Naira diff
+        # reflects what they actually billed).
+        invoice_tax = self.invoice_tax_amount or 0
+        compare_amount = (
+            self.invoice_subtotal
+            if (invoice_tax > 0 and self.invoice_subtotal)
+            else self.invoice_amount
+        )
+
         if self.invoice_amount == self.po_amount == grn_amount:
             self.match_type = 'Full'
             self.status = 'Matched'
             self.variance_amount = 0
             self.variance_percentage = 0
-        elif self.invoice_amount == grn_amount:
+        elif compare_amount == grn_amount:
             if self.po_fully_received:
                 self.match_type = 'Full'
                 self.status = 'Matched'
@@ -1313,12 +1514,22 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
                 self.status = 'Pending_Review'
                 self.variance_amount = self.invoice_amount - self.po_amount
             if self.po_amount and self.po_amount > 0:
-                self.variance_percentage = quantize_currency((abs(self.variance_amount) / self.po_amount) * 100)
+                self.variance_percentage = _cap_variance_pct(
+                    quantize_currency((abs(self.variance_amount) / self.po_amount) * 100)
+                )
         else:
             self.match_type = 'Partial'
+            # Variance Naira amount stays gross (operator-facing,
+            # matches the on-screen invoice they typed). Variance
+            # percentage uses the tax-neutral ``compare_amount`` so
+            # the gate doesn't false-trip on the VAT delta.
             self.variance_amount = quantize_currency(self.invoice_amount - (grn_amount or self.po_amount))
-            if self.po_amount and self.po_amount > 0:
-                self.variance_percentage = quantize_currency((abs(self.variance_amount) / self.po_amount) * 100)
+            pct_numerator = abs(compare_amount - (grn_amount or self.po_amount))
+            pct_base = grn_amount or self.po_amount
+            if pct_base and pct_base > 0:
+                self.variance_percentage = _cap_variance_pct(
+                    quantize_currency((pct_numerator / pct_base) * 100)
+                )
 
             if self.variance_percentage <= variance_threshold:
                 self.status = 'Matched'
@@ -1328,6 +1539,20 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
                 self.payment_hold = True
 
     def save(self, *args, **kwargs):
+        # Allocate the system-tracking number on first save so every new
+        # verification gets a stable identifier the user can quote. Same
+        # pattern as JournalHeader.document_number (TransactionSequence-
+        # backed). Wrapped in try/except — sequence allocation must
+        # never block the save (blank verification_number is tolerated
+        # by the field default; UI falls back to ``IV-{id}``).
+        if not self.pk and not self.verification_number:
+            try:
+                from accounting.models.gl import TransactionSequence
+                self.verification_number = TransactionSequence.get_next(
+                    'invoice_verification', 'IV-',
+                )
+            except Exception:  # noqa: BLE001
+                pass
         # WARN-3 FIX: enforce valid transitions (StatusTransitionMixin.validate_status_transition
         # must be called explicitly; it is not automatic).
         self.validate_status_transition()
@@ -1336,10 +1561,11 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
     class Meta:
         indexes = [
             models.Index(fields=['status']),
+            models.Index(fields=['verification_number']),
         ]
 
     def __str__(self):
-        return f"Match {self.invoice_reference} for PO {self.purchase_order.po_number if self.purchase_order else 'N/A'}"
+        return f"{self.verification_number or f'IV-{self.pk or 0}'} — {self.invoice_reference}"
 
 
 class VendorCreditNote(AuditBaseModel):

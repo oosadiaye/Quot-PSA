@@ -121,6 +121,46 @@ class StatementOfFinancialPerformanceView(APIView):
         )
 
 
+class BudgetPerformanceStatementView(APIView):
+    """IPSAS 24 — Budget Performance Statement in SoFP layout.
+
+    Two budget columns (original / final) plus Actual and Variance, grouped
+    into revenue → expenditure → surplus/deficit so the report reads like
+    the Statement of Financial Performance a user already knows. Completely
+    separate from the flat ``budget-vs-actual`` (IPSAS 24 three-column list)
+    endpoint so adding this doesn't disturb any existing consumer.
+    """
+    permission_classes = [CanViewFinancialStatements]
+
+    def get(self, request):
+        fiscal_year, err = _parse_int_param(
+            request, 'fiscal_year', default=datetime.date.today().year,
+        )
+        if err:
+            return err
+        period, err = _parse_int_param(request, 'period')
+        if err:
+            return err
+        data = get_or_compute(
+            report='budgetperf',
+            params={
+                'fiscal_year': fiscal_year,
+                'period': period,
+                'gen': report_generation(fiscal_year),
+            },
+            compute=lambda: IPSASReportService.budget_performance_statement(
+                fiscal_year, period,
+            ),
+        )
+        return serve_report(
+            request, data,
+            filename_stem=f'budget-performance-{fiscal_year}{"-" + str(period) if period else ""}',
+            report_type='ipsas.budgetperf',
+            fiscal_year=fiscal_year,
+            period=period or 0,
+        )
+
+
 class CashFlowStatementView(APIView):
     """IPSAS 2 — Cash Flow Statement (direct method)."""
     permission_classes = [CanViewFinancialStatements]

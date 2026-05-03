@@ -163,14 +163,14 @@ class FixedAsset(AuditBaseModel):
     asset_number = models.CharField(max_length=50, unique=True, default='')
     name = models.CharField(max_length=200, default='')
     description = models.TextField(blank=True, default='')
-    asset_category = models.CharField(max_length=20, choices=[
-        ('Building', 'Building'),
-        ('Equipment', 'Equipment'),
-        ('Vehicle', 'Vehicle'),
-        ('IT', 'IT Equipment'),
-        ('Furniture', 'Furniture'),
-        ('Land', 'Land'),
-    ])
+    # Stores the ``AssetCategory.code`` (or legacy category label) so
+    # tenants can define their own category taxonomy via
+    # ``/accounting/asset-categories/`` instead of being limited to
+    # the old hardcoded list. The field is kept as CharField (not a
+    # FK) so historical rows with free-text categories continue to
+    # work; the frontend now populates the dropdown from the live
+    # AssetCategory API.
+    asset_category = models.CharField(max_length=50, blank=True, default='')
     acquisition_date = models.DateField(default=date.today)
     acquisition_cost = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     salvage_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -193,9 +193,90 @@ class FixedAsset(AuditBaseModel):
         ('Disposed', 'Disposed'),
         ('Retired', 'Retired'),
     ], default='Active')
+    # Audit link populated by the Phase 2 auto-capitalisation hook in
+    # accounting/views/core_gl.py:_post_to_gl. When a journal line debits a
+    # GL with ``Account.auto_create_asset=True``, this asset is created and
+    # this FK records the originating line. Reversals of that journal find
+    # the asset via this link and void it. Manual asset entries leave it null.
+    created_from_journal_line = models.ForeignKey(
+        'accounting.JournalLine', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='auto_created_assets',
+        help_text='Journal line that triggered auto-capitalisation, if any.',
+    )
 
     class Meta:
         ordering = ['asset_number']
+
+    def _generate_asset_number(self) -> str:
+        """Generate the next sequential asset number: FA-YYYY-NNNNN.
+
+        Mirrors the PO / PR / JV / Warrant numbering conventions used
+        elsewhere in the codebase:
+          * year is the acquisition year (falls back to today if unset)
+          * five-digit zero-padded sequence per year
+          * ``select_for_update`` on the highest-numbered row so
+            concurrent inserts queue instead of producing duplicates.
+        """
+        import datetime
+        from django.db import transaction
+        yr = (self.acquisition_date or datetime.date.today()).year
+        prefix = f'FA-{yr}-'
+        with transaction.atomic():
+            last = (
+                type(self).objects
+                .select_for_update()
+                .filter(asset_number__startswith=prefix)
+                .order_by('-asset_number')
+                .first()
+            )
+            next_seq = 1
+            if last and last.asset_number:
+                try:
+                    next_seq = int(last.asset_number.rsplit('-', 1)[-1]) + 1
+                except (ValueError, IndexError):
+                    next_seq = 1
+            return f'{prefix}{next_seq:05d}'
+
+    def save(self, *args, **kwargs):
+        # Auto-allocate the asset number when the user leaves it blank
+        # on the form (or when an import / API caller doesn't supply
+        # one). Explicit values are always honoured so tagging imports
+        # from asset registers can carry their existing numbers.
+        if not self.asset_number:
+            self.asset_number = self._generate_asset_number()
+
+        # Inherit depreciation defaults from the matching AssetCategory
+        # so the user doesn't have to re-key them on every asset. Match
+        # is by ``asset_category`` (stored as category.code or .name).
+        # Inline-supplied values win; only blank-on-create fields get
+        # auto-populated.
+        if self.asset_category and (
+            not self.useful_life_years
+            or not self.depreciation_method
+            or self.salvage_value in (None, 0, Decimal('0'), Decimal('0.00'))
+        ):
+            try:
+                cat = AssetCategory.objects.filter(
+                    is_active=True, code=self.asset_category,
+                ).first() or AssetCategory.objects.filter(
+                    is_active=True, name=self.asset_category,
+                ).first()
+            except Exception:
+                cat = None
+            if cat is not None:
+                if not self.useful_life_years:
+                    self.useful_life_years = cat.default_life_years or 0
+                if not self.depreciation_method:
+                    self.depreciation_method = cat.depreciation_method or 'Straight-Line'
+                # Salvage value inherits only when user didn't set one.
+                if self.salvage_value in (None, 0, Decimal('0'), Decimal('0.00')):
+                    rv = cat.residual_value or Decimal('0')
+                    if cat.residual_value_type == 'amount':
+                        self.salvage_value = rv
+                    # percentage residuals resolve at the depreciation
+                    # schedule step once acquisition_cost is known.
+
+        super().save(*args, **kwargs)
 
     @property
     def net_book_value(self):
@@ -635,3 +716,84 @@ class DepreciationDetail(models.Model):
 
     def __str__(self):
         return f"{self.asset_code} - {self.period_depreciation}"
+
+
+class DepreciationRunSchedule(models.Model):
+    """Tenant-level schedule for the monthly auto-depreciation run.
+
+    There is typically **one** active schedule per tenant. The
+    ``run_monthly_depreciation`` management command (invoked by a cron
+    job or django-celery-beat ``PeriodicTask``) checks this table each
+    day and fires when today ≥ ``next_run_date`` on any active row.
+
+    When it fires it re-queries **all** ACTIVE FixedAsset rows whose
+    ``acquisition_cost > 0`` (so assets added between the previous run
+    and today are automatically picked up — the user's "include
+    additional depreciations for the month future asset posted"
+    requirement), calls the same bulk-depreciation service as the UI,
+    records the run, and advances ``next_run_date`` by one month.
+    """
+    # User-configurable settings
+    is_active = models.BooleanField(
+        default=True, db_index=True,
+        help_text='Uncheck to pause the auto-run without deleting the schedule.',
+    )
+    day_of_month = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='Day (1–28) when the monthly run fires. Values >28 are '
+                  'clamped to the last day of each month by the command.',
+    )
+
+    # Bookkeeping (auto-maintained by the command)
+    last_run_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Wall-clock time of the most recent fire.',
+    )
+    last_run_period_date = models.DateField(
+        null=True, blank=True,
+        help_text='The period_date (month-end) depreciated in the last run.',
+    )
+    last_run_assets_posted = models.PositiveIntegerField(default=0)
+    last_run_total_amount = models.DecimalField(
+        max_digits=20, decimal_places=2, default=Decimal('0'),
+    )
+    last_run_skipped = models.PositiveIntegerField(default=0)
+    last_run_error = models.TextField(blank=True, default='')
+    next_run_date = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text='Command fires when today >= this date.',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_active', '-next_run_date']
+        verbose_name = 'Depreciation Run Schedule'
+        verbose_name_plural = 'Depreciation Run Schedules'
+
+    def __str__(self):
+        state = 'ACTIVE' if self.is_active else 'PAUSED'
+        return f'DepreciationRunSchedule ({state}, day={self.day_of_month})'
+
+    def save(self, *args, **kwargs):
+        # Clamp day_of_month into a sane range on every save so a
+        # misconfigured value doesn't silently disable the run.
+        if not self.day_of_month or self.day_of_month < 1:
+            self.day_of_month = 1
+        if self.day_of_month > 28:
+            self.day_of_month = 28
+        # Seed next_run_date on first save so the command has a target.
+        if self.next_run_date is None:
+            from datetime import date as _d
+            today = _d.today()
+            year, month = today.year, today.month
+            candidate = _d(year, month, self.day_of_month)
+            if candidate < today:
+                # This month's day already passed → roll to next month.
+                if month == 12:
+                    candidate = _d(year + 1, 1, self.day_of_month)
+                else:
+                    candidate = _d(year, month + 1, self.day_of_month)
+            self.next_run_date = candidate
+        super().save(*args, **kwargs)

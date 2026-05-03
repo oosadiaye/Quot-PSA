@@ -147,9 +147,23 @@ interface BackButtonProps {
   variant?: 'compact' | 'full';
   /** Light mode for dark backgrounds (e.g. blue gradient headers). */
   light?: boolean;
+  /**
+   * Optional click handler. When supplied, replaces the default
+   * ``navigate(-1)`` behaviour. Use this from form components that
+   * want the back button to close a modal / clear edit state instead
+   * of navigating browser history.
+   *
+   * Why a prop instead of a wrapper <button>? Wrapping <BackButton>
+   * inside another <button onClick={onCancel}> is invalid HTML — a
+   * <button> cannot be a descendant of another <button>. React 19's
+   * hydration validator now flags this as an error. Pulling the
+   * handler INTO BackButton via this prop keeps a single <button>
+   * element in the DOM.
+   */
+  onClick?: () => void;
 }
 
-const BackButton = ({ variant = 'full', light = false }: BackButtonProps) => {
+const BackButton = ({ variant = 'full', light = false, onClick }: BackButtonProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
@@ -159,13 +173,18 @@ const BackButton = ({ variant = 'full', light = false }: BackButtonProps) => {
 
   const breadcrumbs = useMemo(() => getBreadcrumbs(pathname), [pathname]);
 
+  // Resolve the click handler once so both variants use the same
+  // logic: caller-supplied onClick wins; otherwise fall back to
+  // ``navigate(-1)`` for back-in-history behaviour.
+  const handleClick = onClick ?? (() => navigate(-1));
+
   // Don't show on dashboard or login-type pages
   if (isDashboard || isSuperAdmin) return null;
 
   if (variant === 'compact') {
     return (
       <button
-        onClick={() => navigate(-1)}
+        onClick={handleClick}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -217,7 +236,7 @@ const BackButton = ({ variant = 'full', light = false }: BackButtonProps) => {
       marginBottom: '4px',
     }}>
       <button
-        onClick={() => navigate(-1)}
+        onClick={handleClick}
         style={{
           display: 'flex',
           alignItems: 'center',

@@ -11,8 +11,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Award, Plus, X, Search, AlertTriangle,
 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
+import { ListPageShell } from '../../components/layout';
 
 interface Appropriation {
     id: number;
@@ -102,9 +102,7 @@ export default function AppropriationAdminPage() {
     }, [rows, filter]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
-            <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+        <ListPageShell>
                 <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: 20,
@@ -523,8 +521,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
+        </ListPageShell>
     );
 }
 

@@ -86,7 +86,8 @@ export const BudgetEntry: React.FC = () => {
     const handleAddRow = () => {
         if (!selectedYear || !selectedMda || !selectedFund) {
             setSaveError('Fiscal Year, MDA, and Fund are required before adding budget lines');
-            setTimeout(() => setSaveError(''), 3000);
+            // 12s — errors need time to read (field + reason + action)
+            setTimeout(() => setSaveError(''), 12000);
             return;
         }
         setEditingData([...editingData, {
@@ -150,7 +151,7 @@ export const BudgetEntry: React.FC = () => {
             }
             setSaveSuccess('Budget saved successfully');
             setHasChanges(false);
-            setTimeout(() => setSaveSuccess(''), 3000);
+            setTimeout(() => setSaveSuccess(''), 5000);
         } catch (error) {
             setSaveError('Failed to save budget');
             logger.error(error);

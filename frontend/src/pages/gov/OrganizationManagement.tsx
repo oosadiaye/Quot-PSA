@@ -5,9 +5,9 @@
  * Shows all MDA organizations with their roles, user counts, and status.
  * Allows toggling MDA isolation mode (UNIFIED ↔ SEPARATED).
  */
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Shield, Landmark, Eye, LayoutGrid, Users, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Building2, Shield, Landmark, Eye, LayoutGrid, Users, ToggleLeft, ToggleRight, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
 
@@ -71,6 +71,27 @@ export default function OrganizationManagement() {
         },
         onError: (err: any) => {
             alert(err?.response?.data?.error || 'Failed to switch mode. Check console for details.');
+        },
+    });
+
+    // Sync Organizations from NCoA Administrative Segments. Idempotent —
+    // only segments that don't already have a linked Organization are
+    // created. Useful for first-time setup and any time new MDAs are
+    // added to NCoA but not yet promoted to access-control entities.
+    const syncFromNcoa = useMutation({
+        mutationFn: async () => {
+            const res = await apiClient.post('/core/organizations/sync-from-ncoa/');
+            return res.data as { created: number; skipped: number; total_segments: number };
+        },
+        onSuccess: (data) => {
+            qc.invalidateQueries({ queryKey: ['organizations-all'] });
+            const msg = data.created > 0
+                ? `Created ${data.created} organization(s) from NCoA. ${data.skipped} already existed.`
+                : `No new organizations to create. ${data.skipped} of ${data.total_segments} segments already had organizations.`;
+            alert(msg);
+        },
+        onError: (err: any) => {
+            alert(err?.response?.data?.error || 'Sync failed. Check console for details.');
         },
     });
 
@@ -181,10 +202,42 @@ export default function OrganizationManagement() {
                     })}
                 </div>
 
-                {/* MDA List */}
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
-                    Ministries, Departments & Agencies ({mdaOrgs.length})
-                </h2>
+                {/* MDA List header — section title on the left, Sync from
+                    NCoA button on the right so admins can populate the
+                    organization list from existing Administrative Segments
+                    without re-entering them by hand. */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    marginBottom: 12, gap: 16, flexWrap: 'wrap',
+                }}>
+                    <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                        Ministries, Departments & Agencies ({mdaOrgs.length})
+                    </h2>
+                    <button
+                        onClick={() => syncFromNcoa.mutate()}
+                        disabled={syncFromNcoa.isPending}
+                        title="Create one Organization for every NCoA Administrative Segment that doesn't already have one. Idempotent — safe to re-run."
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '0.5rem 1rem',
+                            background: '#16a34a',
+                            color: '#ffffff',
+                            border: '1px solid #16a34a',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: syncFromNcoa.isPending ? 'wait' : 'pointer',
+                            opacity: syncFromNcoa.isPending ? 0.7 : 1,
+                            boxShadow: '0 2px 6px rgba(22,163,74,0.35)',
+                            transition: 'background 0.15s, box-shadow 0.15s',
+                        }}
+                        onMouseEnter={(e) => { if (!syncFromNcoa.isPending) (e.currentTarget as HTMLButtonElement).style.background = '#15803d'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#16a34a'; }}
+                    >
+                        <RefreshCw size={14} className={syncFromNcoa.isPending ? 'animate-spin' : ''} />
+                        {syncFromNcoa.isPending ? 'Syncing…' : 'Sync from NCoA'}
+                    </button>
+                </div>
                 <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
                     {isSeparated
                         ? 'Each MDA below operates as an independent branch — users only see their own data.'
@@ -210,9 +263,14 @@ export default function OrganizationManagement() {
                                 {mdaOrgs.map(org => {
                                     const rc = ROLE_CONFIG[org.org_role] || ROLE_CONFIG.MDA;
                                     const isExpanded = expandedOrg === org.id;
+                                    // Use the long-form Fragment so we can put
+                                    // the React key on the outer wrapper that
+                                    // .map() returns. Shorthand <>...</> can't
+                                    // accept a key prop — that's what React
+                                    // was warning about in the console.
                                     return (
-                                        <>
-                                            <tr key={org.id}
+                                        <React.Fragment key={org.id}>
+                                            <tr
                                                 onClick={() => setExpandedOrg(isExpanded ? null : org.id)}
                                                 style={{
                                                     borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
@@ -236,7 +294,7 @@ export default function OrganizationManagement() {
                                                 </td>
                                             </tr>
                                             {isExpanded && (
-                                                <tr key={`${org.id}-users`}>
+                                                <tr>
                                                     <td colSpan={4} style={{ padding: '0 16px 16px', background: '#f8fafc' }}>
                                                         <div style={{
                                                             background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0',
@@ -269,7 +327,7 @@ export default function OrganizationManagement() {
                                                     </td>
                                                 </tr>
                                             )}
-                                        </>
+                                        </React.Fragment>
                                     );
                                 })}
                             </tbody>

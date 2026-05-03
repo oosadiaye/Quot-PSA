@@ -10,9 +10,18 @@ import SettingsLayout from './SettingsLayout';
 interface AccountingSettingsData {
     id: number;
     require_vendor_registration_invoice: boolean;
+    // GL account credited when a vendor pays their registration invoice.
+    // Optional FK; if null, the posting falls back to NCoA 12100200.
+    vendor_registration_revenue_account: number | null;
     // When true, outgoing Payments MUST reference a PV. When false,
     // verifiers can raise direct payments from vendor invoices.
     require_pv_before_payment: boolean;
+}
+
+interface IncomeAccountOption {
+    id: number;
+    code: string;
+    name: string;
 }
 
 const SETTINGS_URL = '/accounting/settings/';
@@ -36,7 +45,24 @@ export default function AccountingSettingsPage() {
     const queryClient = useQueryClient();
     const navigate = useNavigate();
     const [requireVendorInvoice, setRequireVendorInvoice] = useState(true);
+    const [vendorRegRevenueAccount, setVendorRegRevenueAccount] = useState<string>('');
     const [requirePvBeforePayment, setRequirePvBeforePayment] = useState(false);
+
+    // Income GL list for the registration-revenue selector. Pulls every
+    // active Income account on the COA so tenants pick from real data,
+    // never a hardcoded code list. ``page_size=10000`` matches the
+    // server-side cap on AccountingPagination so we never silently
+    // truncate mid-large COAs.
+    const { data: incomeAccounts = [] } = useQuery<IncomeAccountOption[]>({
+        queryKey: ['income-accounts-for-settings'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/accounts/', {
+                params: { account_type: 'Income', is_active: true, page_size: 10000, ordering: 'code' },
+            });
+            return Array.isArray(data) ? data : (data?.results ?? []);
+        },
+        staleTime: 5 * 60 * 1000,
+    });
     const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
     const { data: settings, isLoading } = useQuery<AccountingSettingsData>({
@@ -50,6 +76,11 @@ export default function AccountingSettingsPage() {
     useEffect(() => {
         if (settings) {
             setRequireVendorInvoice(settings.require_vendor_registration_invoice ?? true);
+            setVendorRegRevenueAccount(
+                settings.vendor_registration_revenue_account != null
+                    ? String(settings.vendor_registration_revenue_account)
+                    : ''
+            );
             setRequirePvBeforePayment(settings.require_pv_before_payment ?? false);
         }
     }, [settings]);
@@ -61,6 +92,9 @@ export default function AccountingSettingsPage() {
             // that this page doesn't surface. PATCH is partial update.
             const res = await apiClient.patch(SETTINGS_URL, {
                 require_vendor_registration_invoice: requireVendorInvoice,
+                vendor_registration_revenue_account: vendorRegRevenueAccount
+                    ? parseInt(vendorRegRevenueAccount)
+                    : null,
                 require_pv_before_payment: requirePvBeforePayment,
             });
             return res.data;
@@ -180,6 +214,46 @@ export default function AccountingSettingsPage() {
                             <strong>Note:</strong> Expired supplier renewal invoices are still available on the
                             Expired Suppliers page. This setting only affects new vendor registration.
                         </div>
+                    </div>
+                )}
+
+                {/* ── Registration-fee revenue GL selector ──────
+                    Only meaningful when the gate is ON — shown then so
+                    the operator knows exactly which Income account will
+                    be credited when a vendor pays their registration
+                    invoice. Hidden when gate is OFF (no postings happen
+                    so no GL config needed). */}
+                {requireVendorInvoice && (
+                    <div style={{ marginTop: '20px' }}>
+                        <label style={{
+                            display: 'block', fontSize: '12px', fontWeight: 700,
+                            color: '#475569', textTransform: 'uppercase',
+                            letterSpacing: '0.04em', marginBottom: '8px',
+                        }}>
+                            Registration-Fee Revenue Account
+                        </label>
+                        <select
+                            value={vendorRegRevenueAccount}
+                            onChange={(e) => setVendorRegRevenueAccount(e.target.value)}
+                            style={{
+                                width: '100%', padding: '10px 12px', borderRadius: '10px',
+                                border: '1.5px solid #e2e8f0', fontSize: '14px',
+                                background: '#fff', color: '#0f172a',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <option value="">— Use NCoA 12100200 default —</option>
+                            {incomeAccounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.code} — {a.name}
+                                </option>
+                            ))}
+                        </select>
+                        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.5 }}>
+                            Income account credited when vendors pay their registration invoice.
+                            Leave on default to use NCoA code 12100200; pick an explicit account if
+                            your CoA uses a different revenue code.
+                        </p>
                     </div>
                 )}
 

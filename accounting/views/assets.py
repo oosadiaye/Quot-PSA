@@ -1,4 +1,7 @@
 from datetime import datetime
+from decimal import InvalidOperation
+
+import pandas as pd
 
 from .common import (
     viewsets, status, Response, action, transaction, Decimal, AccountingPagination,
@@ -8,6 +11,7 @@ from ..models import (
     AssetClass, AssetConfiguration, AssetCategory, AssetLocation,
     AssetInsurance, AssetMaintenance, AssetTransfer,
     AssetDepreciationSchedule, AssetRevaluationRun, AssetDisposal, AssetImpairment, Account, TransactionSequence,
+    DepreciationRunSchedule,
 )
 from ..serializers import (
     FixedAssetSerializer,
@@ -29,6 +33,27 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     serializer_class = FixedAssetSerializer
     filterset_fields = ['status', 'asset_category', 'mda']
     search_fields = ['asset_number', 'name', 'description']
+
+    def create(self, request, *args, **kwargs):
+        """Override create to surface BudgetCheckRule warnings.
+
+        The serializer's ``validate()`` runs ``check_policy`` against
+        the (MDA, Economic, Fund) dimension tuple. STRICT violations
+        already bubble up as a structured 400. WARNING-level hits
+        (e.g. account has a WARNING rule AND no appropriation exists
+        yet) are stored on the serializer as ``_bcr_warnings`` — we
+        echo them back on the 201 response so the UI can show a soft
+        banner without blocking the save.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        payload = dict(serializer.data)
+        warnings = getattr(serializer, '_bcr_warnings', []) or []
+        if warnings:
+            payload['budget_warnings'] = warnings
+        return Response(payload, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=True, methods=['post'])
     def acquire(self, request, pk=None):
@@ -268,10 +293,17 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         POST /fixed-assets/bulk-depreciation/
         {
             "period_date": "2026-03-31",
-            "asset_ids": [1, 2, 3],   // optional — defaults to all active
+            "asset_ids": [1, 2, 3],   // optional — defaults to all eligible active assets
             "simulate": true           // true = preview only, false = post to GL
         }
+
+        Eligibility: ``status='Active'`` AND ``acquisition_cost > 0``
+        (only posted values can be depreciated). Single source of
+        truth in ``accounting.services.depreciation.run_monthly_depreciation``
+        — shared with the scheduled auto-run command.
         """
+        from accounting.services.depreciation import run_monthly_depreciation as _run
+
         period_date = request.data.get('period_date')
         asset_ids = request.data.get('asset_ids', [])
         simulate = request.data.get('simulate', True)
@@ -281,6 +313,18 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         if isinstance(period_date, str):
             period_date = datetime.strptime(period_date, '%Y-%m-%d').date()
+        # Delegate to the shared service and return directly.
+        return Response(_run(
+            period_date=period_date,
+            asset_ids=asset_ids or None,
+            simulate=bool(simulate),
+            user=request.user,
+        ))
+
+    # Legacy inline implementation retained below — unreachable after
+    # the delegation above but kept as a commented-out reference for
+    # anyone auditing the refactor.
+    def _legacy_bulk_depreciation(self, request, period_date, asset_ids, simulate):
 
         # Build queryset of eligible assets
         assets_qs = FixedAsset.objects.filter(status='Active').select_related(
@@ -488,6 +532,322 @@ class AssetCategoryViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'code']
     pagination_class = AccountingPagination
 
+    # ─── Import / Export plumbing ─────────────────────────────────────────
+    # Mirrors the comment-stripping + dtype=str defenses of
+    # accounting/views/common.py:DimensionImportExportMixin so the asset-
+    # category template carries a help block at the top, numeric-looking
+    # codes survive Excel round-tripping intact, and blank cells become
+    # empty strings instead of pandas NaN sentinel values.
+
+    @action(detail=False, methods=['get'], url_path='import-template')
+    def import_template(self, request):
+        """Download a CSV template for bulk asset-category import."""
+        import io
+        import csv as _csv
+        from django.http import HttpResponse
+
+        help_lines = [
+            'Asset Category import template.',
+            'REQUIRED columns: code (max 20 chars), name (max 100 chars).',
+            'OPTIONAL columns and defaults if blank:',
+            '  cost_account_code                       — GL account that receives capitalised',
+            '                                            cost when auto-create-asset fires.',
+            '  accumulated_depreciation_account_code   — GL account credited by depreciation',
+            '                                            posting (contra-asset).',
+            '  depreciation_expense_account_code       — GL account debited by depreciation',
+            '                                            posting (P&L).',
+            '  depreciation_method (default Straight-Line) — one of: Straight-Line,',
+            '                                                 Declining Balance, Double Declining Balance,',
+            '                                                 Sum of Years Digits, Units of Production.',
+            '  default_life_years (default 5)          — useful life in years.',
+            '  residual_value_type (default percentage) — one of: percentage, amount.',
+            '  residual_value (default 0)              — % of cost OR fixed amount.',
+            '  is_active (default true)                — boolean.',
+            '',
+            'GL account columns are looked up by CODE (not numeric id) so the template is',
+            'portable across tenants. Codes must already exist in the Chart of Accounts —',
+            'the importer rejects rows pointing to missing accounts with a clear error.',
+            'Re-uploading is idempotent: rows with an existing ``code`` are UPDATED in place.',
+            'Lines starting with # (like these) are ignored on import.',
+        ]
+
+        cols = [
+            'code', 'name',
+            'cost_account_code',
+            'accumulated_depreciation_account_code',
+            'depreciation_expense_account_code',
+            'depreciation_method', 'default_life_years',
+            'residual_value_type', 'residual_value',
+            'is_active',
+        ]
+        examples = [
+            ['LAND',      'Land',                   '32100100', '',         '',         'Straight-Line', '0',   'percentage', '0',  'true'],
+            ['BUILDINGS', 'Buildings',              '32200100', '32299100', '22250100', 'Straight-Line', '40',  'percentage', '5',  'true'],
+            ['VEHICLES',  'Motor Vehicles',         '32300100', '32399100', '22250200', 'Straight-Line', '5',   'percentage', '10', 'true'],
+            ['PLANT',     'Plant and Equipment',    '32400100', '32499100', '22250300', 'Straight-Line', '8',   'percentage', '5',  'true'],
+            ['ICT',       'ICT Equipment',          '32500100', '32599100', '22250400', 'Straight-Line', '4',   'percentage', '10', 'true'],
+            ['FURNITURE', 'Furniture and Fixtures', '32600100', '32699100', '22250500', 'Straight-Line', '7',   'percentage', '5',  'true'],
+            ['LIBRARY',   'Library Books',          '32700100', '32799100', '22250600', 'Straight-Line', '5',   'percentage', '0',  'true'],
+        ]
+
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        for line in help_lines:
+            writer.writerow([f'# {line}'])
+        writer.writerow(cols)
+        for row in examples:
+            writer.writerow(row)
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="asset_category_import_template.csv"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='bulk-import')
+    def bulk_import(self, request):
+        """Import or update asset categories from CSV / Excel."""
+        from accounting.models.gl import Account
+        import io as _io
+
+        file = request.FILES.get('file')
+        if not file:
+            return Response(
+                {'error': 'A CSV or Excel file is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if file.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'File too large. Maximum 5MB allowed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def _is_comment_cell(cell: str) -> bool:
+            s = (cell or '').strip()
+            return s.startswith('#') or s.startswith('"#') or s.startswith("'#")
+
+        # Same protections as the dimension importer: dtype=str so codes don't
+        # get float-promoted to '11000000.0', keep_default_na=False so blanks
+        # come through as empty strings instead of NaN.
+        try:
+            if file.name.endswith('.xlsx'):
+                df_raw = pd.read_excel(
+                    file, header=None, nrows=10000, dtype=str,
+                    keep_default_na=False, na_filter=False,
+                )
+                if df_raw.empty:
+                    return Response({'error': 'The uploaded spreadsheet is empty.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                header_idx = None
+                for i in range(len(df_raw)):
+                    first = str(df_raw.iloc[i, 0]) if df_raw.shape[1] else ''
+                    if first and first.strip() and not _is_comment_cell(first):
+                        header_idx = i
+                        break
+                if header_idx is None:
+                    return Response(
+                        {'error': "Could not find a header row (every row starts with '#')."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                cols = df_raw.iloc[header_idx].astype(str).tolist()
+                df = df_raw.iloc[header_idx + 1:].reset_index(drop=True)
+                df.columns = cols
+                if not df.empty:
+                    first_col = df.columns[0]
+                    mask = df[first_col].astype(str).map(_is_comment_cell)
+                    df = df[~mask].reset_index(drop=True)
+            else:
+                raw = file.read()
+                text = raw.decode('utf-8-sig', errors='replace') if isinstance(raw, bytes) else str(raw)
+                cleaned_lines = [ln for ln in text.splitlines() if not _is_comment_cell(ln)]
+                if not cleaned_lines:
+                    return Response(
+                        {'error': 'The uploaded CSV is empty (or only contains comment lines).'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                df = pd.read_csv(
+                    _io.StringIO('\n'.join(cleaned_lines)),
+                    nrows=10000, dtype=str,
+                    keep_default_na=False, na_filter=False,
+                )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to parse file: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        df.columns = df.columns.str.strip().str.lower()
+        required = {'code', 'name'}
+        missing = required - set(df.columns)
+        if missing:
+            return Response(
+                {'error': f"Missing required columns: {', '.join(sorted(missing))}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_methods = {
+            'Straight-Line', 'Declining Balance', 'Double Declining Balance',
+            'Sum of Years Digits', 'Units of Production',
+        }
+        valid_residual = {'percentage', 'amount'}
+
+        # Simple cache so we don't query the same Account by code repeatedly
+        # across rows that share a cost / accumulated / expense GL.
+        account_cache: dict[str, 'Account | None'] = {}
+        def _resolve_account(code_str: str) -> 'Account | None':
+            code_str = (code_str or '').strip()
+            if not code_str:
+                return None
+            if code_str in account_cache:
+                return account_cache[code_str]
+            obj = Account.objects.filter(code=code_str).first()
+            account_cache[code_str] = obj
+            return obj
+
+        def _str_cell(row, col, default=''):
+            if col not in df.columns:
+                return default
+            v = row.get(col, '')
+            return default if v in ('', None) else str(v).strip()
+
+        def _bool_cell(row, col, default=True):
+            if col not in df.columns:
+                return default
+            raw = str(row.get(col, '') or '').strip().lower()
+            if raw == '':
+                return default
+            return raw in ('true', '1', 'yes', 'y', 'active')
+
+        created = 0
+        updated = 0
+        errors: list[str] = []
+
+        for idx, row in df.iterrows():
+            row_num = idx + 2
+            try:
+                code = _str_cell(row, 'code')
+                name = _str_cell(row, 'name')
+                if not code or len(code) > 20:
+                    errors.append(f"Row {row_num}: Invalid code '{code}' (1-20 chars).")
+                    continue
+                if not name or len(name) > 100:
+                    errors.append(f"Row {row_num}: Invalid name (1-100 chars).")
+                    continue
+
+                method = _str_cell(row, 'depreciation_method', 'Straight-Line') or 'Straight-Line'
+                if method not in valid_methods:
+                    errors.append(
+                        f"Row {row_num}: Invalid depreciation_method '{method}'. "
+                        f"Must be one of: {', '.join(sorted(valid_methods))}."
+                    )
+                    continue
+
+                residual_type = _str_cell(row, 'residual_value_type', 'percentage') or 'percentage'
+                if residual_type not in valid_residual:
+                    errors.append(
+                        f"Row {row_num}: Invalid residual_value_type '{residual_type}'. "
+                        f"Must be 'percentage' or 'amount'."
+                    )
+                    continue
+
+                try:
+                    life_years = int(_str_cell(row, 'default_life_years', '5') or '5')
+                except (TypeError, ValueError):
+                    errors.append(f"Row {row_num}: default_life_years must be a whole number.")
+                    continue
+
+                try:
+                    residual_value = Decimal(_str_cell(row, 'residual_value', '0') or '0')
+                except (TypeError, InvalidOperation):
+                    errors.append(f"Row {row_num}: residual_value must be a decimal number.")
+                    continue
+
+                # GL account FKs — by code lookup. Empty cells are allowed
+                # (the model has null=True on all three FKs).
+                cost_acc = _resolve_account(_str_cell(row, 'cost_account_code'))
+                if _str_cell(row, 'cost_account_code') and not cost_acc:
+                    errors.append(
+                        f"Row {row_num}: cost_account_code "
+                        f"'{_str_cell(row, 'cost_account_code')}' not found in Chart of Accounts."
+                    )
+                    continue
+                accum_acc = _resolve_account(_str_cell(row, 'accumulated_depreciation_account_code'))
+                if _str_cell(row, 'accumulated_depreciation_account_code') and not accum_acc:
+                    errors.append(
+                        f"Row {row_num}: accumulated_depreciation_account_code "
+                        f"'{_str_cell(row, 'accumulated_depreciation_account_code')}' not found."
+                    )
+                    continue
+                expense_acc = _resolve_account(_str_cell(row, 'depreciation_expense_account_code'))
+                if _str_cell(row, 'depreciation_expense_account_code') and not expense_acc:
+                    errors.append(
+                        f"Row {row_num}: depreciation_expense_account_code "
+                        f"'{_str_cell(row, 'depreciation_expense_account_code')}' not found."
+                    )
+                    continue
+
+                defaults = {
+                    'name': name,
+                    'depreciation_method': method,
+                    'default_life_years': life_years,
+                    'residual_value_type': residual_type,
+                    'residual_value': residual_value,
+                    'is_active': _bool_cell(row, 'is_active', True),
+                    'cost_account': cost_acc,
+                    'accumulated_depreciation_account': accum_acc,
+                    'depreciation_expense_account': expense_acc,
+                }
+                obj, was_created = AssetCategory.objects.update_or_create(
+                    code=code, defaults=defaults,
+                )
+                if was_created:
+                    created += 1
+                else:
+                    updated += 1
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+
+        return Response({
+            'success': True,
+            'created': created,
+            'updated': updated,
+            'skipped': 0,
+            'errors': errors,
+        })
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_data(self, request):
+        """Export every asset category as a CSV (re-importable round-trip)."""
+        import io
+        import csv as _csv
+        from django.http import HttpResponse
+
+        cols = [
+            'code', 'name',
+            'cost_account_code',
+            'accumulated_depreciation_account_code',
+            'depreciation_expense_account_code',
+            'depreciation_method', 'default_life_years',
+            'residual_value_type', 'residual_value',
+            'is_active',
+        ]
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        writer.writerow(cols)
+        for cat in self.get_queryset():
+            writer.writerow([
+                cat.code,
+                cat.name,
+                cat.cost_account.code if cat.cost_account else '',
+                cat.accumulated_depreciation_account.code if cat.accumulated_depreciation_account else '',
+                cat.depreciation_expense_account.code if cat.depreciation_expense_account else '',
+                cat.depreciation_method,
+                cat.default_life_years,
+                cat.residual_value_type,
+                cat.residual_value,
+                'true' if cat.is_active else 'false',
+            ])
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="asset_categories_export.csv"'
+        return response
+
 
 class AssetLocationViewSet(viewsets.ModelViewSet):
     queryset = AssetLocation.objects.all().select_related('parent', 'manager')
@@ -661,3 +1021,91 @@ class AssetImpairmentViewSet(viewsets.ModelViewSet):
     queryset = AssetImpairment.objects.all().select_related('asset')
     serializer_class = AssetImpairmentSerializer
     filterset_fields = ['asset']
+
+
+class DepreciationRunScheduleViewSet(viewsets.ModelViewSet):
+    """CRUD + manual-trigger endpoint for the monthly auto-depreciation schedule.
+
+    Typical flow:
+      1. ``GET`` list → UI shows current schedule (usually one row)
+      2. ``POST {'day_of_month': 1, 'is_active': true}`` → create
+      3. ``POST .../{id}/run_now/`` → fire the run immediately
+         without waiting for the cron / beat trigger (useful for
+         catch-up or manual month-end close).
+    """
+    queryset = DepreciationRunSchedule.objects.all()
+    # Auto-generate the serializer so we don't have to hand-write one
+    # — simple models with no computed fields can use ModelSerializer
+    # with ``fields = '__all__'`` directly.
+    serializer_class = None  # set below via Meta hack
+
+    def get_serializer_class(self):
+        from rest_framework import serializers as _s
+
+        class _Schedule(_s.ModelSerializer):
+            class Meta:
+                model = DepreciationRunSchedule
+                fields = '__all__'
+                read_only_fields = [
+                    'last_run_at', 'last_run_period_date',
+                    'last_run_assets_posted', 'last_run_total_amount',
+                    'last_run_skipped', 'last_run_error',
+                    'next_run_date', 'created_at', 'updated_at',
+                ]
+        return _Schedule
+
+    @action(detail=True, methods=['post'], url_path='run-now')
+    def run_now(self, request, pk=None):
+        """Fire the schedule immediately (bypasses next_run_date).
+
+        Body (all optional):
+          * ``simulate`` (bool, default false) — dry-run preview
+          * ``period_date`` (ISO date) — override the computed
+            period-end (defaults to month-end of today)
+        """
+        from accounting.services.depreciation import (
+            run_monthly_depreciation as _run,
+        )
+        from datetime import date as _d
+        import calendar as _cal
+
+        schedule = self.get_object()
+        simulate = bool(request.data.get('simulate', False))
+        period_raw = request.data.get('period_date')
+        if period_raw:
+            period = datetime.strptime(str(period_raw), '%Y-%m-%d').date()
+        else:
+            today = _d.today()
+            last = _cal.monthrange(today.year, today.month)[1]
+            period = _d(today.year, today.month, last)
+
+        result = _run(
+            period_date=period,
+            asset_ids=None,
+            simulate=simulate,
+            user=request.user,
+        )
+
+        # Persist bookkeeping on live runs
+        if not simulate:
+            from django.utils import timezone as _tz
+            summary = result.get('summary', {})
+            schedule.last_run_at = _tz.now()
+            schedule.last_run_period_date = period
+            schedule.last_run_assets_posted = int(summary.get('posted', 0))
+            schedule.last_run_total_amount = summary.get('total_amount', 0)
+            schedule.last_run_skipped = int(summary.get('skipped', 0))
+            schedule.last_run_error = ''
+            # advance next_run_date by one month so scheduled cron
+            # doesn't immediately re-fire the same period.
+            day = min(schedule.day_of_month or 1, 28)
+            if period.month == 12:
+                schedule.next_run_date = _d(period.year + 1, 1, day)
+            else:
+                schedule.next_run_date = _d(period.year, period.month + 1, day)
+            schedule.save()
+
+        return Response({
+            'schedule_id': schedule.pk,
+            **result,
+        })

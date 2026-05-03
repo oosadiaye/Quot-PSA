@@ -8,6 +8,8 @@ import { useCustomers } from '../hooks/useCustomers';
 import { useDimensions } from '../hooks/useJournal';
 import { useIsDimensionsEnabled } from '../../../hooks/useTenantModules';
 import { useCurrency } from '../../../context/CurrencyContext';
+import { useToast } from '../../../context/ToastContext';
+import { parsePostingError } from '../utils/parsePostingError';
 import AccountingLayout from '../AccountingLayout';
 import BackButton from '../../../components/BackButton';
 import '../styles/glassmorphism.css';
@@ -52,6 +54,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
     ]);
     const [attachment, setAttachment] = useState<File | null>(null);
     const [formError, setFormError] = useState('');
+    const { addToast } = useToast();
 
     // Income-type accounts only (matches Account model choice 'Income')
     const revenueAccounts = useMemo(
@@ -139,11 +142,15 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
         try {
             await createInvoice.mutateAsync(payload);
             onSuccess();
-        } catch (err: any) {
-            const data = err.response?.data;
-            setFormError(data
-                ? (typeof data === 'string' ? data : Object.values(data).flat().join(' '))
-                : err.message || 'Failed to save document.');
+        } catch (err: unknown) {
+            // Centralised parser prioritises structured budget /
+            // warrant / period-closed envelopes over generic field
+            // dumps. Inline banner stays for in-context reading;
+            // sticky toast (duration: 0) catches the operator if
+            // they've scrolled away from the form.
+            const msg = parsePostingError(err, 'Failed to save document.');
+            setFormError(msg);
+            addToast(msg, 'error', 0);
         }
     };
 
@@ -191,7 +198,10 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
             }}>
                 {/* Left: back + title */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
-                    <button type="button" onClick={onCancel} aria-label="Go back" style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}><BackButton /></button>
+                    {/* Back button calls onCancel directly — wrapping
+                        BackButton in another <button> caused a React
+                        19 hydration error (nested buttons). */}
+                    <BackButton onClick={onCancel} />
                     <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
                         {isCreditMemo ? 'Customer Credit Memo' : 'Customer Invoice'}
                     </h1>

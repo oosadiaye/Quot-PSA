@@ -7,10 +7,32 @@ from accounting.models.revenue import RevenueHead, RevenueCollection
 @admin.register(TreasuryAccount)
 class TreasuryAccountAdmin(admin.ModelAdmin):
     list_display = ['account_number', 'account_name', 'account_type', 'bank',
-                    'current_balance', 'is_active']
+                    'gl_cash_account', 'current_balance', 'is_active']
     list_filter = ['account_type', 'is_active', 'bank']
-    search_fields = ['account_number', 'account_name']
-    list_select_related = ['mda', 'fund_segment', 'parent_account']
+    search_fields = ['account_number', 'account_name',
+                     'gl_cash_account__code', 'gl_cash_account__name']
+    list_select_related = ['mda', 'fund_segment', 'parent_account',
+                           'gl_cash_account', 'ncoa_cash_code']
+    raw_id_fields = ['parent_account', 'gl_cash_account', 'ncoa_cash_code']
+    fieldsets = (
+        ('Bank Account', {
+            'fields': ('account_number', 'account_name', 'bank', 'sort_code',
+                       'account_type', 'is_active'),
+        }),
+        ('Ownership & Segmentation', {
+            'fields': ('mda', 'fund_segment', 'parent_account'),
+        }),
+        ('GL Mapping (IPSAS)', {
+            'description': (
+                'Link this TSA to its GL cash control account. Required for '
+                'IPSAS cash flow reporting and deterministic bank reconciliation.'
+            ),
+            'fields': ('gl_cash_account', 'ncoa_cash_code'),
+        }),
+        ('State', {
+            'fields': ('current_balance', 'last_reconciled', 'description'),
+        }),
+    )
     ordering = ['account_type', 'account_number']
 
 

@@ -684,27 +684,29 @@ class AccountingSettings(models.Model):
 
     # Default number series mapping: first digit(s) of account code → account type.
     # get_expected_type_for_code() tries longest prefix first (up to 4 chars),
-    # so '901' overrides '90' which overrides '9'.
+    # so '95' overrides '9'.
+    #
+    # IPSAS / Nigerian NCoA (National Chart of Accounts) convention:
+    #   1xxxxxxx = Revenue (mapped to legacy 'Income' bucket)
+    #   2xxxxxxx = Expenditure (mapped to legacy 'Expense' bucket)
+    #   3xxxxxxx = Assets
+    #   4xxxxxxx = Liabilities and Net Assets (mapped to 'Liability' here;
+    #              tenants who use a separate 'Equity' first digit can override
+    #              their per-tenant ``account_number_series`` JSON.)
+    # The 5xxxxxxx–9xxxxxxx ranges are not part of NCoA's first-digit family
+    # taxonomy. We leave their entries off the default so digit-enforcement
+    # only kicks in for the four canonical NCoA families. Tenants who map
+    # additional ranges (e.g. memorandum accounts at 9xxxxxxx) can extend
+    # ``account_number_series`` from the Settings UI.
+    #
+    # Mirrors ``serializers.AccountSerializer.NIGERIA_COA_SERIES`` exactly —
+    # the two constants must stay in lockstep so import / form / API all
+    # validate identically. Keep this in sync if either side changes.
     DEFAULT_NUMBER_SERIES = {
-        '1':   'Asset',
-        '2':   'Liability',
-        '3':   'Equity',
-        '4':   'Income',
-        '5':   'Expense',
-        '6':   'Expense',
-        '7':   'Expense',
-        '8':   'Expense',
-        # 901x-904x — Service Revenue sub-accounts (Income) e.g. 90100000-90400000
-        '901': 'Income',
-        '902': 'Income',
-        '903': 'Income',
-        '904': 'Income',
-        # 90x (catches 905x-909x service costs), 91x-92x service/quality costs
-        '90':  'Expense',
-        # 95x — Capital/Fixed Asset module accounts
-        '95':  'Asset',
-        # All other 9x ranges default to Expense
-        '9':   'Expense',
+        '1': 'Income',     # Revenue (NCoA)
+        '2': 'Expense',    # Expenditure (NCoA)
+        '3': 'Asset',      # Assets (NCoA)
+        '4': 'Liability',  # Liabilities & Net Assets (NCoA)
     }
 
     account_code_digits = models.IntegerField(choices=DIGIT_CHOICES, default=8)
@@ -856,6 +858,29 @@ class AccountingSettings(models.Model):
             'When enabled, new vendors start inactive and require a registration '
             'invoice + payment confirmation before activation. When disabled, '
             'vendors are created active immediately (no invoice gate).'
+        ),
+    )
+    # Per-tenant configurable Income GL for registration-fee receipts.
+    # Used by the vendor-registration payment-confirmation journal:
+    #   DR  TSA Cash (resolved via tsa_gl_resolver)
+    #   CR  this account
+    # Without this setting, the posting code would have to hardcode an
+    # NCoA code (e.g. 12100200) which only works for tenants whose COA
+    # happens to use that exact code. Making it a per-tenant FK lets every
+    # tenant pick whichever Income account on their CoA represents
+    # registration revenue.
+    vendor_registration_revenue_account = models.ForeignKey(
+        'accounting.Account',
+        null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name='settings_vendor_reg_revenue',
+        limit_choices_to={'account_type': 'Income', 'is_active': True},
+        help_text=(
+            'Income account credited when a vendor pays their registration '
+            'invoice. Tenants on Nigerian NCoA typically point this to '
+            '12100200 (Vendor Registration Fees) or another 12xxxxxx revenue '
+            'code; tenants on a different chart pick whichever Income code '
+            'represents their registration revenue stream.'
         ),
     )
 

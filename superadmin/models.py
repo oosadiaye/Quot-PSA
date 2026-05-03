@@ -76,6 +76,71 @@ class SuperAdminSettings(models.Model):
         return obj
 
 
+class EmailTemplate(models.Model):
+    """Editable, multi-language email templates.
+
+    Replaces hardcoded EMAIL_TEMPLATES dict in core/localized_emails.py.
+    The resolver in send_localized_email() will prefer an active DB row
+    for (key, language) and fall back to the hardcoded dict if missing.
+    """
+
+    CATEGORY_CHOICES = [
+        ('auth', 'Authentication'),
+        ('billing', 'Billing & Subscription'),
+        ('support', 'Support'),
+        ('notification', 'Notification'),
+        ('marketing', 'Marketing'),
+        ('system', 'System'),
+        ('hr', 'Human Resources'),
+    ]
+
+    LANGUAGE_CHOICES = [
+        ('en', 'English'), ('fr', 'French'), ('es', 'Spanish'),
+        ('de', 'German'), ('ar', 'Arabic'), ('pt', 'Portuguese'),
+        ('zh', 'Chinese'), ('ja', 'Japanese'),
+    ]
+
+    key = models.CharField(
+        max_length=100,
+        help_text='Stable identifier (e.g. welcome, password_reset, payment_received).',
+    )
+    language = models.CharField(max_length=10, choices=LANGUAGE_CHOICES, default='en')
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default='notification')
+
+    display_name = models.CharField(max_length=200, help_text='Human-friendly label for SuperAdmin UI.')
+    description = models.TextField(blank=True, help_text='When this template fires and who receives it.')
+
+    subject = models.CharField(max_length=255)
+    body_html = models.TextField(help_text='Inline-styled HTML body. Supports {placeholder} substitution.')
+    body_text = models.TextField(blank=True, help_text='Plain-text fallback. If blank, HTML is stripped at send time.')
+
+    # List of placeholder names available for this template, e.g. ["first_name","login_url"]
+    # Purely documentation for SuperAdmin UI — substitution uses whatever context.format() provides.
+    variables = models.JSONField(default=list, blank=True)
+
+    is_active = models.BooleanField(default=True)
+    is_system = models.BooleanField(
+        default=False,
+        help_text='System templates cannot be deleted, only edited.',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='email_templates_updated',
+    )
+
+    class Meta:
+        unique_together = [('key', 'language')]
+        ordering = ['category', 'key', 'language']
+        verbose_name = 'Email Template'
+        verbose_name_plural = 'Email Templates'
+
+    def __str__(self):
+        return f'{self.key} [{self.language}] — {self.display_name}'
+
+
 class ImpersonationLog(models.Model):
     """Audit trail for superadmin impersonation sessions."""
     superadmin = models.ForeignKey(

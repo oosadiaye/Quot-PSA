@@ -49,6 +49,16 @@ class Command(BaseCommand):
 
         created = {'mda': 0, 'fund': 0, 'function': 0, 'program': 0, 'geo': 0}
 
+        # Legacy dimension `name` columns are bounded (varchar(100/200)). NCoA
+        # segment names occasionally exceed those caps (long ministry titles,
+        # programme descriptions copied from the Appropriation Act). Truncate
+        # silently so a single oversized name doesn't abort the whole bridge —
+        # the legacy table's name is for display only; the authoritative copy
+        # remains on the NCoA segment.
+        def _fit(value: str | None, max_length: int) -> str:
+            v = value or ''
+            return v if len(v) <= max_length else v[:max_length]
+
         with transaction.atomic():
             # ── MDA (Administrative) ─────────────────────────────
             # MDA.mda_type is required with choices [MINISTRY, DEPARTMENT,
@@ -62,10 +72,10 @@ class Command(BaseCommand):
                 source_type = (getattr(seg, 'mda_type', '') or '').upper()
                 mda_type = source_type if source_type in VALID_TYPES else 'MINISTRY'
                 mda, mda_created = MDA.objects.get_or_create(
-                    code=seg.code,
+                    code=_fit(seg.code, MDA._meta.get_field('code').max_length),
                     defaults={
-                        'name': seg.name,
-                        'short_name': seg.name[:50],
+                        'name': _fit(seg.name, MDA._meta.get_field('name').max_length),
+                        'short_name': _fit(seg.name, MDA._meta.get_field('short_name').max_length),
                         'mda_type': mda_type,
                         'is_active': getattr(seg, 'is_active', True),
                     },
@@ -80,9 +90,9 @@ class Command(BaseCommand):
                 if seg.legacy_fund_id:
                     continue
                 fund, fund_created = Fund.objects.get_or_create(
-                    code=seg.code,
+                    code=_fit(seg.code, Fund._meta.get_field('code').max_length),
                     defaults={
-                        'name': seg.name,
+                        'name': _fit(seg.name, Fund._meta.get_field('name').max_length),
                         'description': getattr(seg, 'description', '') or '',
                         'is_active': getattr(seg, 'is_active', True),
                     },
@@ -97,9 +107,9 @@ class Command(BaseCommand):
                 if seg.legacy_function_id:
                     continue
                 fn, fn_created = Function.objects.get_or_create(
-                    code=seg.code,
+                    code=_fit(seg.code, Function._meta.get_field('code').max_length),
                     defaults={
-                        'name': seg.name,
+                        'name': _fit(seg.name, Function._meta.get_field('name').max_length),
                         'description': getattr(seg, 'description', '') or '',
                         'is_active': getattr(seg, 'is_active', True),
                     },
@@ -114,9 +124,9 @@ class Command(BaseCommand):
                 if seg.legacy_program_id:
                     continue
                 prog, prog_created = Program.objects.get_or_create(
-                    code=seg.code,
+                    code=_fit(seg.code, Program._meta.get_field('code').max_length),
                     defaults={
-                        'name': seg.name,
+                        'name': _fit(seg.name, Program._meta.get_field('name').max_length),
                         'description': getattr(seg, 'description', '') or '',
                         'is_active': getattr(seg, 'is_active', True),
                     },
@@ -131,9 +141,9 @@ class Command(BaseCommand):
                 if seg.legacy_geo_id:
                     continue
                 geo, geo_created = Geo.objects.get_or_create(
-                    code=seg.code,
+                    code=_fit(seg.code, Geo._meta.get_field('code').max_length),
                     defaults={
-                        'name': seg.name,
+                        'name': _fit(seg.name, Geo._meta.get_field('name').max_length),
                         'description': getattr(seg, 'description', '') or '',
                         'is_active': getattr(seg, 'is_active', True),
                     },

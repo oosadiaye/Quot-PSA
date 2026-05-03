@@ -173,11 +173,18 @@ DEFAULT_CHART_OF_ACCOUNTS = [
     {'code': '20503000', 'name': 'Pension Payable',                  'type': 'Liability'},
     {'code': '20504000', 'name': 'PAYE Tax Payable',                 'type': 'Liability'},
 
-    # --- 206x Other Current Liabilities & Clearing Accounts ---
-    {'code': '20600000', 'name': 'Due to Other Funds',               'type': 'Liability'},
+    # --- 4108-4109 Other Current Liabilities & Clearing Accounts ---
+    # Codes were originally 20600000 / 20601000 (private-sector
+    # numbering) but Nigerian PSA / NCoA reserves 2xxxxxxx for the
+    # Expense series and 4xxxxxxx for Liabilities. The legacy codes
+    # violated AccountSerializer's prefix gate and blocked operators
+    # from creating these accounts manually. Migration 0095 renames
+    # existing 2060xxxx rows to the matching 4109xxxx codes for any
+    # tenant provisioned before this change.
+    {'code': '41080000', 'name': 'Due to Other Funds',               'type': 'Liability'},
     # GR/IR Clearing: 3-way match P2P workflow. DR at GRN (goods received, invoice pending);
     # cleared when vendor invoice is matched. Net balance = unmatched GRN value.
-    {'code': '20601000', 'name': 'GR/IR Clearing Account',           'type': 'Liability'},
+    {'code': '41090000', 'name': 'GR/IR Clearing Account',           'type': 'Liability'},
     {'code': '20700000', 'name': 'Customer Deposits',                'type': 'Liability'},
     {'code': '20800000', 'name': 'Credit Notes Payable',             'type': 'Liability'},
 

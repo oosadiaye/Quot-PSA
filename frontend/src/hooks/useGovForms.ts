@@ -227,6 +227,44 @@ export function useCreateTSAAccount() {
     });
 }
 
+/**
+ * Fetch a single TSA Account by id — used by the edit form to hydrate
+ * existing values. Disabled when ``id`` is falsy so the create-mode
+ * route doesn't trigger a wasted GET.
+ */
+export function useTSAAccount(id: string | number | undefined) {
+    return useQuery({
+        queryKey: ['tsa-account-detail', String(id ?? '')],
+        queryFn: async () => {
+            if (!id) return null;
+            const { data } = await apiClient.get(`/accounting/tsa-accounts/${id}/`);
+            return data;
+        },
+        enabled: !!id,
+    });
+}
+
+/**
+ * Update an existing TSA Account. Mirrors the create hook's cache-bust
+ * keys so list, dropdown, and detail caches all stay in sync after a
+ * save — the user lands back on the list and sees the new values
+ * without a manual refetch.
+ */
+export function useUpdateTSAAccount() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, payload }: { id: string | number; payload: Record<string, unknown> }) => {
+            const { data } = await apiClient.patch(`/accounting/tsa-accounts/${id}/`, payload);
+            return data;
+        },
+        onSuccess: (_data, vars) => {
+            qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/tsa-accounts/'] });
+            qc.invalidateQueries({ queryKey: ['tsa-accounts-dropdown'] });
+            qc.invalidateQueries({ queryKey: ['tsa-account-detail', String(vars.id)] });
+        },
+    });
+}
+
 // ─── Fetch Single Record (for detail pages) ───────────────────────────
 
 export function usePaymentVoucherDetail(id: string | undefined) {

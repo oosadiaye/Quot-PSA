@@ -92,13 +92,26 @@ const TenantsTab = () => {
   };
 
   const handleCreate = async (values: any) => {
+    // POST returns 202 in <1s; async Celery worker finishes schema
+    // migrations in the background. useTenants() polls every 3s while any
+    // row is still provisioning, so the status chip updates live.
+    message.loading({
+      key: 'create-tenant',
+      content: 'Creating tenant… schema provisioning runs in background',
+      duration: 0,
+    });
     try {
       await createTenant.mutateAsync(values);
-      message.success('Tenant created successfully');
+      message.success({
+        key: 'create-tenant',
+        content: 'Tenant queued — schema provisioning in progress',
+      });
       setCreateModalVisible(false);
       createForm.resetFields();
-    } catch {
-      message.error('Failed to create tenant');
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'Failed to create tenant';
+      message.error({ key: 'create-tenant', content: msg });
     }
   };
 
@@ -199,8 +212,39 @@ const TenantsTab = () => {
               </Descriptions>
             ),
           });
-        } catch {
-          message.error('Failed to reset password');
+        } catch (err) {
+          const detail =
+            (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+          message.error(detail || 'Failed to reset password');
+        }
+      },
+    });
+  };
+
+  // Re-queue a failed tenant. Server short-circuits idempotently, so
+  // clicking Retry on a partially-provisioned schema is safe.
+  const handleRetryProvisioning = (tenant: Tenant) => {
+    Modal.confirm({
+      title: `Retry provisioning for "${tenant.name}"?`,
+      content:
+        'This will re-queue schema creation. If a previous attempt left a partial schema, the task will resume from where it stopped.',
+      okText: 'Retry',
+      okType: 'primary',
+      icon: <ReloadOutlined style={{ color: '#2563eb' }} />,
+      onOk: async () => {
+        const key = `retry-${tenant.id}`;
+        message.loading({ content: 'Re-queueing provisioning…', key, duration: 0 });
+        try {
+          await tenantAction.mutateAsync({
+            tenantId: tenant.id,
+            action: 'retry_provisioning',
+          });
+          message.success({ content: 'Provisioning queued', key, duration: 2 });
+        } catch (err: unknown) {
+          const msg =
+            (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+            ?? 'Failed to retry provisioning';
+          message.error({ content: msg, key, duration: 4 });
         }
       },
     });
@@ -261,7 +305,26 @@ const TenantsTab = () => {
         { text: 'Expired', value: 'expired' },
       ],
       onFilter: (value: any, record: Tenant) => record.status === value,
-      render: (status: string) => {
+      render: (status: string, record: Tenant) => {
+        // Provisioning chip takes precedence: if the tenant is still being
+        // created asynchronously we show that, not the subscription status.
+        const prov = record.provisioning_status;
+        if (prov === 'pending' || prov === 'provisioning') {
+          return (
+            <Tooltip title="Schema migrations running on a background worker">
+              <Tag icon={<ReloadOutlined spin />} color="processing">
+                {prov === 'pending' ? 'Queued' : 'Provisioning…'}
+              </Tag>
+            </Tooltip>
+          );
+        }
+        if (prov === 'failed') {
+          return (
+            <Tooltip title={record.provisioning_error || 'Provisioning failed'}>
+              <Tag color="error">Failed</Tag>
+            </Tooltip>
+          );
+        }
         const config = statusConfig[status] || statusConfig.expired;
         return <Badge status={config.badge} text={<span style={{ textTransform: 'capitalize' }}>{status || 'Unknown'}</span>} />;
       },
@@ -297,6 +360,7 @@ const TenantsTab = () => {
       key: 'actions',
       width: 180,
       render: (_: any, record: Tenant) => {
+        const canRetry = record.provisioning_status === 'failed';
         const menuItems = [
           { key: 'view', label: 'View Details', icon: <InfoCircleOutlined /> },
           { key: 'edit', label: 'Edit', icon: <EditOutlined /> },
@@ -304,6 +368,16 @@ const TenantsTab = () => {
           { key: 'extend', label: 'Extend Subscription', icon: <CalendarOutlined /> },
           { key: 'impersonate', label: 'Login As Admin', icon: <LoginOutlined /> },
           { key: 'reset_password', label: 'Reset Password', icon: <KeyOutlined /> },
+          ...(canRetry
+            ? [
+                { type: 'divider' as const },
+                {
+                  key: 'retry_provisioning',
+                  label: 'Retry Provisioning',
+                  icon: <ReloadOutlined />,
+                },
+              ]
+            : []),
           { type: 'divider' as const },
           record.status === 'suspended'
             ? { key: 'activate', label: 'Activate', icon: <PlayCircleOutlined /> }
@@ -340,6 +414,9 @@ const TenantsTab = () => {
                       break;
                     case 'reset_password':
                       handleResetPassword(record);
+                      break;
+                    case 'retry_provisioning':
+                      handleRetryProvisioning(record);
                       break;
                     case 'suspend':
                       handleAction(record.id, 'suspend');

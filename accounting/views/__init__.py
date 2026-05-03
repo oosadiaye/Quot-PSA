@@ -31,6 +31,7 @@ from .assets import (  # noqa: F401
     AssetLocationViewSet, AssetInsuranceViewSet, AssetMaintenanceViewSet,
     AssetTransferViewSet, AssetDepreciationScheduleViewSet,
     AssetRevaluationViewSet, AssetDisposalViewSet, AssetImpairmentViewSet,
+    DepreciationRunScheduleViewSet,
 )
 
 # Budget
@@ -127,7 +128,8 @@ from .ipsas_reports import (  # noqa: F401
     CashFlowStatementView,
     StatementOfChangesInNetAssetsView,
     NotesToFinancialStatementsView,
-    BudgetVsActualIPSASView, RevenuePerformanceView, TSACashPositionView,
+    BudgetVsActualIPSASView, BudgetPerformanceStatementView,
+    RevenuePerformanceView, TSACashPositionView,
     FunctionalClassificationView, ProgrammePerformanceView, GeographicDistributionView,
     FundPerformanceView,
 )

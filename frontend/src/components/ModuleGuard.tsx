@@ -21,6 +21,7 @@ const MODULE_META: Record<string, { title: string; icon: string; color: string }
   dimensions:  { title: 'Dimensions',           icon: '🗂️', color: '#722ed1' },
   budget:      { title: 'Budget Management',    icon: '💰', color: '#52c41a' },
   procurement: { title: 'Procurement',          icon: '🛒', color: '#fa8c16' },
+  contracts:   { title: 'Contracts & Milestones', icon: '🤝', color: '#0ea5e9' },
   inventory:   { title: 'Inventory',            icon: '📦', color: '#13c2c2' },
   hrm:         { title: 'Human Resources',      icon: '👥', color: '#eb2f96' },
   workflow:    { title: 'Workflow & Approvals', icon: '🔀', color: '#722ed1' },

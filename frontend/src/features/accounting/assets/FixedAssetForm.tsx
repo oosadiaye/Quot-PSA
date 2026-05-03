@@ -23,26 +23,66 @@ import { useCreateFixedAsset } from '../hooks/useAccountingEnhancements';
 import type { FixedAssetFormData } from '../hooks/useAccountingEnhancements';
 import { useMDAs, useAccounts } from '../hooks/useBudgetDimensions';
 import { useFunds, useFunctions, usePrograms, useGeos } from '../hooks/useDimensions';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../../../api/client';
 
-const ASSET_CATEGORIES = [
-    { value: 'Building',  label: 'Building' },
-    { value: 'Equipment', label: 'Equipment' },
-    { value: 'Vehicle',   label: 'Vehicle' },
-    { value: 'IT',        label: 'IT Equipment' },
-    { value: 'Furniture', label: 'Furniture' },
-    { value: 'Land',      label: 'Land' },
-];
+/**
+ * Fetch active asset categories from the tenant's ``AssetCategory``
+ * table. Replaces the previous hardcoded 6-value enum so tenants can
+ * maintain their own category taxonomy via
+ * ``/accounting/asset-categories/`` instead of being limited to
+ * Building / Equipment / Vehicle / IT / Furniture / Land.
+ */
+interface AccountDisplay {
+    id: number;
+    code: string;
+    name: string;
+}
 
-const DEPR_METHODS = [
-    { value: 'Straight-Line',      label: 'Straight-Line' },
-    { value: 'Declining Balance',  label: 'Declining Balance' },
-];
+interface AssetCategoryLite {
+    id: number;
+    code: string;
+    name: string;
+    depreciation_method?: string;
+    default_life_years?: number;
+    residual_value_type?: 'percentage' | 'amount';
+    residual_value?: string | number;
+    // GL account defaults for the category — the asset inherits these
+    // on posting. Returned as either the raw FK id OR the
+    // ``*_display`` nested object ({id, code, name}) from the
+    // AssetCategorySerializer.
+    cost_account?: number | null;
+    accumulated_depreciation_account?: number | null;
+    depreciation_expense_account?: number | null;
+    cost_account_display?: AccountDisplay | null;
+    accumulated_depreciation_account_display?: AccountDisplay | null;
+    depreciation_expense_account_display?: AccountDisplay | null;
+}
+
+function useAssetCategories() {
+    return useQuery<AssetCategoryLite[]>({
+        queryKey: ['asset-categories'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/asset-categories/', {
+                params: { is_active: true, page_size: 9999 },
+            });
+            return Array.isArray(data) ? data : (data?.results || []);
+        },
+        staleTime: 5 * 60 * 1000,
+    });
+}
+
+// DEPR_METHODS removed — depreciation method is no longer entered
+// per-asset; it's inherited from the selected Asset Category.
 
 const initialForm: FixedAssetFormData = {
     asset_number: '',
     name: '',
     description: '',
-    asset_category: 'Equipment',
+    // Default empty — the user picks from the live AssetCategory list.
+    // No hardcoded seed so a tenant with a custom taxonomy isn't
+    // pre-pushed toward a category they don't use.
+    asset_category: '',
     acquisition_date: new Date().toISOString().slice(0, 10),
     acquisition_cost: '',
     salvage_value: '0',
@@ -90,6 +130,8 @@ export default function FixedAssetForm() {
     // Asset GL accounts (optional overrides)
     const { data: assetAccounts = [] } = useAccounts({ account_type: 'Asset', is_active: true });
     const { data: expenseAccounts = [] } = useAccounts({ account_type: 'Expense', is_active: true });
+    // Live asset categories — replaces the previous hardcoded enum
+    const { data: assetCategories = [], isLoading: catsLoading } = useAssetCategories();
 
     const setField = <K extends keyof FixedAssetFormData>(key: K, value: FixedAssetFormData[K]) => {
         setForm(prev => ({ ...prev, [key]: value }));
@@ -100,17 +142,25 @@ export default function FixedAssetForm() {
 
     const validate = (): boolean => {
         const errs: Record<string, string> = {};
-        if (!form.asset_number.trim()) errs.asset_number = 'Asset number is required.';
+        // asset_number is now optional — backend auto-generates
+        // FA-YYYY-NNNNN when the field is blank (see
+        // FixedAsset._generate_asset_number). Users can still type
+        // their own legacy tag number when migrating a pre-existing
+        // asset register.
         if (!form.name.trim()) errs.name = 'Name is required.';
-        if (!form.asset_category) errs.asset_category = 'Category is required.';
+        if (!form.asset_category) {
+            errs.asset_category = assetCategories.length === 0
+                ? 'No asset categories defined — add one in Asset Settings.'
+                : 'Category is required.';
+        }
         if (!form.acquisition_date) errs.acquisition_date = 'Acquisition date is required.';
-        const cost = Number(form.acquisition_cost);
-        if (!form.acquisition_cost || isNaN(cost) || cost <= 0) {
-            errs.acquisition_cost = 'Acquisition cost must be greater than zero.';
-        }
-        if (!form.useful_life_years || form.useful_life_years <= 0) {
-            errs.useful_life_years = 'Useful life (years) is required.';
-        }
+        // Acquisition cost, useful life, salvage value and depreciation
+        // method are intentionally NOT validated here:
+        //   - acquisition_cost: set by the vendor invoice / PO invoice
+        //     verification when it posts to GL and debits this asset's
+        //     account (avoids double-entry with the source doc).
+        //   - depreciation fields: inherited from the selected Asset
+        //     Category (single source of truth for category policy).
         setFormErrors(errs);
         return Object.keys(errs).length === 0;
     };
@@ -126,12 +176,43 @@ export default function FixedAssetForm() {
         ) as unknown as FixedAssetFormData;
 
         try {
-            await createAsset.mutateAsync(payload);
+            const created: any = await createAsset.mutateAsync(payload);
+            // Server-side BudgetCheckRule warnings (WARNING level +
+            // no appropriation yet) come back as budget_warnings. Show
+            // them before leaving the page so the user knows the
+            // dimension tuple was accepted but isn't under an active
+            // appropriation — the expenditure posting step will still
+            // enforce the rule at invoice verification.
+            const warnings: string[] = Array.isArray(created?.budget_warnings)
+                ? created.budget_warnings
+                : [];
+            if (warnings.length > 0) {
+                alert(
+                    'Asset saved with budget warnings:\n\n' +
+                    warnings.map((w) => '• ' + w).join('\n')
+                );
+            }
             navigate('/accounting/fixed-assets');
         } catch (err: any) {
             const resp = err?.response?.data;
             if (resp && typeof resp === 'object') {
-                // Map field-level DRF errors back onto formErrors
+                // STRICT budget block returns a structured envelope
+                // from the serializer ({ non_field_errors, code,
+                // mda_code, fund_code, economic_code }). Promote the
+                // reason to the top-level error banner with the
+                // offending tuple so the user knows exactly which
+                // dimension combination failed.
+                const bucket = Array.isArray(resp.non_field_errors)
+                    ? resp.non_field_errors[0]
+                    : resp.non_field_errors;
+                if (bucket && resp.code === 'BUDGET_STRICT_BLOCK') {
+                    const tuple = [resp.mda_code, resp.economic_code, resp.fund_code]
+                        .filter(Boolean).join('/');
+                    setSubmitError(
+                        `Budget check failed${tuple ? ` for ${tuple}` : ''}: ${bucket}`
+                    );
+                    return;
+                }
                 const mapped: Record<string, string> = {};
                 for (const [k, v] of Object.entries(resp)) {
                     mapped[k] = Array.isArray(v) ? String(v[0]) : String(v);
@@ -180,12 +261,17 @@ export default function FixedAssetForm() {
                         <h3 style={sectionTitle}>Identification</h3>
                         <div style={gridStyle}>
                             <div>
-                                <label style={label}>Asset Number *</label>
+                                <label style={label}>
+                                    Asset Number
+                                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 500, color: 'var(--color-text-muted)' }}>
+                                        (auto-generated — leave blank)
+                                    </span>
+                                </label>
                                 <input
                                     style={inputBase}
                                     value={form.asset_number}
                                     onChange={e => setField('asset_number', e.target.value)}
-                                    placeholder="FA-2026-0001"
+                                    placeholder="Leave blank: FA-2026-00001 will be allocated on save"
                                 />
                                 {formErrors.asset_number && <div style={fieldErr}>{formErrors.asset_number}</div>}
                             </div>
@@ -200,13 +286,29 @@ export default function FixedAssetForm() {
                                 {formErrors.name && <div style={fieldErr}>{formErrors.name}</div>}
                             </div>
                             <div>
-                                <label style={label}>Category *</label>
+                                <label style={label}>
+                                    Category *
+                                    {catsLoading && (
+                                        <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-text-muted)' }}>
+                                            loading…
+                                        </span>
+                                    )}
+                                </label>
                                 <select
                                     style={inputBase}
                                     value={form.asset_category}
                                     onChange={e => setField('asset_category', e.target.value)}
                                 >
-                                    {ASSET_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                    <option value="">
+                                        {assetCategories.length === 0 && !catsLoading
+                                            ? 'No categories defined — add one in Asset Settings'
+                                            : 'Select category…'}
+                                    </option>
+                                    {assetCategories.map((c) => (
+                                        <option key={c.id} value={c.code || c.name}>
+                                            {c.code ? `${c.code} — ${c.name}` : c.name}
+                                        </option>
+                                    ))}
                                 </select>
                                 {formErrors.asset_category && <div style={fieldErr}>{formErrors.asset_category}</div>}
                             </div>
@@ -248,47 +350,111 @@ export default function FixedAssetForm() {
                                 />
                                 {formErrors.acquisition_date && <div style={fieldErr}>{formErrors.acquisition_date}</div>}
                             </div>
-                            <div>
-                                <label style={label}>Acquisition Cost (₦) *</label>
-                                <input
-                                    type="number" step="0.01" min="0"
-                                    style={inputBase}
-                                    value={form.acquisition_cost}
-                                    onChange={e => setField('acquisition_cost', e.target.value)}
-                                    placeholder="0.00"
-                                />
-                                {formErrors.acquisition_cost && <div style={fieldErr}>{formErrors.acquisition_cost}</div>}
+                            {/* Acquisition cost is INTENTIONALLY not shown
+                                here — it is set automatically when the
+                                vendor invoice / PO invoice verification
+                                posts a DR to this asset's GL account.
+                                Capturing it on the asset form would lead
+                                to double-entry and drift between asset
+                                register and GL. See FixedAsset.acquisition_cost. */}
+                            <div style={{
+                                gridColumn: 'span 1',
+                                padding: '10px 12px',
+                                borderRadius: 8,
+                                background: 'rgba(59,130,246,0.06)',
+                                border: '1px solid rgba(59,130,246,0.2)',
+                                fontSize: 12,
+                                color: '#1e40af',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                            }}>
+                                <span style={{ fontWeight: 700 }}>ℹ</span>
+                                <div>
+                                    <b>Cost is set on posting.</b> The asset's
+                                    acquisition cost will be populated from the
+                                    AP Vendor Invoice or PO Invoice Verification
+                                    when that document posts and debits this
+                                    asset's GL account.
+                                </div>
                             </div>
-                            <div>
-                                <label style={label}>Salvage Value (₦)</label>
-                                <input
-                                    type="number" step="0.01" min="0"
-                                    style={inputBase}
-                                    value={form.salvage_value || ''}
-                                    onChange={e => setField('salvage_value', e.target.value)}
-                                    placeholder="0.00"
-                                />
-                            </div>
-                            <div>
-                                <label style={label}>Useful Life (years) *</label>
-                                <input
-                                    type="number" min="1" step="1"
-                                    style={inputBase}
-                                    value={form.useful_life_years}
-                                    onChange={e => setField('useful_life_years', Number(e.target.value))}
-                                />
-                                {formErrors.useful_life_years && <div style={fieldErr}>{formErrors.useful_life_years}</div>}
-                            </div>
-                            <div>
-                                <label style={label}>Depreciation Method *</label>
-                                <select
-                                    style={inputBase}
-                                    value={form.depreciation_method}
-                                    onChange={e => setField('depreciation_method', e.target.value)}
-                                >
-                                    {DEPR_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                                </select>
-                            </div>
+                            {/* Depreciation policy — read-only display of
+                                the settings the backend will apply. Pulled
+                                live from the selected AssetCategory so users
+                                can verify the policy before they save. */}
+                            {(() => {
+                                const selectedCat = assetCategories.find(
+                                    (c) => (c.code || c.name) === form.asset_category
+                                );
+                                const dmColor = selectedCat ? '#1e40af' : '#94a3b8';
+                                const bg = selectedCat ? 'rgba(59,130,246,0.06)' : 'rgba(148,163,184,0.1)';
+                                const border = selectedCat ? 'rgba(59,130,246,0.25)' : 'rgba(148,163,184,0.25)';
+                                const residualDisplay = selectedCat
+                                    ? (selectedCat.residual_value_type === 'percentage'
+                                        ? `${Number(selectedCat.residual_value || 0).toFixed(2)}% of cost`
+                                        : `NGN ${Number(selectedCat.residual_value || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`)
+                                    : '—';
+                                return (
+                                    <div style={{
+                                        gridColumn: 'span 2',
+                                        padding: '12px 14px',
+                                        borderRadius: 10,
+                                        background: bg,
+                                        border: `1px solid ${border}`,
+                                    }}>
+                                        <div style={{
+                                            fontSize: 11, fontWeight: 700,
+                                            color: dmColor, marginBottom: 8,
+                                            textTransform: 'uppercase', letterSpacing: '0.04em',
+                                        }}>
+                                            Depreciation policy (from category)
+                                        </div>
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(3, 1fr)',
+                                            gap: 12,
+                                        }}>
+                                            <div>
+                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>METHOD</div>
+                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                    {selectedCat?.depreciation_method || '—'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>USEFUL LIFE</div>
+                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                    {selectedCat?.default_life_years
+                                                        ? `${selectedCat.default_life_years} year${selectedCat.default_life_years === 1 ? '' : 's'}`
+                                                        : '—'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>RESIDUAL</div>
+                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                    {residualDisplay}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {!selectedCat && (
+                                            <div style={{
+                                                marginTop: 8, fontSize: 11, color: '#94a3b8',
+                                            }}>
+                                                Select a category above to see the depreciation policy
+                                                that will be applied on posting.
+                                            </div>
+                                        )}
+                                        {selectedCat && (
+                                            <div style={{
+                                                marginTop: 8, fontSize: 11, color: '#64748b',
+                                            }}>
+                                                These values are inherited when the asset saves. To
+                                                change them for this category, edit the Asset Category
+                                                in <i>Settings → Asset Categories</i>.
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </section>
 
@@ -370,50 +536,120 @@ export default function FixedAssetForm() {
                         </div>
                     </section>
 
-                    {/* ── GL Account Overrides ──────────────── */}
+                    {/* ── GL Account Display ────────────────── */}
+                    {/* Read-only view of the three GL accounts inherited
+                        from the selected Asset Category. Previously this
+                        was a set of override dropdowns — which risked
+                        asset-level drift from the category's account
+                        policy. Making it display-only enforces the
+                        single-source-of-truth on the category and lets
+                        auditors trust that every asset under a category
+                        hits the same accounts. */}
                     <section style={sectionStyle}>
-                        <h3 style={sectionTitle}>GL Account Overrides <span style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>(optional — defaults pulled from Asset Category)</span></h3>
-                        <div style={gridStyle}>
-                            <div>
-                                <label style={label}>Asset Account</label>
-                                <select
-                                    style={inputBase}
-                                    value={form.asset_account ?? ''}
-                                    onChange={e => setField('asset_account', e.target.value ? Number(e.target.value) : null)}
-                                >
-                                    <option value="">Use Category default</option>
-                                    {(assetAccounts as any[]).map((a: any) => (
-                                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={label}>Accumulated Depreciation Account</label>
-                                <select
-                                    style={inputBase}
-                                    value={form.accumulated_depreciation_account ?? ''}
-                                    onChange={e => setField('accumulated_depreciation_account', e.target.value ? Number(e.target.value) : null)}
-                                >
-                                    <option value="">Use Category default</option>
-                                    {(assetAccounts as any[]).map((a: any) => (
-                                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={label}>Depreciation Expense Account</label>
-                                <select
-                                    style={inputBase}
-                                    value={form.depreciation_expense_account ?? ''}
-                                    onChange={e => setField('depreciation_expense_account', e.target.value ? Number(e.target.value) : null)}
-                                >
-                                    <option value="">Use Category default</option>
-                                    {(expenseAccounts as any[]).map((a: any) => (
-                                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
+                        <h3 style={sectionTitle}>
+                            GL Account Display
+                            <span style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>
+                                {' '}(inherited from the selected Asset Category)
+                            </span>
+                        </h3>
+                        {(() => {
+                            const selectedCat = assetCategories.find(
+                                (c) => (c.code || c.name) === form.asset_category,
+                            );
+                            // Prefer the server's _display payload (nested
+                            // {id, code, name}); fall back to looking up by
+                            // id in the already-fetched account arrays.
+                            const resolve = (
+                                display: AccountDisplay | null | undefined,
+                                fkId: number | null | undefined,
+                                pool: Array<any>,
+                            ): AccountDisplay | null => {
+                                if (display && display.code) return display;
+                                if (fkId) {
+                                    const hit = pool.find((p) => p.id === fkId);
+                                    if (hit) return { id: hit.id, code: hit.code, name: hit.name };
+                                }
+                                return null;
+                            };
+                            const costAcc = selectedCat ? resolve(
+                                selectedCat.cost_account_display,
+                                selectedCat.cost_account,
+                                assetAccounts as any[],
+                            ) : null;
+                            const accAccDep = selectedCat ? resolve(
+                                selectedCat.accumulated_depreciation_account_display,
+                                selectedCat.accumulated_depreciation_account,
+                                assetAccounts as any[],
+                            ) : null;
+                            const depExpAcc = selectedCat ? resolve(
+                                selectedCat.depreciation_expense_account_display,
+                                selectedCat.depreciation_expense_account,
+                                expenseAccounts as any[],
+                            ) : null;
+
+                            const DisplayCard = ({
+                                title, acc,
+                            }: { title: string; acc: AccountDisplay | null }) => (
+                                <div style={{
+                                    padding: '12px 14px',
+                                    borderRadius: 8,
+                                    background: acc ? '#f8fafc' : 'rgba(148,163,184,0.08)',
+                                    border: '1px solid var(--color-border, #e2e8f0)',
+                                }}>
+                                    <div style={{
+                                        fontSize: 10, fontWeight: 700,
+                                        color: '#64748b', textTransform: 'uppercase',
+                                        letterSpacing: '0.04em', marginBottom: 4,
+                                    }}>
+                                        {title}
+                                    </div>
+                                    {acc ? (
+                                        <>
+                                            <div style={{
+                                                fontSize: 13, fontWeight: 700,
+                                                color: '#4f46e5', fontFamily: 'monospace',
+                                            }}>
+                                                {acc.code}
+                                            </div>
+                                            <div style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}>
+                                                {acc.name}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div style={{
+                                            fontSize: 12, color: '#94a3b8', fontStyle: 'italic',
+                                        }}>
+                                            {selectedCat
+                                                ? 'Not configured on this category'
+                                                : 'Pick a category above'}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+
+                            return (
+                                <>
+                                    <div style={gridStyle}>
+                                        <DisplayCard title="Asset Account" acc={costAcc} />
+                                        <DisplayCard title="Accumulated Depreciation" acc={accAccDep} />
+                                        <DisplayCard title="Depreciation Expense" acc={depExpAcc} />
+                                    </div>
+                                    <div style={{
+                                        marginTop: 10, fontSize: 11, color: '#64748b',
+                                    }}>
+                                        {selectedCat ? (
+                                            <>
+                                                These accounts are inherited on posting. To change
+                                                them, edit the category in{' '}
+                                                <i>Settings → Asset Categories</i>.
+                                            </>
+                                        ) : (
+                                            <>Select an Asset Category above to see the GL accounts.</>
+                                        )}
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </section>
 
                     {/* ── Action bar ────────────────────────── */}

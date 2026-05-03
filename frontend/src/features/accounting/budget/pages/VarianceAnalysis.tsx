@@ -2,11 +2,47 @@ import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import LoadingScreen from '../../../../components/common/LoadingScreen';
 import { useBudgetPeriods } from '../hooks/useBudgetPeriods';
-import { useVarianceAnalysis } from '../hooks/useBudgetAnalytics';
+import { useVarianceAnalysis, useVarianceSummary } from '../hooks/useBudgetAnalytics';
 import { useCurrency } from '../../../../context/CurrencyContext';
 import { useNCoASegments } from '../../../../hooks/useGovForms';
-import { Download, TrendingDown, TrendingUp, BarChart3 } from 'lucide-react';
+import { Download, TrendingDown, TrendingUp, BarChart3, AlertTriangle, CheckCircle2, Wallet } from 'lucide-react';
 import '../../styles/glassmorphism.css';
+
+interface KpiCardProps {
+    icon: React.ReactNode;
+    label: string;
+    value: string;
+    subtitle?: string;
+    accent?: string;
+}
+
+const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, subtitle, accent = '#2471a3' }) => (
+    <div
+        className="glass-card"
+        style={{
+            padding: '1.25rem',
+            borderLeft: `4px solid ${accent}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+        }}
+    >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: accent }}>
+            {icon}
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                {label}
+            </span>
+        </div>
+        <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)', lineHeight: 1.2 }}>
+            {value}
+        </div>
+        {subtitle && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                {subtitle}
+            </div>
+        )}
+    </div>
+);
 
 const selectStyle: React.CSSProperties = {
     width: '100%',
@@ -29,8 +65,10 @@ export const VarianceAnalysis: React.FC = () => {
     const { currencySymbol } = useCurrency();
     const { data: varianceData, isLoading: varianceLoading } = useVarianceAnalysis(
         selectedPeriod || null,
-        compareToPeriod
+        compareToPeriod,
+        selectedMda,
     );
+    const { data: summary } = useVarianceSummary(selectedPeriod || null, selectedMda);
 
     const formatCurrency = (value: string | number) => {
         const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -191,6 +229,40 @@ export const VarianceAnalysis: React.FC = () => {
                 </div>
             ) : (
                 <>
+                    {/* KPI cards */}
+                    {summary && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                            <KpiCard
+                                icon={<Wallet size={18} />}
+                                label="Total Allocated"
+                                value={`${currencySymbol}${formatCurrency(summary.total_allocated)}`}
+                                accent="#2471a3"
+                                subtitle={`${summary.appropriation_count} appropriation row(s)`}
+                            />
+                            <KpiCard
+                                icon={<TrendingUp size={18} />}
+                                label="Total Used"
+                                value={`${currencySymbol}${formatCurrency(summary.total_used)}`}
+                                accent="#f59e0b"
+                                subtitle={`Committed ${currencySymbol}${formatCurrency(summary.total_committed)} + Expended ${currencySymbol}${formatCurrency(summary.total_expended)}`}
+                            />
+                            <KpiCard
+                                icon={<CheckCircle2 size={18} />}
+                                label="Available"
+                                value={`${currencySymbol}${formatCurrency(summary.total_available)}`}
+                                accent="#22c55e"
+                                subtitle={`Overall utilisation ${parseFloat(summary.overall_utilization_pct).toFixed(1)}%`}
+                            />
+                            <KpiCard
+                                icon={<AlertTriangle size={18} />}
+                                label="Status Mix"
+                                value={`${summary.status_counts.OVER} OVER / ${summary.status_counts.ON_TRACK} ON_TRACK / ${summary.status_counts.UNDER} UNDER`}
+                                accent={summary.status_counts.OVER > 0 ? '#ef4444' : '#22c55e'}
+                                subtitle="Based on utilisation thresholds (70% / 95%)"
+                            />
+                        </div>
+                    )}
+
                     {/* Chart */}
                     <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
                         <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>

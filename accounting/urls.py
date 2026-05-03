@@ -38,7 +38,7 @@ from .views import (
     AssetLocationViewSet, AssetInsuranceViewSet, AssetMaintenanceViewSet,
     AssetTransferViewSet, AssetDepreciationScheduleViewSet,
     AssetRevaluationViewSet, AssetDisposalViewSet, AssetImpairmentViewSet,
-    FixedAssetViewSet,
+    FixedAssetViewSet, DepreciationRunScheduleViewSet,
     # Recurring, Accruals, Period Mgmt
     RecurringJournalViewSet, RecurringJournalRunViewSet,
     AccrualViewSet, DeferralViewSet,
@@ -71,7 +71,8 @@ from .views import (
     CashFlowStatementView,
     StatementOfChangesInNetAssetsView,
     NotesToFinancialStatementsView,
-    BudgetVsActualIPSASView, RevenuePerformanceView, TSACashPositionView,
+    BudgetVsActualIPSASView, BudgetPerformanceStatementView,
+    RevenuePerformanceView, TSACashPositionView,
     FunctionalClassificationView, ProgrammePerformanceView, GeographicDistributionView,
     FundPerformanceView,
     # Settings
@@ -115,6 +116,7 @@ router.register(r'asset-dep-schedules', AssetDepreciationScheduleViewSet, basena
 router.register(r'asset-revaluations', AssetRevaluationViewSet, basename='asset-revaluation')
 router.register(r'asset-disposals', AssetDisposalViewSet, basename='asset-disposal')
 router.register(r'asset-impairments', AssetImpairmentViewSet, basename='asset-impairment')
+router.register(r'depreciation-schedules', DepreciationRunScheduleViewSet, basename='depreciation-schedule')
 
 # ─── Budget (Legacy) ──────────────────────────────────────────
 router.register(r'budget-periods', BudgetPeriodViewSet, basename='budget-period')
@@ -268,6 +270,7 @@ urlpatterns = [
     path('ipsas/changes-in-net-assets/',  StatementOfChangesInNetAssetsView.as_view(), name='ipsas-changes-in-net-assets'),
     path('ipsas/notes/',                  NotesToFinancialStatementsView.as_view(),   name='ipsas-notes'),
     path('ipsas/budget-vs-actual/', BudgetVsActualIPSASView.as_view(), name='ipsas-budget-vs-actual'),
+    path('ipsas/budget-performance/', BudgetPerformanceStatementView.as_view(), name='ipsas-budget-performance'),
     path('ipsas/revenue-performance/', RevenuePerformanceView.as_view(), name='ipsas-revenue-performance'),
     path('ipsas/tsa-cash-position/', TSACashPositionView.as_view(), name='ipsas-tsa-cash-position'),
     path('ipsas/functional-classification/', FunctionalClassificationView.as_view(), name='ipsas-functional'),

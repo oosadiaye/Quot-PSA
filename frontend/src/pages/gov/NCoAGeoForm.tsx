@@ -29,10 +29,10 @@ const lblStyle: React.CSSProperties = {
     textTransform: 'uppercase' as const, letterSpacing: '0.04em',
 };
 
-const ZONES = [
-    ['1', '1 - North-Central'], ['2', '2 - North-East'], ['3', '3 - North-West'],
-    ['4', '4 - South-East'], ['5', '5 - South-South'], ['6', '6 - South-West'],
-];
+// NCoA hierarchy fields (zone, state, senatorial, LGA, ward) are no longer
+// surfaced in this form — they round-trip transparently through the form state
+// so an edit doesn't wipe existing values, but users only see / edit the
+// essential identity fields (code, name, parent, active, description).
 
 export default function NCoAGeoForm() {
     const { id } = useParams<{ id: string }>();
@@ -121,17 +121,6 @@ export default function NCoAGeoForm() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                             <div><label style={lblStyle}>Code *</label><input style={inputStyle} value={form.code} onChange={set('code')} placeholder="e.g. 51000100" maxLength={8} required /></div>
                             <div><label style={lblStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={set('name')} placeholder="e.g. Aniocha North" required /></div>
-                            <div><label style={lblStyle}>Geo-Political Zone</label>
-                                <select style={selectStyle} value={form.zone_code} onChange={set('zone_code')}>
-                                    {ZONES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                </select>
-                            </div>
-                            <div><label style={lblStyle}>State Code (NBS)</label><input style={inputStyle} value={form.state_code} onChange={set('state_code')} placeholder="e.g. 10 (Delta)" maxLength={2} /></div>
-                            <div><label style={lblStyle}>LGA Code</label><input style={inputStyle} value={form.lga_code} onChange={set('lga_code')} placeholder="e.g. 01" maxLength={2} /></div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div><label style={lblStyle}>Senatorial Code</label><input style={inputStyle} value={form.senatorial_code} onChange={set('senatorial_code')} maxLength={1} /></div>
-                                <div><label style={lblStyle}>Ward Code</label><input style={inputStyle} value={form.ward_code} onChange={set('ward_code')} maxLength={2} /></div>
-                            </div>
                             <div><label style={lblStyle}>Parent</label>
                                 <select style={selectStyle} value={form.parent} onChange={set('parent')}>
                                     <option value="">(Top level)</option>

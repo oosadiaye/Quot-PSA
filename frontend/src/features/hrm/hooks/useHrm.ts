@@ -510,6 +510,46 @@ export const useProcessPayroll = () => {
     });
 };
 
+export const useAutoProcessPayroll = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(`/hrm/payroll-runs/${id}/auto-process/`);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['hrm-payroll-runs'] });
+            queryClient.invalidateQueries({ queryKey: ['hrm-payslips'] });
+        },
+    });
+};
+
+export const usePreviewPayroll = (id: number | null) =>
+    useQuery({
+        enabled: !!id,
+        queryKey: ['hrm-payroll-preview', id],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/hrm/payroll-runs/${id}/preview/`);
+            return data as {
+                count: number;
+                results: Array<{
+                    employee_id: number;
+                    employee_number: string;
+                    full_name: string;
+                    basic_salary: string;
+                    gross_salary: string;
+                    tax_deduction: string;
+                    pension_deduction: string;
+                    nhf_deduction: string;
+                    other_deductions: string;
+                    total_deductions: string;
+                    net_salary: string;
+                    employer_pension: string;
+                }>;
+            };
+        },
+    });
+
 export const useApprovePayroll = () => {
     const queryClient = useQueryClient();
     return useMutation({

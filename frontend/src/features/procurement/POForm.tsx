@@ -9,7 +9,9 @@ import { useMDAs } from '../accounting/hooks/useBudgetDimensions';
 import { useFixedAssets, useTaxCodes } from '../accounting/hooks/useAccountingEnhancements';
 import { useItems } from '../inventory/hooks/useInventory';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useToast } from '../../context/ToastContext';
 import { safeAdd, safeMultiply } from '../accounting/utils/currency';
+import { parsePostingError } from '../accounting/utils/parsePostingError';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import '../accounting/styles/glassmorphism.css';
@@ -73,6 +75,7 @@ const POForm = () => {
     ]);
 
     const [formError, setFormError] = useState('');
+    const { addToast } = useToast();
     const [createdPO, setCreatedPO] = useState<{ po_number: string; id: number } | null>(null);
 
     // Down Payment state — declared early; dpAmount computed AFTER totalOrder below
@@ -296,16 +299,12 @@ const POForm = () => {
         try {
             const result = await createPO.mutateAsync(payload);
             setCreatedPO({ po_number: result.po_number, id: result.id });
-        } catch (err: any) {
-            const data = err.response?.data;
-            if (data?.detail) {
-                setFormError(data.detail);
-            } else if (data && typeof data === 'object') {
-                const messages = Object.entries(data).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
-                setFormError(messages.join(' | ') || 'Failed to create purchase order.');
-            } else {
-                setFormError(err.message || 'Failed to create purchase order.');
-            }
+        } catch (err: unknown) {
+            // Centralised parser handles budget / warrant / period
+            // envelopes consistently with the AP and AR forms.
+            const msg = parsePostingError(err, 'Failed to create purchase order.');
+            setFormError(msg);
+            addToast(msg, 'error', 0);
         }
     };
 
@@ -365,7 +364,7 @@ const POForm = () => {
                     onBack={() => navigate('/procurement/orders')}
                     actions={createdPO ? null : (
                         <>
-                            {existingPO && ['Approved', 'Posted'].includes(existingPO.status) && (
+                            {existingPO && ['Approved', 'Posted'].includes(existingPO.status) && !existingPO.has_active_grns && (
                                 <button
                                     type="button"
                                     onClick={() => navigate(`/procurement/grn/new?po=${existingPO.id}`)}
@@ -381,7 +380,7 @@ const POForm = () => {
                                 </button>
                             )}
                             <button type="button" className="btn btn-outline" onClick={() => navigate('/procurement/orders')}
-                                style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}>
+                                style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', color: 'white', borderColor: 'rgba(255,255,255,0.3)', background: 'transparent' }}>
                                 Cancel
                             </button>
                             {!existingPO && (
@@ -604,6 +603,89 @@ const POForm = () => {
                                             <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
                                         ))}
                                     </select>
+                                </div>
+
+                                {/* Dimensions — horizontal row directly below MDA.
+                                    Groups the four NCoA segments (Fund / Function /
+                                    Program / Geo) so the user sees the full
+                                    classification tuple at a glance without having
+                                    to cross the screen to the right-column card. */}
+                                <div>
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center',
+                                        gap: '0.5rem', marginBottom: '0.5rem',
+                                    }}>
+                                        <span style={{
+                                            ...labelStyle,
+                                            margin: 0, display: 'inline-flex',
+                                            alignItems: 'center', gap: '0.375rem',
+                                        }}>
+                                            <Layers size={13} color="#4f46e5" /> Dimensions
+                                        </span>
+                                        {sourcePR && (
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                                                (adopted from PR)
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(4, 1fr)',
+                                        gap: '0.75rem',
+                                    }}>
+                                        <div>
+                                            <label style={labelStyle}>Fund<span className="required-mark"> *</span></label>
+                                            <select
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                value={header.fund}
+                                                disabled={!!sourcePR}
+                                                onChange={e => setHeader({ ...header, fund: e.target.value })}
+                                                required
+                                            >
+                                                <option value="">Select Fund</option>
+                                                {dims?.funds?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelStyle}>Function<span className="required-mark"> *</span></label>
+                                            <select
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                value={header.function}
+                                                disabled={!!sourcePR}
+                                                onChange={e => setHeader({ ...header, function: e.target.value })}
+                                                required
+                                            >
+                                                <option value="">Select Function</option>
+                                                {dims?.functions?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelStyle}>Program<span className="required-mark"> *</span></label>
+                                            <select
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                value={header.program}
+                                                disabled={!!sourcePR}
+                                                onChange={e => setHeader({ ...header, program: e.target.value })}
+                                                required
+                                            >
+                                                <option value="">Select Program</option>
+                                                {dims?.programs?.map((p: any) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelStyle}>Geo<span className="required-mark"> *</span></label>
+                                            <select
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                value={header.geo}
+                                                disabled={!!sourcePR}
+                                                onChange={e => setHeader({ ...header, geo: e.target.value })}
+                                                required
+                                            >
+                                                <option value="">Select Geo</option>
+                                                {dims?.geos?.map((g: any) => <option key={g.id} value={g.id}>{g.code} - {g.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -852,59 +934,11 @@ const POForm = () => {
                     {/* RIGHT COLUMN */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-                            {/* Dimensions Card — locked when adopted from a PR (preserves budget trail) */}
-                            <div className="card" style={{ padding: '1.75rem' }}>
-                                <div style={{ ...sectionHeaderStyle, justifyContent: 'space-between' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <span style={iconBoxStyle}><Layers size={16} color="#4f46e5" /></span>
-                                        Dimensions
-                                    </span>
-                                    {sourcePR && (
-                                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                                            Adopted from PR
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                                    <div>
-                                        <label style={labelStyle}>Fund<span className="required-mark"> *</span></label>
-                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.fund}
-                                            disabled={!!sourcePR}
-                                            onChange={e => setHeader({ ...header, fund: e.target.value })} required>
-                                            <option value="">Select Fund</option>
-                                            {dims?.funds?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Function<span className="required-mark"> *</span></label>
-                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.function}
-                                            disabled={!!sourcePR}
-                                            onChange={e => setHeader({ ...header, function: e.target.value })} required>
-                                            <option value="">Select Function</option>
-                                            {dims?.functions?.map((f: any) => <option key={f.id} value={f.id}>{f.code} - {f.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Program<span className="required-mark"> *</span></label>
-                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.program}
-                                            disabled={!!sourcePR}
-                                            onChange={e => setHeader({ ...header, program: e.target.value })} required>
-                                            <option value="">Select Program</option>
-                                            {dims?.programs?.map((p: any) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Geography (Geo)<span className="required-mark"> *</span></label>
-                                        <select style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }} value={header.geo}
-                                            disabled={!!sourcePR}
-                                            onChange={e => setHeader({ ...header, geo: e.target.value })} required>
-                                            <option value="">Select Geo</option>
-                                            {dims?.geos?.map((g: any) => <option key={g.id} value={g.id}>{g.code} - {g.name}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
+                            {/* Dimensions card moved to the LEFT column
+                                (horizontal grid under the MDA selector) so
+                                Fund/Function/Program/Geo sit right next to
+                                Administrative Segment — the four NCoA
+                                classification keys read as one row. */}
 
                             {/* ── Budget Appropriation Card ───────────────────── */}
                             <div className="card" style={{ padding: '1.25rem' }}>

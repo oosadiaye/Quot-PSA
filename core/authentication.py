@@ -14,20 +14,56 @@ User = get_user_model()
 class PublicSchemaBackend(ModelBackend):
     """Authentication backend that always queries the public schema.
 
-    This ensures that ``authenticate()`` checks the single, centralized
-    ``auth_user`` table in the public schema regardless of which tenant
-    schema is currently active.  Combined with moving
-    ``django.contrib.auth`` and ``rest_framework.authtoken`` to
-    ``SHARED_APPS`` only, this gives us one user pool and one token pool
-    for all tenants.
+    Accepts EITHER the user's ``username`` OR their ``email`` in the
+    login form's username field — both are valid identifiers because
+    operators frequently mis-remember which one they registered with
+    (especially when a short admin username is paired with a full
+    organisational email).
+
+    Resolution order:
+      1. Exact ``username`` match (case-insensitive)
+      2. Exact ``email`` match (case-insensitive) — only when (1) fails
+
+    Both lookups run inside the public schema so the single shared
+    ``auth_user`` table is always consulted regardless of which tenant
+    schema is active. ``django.contrib.auth`` lives in ``SHARED_APPS``
+    only, so there's exactly one user pool platform-wide.
     """
 
     def authenticate(self, request, username=None, password=None, **kwargs):
-        if username:
-            username = username.lower()
+        if not username:
+            return None
+        identifier = username.strip().lower()
+
         with schema_context('public'):
+            # 1) Username path — preserves Django default behaviour for
+            #    everyone who registered with a short username.
+            user = super().authenticate(
+                request, username=identifier, password=password, **kwargs
+            )
+            if user is not None:
+                return user
+
+            # 2) Email path — only attempted when the username lookup
+            #    didn't find anything. We resolve the email to its
+            #    real username and re-call the parent backend so the
+            #    password-hash check + user_can_authenticate hooks
+            #    still run exactly once. ``__iexact`` makes the email
+            #    match case-insensitive too.
+            from django.contrib.auth import get_user_model
+            UserModel = get_user_model()
+            try:
+                resolved = UserModel.objects.get(email__iexact=identifier)
+            except (UserModel.DoesNotExist, UserModel.MultipleObjectsReturned):
+                # MultipleObjectsReturned: an admin re-used an email
+                # across users — refuse to guess. Either case yields
+                # an invalid-credentials response upstream.
+                return None
             return super().authenticate(
-                request, username=username, password=password, **kwargs
+                request,
+                username=resolved.get_username(),
+                password=password,
+                **kwargs,
             )
 
     def get_user(self, user_id):

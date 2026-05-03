@@ -14,8 +14,8 @@ import {
     CheckCircle2, AlertTriangle, Award, ChevronRight,
     FileText, DollarSign, ArrowRightCircle,
 } from 'lucide-react';
-import Sidebar from '../../components/Sidebar';
 import apiClient from '../../api/client';
+import { ListPageShell } from '../../components/layout';
 
 interface Level {
     level: number;
@@ -72,9 +72,7 @@ export default function ApprovalRulesPage() {
     });
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
-            <Sidebar />
-            <main style={{ marginLeft: '260px', padding: '32px' }}>
+        <ListPageShell>
                 <div style={{ marginBottom: 24 }}>
                     <h1 style={{
                         fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
@@ -178,8 +176,7 @@ function SummaryCard({ label, value, accent }: SummaryCardProps) {
                 fontFamily: 'monospace',
             }}>
                 {value}
-            </div>
-        </div>
+        </ListPageShell>
     );
 }
 

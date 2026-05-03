@@ -4,7 +4,7 @@ Position shows non-zero Net Assets from fiscal-year start.
 
 The entry books:
 
-    DR  Cash in TSA (31100100 by default)         NGN  n
+    DR  Cash in TSA (resolved via tsa_gl_resolver)  NGN  n
     CR  Accumulated Fund (43100100 by default)    NGN  n
 
 This mirrors what a real state government does at go-live — the
@@ -83,30 +83,26 @@ class Command(BaseCommand):
             ))
             return
 
-        # Resolve accounts.
+        # Resolve accounts. Cash GL goes through the same resolver as the
+        # live posting paths (TSA gl_cash_account → settings default →
+        # 31* asset prefix scan) so the seed and the runtime never disagree.
+        from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
         settings_obj = AccountingSettings.objects.first()
-        cash_code = _resolve(settings_obj, 'default_cash_account_code', '31100100')
         af_code = _resolve(
             settings_obj, 'accumulated_fund_account_code', '43100100',
         )
 
-        cash = Account.objects.filter(code=cash_code, is_active=True).first()
-        if cash is None:
-            # Fall back to any 311xx account.
-            cash = (
-                Account.objects
-                .filter(code__startswith='311', is_active=True)
-                .order_by('code')
-                .first()
-            )
-        af = Account.objects.filter(code=af_code, is_active=True).first()
+        try:
+            cash = resolve_tsa_cash_gl(tsa_account=None)
+        except Exception as exc:
+            raise CommandError(f'Cannot resolve TSA cash GL: {exc}')
 
-        if cash is None or af is None:
+        af = Account.objects.filter(code=af_code, is_active=True).first()
+        if af is None:
             raise CommandError(
-                f'Required accounts not found: '
-                f'cash={cash_code!r} (found={cash is not None}), '
-                f'accumulated_fund={af_code!r} (found={af is not None}). '
-                'Run seed_ncoa_as_coa first.'
+                f'Accumulated-fund account {af_code!r} not found. '
+                'Configure AccountingSettings.accumulated_fund_account_code '
+                'or add the account to the COA.'
             )
 
         with transaction.atomic():

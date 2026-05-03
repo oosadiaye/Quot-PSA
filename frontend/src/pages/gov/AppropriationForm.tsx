@@ -7,14 +7,15 @@
  * - Lines: Economic Code + Amount per line (add/remove rows)
  * - Auto-detects control level from account type
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, AlertCircle, Plus, X, FileSpreadsheet, Calendar } from 'lucide-react';
+import { ArrowLeft, Save, AlertCircle, Plus, X, FileSpreadsheet, Calendar, Info } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
 import {
     useCreateAppropriation, useNCoASegments, useFiscalYears,
+    useAppropriationsList,
 } from '../../hooks/useGovForms';
 import '../../features/accounting/styles/glassmorphism.css';
 
@@ -72,6 +73,11 @@ export default function AppropriationForm() {
     const createAppropriation = useCreateAppropriation();
     const { data: segments, isLoading: segsLoading } = useNCoASegments();
     const { data: fiscalYears } = useFiscalYears();
+    // Business rule: one active Appropriation per (MDA, Economic, Fund, FiscalYear).
+    // We pre-load ACTIVE appropriations so the Economic-code dropdown can mark
+    // codes already taken for the selected header, steering users to
+    // Supplementary / Virement instead of attempting a duplicate.
+    const { data: existingAppropriations = [] } = useAppropriationsList();
 
     const [formError, setFormError] = useState('');
     const [saveSuccess, setSaveSuccess] = useState('');
@@ -120,6 +126,26 @@ export default function AppropriationForm() {
             return;
         }
 
+        // Guard: ORIGINAL appropriations cannot duplicate an existing
+        // (MDA, Economic, Fund, FY) tuple. Route the user to Supplementary
+        // or Virement before hitting the API.
+        if (header.appropriation_type === 'ORIGINAL') {
+            const clashes = lines
+                .filter(l => l.economic && takenEconomicIds.has(Number(l.economic)))
+                .map(l => {
+                    const s = economicList.find((seg: any) => String(seg.id) === l.economic);
+                    return s ? `${s.code} - ${s.name}` : l.economic;
+                });
+            if (clashes.length > 0) {
+                setFormError(
+                    `Cannot create ORIGINAL appropriations for already-appropriated code(s): ` +
+                    `${clashes.join(', ')}. Switch Appropriation Type to ` +
+                    `Supplementary Appropriation or Virement to adjust the existing line(s).`,
+                );
+                return;
+            }
+        }
+
         setIsSaving(true);
         let created = 0;
         const errors: string[] = [];
@@ -162,6 +188,100 @@ export default function AppropriationForm() {
     const programmeList = segments?.programme || [];
     const geographicList = segments?.geographic || [];
 
+    // Pre-shape option lists for SearchableSelect once — these are global to
+    // the tenant, not per-line, so we don't want to rebuild them on every
+    // line render. Sorted by code (numeric-aware) for predictable UX.
+    const sortByCode = (a: any, b: any) =>
+        (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true });
+
+    const fiscalYearOptions = useMemo(() =>
+        (fiscalYears || []).map((fy: any) => ({
+            value: String(fy.id),
+            label: fy.name || `FY ${fy.year}`,
+            sublabel: fy.status,
+        })),
+    [fiscalYears]);
+
+    const fundOptions = useMemo(() =>
+        [...(segments?.fund || [])].sort(sortByCode).map((s: any) => ({
+            value: String(s.id),
+            label: `${s.code} - ${s.name}`,
+            sublabel: s.code,
+        })),
+    [segments?.fund]);
+
+    const appropriationTypeOptions = useMemo(() =>
+        APPROPRIATION_TYPES.map(([v, l]: [string, string]) => ({
+            value: v, label: l,
+        })),
+    []);
+
+    const functionalOptions = useMemo(() =>
+        [...functionalList].sort(sortByCode).map((s: any) => ({
+            value: String(s.id), label: `${s.code} - ${s.name}`, sublabel: s.code,
+        })),
+    [functionalList]);
+
+    const programmeOptions = useMemo(() =>
+        [...programmeList].sort(sortByCode).map((s: any) => ({
+            value: String(s.id), label: `${s.code} - ${s.name}`, sublabel: s.code,
+        })),
+    [programmeList]);
+
+    const geographicOptions = useMemo(() =>
+        [...geographicList].sort(sortByCode).map((s: any) => ({
+            value: String(s.id), label: `${s.code} - ${s.name}`, sublabel: s.code,
+        })),
+    [geographicList]);
+
+    /**
+     * Economic-segment ids already covered by an ACTIVE Appropriation for
+     * the selected (MDA, Fund, FY) header. Users cannot create another
+     * ORIGINAL line for these — they must use Supplementary / Virement.
+     */
+    const takenEconomicIds = useMemo(() => {
+        if (!header.fiscal_year || !header.administrative || !header.fund) {
+            return new Set<number>();
+        }
+        const fy = parseInt(header.fiscal_year);
+        const mda = parseInt(header.administrative);
+        const fund = parseInt(header.fund);
+        return new Set(
+            existingAppropriations
+                .filter((a: any) =>
+                    a.status === 'ACTIVE' &&
+                    Number(a.fiscal_year) === fy &&
+                    Number(a.administrative) === mda &&
+                    Number(a.fund) === fund,
+                )
+                .map((a: any) => Number(a.economic)),
+        );
+    }, [header.fiscal_year, header.administrative, header.fund, existingAppropriations]);
+
+    // For banners / hints, map each taken economic id → its existing appropriation row
+    const takenEconomicById = useMemo(() => {
+        const m = new Map<number, any>();
+        if (!header.fiscal_year || !header.administrative || !header.fund) return m;
+        const fy = parseInt(header.fiscal_year);
+        const mda = parseInt(header.administrative);
+        const fund = parseInt(header.fund);
+        for (const a of existingAppropriations) {
+            if (
+                a.status === 'ACTIVE' &&
+                Number(a.fiscal_year) === fy &&
+                Number(a.administrative) === mda &&
+                Number(a.fund) === fund
+            ) m.set(Number(a.economic), a);
+        }
+        return m;
+    }, [header.fiscal_year, header.administrative, header.fund, existingAppropriations]);
+
+    const isOriginalType = header.appropriation_type === 'ORIGINAL';
+
+    const linesWithClash = lines.filter(
+        l => l.economic && takenEconomicIds.has(Number(l.economic)) && isOriginalType,
+    );
+
     return (
         <div style={{ display: 'flex' }}>
             <Sidebar />
@@ -194,6 +314,52 @@ export default function AppropriationForm() {
                     </div>
                 )}
 
+                {/* Rule banner: when the selected header has existing appropriations */}
+                {header.fiscal_year && header.administrative && header.fund && takenEconomicIds.size > 0 && (
+                    <div style={{
+                        padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem',
+                        background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
+                        color: '#1e40af', fontSize: 'var(--text-sm)',
+                        display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+                    }}>
+                        <Info size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                            <b>{takenEconomicIds.size}</b> economic code(s) already have an active
+                            appropriation under this MDA + Fund + Fiscal Year. One active
+                            appropriation is allowed per (MDA, Economic Code, Fund, FY).
+                            <br />
+                            To adjust an existing line, switch <b>Appropriation Type</b> to{' '}
+                            <b>Supplementary Appropriation</b> (to add to the approved amount), or
+                            go to{' '}
+                            <a
+                                href="/budget/virements/new"
+                                onClick={(e) => { e.preventDefault(); navigate('/budget/virements/new'); }}
+                                style={{ color: '#1e40af', fontWeight: 600, textDecoration: 'underline' }}
+                            >
+                                Virement (Transfer)
+                            </a>{' '}
+                            to move funds between existing lines.
+                        </div>
+                    </div>
+                )}
+
+                {linesWithClash.length > 0 && (
+                    <div style={{
+                        padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem',
+                        background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                        color: '#b91c1c', fontSize: 'var(--text-sm)',
+                        display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+                    }}>
+                        <AlertCircle size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <div>
+                            {linesWithClash.length} line(s) point at economic code(s) that are
+                            already appropriated. Change <b>Appropriation Type</b> to
+                            Supplementary / Virement, or pick a different economic code, before
+                            saving.
+                        </div>
+                    </div>
+                )}
+
                 <form onSubmit={handleSubmit}>
                     {/* Budget Header */}
                     <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
@@ -204,10 +370,13 @@ export default function AppropriationForm() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
                             <div>
                                 <label style={lblStyle}>Fiscal Year {requiredMark}</label>
-                                <select value={header.fiscal_year} onChange={e => setH('fiscal_year', e.target.value)} style={selectStyle} required>
-                                    <option value="">Select year...</option>
-                                    {(fiscalYears || []).map((fy: any) => <option key={fy.id} value={fy.id}>{fy.name || `FY ${fy.year}`}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={fiscalYearOptions}
+                                    value={String(header.fiscal_year || '')}
+                                    onChange={v => setH('fiscal_year', v)}
+                                    placeholder="Type or select fiscal year..."
+                                    required
+                                />
                             </div>
                             <div>
                                 <label style={lblStyle}>Administrative (MDA) {requiredMark}</label>
@@ -223,18 +392,24 @@ export default function AppropriationForm() {
                             </div>
                             <div>
                                 <label style={lblStyle}>Fund Source {requiredMark}</label>
-                                <select value={header.fund} onChange={e => setH('fund', e.target.value)} style={selectStyle} required>
-                                    <option value="">Select fund...</option>
-                                    {(segments?.fund || []).map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={fundOptions}
+                                    value={String(header.fund || '')}
+                                    onChange={v => setH('fund', v)}
+                                    placeholder="Type fund code or name..."
+                                    required
+                                />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
                             <div>
                                 <label style={lblStyle}>Appropriation Type</label>
-                                <select value={header.appropriation_type} onChange={e => setH('appropriation_type', e.target.value)} style={selectStyle}>
-                                    {APPROPRIATION_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={appropriationTypeOptions}
+                                    value={header.appropriation_type}
+                                    onChange={v => setH('appropriation_type', v)}
+                                    placeholder="Select appropriation type..."
+                                />
                             </div>
                             <div>
                                 <label style={lblStyle}>Law / Act Reference</label>
@@ -304,42 +479,80 @@ export default function AppropriationForm() {
                                     {lines.length > 0 ? lines.map((line, index) => {
                                         const selectedEcon = economicList.find((s: any) => String(s.id) === line.economic);
                                         const isRevenue = selectedEcon?.code?.startsWith('1');
+                                        const isTaken = !!line.economic
+                                            && takenEconomicIds.has(Number(line.economic))
+                                            && isOriginalType;
+                                        const takenAppr = isTaken ? takenEconomicById.get(Number(line.economic)) : null;
                                         return (
                                             <tr key={line.id} style={{
                                                 borderBottom: '1px solid var(--color-border)',
                                                 animation: `fadeIn 0.3s ease-out ${index * 0.03}s both`,
+                                                background: isTaken ? 'rgba(239,68,68,0.04)' : undefined,
                                             }}>
                                                 <td style={{ padding: '0.5rem 1rem' }}>
-                                                    <select value={line.economic} onChange={e => updateLine(line.id, 'economic', e.target.value)}
-                                                        style={{ ...selectStyle, borderColor: isRevenue ? 'rgba(22,163,74,0.5)' : '' }}>
-                                                        <option value="">Select account...</option>
-                                                        {economicList.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                                    </select>
-                                                    {isRevenue && (
+                                                    {/* Per-line economic options — recomputed cheaply each
+                                                        render because the "already-appropriated" annotation
+                                                        depends on isOriginalType + takenEconomicIds, which
+                                                        change as the user adds lines or switches type. The
+                                                        annotation goes into the label so the user sees the
+                                                        warning while typing in the searchable picker; the
+                                                        downstream "switch to Supplementary" hint below
+                                                        still fires on isTaken. */}
+                                                    <SearchableSelect
+                                                        options={[...economicList]
+                                                            .sort(sortByCode)
+                                                            .map((s: any) => {
+                                                                const taken = isOriginalType && takenEconomicIds.has(Number(s.id));
+                                                                return {
+                                                                    value: String(s.id),
+                                                                    label: `${s.code} - ${s.name}${taken ? '  (already appropriated)' : ''}`,
+                                                                    sublabel: s.code,
+                                                                };
+                                                            })}
+                                                        value={String(line.economic || '')}
+                                                        onChange={v => updateLine(line.id, 'economic', v)}
+                                                        placeholder="Type code or name..."
+                                                        style={{
+                                                            borderColor: isTaken
+                                                                ? 'rgba(239,68,68,0.6)'
+                                                                : isRevenue ? 'rgba(22,163,74,0.5)' : '',
+                                                        }}
+                                                    />
+                                                    {isRevenue && !isTaken && (
                                                         <div style={{ fontSize: '0.6rem', color: '#166534', fontWeight: 600, marginTop: '0.15rem' }}>
                                                             REVENUE — statistical only
                                                         </div>
                                                     )}
+                                                    {isTaken && takenAppr && (
+                                                        <div style={{ fontSize: '0.6rem', color: '#ef4444', fontWeight: 600, marginTop: '0.25rem', lineHeight: 1.3 }}>
+                                                            Already appropriated NGN {Number(takenAppr.amount_approved || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}.
+                                                            Switch Type to <b>Supplementary</b> or <b>Virement</b> to adjust.
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
-                                                    <select value={line.functional} onChange={e => updateLine(line.id, 'functional', e.target.value)} style={selectStyle}>
-                                                        <option value="">Optional</option>
-                                                        {functionalList.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={functionalOptions}
+                                                        value={String(line.functional || '')}
+                                                        onChange={v => updateLine(line.id, 'functional', v)}
+                                                        placeholder="Optional — type code or name..."
+                                                    />
                                                 </td>
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
-                                                    <select value={line.programme} onChange={e => updateLine(line.id, 'programme', e.target.value)} style={selectStyle}>
-                                                        <option value="">Optional</option>
-                                                        {programmeList.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={programmeOptions}
+                                                        value={String(line.programme || '')}
+                                                        onChange={v => updateLine(line.id, 'programme', v)}
+                                                        placeholder="Optional — type code or name..."
+                                                    />
                                                 </td>
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
-                                                    <select value={line.geographic} onChange={e => updateLine(line.id, 'geographic', e.target.value)} style={selectStyle}>
-                                                        <option value="">— Statewide —</option>
-                                                        {geographicList.map((s: any) => (
-                                                            <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={geographicOptions}
+                                                        value={String(line.geographic || '')}
+                                                        onChange={v => updateLine(line.id, 'geographic', v)}
+                                                        placeholder="— Statewide —"
+                                                    />
                                                 </td>
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
                                                     <input type="number" step="0.01" min="0.01"
