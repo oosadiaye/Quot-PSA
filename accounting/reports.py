@@ -601,8 +601,47 @@ class GeneralLedgerReportService:
         account_code: str = None,
         cost_center_id: int = None
     ) -> Dict:
-        from accounting.models import JournalLine
+        """Period-bounded GL ledger with opening / closing balance.
 
+        Returns:
+          opening_balance — running balance as of (start_date - 1 day)
+                            so the report reconciles even when the
+                            user picks a narrow window. Computed by
+                            summing every Posted line BEFORE the
+                            start date, signed per account type.
+          entries        — Posted lines in the [start, end] window,
+                            each carrying a running ``balance`` that
+                            continues from the opening balance.
+          total_debit / total_credit — sums for the window only.
+          closing_balance — running balance at end_date.
+        """
+        from accounting.models import JournalLine, Account
+
+        # Resolve the account so we can sign the balance correctly.
+        # ``startswith`` mirrors the in-window filter — if the caller
+        # passes a partial prefix we honour it for both calculations.
+        sample_account = None
+        if account_code:
+            sample_account = Account.objects.filter(
+                code__startswith=account_code,
+            ).first()
+        account_type = sample_account.account_type if sample_account else 'Asset'
+
+        def _signed_delta(line) -> Decimal:
+            if (line.account.account_type if hasattr(line, 'account') else account_type) in ('Asset', 'Expense'):
+                return (line.debit or Decimal('0')) - (line.credit or Decimal('0'))
+            return (line.credit or Decimal('0')) - (line.debit or Decimal('0'))
+
+        # ── Opening balance: every Posted line BEFORE the window ──────
+        opening_qs = JournalLine.objects.filter(
+            header__posting_date__lt=start_date,
+            header__status='Posted',
+        ).select_related('header', 'account')
+        if account_code:
+            opening_qs = opening_qs.filter(account__code__startswith=account_code)
+        opening_balance = sum((_signed_delta(l) for l in opening_qs), Decimal('0'))
+
+        # ── In-window entries ─────────────────────────────────────────
         lines = JournalLine.objects.filter(
             header__posting_date__gte=start_date,
             header__posting_date__lte=end_date,
@@ -613,14 +652,10 @@ class GeneralLedgerReportService:
             lines = lines.filter(account__code__startswith=account_code)
 
         entries = []
-        running_balance = Decimal('0')
+        running_balance = opening_balance
 
         for line in lines:
-            if line.account.account_type in ['Asset', 'Expense']:
-                running_balance += line.debit - line.credit
-            else:
-                running_balance += line.credit - line.debit
-
+            running_balance += _signed_delta(line)
             entries.append({
                 'date': line.header.posting_date,
                 'reference': line.header.reference_number,
@@ -634,6 +669,8 @@ class GeneralLedgerReportService:
             'report_type': 'General Ledger',
             'period': {'start': start_date, 'end': end_date},
             'account_filter': account_code,
+            'opening_balance': opening_balance,
+            'closing_balance': running_balance,
             'entries': entries,
             'total_debit': sum(e['debit'] for e in entries),
             'total_credit': sum(e['credit'] for e in entries),

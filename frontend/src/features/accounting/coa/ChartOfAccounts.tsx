@@ -65,8 +65,15 @@ export default function ChartOfAccounts() {
     // GL Ledger drill-down
     const [ledgerAccount, setLedgerAccount] = useState<Account | null>(null);
     const today = new Date().toISOString().split('T')[0];
-    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const [ledgerStartDate, setLedgerStartDate] = useState(firstOfMonth);
+    // Default the From-date to the start of the fiscal year (1 January
+    // of the current civil year) — that's the "show me everything in
+    // this account YTD" question the user almost always wants. The
+    // previous "first of month" default produced empty ledgers when
+    // the user clicked through from the CoA list and the entries
+    // pre-dated the current month, even though the closing balance
+    // showed a non-zero figure (true cumulative balance).
+    const startOfFY = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
+    const [ledgerStartDate, setLedgerStartDate] = useState(startOfFY);
     const [ledgerEndDate, setLedgerEndDate] = useState(today);
     const [ledgerData, setLedgerData] = useState<any>(null);
 
@@ -1825,10 +1832,40 @@ export default function ChartOfAccounts() {
                                             </tr>
                                         </thead>
                                         <tbody>
+                                            {/* Opening balance row — shows the cumulative
+                                                balance carried into this window from
+                                                prior posted entries. Surfaces the figure
+                                                that previously lived only on the CoA list,
+                                                so the closing balance reconciles even on
+                                                a narrow date filter. */}
+                                            <tr style={{
+                                                borderBottom: '1px solid var(--color-border)',
+                                                background: 'var(--color-surface)',
+                                                fontStyle: 'italic',
+                                            }}>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                                                    {ledgerStartDate}
+                                                </td>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', fontWeight: 600 }}>—</td>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                                                    Opening Balance (brought forward)
+                                                </td>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)' }}>—</td>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)' }}>—</td>
+                                                <td style={{
+                                                    padding: '0.65rem 1rem', textAlign: 'right',
+                                                    fontWeight: 700,
+                                                    color: parseFloat(ledgerData.opening_balance ?? '0') < 0 ? '#ef4444' : 'var(--color-text)',
+                                                    whiteSpace: 'nowrap',
+                                                }}>
+                                                    {parseFloat(ledgerData.opening_balance ?? '0').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
                                             {ledgerData.entries.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                                                        No transactions found for this period.
+                                                    <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                                        No transactions in this date window. Opening balance shown above —
+                                                        widen the From date to see the source entries.
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1861,34 +1898,47 @@ export default function ChartOfAccounts() {
                                         </tbody>
                                     </table>
 
-                                    {/* Totals footer */}
-                                    {ledgerData.entries.length > 0 && (
-                                        <div style={{
-                                            display: 'flex', justifyContent: 'flex-end', gap: '2.5rem',
-                                            padding: '1rem 1.5rem',
-                                            borderTop: '2px solid var(--color-border)',
-                                            background: 'var(--color-surface)',
-                                        }}>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Total Debit</div>
-                                                <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: '#10b981' }}>
-                                                    {parseFloat(ledgerData.total_debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </div>
-                                            </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Total Credit</div>
-                                                <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: '#f59e0b' }}>
-                                                    {parseFloat(ledgerData.total_credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </div>
-                                            </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Entries</div>
-                                                <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-text)' }}>
-                                                    {ledgerData.entries.length}
-                                                </div>
+                                    {/* Totals footer — always shown when ledgerData
+                                        loaded, even with zero in-window entries,
+                                        because the Opening / Closing balances are
+                                        meaningful regardless. */}
+                                    <div style={{
+                                        display: 'flex', justifyContent: 'flex-end', gap: '2.5rem',
+                                        padding: '1rem 1.5rem',
+                                        borderTop: '2px solid var(--color-border)',
+                                        background: 'var(--color-surface)',
+                                    }}>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Opening</div>
+                                            <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-text)' }}>
+                                                {parseFloat(ledgerData.opening_balance ?? '0').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </div>
                                         </div>
-                                    )}
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Total Debit</div>
+                                            <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: '#10b981' }}>
+                                                {parseFloat(ledgerData.total_debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Total Credit</div>
+                                            <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: '#f59e0b' }}>
+                                                {parseFloat(ledgerData.total_credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Closing</div>
+                                            <div style={{ fontSize: 'var(--text-base)', fontWeight: 800, color: parseFloat(ledgerData.closing_balance ?? '0') < 0 ? '#ef4444' : 'var(--color-primary)' }}>
+                                                {parseFloat(ledgerData.closing_balance ?? '0').toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Entries</div>
+                                            <div style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--color-text)' }}>
+                                                {ledgerData.entries.length}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </>
                             )}
                         </div>
