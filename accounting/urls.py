@@ -210,6 +210,14 @@ router.register(r'tsa-bank-statements', TSABankStatementViewSet, basename='tsa-b
 router.register(r'tsa-bank-statement-lines', TSABankStatementLineViewSet, basename='tsa-bank-statement-line')
 router.register(r'tsa-bank-reconciliations', TSAReconciliationViewSet, basename='tsa-bank-reconciliation')
 
+# ─── Vendor Advance Special-GL (Phase 1) ─────────────────
+# Registered alongside tsa/treasury so the vendor-ledger surfaces
+# can read advance + AP from a single domain. The ledger itself is
+# read-only via the generic list/retrieve; the only mutating action
+# is the per-advance clear() endpoint that posts the contra journal.
+from accounting.views.vendor_advance_views import VendorAdvanceViewSet
+router.register(r'vendor-advances', VendorAdvanceViewSet, basename='vendor-advance')
+
 # ─── NCoA Segments (Phase 8) ─────────────────────────────
 router.register(r'ncoa/administrative', NCoAAdminSegViewSet, basename='ncoa-administrative')
 router.register(r'ncoa/economic', NCoAEconSegViewSet, basename='ncoa-economic')

@@ -37,6 +37,7 @@ import {
 } from './hooks/useContracts';
 import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
+import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
 import { useMemo, useState } from 'react';
@@ -680,6 +681,24 @@ const ContractDetail = () => {
               }
             />
           </div>
+
+          {/* Uncleared advance banner — Special-GL Phase 1.
+              Renders ONLY when this contract's vendor has open
+              MOBILIZATION / DPR / AP advance rows. The "Clear
+              Advance" button posts the F-54 contra journal
+              (DR Real-AP / CR Vendor-Advance recon) so the next
+              IPC payment cycle nets the recovery automatically. */}
+          {contract.vendor && (
+            <UnclearedAdvanceWarning
+              vendorId={contract.vendor}
+              context={{
+                type: 'CONTRACT',
+                id: cid,
+                reference: contract.contract_number ?? `CONTRACT-${cid}`,
+              }}
+              variant="inline"
+            />
+          )}
 
           {/* Tabs */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

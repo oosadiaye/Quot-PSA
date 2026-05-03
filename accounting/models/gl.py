@@ -132,6 +132,14 @@ class Account(models.Model):
         ('inventory', 'Inventory'),
         ('asset_accounting', 'Asset Accounting'),
         ('bank_accounting', 'Bank Accounting'),
+        # SAP-style "Special GL" tag for vendor advances. Accounts
+        # flagged with this type behave like AP recon accounts but
+        # hold *advances* (mobilisation, PO down-payments, AP advance
+        # payments) rather than ordinary trade payables. The
+        # ``vendor_advance`` ledger queries union AP + Advance lines
+        # so the vendor sub-ledger always shows both with an "AD"
+        # tag distinguishing the special-GL postings.
+        ('vendor_advance', 'Vendor Advance (Special GL)'),
     ]
 
     code = models.CharField(max_length=20, unique=True, db_index=True, default='')

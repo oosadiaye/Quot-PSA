@@ -181,8 +181,16 @@ class MobilizationService:
         """
         Mark the advance as paid and bump ContractBalance.mobilization_paid.
 
+        Phase 1 (SAP Special-GL pattern): also creates a ``VendorAdvance``
+        ledger row in the central advance ledger so the popup
+        ("uncleared advance exists") can gate every downstream
+        AP / PV / IPC posting against this vendor. The advance
+        disbursement journal (DR Vendor-Advance recon / CR Cash) is
+        posted by ``VendorAdvanceService.disburse`` — replaces the
+        old "DR Mobilization Advance Receivable / CR Cash" pattern.
+
         Called by the payment-voucher / treasury workflow when the PV
-        actually disburses.  Wrapped in SELECT FOR UPDATE on the balance.
+        actually disburses. Wrapped in SELECT FOR UPDATE on the balance.
         """
         if payment.status != MobilizationPaymentStatus.PENDING:
             raise InvalidTransitionError(
@@ -204,6 +212,40 @@ class MobilizationService:
         payment.payment_date    = payment_date
         payment.updated_by      = actor
         payment.save(update_fields=["status", "payment_voucher", "payment_date", "updated_at"])
+
+        # ── Special-GL ledger row + disbursement journal ─────────────
+        # Wrapped in try/except because a misconfigured tenant (no
+        # vendor_advance recon GL) shouldn't roll back the
+        # MobilizationPayment update — they can re-seed the recon
+        # account and re-run via a recovery management command.
+        try:
+            from accounting.services.vendor_advance import VendorAdvanceService
+            contract = payment.contract
+            VendorAdvanceService.disburse(
+                vendor=contract.vendor,
+                amount=payment.amount,
+                source_type="MOBILIZATION",
+                source_id=payment.pk,
+                reference=(
+                    f"{contract.contract_number or f'CONTRACT-{contract.pk}'}"
+                    f"-MOB"
+                ),
+                posting_date=payment_date,
+                actor=actor,
+                notes=(
+                    f"Mobilisation advance per contract "
+                    f"{contract.contract_number or contract.pk}."
+                ),
+            )
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).error(
+                "VendorAdvance disburse failed for mobilization payment "
+                "%s: %s. ContractBalance.mobilization_paid is updated "
+                "but the central advance ledger and recon journal are "
+                "missing — reseed and re-run.",
+                payment.pk, exc, exc_info=True,
+            )
 
         return payment
 

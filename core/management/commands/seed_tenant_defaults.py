@@ -243,6 +243,37 @@ def seed_defaults(tenant_name='My Business'):
     if created:
         results['grir_clearing'] = 1
 
+    # ── 6. Vendor Advance Special-GL recon account ──────────────────
+    # Tagged with reconciliation_type='vendor_advance' so the popup
+    # ("uncleared advance exists") and the clearance journal both
+    # find it via the same flag — no per-tenant code memorisation
+    # needed. Seeded as an Asset GL (advance receivable behaviour),
+    # NCoA-aligned at 31050000 so it slots into the Asset series
+    # next to other receivables. ``get_or_create`` is keyed on the
+    # code, so an existing row at this code is left untouched (we
+    # only ensure the recon flag is set on it).
+    advance_code = gl.get('VENDOR_ADVANCE', '31050000')
+    advance_account, created = Account.objects.get_or_create(
+        code=advance_code,
+        defaults={
+            'name': 'Vendor Advances (Special GL)',
+            'account_type': 'Asset',
+            'is_active': True,
+            'is_reconciliation': True,
+            'reconciliation_type': 'vendor_advance',
+        },
+    )
+    # Idempotently ensure the recon flag is set even if the row
+    # already existed pre-Phase-1 (e.g. tenant ran seed_coa first).
+    if not advance_account.is_reconciliation or advance_account.reconciliation_type != 'vendor_advance':
+        advance_account.is_reconciliation = True
+        advance_account.reconciliation_type = 'vendor_advance'
+        advance_account.save(update_fields=[
+            'is_reconciliation', 'reconciliation_type',
+        ])
+    if created:
+        results['vendor_advance_recon'] = 1
+
     return results
 
 

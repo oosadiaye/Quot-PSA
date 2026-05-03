@@ -14,6 +14,10 @@ from accounting.models.tax import *
 from accounting.models.treasury import *
 from accounting.models.revenue import *
 from accounting.models.tsa_reconciliation import *
+from accounting.models.vendor_advance import (  # noqa: F401
+    VendorAdvance, VendorAdvanceClearance,
+    VendorAdvanceStatus, VendorAdvanceSource,
+)
 from accounting.models.report_snapshot import ReportSnapshot  # noqa: F401
 from accounting.models.provision import (  # noqa: F401
     Provision, ContingentLiability, ContingentAsset,
