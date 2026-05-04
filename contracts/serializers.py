@@ -311,6 +311,15 @@ class IPCSerializer(serializers.ModelSerializer):
         max_digits=20, decimal_places=2, read_only=True,
     )
     integrity_hash = serializers.CharField(read_only=True)
+    # Lock affordance: surfaced so the SPA can hide the Reject button
+    # when the linked PaymentVoucherGov is still active. The lock
+    # releases automatically when the PV is CANCELLED or REVERSED.
+    payment_voucher_number = serializers.CharField(
+        source='payment_voucher.voucher_number', read_only=True, default=None,
+    )
+    payment_voucher_status = serializers.CharField(
+        source='payment_voucher.status', read_only=True, default=None,
+    )
 
     class Meta:
         model = InterimPaymentCertificate
@@ -329,6 +338,7 @@ class IPCSerializer(serializers.ModelSerializer):
             "status", "certifying_engineer",
             "integrity_hash",
             "accrual_journal", "payment_voucher",
+            "payment_voucher_number", "payment_voucher_status",
             "rejection_reason", "notes",
             "created_at", "updated_at",
         ]
@@ -341,6 +351,7 @@ class IPCSerializer(serializers.ModelSerializer):
             "vat_amount", "wht_amount", "net_payable",
             "certifying_engineer", "integrity_hash",
             "accrual_journal", "payment_voucher",
+            "payment_voucher_number", "payment_voucher_status",
             "rejection_reason",
             "created_at", "updated_at",
         ]

@@ -318,11 +318,31 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve a PV (moves from CHECKED/AUDITED to APPROVED)."""
+        """Approve a PV.
+
+        Any user with the ``approve`` permission (and a fresh MFA — see
+        ``get_permissions`` for the gate) can promote a voucher to
+        APPROVED from any pre-approval state: DRAFT, CHECKED, or
+        AUDITED. The intermediate Check / Audit steps remain available
+        as optional review gates for tenants that want them, but they
+        are no longer mandatory — a Treasury operator with approval
+        authority can act on a draft directly.
+
+        Only terminal / post-approval states (already APPROVED,
+        SCHEDULED, PAID, CANCELLED, REVERSED) reject the call, since
+        re-approving them is meaningless or destructive.
+        """
         pv = self.get_object()
-        if pv.status not in ('CHECKED', 'AUDITED'):
+        APPROVABLE_STATUSES = ('DRAFT', 'CHECKED', 'AUDITED')
+        if pv.status not in APPROVABLE_STATUSES:
             return Response(
-                {'error': f'Cannot approve PV with status "{pv.status}". Must be CHECKED or AUDITED.'},
+                {
+                    'error': (
+                        f'Cannot approve PV with status "{pv.status}". '
+                        f'Approval is only available before the voucher '
+                        f'has been approved/scheduled/paid.'
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         pv.status = 'APPROVED'
@@ -331,34 +351,118 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def schedule_payment(self, request, pk=None):
-        """Schedule an approved PV for payment — creates PaymentInstruction."""
+        """Schedule an approved PV for payment.
+
+        Creates two linked records and flips the PV to ``SCHEDULED``:
+
+        1. **PaymentInstruction** — bank-rail-facing record (TSA + payee
+           details + amount + narration) that the bank-integration layer
+           consumes to dispatch the actual transfer.
+        2. **Payment (Draft)** — operator-facing outgoing-payment row
+           that surfaces in the *Outgoing Payments* list. The Treasury
+           operator finalises the payment method (Wire / ACH / Cheque)
+           and bank account, then posts it — at which point the GL
+           journal (DR AP / CR Cash) lands and the cash actually moves.
+
+        Idempotent on retries: a second call when the PV is already
+        scheduled returns 400 with a clear message, AND skips creating
+        a duplicate Payment if one is already linked.
+        """
+        from accounting.models import TransactionSequence
+        from accounting.models.receivables import Payment
+        from datetime import date as _date
+
         pv = self.get_object()
-        if pv.status != 'APPROVED':
+        # Allow either:
+        #   • APPROVED — the canonical "schedule for payment" entry point
+        #   • SCHEDULED — re-entry to *backfill* a missing Payment row.
+        #     This heals data created before the action started auto-
+        #     materialising the Payment. Re-clicking Schedule on an
+        #     already-SCHEDULED PV with a draft Payment present is a
+        #     no-op; without a draft Payment, the missing row is
+        #     created and surfaced in Outgoing Payments.
+        if pv.status not in ('APPROVED', 'SCHEDULED'):
             return Response(
-                {'error': f'Only APPROVED PVs can be scheduled. Current: "{pv.status}"'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if hasattr(pv, 'payment_instruction'):
-            return Response(
-                {'error': 'Payment instruction already exists for this PV.'},
+                {'error': f'Only APPROVED or SCHEDULED PVs can be scheduled. Current: "{pv.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        instruction = PaymentInstruction.objects.create(
-            payment_voucher=pv,
-            tsa_account=pv.tsa_account,
-            beneficiary_name=pv.payee_name,
-            beneficiary_account=pv.payee_account,
-            beneficiary_bank=pv.payee_bank,
-            beneficiary_sort=pv.payee_sort_code,
-            amount=pv.net_amount,
-            narration=pv.narration[:200],
-        )
-        pv.status = 'SCHEDULED'
-        pv.save(update_fields=['status', 'updated_at'])
+        # NOTE: no warrant check at schedule time. Scheduling only
+        # materialises a draft Payment row in Outgoing Payments — it
+        # doesn't disburse cash. The warrant ceiling binds at payment
+        # posting (when Draft → Posted writes the GL journal), gated
+        # there by ``AccountingSettings.require_warrant_before_payment``.
+        # Operators can always schedule an APPROVED PV regardless of
+        # warrant availability; the gate fires when they try to post
+        # the resulting Draft Payment.
 
-        return Response(PaymentInstructionSerializer(instruction).data,
-                        status=status.HTTP_201_CREATED)
+        # PaymentInstruction is created once. On re-entry (SCHEDULED PV
+        # that's missing only the Payment) we reuse the existing one.
+        instruction = getattr(pv, 'payment_instruction', None)
+        if instruction is None:
+            instruction = PaymentInstruction.objects.create(
+                payment_voucher=pv,
+                tsa_account=pv.tsa_account,
+                beneficiary_name=pv.payee_name,
+                beneficiary_account=pv.payee_account,
+                beneficiary_bank=pv.payee_bank,
+                beneficiary_sort=pv.payee_sort_code,
+                amount=pv.net_amount,
+                narration=pv.narration[:200],
+            )
+
+        # ── Draft Payment row for the Outgoing Payments page ─────────
+        # Idempotency: if some earlier flow already linked a draft
+        # Payment to this PV, reuse it rather than creating a duplicate.
+        # ``cash_payments`` is the reverse manager declared on
+        # ``Payment.payment_voucher``.
+        existing_payment = pv.cash_payments.filter(status='Draft').order_by('id').first()
+        if existing_payment is None:
+            payment_number = TransactionSequence.get_next('payment', 'PAY-')
+            # Resolve the vendor from the linked invoice when available —
+            # the Outgoing Payments page groups rows by vendor name.
+            vendor = None
+            try:
+                from accounting.models.receivables import VendorInvoice
+                if pv.invoice_number:
+                    vi = (
+                        VendorInvoice.objects
+                        .filter(invoice_number=pv.invoice_number)
+                        .select_related('vendor')
+                        .first()
+                    )
+                    if vi and vi.vendor_id:
+                        vendor = vi.vendor
+            except Exception:  # noqa: BLE001 — vendor inference is best-effort
+                vendor = None
+
+            existing_payment = Payment.objects.create(
+                payment_number=payment_number,
+                payment_date=_date.today(),
+                payment_method='Wire',  # Treasury operator can change before posting
+                reference_number=pv.voucher_number or '',
+                total_amount=pv.net_amount,
+                status='Draft',
+                payment_voucher=pv,
+                vendor=vendor,
+                document_number=payment_number,
+            )
+
+        # Only flip status on the APPROVED → SCHEDULED transition. On
+        # re-entry (already SCHEDULED) we leave status untouched.
+        if pv.status == 'APPROVED':
+            pv.status = 'SCHEDULED'
+            pv.save(update_fields=['status', 'updated_at'])
+
+        return Response({
+            'instruction': PaymentInstructionSerializer(instruction).data,
+            'payment': {
+                'id': existing_payment.pk,
+                'payment_number': existing_payment.payment_number,
+                'status': existing_payment.status,
+                'total_amount': str(existing_payment.total_amount),
+            },
+        }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def mark_paid(self, request, pk=None):

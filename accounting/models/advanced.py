@@ -824,6 +824,27 @@ class AccountingSettings(models.Model):
         ),
     )
 
+    # Tenant-level warrant control. When True (the safe default) the
+    # payment-stage warrant ceiling check is enforced — cash cannot
+    # leave the TSA beyond released AIE / warrant amounts. Tenants
+    # mid-rollout (or jurisdictions that don't operate warrant-based
+    # cash control) can toggle this OFF to bypass the gate. The
+    # pre-payment stages (commitment / invoice) continue to follow
+    # the global ``WARRANT_ENFORCEMENT_STAGE`` setting.
+    require_warrant_before_payment = models.BooleanField(
+        default=True,
+        help_text=(
+            'When True, outgoing Payments are blocked when the '
+            'released warrant balance for the relevant MDA + Fund + '
+            'Account would not cover the payment amount. When False, '
+            'payments post without the warrant ceiling check — useful '
+            'for tenants not yet operating on warrant-based cash '
+            'control. Pre-payment stages (commitment, invoice) are '
+            'governed separately by the WARRANT_ENFORCEMENT_STAGE '
+            'system setting.'
+        ),
+    )
+
     # Default currencies (up to 4 slots)
     default_currency_1 = models.ForeignKey(
         'accounting.Currency', on_delete=models.SET_NULL, null=True, blank=True,

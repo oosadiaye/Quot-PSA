@@ -351,6 +351,14 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
     account_code   = serializers.CharField(source='account.code', read_only=True, allow_null=True)
     account_name   = serializers.CharField(source='account.name', read_only=True, allow_null=True)
     fund_name      = serializers.CharField(source='fund.name', read_only=True, allow_null=True)
+    # Lock affordance: when a PaymentVoucherGov has been raised against
+    # this invoice (matched by invoice_number) the SPA hides the
+    # "Create PV" button and shows the linked PV instead. The factory
+    # already prevents server-side double creation; these fields close
+    # the UI affordance loop.
+    payment_voucher_id     = serializers.SerializerMethodField()
+    payment_voucher_number = serializers.SerializerMethodField()
+    payment_voucher_status = serializers.SerializerMethodField()
 
     class Meta:
         model = VendorInvoice
@@ -366,12 +374,49 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
             'currency', 'currency_code',
             'status', 'journal_entry', 'attachment',
             'document_number', 'document_type', 'lines',
+            'payment_voucher_id', 'payment_voucher_number', 'payment_voucher_status',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
         read_only_fields = [
             'id', 'invoice_number', 'balance_due',
+            'payment_voucher_id', 'payment_voucher_number', 'payment_voucher_status',
             'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number',
         ]
+
+    def _linked_pv(self, obj):
+        # Resolve a PV linked to this invoice via the convention used
+        # by ``accounting.services.pv_factory``: PaymentVoucherGov.
+        # invoice_number == VendorInvoice.invoice_number. Cached on
+        # the instance for the duration of one request to avoid
+        # repeated lookups across the three derived fields.
+        cached = getattr(obj, '_linked_pv_cache', None)
+        if cached is not None:
+            return cached if cached is not False else None
+        if not obj.invoice_number:
+            obj._linked_pv_cache = False
+            return None
+        from accounting.models.treasury import PaymentVoucherGov
+        pv = (
+            PaymentVoucherGov.objects
+            .filter(invoice_number=obj.invoice_number)
+            .order_by('-id')
+            .only('id', 'voucher_number', 'status')
+            .first()
+        )
+        obj._linked_pv_cache = pv if pv is not None else False
+        return pv
+
+    def get_payment_voucher_id(self, obj) -> int | None:
+        pv = self._linked_pv(obj)
+        return pv.pk if pv else None
+
+    def get_payment_voucher_number(self, obj) -> str | None:
+        pv = self._linked_pv(obj)
+        return pv.voucher_number if pv else None
+
+    def get_payment_voucher_status(self, obj) -> str | None:
+        pv = self._linked_pv(obj)
+        return pv.status if pv else None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1759,6 +1804,13 @@ class AccountingSettingsSerializer(serializers.ModelSerializer):
             # reference. Read by the frontend Outgoing Payment form to
             # toggle the PV picker between optional and mandatory.
             'require_pv_before_payment',
+            # Tenant-level warrant control. Read by the Accounting
+            # Settings UI as a single toggle ("Enforce warrant before
+            # payment"). When False, the payment-stage warrant ceiling
+            # check is bypassed and the invoice-stage check is also
+            # skipped; commitments / invoices / payments post freely
+            # regardless of released warrant balances.
+            'require_warrant_before_payment',
             'default_currency_1', 'default_currency_2',
             'default_currency_3', 'default_currency_4',
             'default_currency_5',

@@ -376,30 +376,84 @@ def select_tenant(request):
     #      (uses ``slug`` + ``TENANT_SUBDOMAIN_BASE``) — only useful
     #      when no Domain row exists at all, which shouldn't happen in
     #      production but keeps the response well-formed during dev.
-    domain = (
-        tenant.domains.filter(is_primary=True).first()
-        or tenant.domains.first()
+    # Resolve the *best* domain for this tenant. Order:
+    #   1. Domain on the configured TENANT_SUBDOMAIN_BASE (production
+    #      subdomain like ``oag-delta.erp.tryquot.com``) — preferred
+    #      because it routes through real DNS and matches the cookie
+    #      / SSL setup the SPA is deployed against.
+    #   2. Any primary Domain row that does NOT use a non-routable
+    #      TLD (``.test``, ``.invalid``, ``.localhost``, ``.local``).
+    #   3. Any non-primary Domain row that's routable.
+    #   4. Fallback to ``tenant.subdomain`` (computed from slug +
+    #      TENANT_SUBDOMAIN_BASE).
+    # We deliberately *exclude* legacy ``*.dtsg.test`` rows from the
+    # redirect_url because they DNS-fail and strand the user. They
+    # remain in the DB for backwards compatibility with the header-
+    # based middleware path; they just don't drive the redirect.
+    from django.conf import settings as _settings
+
+    NON_ROUTABLE_SUFFIXES = ('.test', '.invalid', '.localhost', '.local', '.example')
+
+    def _is_routable(host: str) -> bool:
+        if not host:
+            return False
+        h = host.lower()
+        return not any(h.endswith(s) for s in NON_ROUTABLE_SUFFIXES)
+
+    base = getattr(_settings, 'TENANT_SUBDOMAIN_BASE', '') or ''
+    domains_qs = tenant.domains.all()
+    domain = None
+    # Pass 1: prefer ``<slug>.<TENANT_SUBDOMAIN_BASE>``.
+    if base:
+        domain = domains_qs.filter(domain__iendswith=f'.{base}').first()
+    # Pass 2: any primary, routable domain.
+    if domain is None:
+        domain = next(
+            (d for d in domains_qs.filter(is_primary=True) if _is_routable(d.domain)),
+            None,
+        )
+    # Pass 3: any routable domain at all.
+    if domain is None:
+        domain = next((d for d in domains_qs if _is_routable(d.domain)), None)
+    # Pass 4 / 5: legacy primary, then computed subdomain — used only
+    # to populate ``domain`` (the X-Tenant-Domain header value), NOT
+    # ``redirect_url`` (which we leave blank in that case so the
+    # frontend stays on the apex).
+    legacy_domain = (
+        domains_qs.filter(is_primary=True).first()
+        or domains_qs.first()
     )
-    domain_value = domain.domain if domain else getattr(tenant, 'subdomain', '')
+    if domain is not None:
+        domain_value = domain.domain
+        redirect_routable = True
+    elif legacy_domain is not None:
+        domain_value = legacy_domain.domain
+        redirect_routable = _is_routable(domain_value)
+    else:
+        domain_value = getattr(tenant, 'subdomain', '') or ''
+        redirect_routable = _is_routable(domain_value)
 
     security_logger.info(
         'Tenant selected user_id=%s tenant=%s', request.user.pk, tenant.name,
     )
 
-    # Include role and permissions for the selected tenant.
-    # ``redirect_url`` is the absolute https URL the frontend should
-    # navigate to after a successful tenant pick. It's a hint, not a
-    # requirement — the frontend can choose to stay on the apex if
-    # multi-tenant header-based routing is preferred.
+    # ``redirect_url`` is omitted when the resolved host is non-routable
+    # (e.g. ``.test`` / ``.localhost`` TLDs left over from dev seeding) —
+    # the frontend then stays on the current origin and uses the
+    # X-Tenant-Domain header to identify the tenant. Production
+    # subdomains under TENANT_SUBDOMAIN_BASE always populate the URL.
     # SEC: schema_name removed from API response to avoid leaking internal DB identifiers
-    from django.conf import settings as _settings
     scheme = getattr(_settings, 'TENANT_DEFAULT_SCHEME', 'https')
     response_data = {
         'tenant_id': tenant.id,
         'tenant_name': tenant.name,
         'tenant_slug': getattr(tenant, 'slug', '') or '',
         'domain': domain_value,
-        'redirect_url': f'{scheme}://{domain_value}' if domain_value else '',
+        'redirect_url': (
+            f'{scheme}://{domain_value}'
+            if domain_value and redirect_routable
+            else ''
+        ),
     }
 
     if request.user.is_superuser:

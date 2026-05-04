@@ -509,6 +509,13 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
     vendor_invoice_status = serializers.ReadOnlyField(source='vendor_invoice.status')
     journal_entry_id = serializers.SerializerMethodField()
     journal_reference = serializers.SerializerMethodField()
+    # Lock affordance: PV link denormalised from the underlying vendor
+    # invoice (matched by invoice_number convention used by
+    # ``accounting.services.pv_factory``). Lets the verification list
+    # hide its "Create PV" button when a PV already exists.
+    payment_voucher_id = serializers.SerializerMethodField()
+    payment_voucher_number = serializers.SerializerMethodField()
+    payment_voucher_status = serializers.SerializerMethodField()
 
     def get_journal_entry_id(self, obj):
         return obj.vendor_invoice.journal_entry_id if obj.vendor_invoice_id else None
@@ -517,6 +524,41 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
         if obj.vendor_invoice_id and obj.vendor_invoice.journal_entry_id:
             return obj.vendor_invoice.journal_entry.reference_number
         return None
+
+    def _linked_pv(self, obj):
+        # Matches the same lookup pattern the pv_factory uses.
+        cached = getattr(obj, '_linked_pv_cache', None)
+        if cached is not None:
+            return cached if cached is not False else None
+        invoice_number = (
+            obj.vendor_invoice.invoice_number
+            if obj.vendor_invoice_id else None
+        )
+        if not invoice_number:
+            obj._linked_pv_cache = False
+            return None
+        from accounting.models.treasury import PaymentVoucherGov
+        pv = (
+            PaymentVoucherGov.objects
+            .filter(invoice_number=invoice_number)
+            .order_by('-id')
+            .only('id', 'voucher_number', 'status')
+            .first()
+        )
+        obj._linked_pv_cache = pv if pv is not None else False
+        return pv
+
+    def get_payment_voucher_id(self, obj):
+        pv = self._linked_pv(obj)
+        return pv.pk if pv else None
+
+    def get_payment_voucher_number(self, obj):
+        pv = self._linked_pv(obj)
+        return pv.voucher_number if pv else None
+
+    def get_payment_voucher_status(self, obj):
+        pv = self._linked_pv(obj)
+        return pv.status if pv else None
 
     def get_available_down_payment(self, obj):
         if not obj.purchase_order_id:
@@ -551,12 +593,15 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
             'wht_exempt', 'wht_exempt_reason',
             # Posted-state flags (read-only)
             'vendor_invoice', 'vendor_invoice_status', 'journal_entry_id', 'journal_reference',
+            # PV-link denormalisation (lock affordance)
+            'payment_voucher_id', 'payment_voucher_number', 'payment_voucher_status',
         ]
         read_only_fields = ['id', 'verification_number',
                             'po_amount', 'grn_amount', 'match_type', 'status', 'matched_date',
                             'net_payable', 'available_down_payment', 'wht_amount',
                             'vendor_invoice', 'vendor_invoice_status',
-                            'journal_entry_id', 'journal_reference']
+                            'journal_entry_id', 'journal_reference',
+                            'payment_voucher_id', 'payment_voucher_number', 'payment_voucher_status']
 
     def validate_invoice_amount(self, value):
         if value is not None and value <= 0:

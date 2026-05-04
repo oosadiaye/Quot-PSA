@@ -51,7 +51,108 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                           f'Issue a credit memo to reverse it.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # PV-link lock: even Draft invoices can't be edited once a PV
+        # has been raised against them (would corrupt the auto-filled
+        # PV record). The PV must be cancelled / reversed first.
+        if self._linked_active_pv(instance) is not None:
+            pv = self._linked_active_pv(instance)
+            return Response(
+                {
+                    'error': (
+                        f'Cannot modify this invoice: a Payment Voucher '
+                        f'({pv.voucher_number}, status {pv.status}) has '
+                        f'been raised against it. Cancel or reverse the '
+                        f'PV first.'
+                    ),
+                    'pv_link_locked': True,
+                    'payment_voucher_number': pv.voucher_number,
+                    'payment_voucher_status': pv.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """Block delete (the closest thing AP has to "reject") when the
+        invoice has an active Payment Voucher linked. Cancel the PV
+        first if the invoice really needs to go away."""
+        instance = self.get_object()
+        pv = self._linked_active_pv(instance)
+        if pv is not None:
+            return Response(
+                {
+                    'error': (
+                        f'Cannot delete this invoice: a Payment Voucher '
+                        f'({pv.voucher_number}, status {pv.status}) has '
+                        f'been raised against it. Cancel or reverse the '
+                        f'PV first.'
+                    ),
+                    'pv_link_locked': True,
+                    'payment_voucher_number': pv.voucher_number,
+                    'payment_voucher_status': pv.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @staticmethod
+    def _linked_active_pv(invoice):
+        """Return the linked PaymentVoucherGov if one exists in a
+        non-cancelled / non-reversed state, else None. Mirrors the
+        serializer-level lookup convention (match by invoice_number)."""
+        if not getattr(invoice, 'invoice_number', None):
+            return None
+        from accounting.models.treasury import PaymentVoucherGov
+        pv = (
+            PaymentVoucherGov.objects
+            .filter(invoice_number=invoice.invoice_number)
+            .order_by('-id')
+            .first()
+        )
+        if pv is not None and pv.status not in ('CANCELLED', 'REVERSED'):
+            return pv
+        return None
+
+    @action(detail=True, methods=['post'], url_path='create-draft-voucher')
+    def create_draft_voucher(self, request, pk=None):
+        """Auto-create a draft PaymentVoucherGov from this invoice.
+
+        Same shape as ``contracts.IPCViewSet.create_draft_voucher`` —
+        denormalises payee + amount + invoice ref into a fresh PV in
+        DRAFT, returns ``{invoice, payment_voucher}`` so the SPA can
+        navigate straight to the new PV for review.
+
+        Idempotent: re-calling returns the existing PV linked by
+        invoice number rather than creating a duplicate.
+        """
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_invoice, PVFactoryError,
+        )
+        invoice = self.get_object()
+        try:
+            pv = create_draft_voucher_from_invoice(
+                invoice=invoice, actor=request.user,
+                notes=request.data.get('notes', ''),
+            )
+        except PVFactoryError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            'invoice': {
+                'id': invoice.pk,
+                'invoice_number': invoice.invoice_number,
+                'status': invoice.status,
+            },
+            'payment_voucher': {
+                'id': pv.pk,
+                'voucher_number': pv.voucher_number,
+                'status': pv.status,
+                'gross_amount': str(pv.gross_amount),
+                'net_amount': str(pv.net_amount),
+            },
+        })
 
     @action(detail=False, methods=['get'])
     def payable(self, request):
@@ -509,6 +610,27 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         #
         # When no invoice lines exist (header-only invoice), we fall back to
         # the header-level account + total amount (legacy path).
+        #
+        # Missing MDA / Fund is a HARD STOP — the invoice cannot post
+        # because there's no budget dimension to validate against,
+        # which means there's no appropriation gate. Previously this
+        # silently skipped the check; we now refuse.
+        if not invoice.mda_id or not invoice.fund_id:
+            return Response(
+                {
+                    "error": (
+                        "Cannot post: invoice is missing budget dimensions. "
+                        "MDA and Fund are required so the appropriation "
+                        "ceiling can be enforced. Edit the invoice to set "
+                        "both before posting."
+                    ),
+                    "missing_dimensions": {
+                        "mda": not invoice.mda_id,
+                        "fund": not invoice.fund_id,
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if invoice.mda and invoice.fund:
             try:
                 from budget.services import BudgetValidationService, BudgetExceededError
@@ -569,8 +691,23 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             check_warrant_availability,
             is_warrant_pre_payment_enforced,
         )
+        # Tenant-level kill switch: when the operator has bypassed
+        # warrant enforcement entirely, skip the invoice-stage check too.
+        # The system-wide ``is_warrant_pre_payment_enforced`` flag still
+        # decides which pre-payment stages are gated by default; this
+        # tenant flag is the master enable.
+        try:
+            from accounting.models.advanced import AccountingSettings
+            _ap_settings = AccountingSettings.objects.first()
+            _tenant_warrant_on = (
+                bool(getattr(_ap_settings, 'require_warrant_before_payment', True))
+                if _ap_settings is not None else True
+            )
+        except Exception:
+            _tenant_warrant_on = True
         if (
-            is_warrant_pre_payment_enforced()
+            _tenant_warrant_on
+            and is_warrant_pre_payment_enforced()
             and invoice.mda and invoice.account and invoice.fund
         ):
             allowed, msg, info = check_warrant_availability(
@@ -732,19 +869,17 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                         line_amt = Decimal(str(inv_line.amount or 0))
                         if line_amt <= 0 or not inv_line.account:
                             continue
-                        JournalLine.objects.create(
-                            header=journal,
-                            account=inv_line.account,
-                            debit=line_amt,
-                            credit=Decimal('0.00'),
-                            memo=(
-                                inv_line.description
-                                or inv_line.account.name
-                                or f"Vendor invoice {invoice.invoice_number}"
-                            )[:255],
-                            document_number=journal.document_number,
-                        )
-                        # Per-line Input VAT
+                        # Per-line Input VAT — compute first so we know
+                        # whether to gross-up the expense debit when
+                        # the tenant has no Input VAT recoverable
+                        # account configured. Without this gross-up the
+                        # AP credit (which is always the gross) would
+                        # exceed the expense debit by the VAT amount,
+                        # producing an unbalanced journal — see the
+                        # historical VINV-202604-0004/0005/0006 in
+                        # office_of_accountant_general_delta_state for
+                        # an exact illustration of the bug.
+                        line_dr = line_amt
                         tc = inv_line.tax_code
                         if tc and tc.rate and Decimal(str(tc.rate)) > 0:
                             vat_amt = (
@@ -756,9 +891,31 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                                     or getattr(tc, 'tax_account', None)
                                 )
                                 if vat_acct:
+                                    # VAT is recoverable — DR a separate
+                                    # Input VAT GL below.
                                     prev = input_vat_by_account.get(vat_acct.id, (vat_acct, Decimal('0.00')))
                                     input_vat_by_account[vat_acct.id] = (vat_acct, prev[1] + vat_amt)
                                     line_computed_vat += vat_amt
+                                else:
+                                    # VAT not recoverable for this tenant
+                                    # — fold it into the expense line so
+                                    # the journal still balances. Common
+                                    # for Nigerian state government
+                                    # entities that aren't VAT-registered.
+                                    line_dr = line_amt + vat_amt
+                                    line_computed_vat += vat_amt
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=inv_line.account,
+                            debit=line_dr,
+                            credit=Decimal('0.00'),
+                            memo=(
+                                inv_line.description
+                                or inv_line.account.name
+                                or f"Vendor invoice {invoice.invoice_number}"
+                            )[:255],
+                            document_number=journal.document_number,
+                        )
                         # WHT is DETERMINED at invoice verification but
                         # RECOGNISED at payment time (Nigerian PFM cash-
                         # basis). The line's withholding_tax FK is left
@@ -771,15 +928,12 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                     # Fallback: header-only invoice (no line items)
                     tax_amount = getattr(invoice, 'tax_amount', None) or Decimal('0.00')
                     expense_amount = getattr(invoice, 'subtotal', None) or (amount - tax_amount)
-                    if expense_amount > 0 and expense_account:
-                        JournalLine.objects.create(
-                            header=journal,
-                            account=expense_account,
-                            debit=expense_amount,
-                            credit=Decimal('0.00'),
-                            memo=f"Vendor invoice {invoice.invoice_number}",
-                            document_number=journal.document_number,
-                        )
+                    # Resolve a recoverable Input VAT account if one
+                    # exists in the CoA. If none, gross-up the expense
+                    # so the journal still balances (VAT becomes part
+                    # of expense — correct for non-VAT-registered
+                    # entities).
+                    tax_account = None
                     if tax_amount > 0:
                         tax_account = (
                             Account.objects.filter(
@@ -790,6 +944,19 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                         if tax_account:
                             input_vat_by_account[-1] = (tax_account, tax_amount)
                             line_computed_vat = tax_amount
+                        else:
+                            # Roll VAT into the expense line.
+                            expense_amount = (expense_amount or Decimal('0.00')) + tax_amount
+                            line_computed_vat = tax_amount
+                    if expense_amount > 0 and expense_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=expense_account,
+                            debit=expense_amount,
+                            credit=Decimal('0.00'),
+                            memo=f"Vendor invoice {invoice.invoice_number}",
+                            document_number=journal.document_number,
+                        )
 
                 # DR Input VAT (one row per input_tax_account)
                 for _, (vat_acct, vat_amt) in input_vat_by_account.items():
@@ -850,6 +1017,18 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 invoice.journal_entry = journal
                 invoice.status = 'Posted'
                 invoice.save(_allow_status_change=True)
+
+                # Subledger sync — increment the vendor's outstanding
+                # AP balance by the gross invoice amount. Atomic F()
+                # update so concurrent invoice postings on the same
+                # vendor don't lose increments. Mirrors the F()-based
+                # decrement in ``post_payment`` (line ~1682), so the
+                # subledger nets correctly across the lifecycle.
+                if invoice.vendor_id:
+                    from django.db.models import F
+                    type(invoice.vendor).objects.filter(pk=invoice.vendor_id).update(
+                        balance=F('balance') + (invoice.total_amount or Decimal('0'))
+                    )
 
                 # IPSAS commitment lifecycle: VI Posted → close the
                 # ProcurementBudgetLink (INVOICED → CLOSED). The commitment
@@ -936,6 +1115,26 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         if invoice.status == 'Posted':
             return Response({"error": "Credit memo already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # PV-link lock: don't let a credit memo reverse an invoice
+        # whose PV is still live. The PV must be cancelled first so
+        # the cash-control trail stays intact.
+        pv = self._linked_active_pv(invoice)
+        if pv is not None:
+            return Response(
+                {
+                    'error': (
+                        f'Cannot post this credit memo: a Payment Voucher '
+                        f'({pv.voucher_number}, status {pv.status}) has '
+                        f'been raised against the original invoice. '
+                        f'Cancel or reverse the PV first.'
+                    ),
+                    'pv_link_locked': True,
+                    'payment_voucher_number': pv.voucher_number,
+                    'payment_voucher_status': pv.status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # S1-06 — fiscal period gate.
         try:
             from accounting.services.base_posting import BasePostingService
@@ -946,22 +1145,49 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # SoD enforcement: credit memo requires elevated role
+        # SoD enforcement: credit memo requires elevated role.
+        #
+        # Fail-CLOSED: any unexpected error reading the role row blocks
+        # the credit memo. The previous fail-open behaviour meant that
+        # if django_tenants schema-context resolution failed for any
+        # reason, a user-role account could post credit memos and
+        # reverse AP obligations without segregation of duties.
         from django_tenants.utils import schema_context
+        import logging as _logging
+        _log_sod = _logging.getLogger(__name__)
         try:
             with schema_context('public'):
                 from tenants.models import UserTenantRole
                 user_role = UserTenantRole.objects.filter(
                     user=request.user, tenant=request.tenant,
                 ).first()
-                if user_role and user_role.role in ('user', 'viewer'):
-                    return Response(
-                        {"error": "Separation of Duties: Credit Memo posting requires Manager or Admin role. "
-                                  "Users who create vendor invoices cannot post credit memos."},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-        except Exception:
-            pass  # If role check fails, allow through (fail-open for now)
+        except Exception as exc:  # noqa: BLE001 — fail closed
+            _log_sod.error(
+                "Credit-memo SoD check failed for user %s: %s",
+                getattr(request.user, 'pk', '?'), exc,
+            )
+            return Response(
+                {"error": (
+                    "Could not verify credit-memo authorisation. "
+                    "Contact your administrator to check role assignment."
+                )},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if user_role is None:
+            return Response(
+                {"error": (
+                    "No tenant role assigned. Credit Memo posting "
+                    "requires Manager or Admin role."
+                )},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if user_role.role in ('user', 'viewer'):
+            return Response(
+                {"error": "Separation of Duties: Credit Memo posting requires Manager or Admin role. "
+                          "Users who create vendor invoices cannot post credit memos."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             from django.conf import settings as django_settings
@@ -1070,6 +1296,16 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
 
                 invoice.status = 'Posted'
                 invoice.save(_allow_status_change=True)
+
+                # Subledger sync — credit memo REDUCES vendor AP. Atomic
+                # F()-update mirrors the increment on regular invoice
+                # posting so the vendor's outstanding balance nets
+                # correctly across the lifecycle.
+                if invoice.vendor_id:
+                    from django.db.models import F
+                    type(invoice.vendor).objects.filter(pk=invoice.vendor_id).update(
+                        balance=F('balance') - (invoice.total_amount or Decimal('0'))
+                    )
 
                 # ── Record obligation REVERSAL for credit memo ──────
                 # Credit memo releases budget — creates a negative encumbrance
@@ -1203,17 +1439,26 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Payment-stage warrant gate — UNCONDITIONAL across all
-        # tenants and all configurations. The pre-payment stages
-        # (PO commitment, invoice, contract, journal) skip warrant
-        # interrogation under the default ``WARRANT_ENFORCEMENT_STAGE
-        # = 'payment'`` policy, which makes this check the single
-        # line of defence against cash leaving the consolidated
-        # account beyond released warrants. It is therefore not
-        # gated by any tenant flag, stage flag, or import-failure
-        # fallback — if the warrant module is unreachable, the
-        # payment posting must FAIL loudly rather than silently
-        # bypass the ceiling.
+        # Payment-stage warrant gate. The default behaviour is
+        # GIFMIS-compliant — cash cannot leave the consolidated
+        # account beyond released warrants — but a per-tenant toggle
+        # (``AccountingSettings.require_warrant_before_payment``) can
+        # bypass it for jurisdictions / sub-tenants that don't yet
+        # operate on warrant-based cash control. The toggle defaults
+        # to True; flipping it OFF is an explicit, audited decision
+        # the operator makes via Accounting Settings.
+        try:
+            from accounting.models.advanced import AccountingSettings
+            _settings = AccountingSettings.objects.first()
+            _enforce_warrant = (
+                bool(getattr(_settings, 'require_warrant_before_payment', True))
+                if _settings is not None else True
+            )
+        except Exception:
+            # Fail closed: if the settings row is unreadable we still
+            # enforce the warrant ceiling — the safer default.
+            _enforce_warrant = True
+
         from accounting.budget_logic import check_warrant_availability
         from collections import defaultdict
         buckets: dict = defaultdict(lambda: {'amount': Decimal('0'), 'mda': None, 'fund': None, 'account': None})
@@ -1227,23 +1472,54 @@ class PaymentViewSet(viewsets.ModelViewSet):
             b['mda'] = inv.mda
             b['fund'] = inv.fund
             b['account'] = getattr(inv, 'account', None)
-        for b in buckets.values():
-            if b['amount'] == 0:
-                continue
-            allowed, warrant_msg, info = check_warrant_availability(
-                dimensions={'mda': b['mda'], 'fund': b['fund']},
-                account=b['account'],
-                amount=b['amount'],
-            )
-            if not allowed:
-                return Response(
-                    {
-                        "error": f"Warrant ceiling breached at payment time: {warrant_msg}",
-                        "warrant_exceeded": True,
-                        "info": info,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
+        if _enforce_warrant:
+            for b in buckets.values():
+                if b['amount'] == 0:
+                    continue
+                allowed, warrant_msg, info = check_warrant_availability(
+                    dimensions={'mda': b['mda'], 'fund': b['fund']},
+                    account=b['account'],
+                    amount=b['amount'],
                 )
+                if not allowed:
+                    # Distinguish two failure modes for a clearer
+                    # operator-facing message:
+                    #   1. No warrant has been released at all for this
+                    #      expense line (warrants_released == 0)
+                    #   2. Warrant exists but the amount being paid
+                    #      would push consumption past the released
+                    #      ceiling
+                    # The frontend reads ``warrant_no_warrant`` /
+                    # ``warrant_exceeded`` flags to render the
+                    # appropriate CTA (release warrant vs. issue
+                    # additional warrant).
+                    warrants_released = info.get('warrants_released') or Decimal('0')
+                    appro_label = info.get('appropriation_label', '')
+                    if warrants_released == 0:
+                        clean_msg = (
+                            f"No Warrant (AIE) has been released for "
+                            f"{appro_label or 'this expense line'}. "
+                            f"Release a Warrant for this appropriation "
+                            f"before posting the payment."
+                        )
+                        return Response(
+                            {
+                                "error": clean_msg,
+                                "warrant_no_warrant": True,
+                                "warrant_exceeded": False,
+                                "info": info,
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    return Response(
+                        {
+                            "error": f"Warrant limit exceeded: {warrant_msg}",
+                            "warrant_exceeded": True,
+                            "warrant_no_warrant": False,
+                            "info": info,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
         # Validate allocations sum equals payment total
         allocation_sum = payment.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
@@ -1420,6 +1696,88 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     else:
                         invoice.status = 'Partially Paid'
                     invoice.save(_allow_status_change=True)
+
+                # ── PV-driven propagation ────────────────────────────
+                # Payments created via the PV ``schedule_payment`` flow
+                # don't carry per-invoice allocations — they reference
+                # the PaymentVoucherGov directly. When such a payment
+                # posts (cash leaves the TSA), we cascade the "Paid"
+                # status to every upstream document linked through the
+                # PV: the PV itself, the source VendorInvoice (matched
+                # by invoice_number), and any contract IPC that has
+                # this PV as its ``payment_voucher`` FK.
+                #
+                # All updates are best-effort — a partial cascade does
+                # not roll back the cash event because the cash has
+                # already moved. Errors are logged for ops follow-up.
+                if payment.payment_voucher_id:
+                    import logging as _logging
+                    from django.utils import timezone
+                    _log = _logging.getLogger(__name__)
+                    try:
+                        pv = payment.payment_voucher
+                        # 1. Flip the PV to PAID (terminal status). If
+                        #    a payment_instruction exists, mark it
+                        #    PROCESSED so treasury reports stay in sync.
+                        if pv.status not in ('PAID', 'CANCELLED', 'REVERSED'):
+                            pv.status = 'PAID'
+                            pv.save(update_fields=['status', 'updated_at'])
+                        try:
+                            from accounting.models.treasury import PaymentInstruction
+                            pi = PaymentInstruction.objects.filter(payment_voucher=pv).first()
+                            if pi and pi.status != 'PROCESSED':
+                                pi.status = 'PROCESSED'
+                                pi.processed_at = pi.processed_at or timezone.now()
+                                pi.save(update_fields=['status', 'processed_at', 'updated_at'])
+                        except Exception as exc:  # noqa: BLE001
+                            _log.warning("PV propagation: PI sync failed for PV %s: %s", pv.pk, exc)
+
+                        # 2. Mark the source VendorInvoice as Paid
+                        #    (allocation-free path — the PV's amount
+                        #    is by definition the full settlement).
+                        if pv.invoice_number:
+                            try:
+                                from accounting.models.receivables import VendorInvoice
+                                vi = VendorInvoice.objects.filter(
+                                    invoice_number=pv.invoice_number,
+                                ).first()
+                                if vi is not None and vi.status not in ('Paid', 'Void'):
+                                    vi.paid_amount = vi.total_amount
+                                    vi.status = 'Paid'
+                                    vi.save(_allow_status_change=True)
+                            except Exception as exc:  # noqa: BLE001
+                                _log.warning("PV propagation: VendorInvoice mark-paid failed for PV %s: %s", pv.pk, exc)
+
+                        # 3. Auto-mark every linked IPC as PAID via
+                        #    the IPC service (which records the audit
+                        #    step and runs SoD checks). The reverse
+                        #    manager is ``ipcs`` (declared on
+                        #    IPC.payment_voucher).
+                        try:
+                            from contracts.services.ipc_service import IPCService
+                            ipcs = list(pv.ipcs.all())
+                        except Exception as exc:  # noqa: BLE001
+                            _log.warning("PV propagation: IPC traversal failed for PV %s: %s", pv.pk, exc)
+                            ipcs = []
+                        for ipc in ipcs:
+                            try:
+                                if ipc.status != 'PAID':
+                                    IPCService.mark_paid(
+                                        ipc=ipc,
+                                        payment_date=payment.payment_date,
+                                        actor=request.user,
+                                        notes=f"Auto-marked from Payment {payment.payment_number}",
+                                    )
+                            except Exception as exc:  # noqa: BLE001
+                                # Don't roll back the cash event for
+                                # an IPC mark-paid failure — log and
+                                # leave the IPC for ops to reconcile.
+                                _log.warning(
+                                    "PV propagation: IPC %s mark-paid failed: %s",
+                                    ipc.pk, exc,
+                                )
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("PV propagation: top-level failure for payment %s: %s", payment.pk, exc)
 
                 # Update vendor balance (atomic F()-based)
                 if payment.vendor:

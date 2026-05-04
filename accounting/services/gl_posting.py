@@ -24,15 +24,17 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
     j_function = function or journal.function
     j_program = program or journal.program
     j_geo = geo or journal.geo
-    # S3-05 — carry the MDA (cost centre) dimension onto each GLBalance
-    # bucket. Prefer the line's per-row cost_center (used by payroll /
-    # intercompany splits), falling back to the journal's header MDA.
+    # S3-05 — carry the MDA dimension onto each GLBalance bucket so
+    # per-MDA reports (Trial Balance, Balance Sheet, Budget vs Actual)
+    # attribute the spend correctly. The legacy per-line ``cost_center``
+    # override has been removed from this project; the journal header's
+    # MDA is now the single source.
     j_mda_header = journal.mda
 
-    for line in journal.lines.select_related('account', 'cost_center').all():
+    for line in journal.lines.select_related('account').all():
         debit = line.debit or Decimal('0.00')
         credit = line.credit or Decimal('0.00')
-        line_mda = line.cost_center or j_mda_header
+        line_mda = j_mda_header
 
         gl_bal, created = GLBalance.objects.get_or_create(
             account=line.account,
@@ -58,6 +60,22 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
                 debit_balance=F('debit_balance') + debit,
                 credit_balance=F('credit_balance') + credit
             )
+
+    # ── Bust the IPSAS report cache for this fiscal year ───────────────
+    # Every posting path (manual JE, AP/AR invoice, Payment, PV, IPC
+    # accrual, Vendor Advance, Asset capitalisation/depreciation, etc.)
+    # converges on this function. Bumping the generation counter HERE
+    # means every IPSAS report (Financial Position, Financial
+    # Performance, Cash Flow, Changes in Net Assets, Notes,
+    # Budget vs Actual, Budget Performance, Revenue Performance,
+    # TSA Cash Position, Functional / Programme / Geographic / Fund
+    # Performance) drops its cached entry and recomputes on next read
+    # — without any caller having to remember to invalidate.
+    try:
+        from accounting.services.report_cache import invalidate_period_reports
+        invalidate_period_reports(fiscal_year=fiscal_year)
+    except Exception:  # noqa: BLE001 — cache invalidation is best-effort
+        pass
 
 
 # InterCompanyPostingService and ConsolidationService — REMOVED for public sector

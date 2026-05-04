@@ -311,7 +311,7 @@ const EmailTemplatesTab = () => {
         onClose={() => setEditor({ open: false, template: null, mode: 'create' })}
         width={820}
         title={editor.mode === 'create' ? 'New Email Template' : `Edit: ${editor.template?.display_name}`}
-        destroyOnClose
+        destroyOnHidden
         extra={
           <Space>
             <Button onClick={() => setEditor({ open: false, template: null, mode: 'create' })}>

@@ -1697,6 +1697,51 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
     permission_classes = [RBACPermission]
     filterset_fields = ['status', 'purchase_order']
 
+    @action(detail=True, methods=['post'], url_path='create-draft-voucher')
+    def create_draft_voucher(self, request, pk=None):
+        """Auto-create a draft PaymentVoucherGov from the linked vendor
+        invoice on this verification record.
+
+        Delegates to :func:`accounting.services.pv_factory.create_draft_voucher_from_invoice`
+        — same idempotent factory used by the AP-invoice list action.
+        Returns ``{invoice_matching, payment_voucher}`` so the SPA can
+        navigate straight to the new PV.
+        """
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_invoice, PVFactoryError,
+        )
+        matching = self.get_object()
+        if not matching.vendor_invoice_id:
+            return Response(
+                {'error': 'This verification record has no linked vendor '
+                          'invoice — post the verification first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            pv = create_draft_voucher_from_invoice(
+                invoice=matching.vendor_invoice, actor=request.user,
+                notes=request.data.get('notes', ''),
+            )
+        except PVFactoryError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({
+            'invoice_matching': {
+                'id': matching.pk,
+                'verification_number': matching.verification_number,
+                'status': matching.status,
+            },
+            'payment_voucher': {
+                'id': pv.pk,
+                'voucher_number': pv.voucher_number,
+                'status': pv.status,
+                'gross_amount': str(pv.gross_amount),
+                'net_amount': str(pv.net_amount),
+            },
+        })
+
     @action(detail=True, methods=['post'])
     def submit_for_approval(self, request, pk=None):
         """
@@ -1715,33 +1760,36 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        result = auto_route_approval(
-            matching, 'invoicematching', request,
-            title=f"Invoice {matching.invoice_reference}: {matching.purchase_order.vendor.name if matching.purchase_order else 'N/A'}",
-            amount=matching.invoice_amount,
-        )
-
-        if result.get('auto_approved'):
-            matching.status = 'Approved'
-            msg = "Invoice verification auto-approved."
-        else:
-            matching.status = 'Pending_Review'
-            msg = "Invoice verification submitted for approval."
-
-        matching.save()
-
-        # ── Auto-post to GL when auto-approved ──────────────────
-        # User expectation (confirmed in screenshot): once an invoice
-        # reaches Approved status, the system should post the GL
-        # journal (DR GR/IR / CR AP) and close the commitment without
-        # requiring an additional "Post to GL" click. Wrap in a
-        # try/except so the approval succeeds even if posting fails
-        # (posting errors surface on the /post_to_gl endpoint instead).
+        # Wrap the entire flow (workflow approval → status flip →
+        # auto-post) in a single transaction.atomic block. FAIL-CLOSED:
+        # if auto-post fails the status flip rolls back too, so the
+        # verification cannot land in "Approved" with a Drafted journal.
+        # Previously the auto-post was inside a nested atomic with a
+        # bare except, which left verifications in Approved while the
+        # journal stayed unposted — silent ledger drift.
         auto_post_info: dict = {}
-        if matching.status == 'Approved' and matching.purchase_order:
-            try:
-                with transaction.atomic():
-                    vi, journal, closed_count = self._post_matching_to_gl_inner(matching)
+        with transaction.atomic():
+            result = auto_route_approval(
+                matching, 'invoicematching', request,
+                title=f"Invoice {matching.invoice_reference}: {matching.purchase_order.vendor.name if matching.purchase_order else 'N/A'}",
+                amount=matching.invoice_amount,
+            )
+
+            if result.get('auto_approved'):
+                matching.status = 'Approved'
+                msg = "Invoice verification auto-approved."
+            else:
+                matching.status = 'Pending_Review'
+                msg = "Invoice verification submitted for approval."
+
+            matching.save()
+
+            # Auto-post to GL when auto-approved. Errors propagate so
+            # the entire submit_for_approval rolls back — matching
+            # stays in its prior status, journal isn't created, and
+            # the operator sees the actual error to fix.
+            if matching.status == 'Approved' and matching.purchase_order:
+                vi, journal, closed_count = self._post_matching_to_gl_inner(matching)
                 auto_post_info = {
                     'journal_id':         journal.id if journal else None,
                     'journal_reference':  journal.reference_number if journal else None,
@@ -1750,16 +1798,6 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                     'auto_posted':        True,
                 }
                 msg += ' Posted to GL automatically.'
-            except Exception as exc:
-                logger.warning(
-                    'Matching %s auto-approved but auto-post failed '
-                    '(user can retry via Post to GL): %s',
-                    matching.pk, exc,
-                )
-                auto_post_info = {
-                    'auto_posted': False,
-                    'auto_post_error': str(exc),
-                }
 
         return Response({
             'status': msg,
@@ -1850,10 +1888,45 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        """Reject a matching due to significant variance"""
-        matching = self.get_object()
-        reason = request.data.get('reason', '')
+        """Reject a matching due to significant variance.
 
+        Locked once a Payment Voucher has been raised against the
+        underlying vendor invoice (matched by ``invoice_number`` per
+        the ``pv_factory`` convention). Cancel or reverse the PV
+        first if the verification needs to be rejected after the
+        fact.
+        """
+        matching = self.get_object()
+
+        # ── PV-link lock ────────────────────────────────────────────
+        if matching.vendor_invoice_id:
+            invoice_number = matching.vendor_invoice.invoice_number
+            if invoice_number:
+                from accounting.models.treasury import PaymentVoucherGov
+                pv = (
+                    PaymentVoucherGov.objects
+                    .filter(invoice_number=invoice_number)
+                    .order_by('-id')
+                    .first()
+                )
+                if pv is not None and pv.status not in ('CANCELLED', 'REVERSED'):
+                    return Response(
+                        {
+                            'error': (
+                                f'Cannot reject this verification: a Payment '
+                                f'Voucher ({pv.voucher_number}, status '
+                                f'{pv.status}) has been raised against the '
+                                f'underlying invoice. Cancel or reverse the '
+                                f'PV first.'
+                            ),
+                            'pv_link_locked': True,
+                            'payment_voucher_number': pv.voucher_number,
+                            'payment_voucher_status': pv.status,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        reason = request.data.get('reason', '')
         matching.variance_reason = reason
         matching.status = 'Rejected'
         matching.save()

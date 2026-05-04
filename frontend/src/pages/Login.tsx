@@ -159,11 +159,48 @@ const Login: React.FC = () => {
             // header, and visual context all flow from the URL after
             // that. We only redirect when the host actually differs —
             // otherwise an in-app SPA navigation is faster.
+            //
+            // Defensive guard against non-routable hosts (RFC 2606
+            // reserved TLDs + .local + .example): if a stale primary
+            // Domain row points at ``office_x.dtsg.test`` we'd DNS-fail
+            // mid-login and strand the user. The backend now strips
+            // such hosts from ``redirect_url``; this is the second
+            // layer in case any caller / cached response leaks a
+            // non-routable URL through.
+            const NON_ROUTABLE_TLDS = ['.test', '.invalid', '.localhost', '.local', '.example'];
+            const isNonRoutable = (host: string): boolean => {
+                const h = host.toLowerCase();
+                return NON_ROUTABLE_TLDS.some((suffix) => h.endsWith(suffix));
+            };
+            // If we're currently on localhost / 127.0.0.1, don't
+            // cross-host redirect to a public host — the operator
+            // is in a dev environment, the production subdomain
+            // probably isn't pointed at their box, and they'd lose
+            // their dev tooling. Header-based tenancy
+            // (X-Tenant-Domain) keeps everything on localhost while
+            // still scoping data to the right tenant.
+            const currentHost = window.location.hostname.toLowerCase();
+            const isDevHost = (
+                currentHost === 'localhost'
+                || currentHost === '127.0.0.1'
+                || currentHost === '0.0.0.0'
+                || currentHost.endsWith('.localhost')
+            );
+
             const targetPath = setup_required ? '/setup' : '/dashboard';
             if (redirect_url) {
                 try {
                     const target = new URL(redirect_url);
-                    if (target.host !== window.location.host) {
+                    if (isNonRoutable(target.host)) {
+                        // Skip the cross-host redirect; stay on the
+                        // current origin and rely on the ``X-Tenant-
+                        // Domain`` header in localStorage to scope
+                        // requests to the tenant.
+                    } else if (isDevHost) {
+                        // Dev environment — never leave localhost
+                        // for a public hostname. Same header-based
+                        // fallback as the non-routable case.
+                    } else if (target.host !== window.location.host) {
                         // Cross-host redirect: ``localStorage`` doesn't
                         // travel across origins, so we hand the auth
                         // token + tenant info to the destination via

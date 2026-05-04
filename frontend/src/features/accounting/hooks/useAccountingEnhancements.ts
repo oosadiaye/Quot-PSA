@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
+import { invalidateLedgerCaches } from './invalidateLedger';
 
 const DEFAULT_STALE_TIME = 5 * 60 * 1000; // 5 minutes
 
@@ -412,9 +413,71 @@ export const useApproveVendorInvoice = () => {
             return data;
         },
         onSuccess: () => {
+            // approve_invoice posts a GL journal — every report and
+            // balance derived from the GL must refresh on next paint.
             queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
+        },
+    });
+};
+
+/**
+ * Auto-create a draft Payment Voucher from a vendor invoice. Returns
+ * ``{invoice, payment_voucher: {id, voucher_number, ...}}`` so the
+ * caller can navigate straight to the new PV detail page.
+ *
+ * Idempotent: re-calling for the same invoice returns the existing
+ * linked PV instead of creating a duplicate.
+ */
+export const useCreateDraftVoucherFromInvoice = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ invoiceId }: { invoiceId: number }) => {
+            const { data } = await apiClient.post(
+                `/accounting/vendor-invoices/${invoiceId}/create-draft-voucher/`,
+                {},
+            );
+            return data as {
+                invoice: { id: number; invoice_number: string; status: string };
+                payment_voucher: {
+                    id: number; voucher_number: string; status: string;
+                    gross_amount: string; net_amount: string;
+                };
+            };
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['payment-vouchers'] });
+            queryClient.invalidateQueries({ queryKey: ['generic-list', '/accounting/payment-vouchers/'] });
+        },
+    });
+};
+
+/**
+ * Same factory, but reached via an InvoiceMatching (verification) row.
+ * Backend resolves the linked vendor invoice and delegates to the
+ * shared :func:`create_draft_voucher_from_invoice`.
+ */
+export const useCreateDraftVoucherFromMatching = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ matchingId }: { matchingId: number }) => {
+            const { data } = await apiClient.post(
+                `/procurement/invoice-matching/${matchingId}/create-draft-voucher/`,
+                {},
+            );
+            return data as {
+                invoice_matching: { id: number; verification_number: string; status: string };
+                payment_voucher: {
+                    id: number; voucher_number: string; status: string;
+                    gross_amount: string; net_amount: string;
+                };
+            };
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            queryClient.invalidateQueries({ queryKey: ['payment-vouchers'] });
+            queryClient.invalidateQueries({ queryKey: ['generic-list', '/accounting/payment-vouchers/'] });
         },
     });
 };
@@ -428,8 +491,7 @@ export const usePostCreditMemo = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -468,10 +530,21 @@ export const usePostPayment = () => {
             return data;
         },
         onSuccess: () => {
+            // Posting a Payment triggers a cascade that flips the
+            // linked PV → PAID, the source VendorInvoice → Paid, the
+            // verification's vendor_invoice_status, and any contract
+            // IPC linked through the PV → PAID. Invalidate every list
+            // / detail surface that renders these so the UI mirrors
+            // the new state on the next paint.
             queryClient.invalidateQueries({ queryKey: ['payments'] });
             queryClient.invalidateQueries({ queryKey: ['vendor-invoices'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            queryClient.invalidateQueries({ queryKey: ['payment-vouchers'] });
+            queryClient.invalidateQueries({ queryKey: ['payment-voucher-detail'] });
+            queryClient.invalidateQueries({ queryKey: ['ipcs'] });
+            queryClient.invalidateQueries({ queryKey: ['ipc'] });
+            queryClient.invalidateQueries({ queryKey: ['contract-balance'] });
+            queryClient.invalidateQueries({ queryKey: ['invoice-matchings'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -566,8 +639,7 @@ export const usePostCustomerCreditMemo = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -608,8 +680,7 @@ export const usePostReceipt = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['receipts'] });
             queryClient.invalidateQueries({ queryKey: ['customer-invoices'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -718,8 +789,7 @@ export const usePostDepreciation = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['fixed-assets'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -734,8 +804,7 @@ export const useBulkDepreciation = () => {
         onSuccess: (data: any) => {
             if (data.mode === 'posted') {
                 queryClient.invalidateQueries({ queryKey: ['fixed-assets'] });
-                queryClient.invalidateQueries({ queryKey: ['journals'] });
-                queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+                invalidateLedgerCaches(queryClient);
             }
         },
     });
@@ -815,8 +884,7 @@ export const useRunScheduleNow = () => {
         onSuccess: (data: any) => {
             if (data?.mode === 'posted') {
                 queryClient.invalidateQueries({ queryKey: ['fixed-assets'] });
-                queryClient.invalidateQueries({ queryKey: ['journals'] });
-                queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+                invalidateLedgerCaches(queryClient);
             }
             queryClient.invalidateQueries({ queryKey: ['depreciation-schedule'] });
         },
@@ -1116,8 +1184,7 @@ export const usePayPettyCashVoucher = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['petty-cash-vouchers'] });
             queryClient.invalidateQueries({ queryKey: ['petty-cash-funds'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };
@@ -1158,8 +1225,7 @@ export const usePostPettyCashReplenishment = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['petty-cash-replenishments'] });
             queryClient.invalidateQueries({ queryKey: ['petty-cash-funds'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };

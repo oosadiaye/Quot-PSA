@@ -4,20 +4,29 @@ Renders Payment Voucher and Revenue Receipt as printable HTML documents.
 Users print via browser (Ctrl+P / Print to PDF).
 """
 from django.shortcuts import get_object_or_404
-from django.template.response import TemplateResponse
+from django.template.loader import render_to_string
+from django.http import HttpResponse
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 
 from accounting.models.treasury import PaymentVoucherGov
 from accounting.models.revenue import RevenueCollection
 
 
-@login_required
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
 def payment_voucher_print(request, pk):
-    """Render Payment Voucher as printable HTML."""
+    """Render Payment Voucher as printable HTML.
+
+    DRF-authenticated so the SPA can fetch this with its
+    ``Authorization: Token …`` header (the same one used by
+    ``apiClient``). Returns ``text/html`` for browser printing —
+    the SPA opens the response body as a blob URL in a new tab.
+    """
     pv = get_object_or_404(
         PaymentVoucherGov.objects.select_related(
             'ncoa_code__administrative',
@@ -36,13 +45,16 @@ def payment_voucher_print(request, pk):
 
     state_name = getattr(settings, 'PROJECT_NAME', 'State Government')
 
-    return TemplateResponse(request, 'accounting/payment_voucher_print.html', {
+    html = render_to_string('accounting/payment_voucher_print.html', {
         'pv': pv,
         'state_name': state_name,
-    })
+    }, request=request)
+    return HttpResponse(html, content_type='text/html; charset=utf-8')
 
 
-@login_required
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
 def revenue_receipt_print(request, pk):
     """Render Revenue Receipt as printable HTML."""
     collection = get_object_or_404(
@@ -60,10 +72,11 @@ def revenue_receipt_print(request, pk):
 
     state_name = getattr(settings, 'PROJECT_NAME', 'State Government')
 
-    return TemplateResponse(request, 'accounting/revenue_receipt_print.html', {
+    html = render_to_string('accounting/revenue_receipt_print.html', {
         'collection': collection,
         'state_name': state_name,
-    })
+    }, request=request)
+    return HttpResponse(html, content_type='text/html; charset=utf-8')
 
 
 @api_view(['GET'])

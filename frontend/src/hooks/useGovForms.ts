@@ -9,6 +9,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../api/client';
+import { invalidateLedgerCaches } from '../features/accounting/hooks/invalidateLedger';
 
 // ─── Data Loading Hooks (for form dropdowns) ──────────────────────────
 
@@ -107,7 +108,28 @@ export function useCreatePV() {
     });
 }
 
-/** PV Actions: approve, schedule, mark_paid */
+/** Update Payment Voucher (PATCH). Use only on DRAFT vouchers — the
+ *  backend serializer guards immutable fields (voucher_number,
+ *  net_amount, journal) via read_only_fields, but business validation
+ *  for non-draft transitions still belongs in workflow actions. */
+export function useUpdatePV() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, payload }: { id: number; payload: Record<string, unknown> }) => {
+            const { data } = await apiClient.patch(`/accounting/payment-vouchers/${id}/`, payload);
+            return data;
+        },
+        onSuccess: (_d, vars) => {
+            qc.invalidateQueries({ queryKey: ['payment-voucher-detail', String(vars.id)] });
+            qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/payment-vouchers/'] });
+        },
+    });
+}
+
+/** PV Actions: approve, schedule, mark_paid — any of these can post a
+ *  GL journal (notably ``pay``/``mark_paid``), so we invalidate the
+ *  full ledger cache surface (Trial Balance, Balance Sheet, P&L, Cash
+ *  Flow, GL balances) so the next paint reflects the posting. */
 export function usePVAction() {
     const qc = useQueryClient();
     return useMutation({
@@ -116,9 +138,13 @@ export function usePVAction() {
             return resp;
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/payment-vouchers/'] });
             qc.invalidateQueries({ queryKey: ['payment-voucher-detail'] });
-            qc.invalidateQueries({ queryKey: ['gov-tsa-cash-position'] });
+            // ``schedule_payment`` materialises a draft ``Payment`` row
+            // for the Outgoing Payments page; bust that list too so it
+            // shows up the moment the user navigates over.
+            qc.invalidateQueries({ queryKey: ['payments'] });
+            qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/payments/'] });
+            invalidateLedgerCaches(qc);
         },
     });
 }
@@ -138,7 +164,13 @@ export function useCreateRevenueCollection() {
     });
 }
 
-/** Revenue Collection Actions: confirm, post_to_gl */
+/** Revenue Collection Actions: confirm, post_to_gl.
+ *
+ *  ``post_to_gl`` writes a balanced JournalHeader (DR Cash / CR
+ *  Revenue), so every report derived from posted journals (Trial
+ *  Balance, Income Statement, Cash Flow) must refresh on next paint.
+ *  Calling ``invalidateLedgerCaches`` busts the full report surface
+ *  alongside the revenue-specific keys. */
 export function useRevenueAction() {
     const qc = useQueryClient();
     return useMutation({
@@ -150,6 +182,7 @@ export function useRevenueAction() {
             qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/revenue-collections/'] });
             qc.invalidateQueries({ queryKey: ['revenue-collection-detail'] });
             qc.invalidateQueries({ queryKey: ['gov-revenue-summary'] });
+            invalidateLedgerCaches(qc);
         },
     });
 }
@@ -184,7 +217,9 @@ export function useAppropriationAction() {
     });
 }
 
-/** Create Warrant */
+/** Create Warrant — also busts the appropriation cache so the
+ *  expended/available figures the user just affected refresh on
+ *  the next paint. */
 export function useCreateWarrant() {
     const qc = useQueryClient();
     return useMutation({
@@ -194,11 +229,16 @@ export function useCreateWarrant() {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['generic-list', '/budget/warrants/'] });
+            qc.invalidateQueries({ queryKey: ['generic-list', '/budget/appropriations/'] });
+            qc.invalidateQueries({ queryKey: ['contract-appropriation'] });
         },
     });
 }
 
-/** Warrant Actions: release */
+/** Warrant Actions: release / suspend / cancel — same cross-resource
+ *  invalidation so any card showing appropriation totals (Appropriation
+ *  list, Warrant list, Contract Detail's appropriation panel) sees
+ *  the new figures immediately. */
 export function useWarrantAction() {
     const qc = useQueryClient();
     return useMutation({
@@ -208,6 +248,8 @@ export function useWarrantAction() {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['generic-list', '/budget/warrants/'] });
+            qc.invalidateQueries({ queryKey: ['generic-list', '/budget/appropriations/'] });
+            qc.invalidateQueries({ queryKey: ['contract-appropriation'] });
         },
     });
 }

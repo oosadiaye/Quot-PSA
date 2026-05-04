@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Receipt, Filter, CheckCircle, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit } from 'lucide-react';
 import apiClient from '../../../api/client';
-import { useVendorInvoices, useApproveVendorInvoice, useCreateVendorInvoice } from '../hooks/useAccountingEnhancements';
+import { useVendorInvoices, useApproveVendorInvoice, useCreateVendorInvoice, useCreateDraftVoucherFromInvoice } from '../hooks/useAccountingEnhancements';
 import { useJournal, useSimulatedInvoiceJournal } from '../hooks/useJournal';
 import { useAccounts } from '../hooks/useBudgetDimensions';
 import { useVendors } from '../../procurement/hooks/useProcurement';
@@ -45,6 +45,24 @@ export default function APManagement() {
     const { showConfirm } = useDialog();
     const { data: invoices, isLoading } = useVendorInvoices({ status: statusFilter });
     const approveInvoice = useApproveVendorInvoice();
+    const createDraftPV = useCreateDraftVoucherFromInvoice();
+
+    // One-click "Create PV" — backend factories a draft PaymentVoucherGov
+    // pre-filled from invoice + vendor, returns its id, and we navigate
+    // straight to the PV detail page so the operator can edit/approve.
+    const handleCreatePV = async (invoiceId: number) => {
+        try {
+            const result = await createDraftPV.mutateAsync({ invoiceId });
+            const pv = result.payment_voucher;
+            flash(`Draft PV ${pv.voucher_number} created — opening for review.`, true);
+            navigate(`/accounting/payment-vouchers/${pv.id}`);
+        } catch (err: any) {
+            const msg = err?.response?.data?.error
+                ?? err?.message
+                ?? 'Failed to create draft PV.';
+            flash(msg, false);
+        }
+    };
 
     // Close dropdown on outside click
     useEffect(() => {
@@ -406,14 +424,55 @@ export default function APManagement() {
                                                                 </button>
                                                             )}
                                                             {canPay && (
-                                                                <button
-                                                                    className="btn btn-primary"
-                                                                    style={{ padding: '0.375rem 0.75rem', fontSize: 'var(--text-xs)' }}
-                                                                    onClick={() => navigate(`/accounting/payments/new?invoice=${invoice.id}`)}
-                                                                    title="Raise a Payment Voucher against this posted invoice (Treasury)"
-                                                                >
-                                                                    Pay
-                                                                </button>
+                                                                <>
+                                                                    {invoice.payment_voucher_id ? (
+                                                                        // LOCKED — a PV already exists for this invoice.
+                                                                        // Show the linked PV instead of letting the
+                                                                        // operator create a duplicate. Click navigates
+                                                                        // to the PV detail page where they finalise/post.
+                                                                        <button
+                                                                            className="btn"
+                                                                            style={{
+                                                                                padding: '0.375rem 0.75rem',
+                                                                                fontSize: 'var(--text-xs)',
+                                                                                background: '#ecfdf5',
+                                                                                border: '1px solid #a7f3d0',
+                                                                                color: '#047857',
+                                                                                fontWeight: 600,
+                                                                            }}
+                                                                            onClick={() => navigate(`/accounting/payment-vouchers/${invoice.payment_voucher_id}`)}
+                                                                            title={`A Payment Voucher (${invoice.payment_voucher_number ?? ''}, status ${invoice.payment_voucher_status ?? ''}) has already been raised against this invoice. Click to open it.`}
+                                                                        >
+                                                                            <Receipt size={14} /> View PV {invoice.payment_voucher_number ?? ''}
+                                                                        </button>
+                                                                    ) : (
+                                                                        <>
+                                                                            <button
+                                                                                className="btn btn-primary"
+                                                                                style={{ padding: '0.375rem 0.75rem', fontSize: 'var(--text-xs)' }}
+                                                                                onClick={() => handleCreatePV(invoice.id)}
+                                                                                disabled={createDraftPV.isPending}
+                                                                                title="Auto-create a draft Payment Voucher from this invoice (vendor, amount, narration pre-filled). Opens the PV for review."
+                                                                            >
+                                                                                <Receipt size={14} /> {createDraftPV.isPending ? 'Creating PV…' : 'Create PV'}
+                                                                            </button>
+                                                                            <button
+                                                                                className="btn"
+                                                                                style={{
+                                                                                    padding: '0.375rem 0.75rem',
+                                                                                    fontSize: 'var(--text-xs)',
+                                                                                    background: 'transparent',
+                                                                                    border: '1px solid var(--color-border)',
+                                                                                    color: 'var(--color-text-muted)',
+                                                                                }}
+                                                                                onClick={() => navigate(`/accounting/payments/new?invoice=${invoice.id}`)}
+                                                                                title="Use the legacy Payments form for advanced settlement (multi-invoice, allocations)"
+                                                                            >
+                                                                                Pay
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                </>
                                                             )}
                                                         </>
                                                     );

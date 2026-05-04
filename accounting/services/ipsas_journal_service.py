@@ -5,7 +5,7 @@ Enforces IPSAS accrual accounting and NCoA compliance for all journal entries.
 
 Works against the ACTUAL model schema:
   - JournalHeader: reference_number, description, posting_date, status (Draft/Posted/etc)
-  - JournalLine: header (FK), account (FK to Account), debit, credit, memo, cost_center
+  - JournalLine: header (FK), account (FK to Account), debit, credit, memo
   - TransactionAuditLog: transaction_type, transaction_id, action, user, old_values, new_values
 
 Key guarantees:
@@ -34,7 +34,7 @@ class IPSASJournalService:
 
     All field references match the actual model schema in accounting/models/gl.py:
       JournalHeader: reference_number, description, status choices = Draft/Pending/Posted/etc
-      JournalLine: header (FK), account (FK), debit, credit, memo, cost_center
+      JournalLine: header (FK), account (FK), debit, credit, memo
     """
 
     # Status values matching JournalHeader.status choices (title-cased)
@@ -183,7 +183,7 @@ class IPSASJournalService:
 
         Uses actual field names:
           JournalHeader: reference_number, description, posting_date, status
-          JournalLine: header (FK), account, debit, credit, memo, cost_center
+          JournalLine: header (FK), account, debit, credit, memo
         """
         from accounting.models.audit import TransactionAuditLog
         from accounting.models.gl import JournalHeader, JournalLine
@@ -222,7 +222,6 @@ class IPSASJournalService:
                 debit=line.credit,       # Swap: original credit becomes debit
                 credit=line.debit,       # Swap: original debit becomes credit
                 memo=f"Reversal: {line.memo}",
-                cost_center=line.cost_center,
             )
 
         # Post the reversal
@@ -277,22 +276,33 @@ class IPSASJournalService:
         fiscal_year = journal.posting_date.year
         period = journal.posting_date.month
 
-        for line in journal.lines.all():
+        for line in journal.lines.select_related('account').all():
             account = line.account
             if account is None:
                 continue
 
             # Get dimensional context from the journal header
             header = journal
+            # S3-05 — carry the MDA dimension onto each GLBalance bucket
+            # so per-MDA Trial Balance / Balance Sheet filters include
+            # accrual postings made via this service (IPC accruals,
+            # IPSAS-spec'd journals). Without this the
+            # ``unique_together`` (which includes ``mda``) routes these
+            # postings to a ``mda=None`` ghost row that no per-MDA
+            # filter ever surfaces. We use the journal header's MDA as
+            # the single source — the legacy per-line ``cost_center``
+            # override has been removed from this project.
+            line_mda = header.mda
 
             # Get or create GL balance record (must include fiscal_year + period
-            # to satisfy GLBalance unique_together constraint)
+            # AND mda to satisfy GLBalance unique_together constraint)
             balance, _ = GLBalance.objects.get_or_create(
                 account=account,
                 fund=header.fund,
                 function=header.function,
                 program=header.program,
                 geo=header.geo,
+                mda=line_mda,
                 fiscal_year=fiscal_year,
                 period=period,
                 defaults={
@@ -306,6 +316,17 @@ class IPSASJournalService:
                 debit_balance=F('debit_balance') + (line.debit or Decimal('0')),
                 credit_balance=F('credit_balance') + (line.credit or Decimal('0')),
             )
+
+        # Bust the IPSAS report cache so every Financial Position /
+        # Financial Performance / Cash Flow / Changes in Net Assets /
+        # Notes / Budget Performance / Revenue Performance / Functional
+        # / Programme / Geographic / Fund Performance report drops its
+        # cached entry and recomputes on next read.
+        try:
+            from accounting.services.report_cache import invalidate_period_reports
+            invalidate_period_reports(fiscal_year=fiscal_year)
+        except Exception:  # noqa: BLE001 — cache invalidation is best-effort
+            pass
 
     @staticmethod
     def _sync_legacy_dimensions(journal):

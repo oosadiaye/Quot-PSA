@@ -196,6 +196,9 @@ const ContractDetail = () => {
     }
   };
 
+  // Derived early so retention-release wiring below can read it.
+  const status = (contract?.status ?? 'DRAFT') as ContractStatus;
+
   // ── Retention release wiring ───────────────────────────────────────
   // The backend gates this on contract.status — only PRACTICAL_COMPLETION
   // (releases 50%) or FINAL_COMPLETION (releases remaining 50%) qualify.
@@ -261,49 +264,11 @@ const ContractDetail = () => {
   const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
   const [milestoneForm] = Form.useForm();
 
-  if (loadingC) return <LoadingScreen />;
-  if (!contract) {
-    return (
-      <ListPageShell>
-        <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-          Contract not found.
-        </div>
-      </ListPageShell>
-    );
-  }
-
-  // ── Derived values ────────────────────────────────────────────────
-  const ceiling = Number(contract.contract_ceiling || 0);
-  const certified = Number(
-    balance?.cumulative_gross_certified ?? contract.cumulative_gross_certified ?? 0,
-  );
-  const utilPct = ceiling > 0 ? (certified / ceiling) * 100 : 0;
-  const remaining = Math.max(0, ceiling - certified);
-  const committed = Number(balance?.pending_voucher_amount ?? 0);
-  const retentionPct = Number(contract.retention_rate ?? contract.retention_pct ?? 0);
-  const mobilizationPct = Number(contract.mobilization_rate ?? contract.mobilization_pct ?? 0);
-  const status = (contract.status ?? 'DRAFT') as ContractStatus;
-  const phaseIdx = currentPhaseIndex(status);
-  const tagColor = STATUS_TAG_COLOR[status] ?? STATUS_TAG_COLOR.DRAFT;
-
-  // ── Action handlers ───────────────────────────────────────────────
-  const handleActivate = async () => {
-    try {
-      await activateMut.mutateAsync({ id: cid, notes: '' });
-      message.success('Contract activated — number assigned and balance initialised');
-    } catch (e) {
-      message.error(formatServiceError(e, 'Activation failed'));
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      await closeMut.mutateAsync({ id: cid, notes: '' });
-      message.success('Contract closed');
-    } catch (e) {
-      message.error(formatServiceError(e, 'Close failed'));
-    }
-  };
+  // ── Derived values (safe with undefined contract during loading) ──
+  // Computed BEFORE early returns so the hooks below can depend on
+  // them without violating the Rules of Hooks (hook count must be
+  // stable across renders).
+  const ceiling = Number(contract?.contract_ceiling || 0);
 
   // Aggregate caps — derived from the loaded contract + milestones.
   // Used by both the table footer and the create-modal live preview
@@ -327,9 +292,53 @@ const ContractDetail = () => {
   // Live-watch the modal form so the preview banner updates as the
   // user types. ``Form.useWatch`` re-renders whenever the watched
   // field changes, so the comparisons below always reflect what's
-  // currently in the inputs.
+  // currently in the inputs. Hoisted above early-returns to keep
+  // hook order stable.
   const liveValue = Form.useWatch('scheduled_value', milestoneForm) || 0;
   const liveWeight = Form.useWatch('percentage_weight', milestoneForm) || 0;
+
+  if (loadingC) return <LoadingScreen />;
+  if (!contract) {
+    return (
+      <ListPageShell>
+        <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+          Contract not found.
+        </div>
+      </ListPageShell>
+    );
+  }
+
+  // ── Derived values (post-load) ────────────────────────────────────
+  const certified = Number(
+    balance?.cumulative_gross_certified ?? contract.cumulative_gross_certified ?? 0,
+  );
+  const utilPct = ceiling > 0 ? (certified / ceiling) * 100 : 0;
+  const remaining = Math.max(0, ceiling - certified);
+  const committed = Number(balance?.pending_voucher_amount ?? 0);
+  const retentionPct = Number(contract.retention_rate ?? contract.retention_pct ?? 0);
+  const mobilizationPct = Number(contract.mobilization_rate ?? contract.mobilization_pct ?? 0);
+  const phaseIdx = currentPhaseIndex(status);
+  const tagColor = STATUS_TAG_COLOR[status] ?? STATUS_TAG_COLOR.DRAFT;
+
+  // ── Action handlers ───────────────────────────────────────────────
+  const handleActivate = async () => {
+    try {
+      await activateMut.mutateAsync({ id: cid, notes: '' });
+      message.success('Contract activated — number assigned and balance initialised');
+    } catch (e) {
+      message.error(formatServiceError(e, 'Activation failed'));
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      await closeMut.mutateAsync({ id: cid, notes: '' });
+      message.success('Contract closed');
+    } catch (e) {
+      message.error(formatServiceError(e, 'Close failed'));
+    }
+  };
+
   const projectedValue = milestoneTotals.totalValue + Number(liveValue || 0);
   const projectedWeight = milestoneTotals.totalWeight + Number(liveWeight || 0);
   const valueOverflow = projectedValue > ceiling;
@@ -904,7 +913,7 @@ const ContractDetail = () => {
         okText={`Add Milestone #${(contract.milestones?.length ?? 0) + 1}`}
         okButtonProps={{ disabled: valueOverflow || weightOverflow }}
         confirmLoading={createMilestoneMut.isPending}
-        destroyOnClose
+        destroyOnHidden
         width={560}
       >
         <p style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>

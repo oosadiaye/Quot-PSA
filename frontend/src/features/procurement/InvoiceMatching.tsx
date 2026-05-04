@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, CheckCircle, XCircle, Search, FileText, Eye } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, Search, FileText, Eye, Receipt } from 'lucide-react';
 import {
     useInvoiceMatchings,
     useMatchInvoice,
     useRejectMatching,
 } from './hooks/useProcurement';
+import { useCreateDraftVoucherFromMatching } from '../accounting/hooks/useAccountingEnhancements';
 import { useDialog } from '../../hooks/useDialog';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
@@ -43,6 +44,25 @@ export default function InvoiceMatchingPage() {
     const { data: matchings, isLoading } = useInvoiceMatchings({ status: statusFilter });
     const matchMutation = useMatchInvoice();
     const rejectMutation = useRejectMatching();
+    const createDraftPV = useCreateDraftVoucherFromMatching();
+
+    // One-click "Create PV" — backend resolves the linked vendor invoice
+    // on the verification record and delegates to the shared PV factory.
+    // Result: a fresh DRAFT PaymentVoucherGov pre-filled from the
+    // invoice's vendor + amount; we navigate straight to it for review.
+    const handleCreatePV = async (matchingId: number) => {
+        try {
+            const result = await createDraftPV.mutateAsync({ matchingId });
+            const pv = result.payment_voucher;
+            flash(`Draft PV ${pv.voucher_number} created — opening for review.`, true);
+            navigate(`/accounting/payment-vouchers/${pv.id}`);
+        } catch (err: any) {
+            const msg = err?.response?.data?.error
+                ?? err?.message
+                ?? 'Failed to create draft PV.';
+            flash(msg, false);
+        }
+    };
     const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
     const flash = (msg: string, ok = true) => {
@@ -290,10 +310,44 @@ export default function InvoiceMatchingPage() {
                                                         <button onClick={() => handleMatch(m.id)} style={btnStyles.success} title="Override variance with a reason">
                                                             <CheckCircle size={14} /> Override
                                                         </button>
-                                                        <button onClick={() => handleReject(m.id)} style={btnStyles.danger} title="Reject this invoice">
-                                                            <XCircle size={14} /> Reject
-                                                        </button>
+                                                        {/* Reject hidden once a Payment Voucher has been raised
+                                                            against the linked invoice — except when the PV is
+                                                            CANCELLED / REVERSED (lock released). */}
+                                                        {(!m.payment_voucher_id
+                                                          || m.payment_voucher_status === 'CANCELLED'
+                                                          || m.payment_voucher_status === 'REVERSED') && (
+                                                            <button onClick={() => handleReject(m.id)} style={btnStyles.danger} title="Reject this invoice">
+                                                                <XCircle size={14} /> Reject
+                                                            </button>
+                                                        )}
                                                     </>
+                                                )}
+                                                {/* PV link — locked once one exists for this
+                                                    verification's invoice (factory matches by
+                                                    invoice_number). Otherwise show Create PV. */}
+                                                {(m.status === 'Approved' || m.status === 'Matched') && m.vendor_invoice && (
+                                                    m.payment_voucher_id ? (
+                                                        <button
+                                                            onClick={() => navigate(`/accounting/payment-vouchers/${m.payment_voucher_id}`)}
+                                                            style={{
+                                                                ...btnStyles.primary,
+                                                                background: 'rgba(16, 185, 129, 0.12)',
+                                                                color: '#047857',
+                                                            }}
+                                                            title={`A Payment Voucher (${m.payment_voucher_number ?? ''}, status ${m.payment_voucher_status ?? ''}) has already been raised against this verification's invoice. Click to open it.`}
+                                                        >
+                                                            <Receipt size={14} /> View PV {m.payment_voucher_number ?? ''}
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleCreatePV(m.id)}
+                                                            disabled={createDraftPV.isPending}
+                                                            style={btnStyles.primary}
+                                                            title="Auto-create a draft Payment Voucher from this verification's invoice"
+                                                        >
+                                                            <Receipt size={14} /> {createDraftPV.isPending ? 'Creating PV…' : 'Create PV'}
+                                                        </button>
+                                                    )
                                                 )}
                                                 {/* View — always available */}
                                                 <button

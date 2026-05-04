@@ -13,6 +13,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
+import { invalidateLedgerCaches } from '../../accounting/hooks/invalidateLedger';
 
 export const IPCS_BASE = '/contracts/ipcs/';
 
@@ -72,7 +73,13 @@ export const useCreateIPC = () => {
   });
 };
 
-/** Generic workflow-action mutation factory. */
+/** Generic workflow-action mutation factory.
+ *
+ *  IPC actions ``approve`` / ``raise-voucher`` / ``mark-paid`` post GL
+ *  journals (accrual, voucher-raised, cash payment respectively), so we
+ *  bust the full ledger cache surface — Trial Balance, Balance Sheet,
+ *  P&L, Cash Flow, GL balances — alongside the IPC-local keys.
+ */
 const useIPCAction = (action: string, extraInvalidate: string[] = []) => {
   const qc = useQueryClient();
   return useMutation({
@@ -83,16 +90,52 @@ const useIPCAction = (action: string, extraInvalidate: string[] = []) => {
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['ipcs'] });
       qc.invalidateQueries({ queryKey: ['ipc', vars.id] });
-      qc.invalidateQueries({ queryKey: ['contract-balance'] });
       extraInvalidate.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      invalidateLedgerCaches(qc);
     },
   });
 };
 
 export const useCertifyIPC     = () => useIPCAction('certify');
 export const useApproveIPC     = () => useIPCAction('approve');
-export const useRaiseVoucher   = () => useIPCAction('raise_voucher', ['payment-vouchers']);
-export const useMarkIPCPaid    = () => useIPCAction('mark_paid');
+// NOTE: backend declares `url_path="raise-voucher"` / `url_path="mark-paid"`
+// (kebab-case overrides the auto-derived snake_case URL). Keep these in sync.
+export const useRaiseVoucher   = () => useIPCAction('raise-voucher', ['payment-vouchers']);
+export const useMarkIPCPaid    = () => useIPCAction('mark-paid');
+
+/**
+ * One-click "create draft PV from IPC" — backend factories a
+ * ``PaymentVoucherGov`` pre-populated from contract + vendor, links
+ * it, and transitions IPC to VOUCHER_RAISED. Returns
+ * ``{ipc, payment_voucher: {id, voucher_number, ...}}`` so the caller
+ * can navigate straight to the new PV.
+ */
+export const useCreateDraftVoucherFromIPC = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: number }) => {
+      const { data } = await apiClient.post(
+        `${IPCS_BASE}${id}/create-draft-voucher/`,
+        {},
+      );
+      return data as {
+        ipc: any;
+        payment_voucher: {
+          id: number; voucher_number: string; status: string;
+          gross_amount: string; net_amount: string;
+        };
+      };
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['ipcs'] });
+      qc.invalidateQueries({ queryKey: ['ipc', vars.id] });
+      // VOUCHER_RAISED transition is recorded but doesn't post to GL on
+      // its own — still, the centralised invalidation covers payment
+      // voucher caches and any report that lists draft PVs.
+      invalidateLedgerCaches(qc);
+    },
+  });
+};
 export const useRejectIPC      = () => useIPCAction('reject');
 
 /**

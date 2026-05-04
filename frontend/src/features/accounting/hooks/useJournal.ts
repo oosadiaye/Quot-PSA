@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
+import { invalidateLedgerCaches } from './invalidateLedger';
 
 const DIMENSIONS_STALE_TIME = 10 * 60 * 1000; // 10 minutes
 
@@ -68,10 +69,7 @@ export const useCreateJournal = () => {
             const { data } = await apiClient.post('/accounting/journals/', journalData);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
-        },
+        onSuccess: () => invalidateLedgerCaches(queryClient),
     });
 };
 
@@ -82,10 +80,7 @@ export const usePostJournal = () => {
             const { data } = await apiClient.post(`/accounting/journals/${id}/post_journal/`);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
-        },
+        onSuccess: () => invalidateLedgerCaches(queryClient),
     });
 };
 
@@ -99,10 +94,7 @@ export const useUnpostJournal = () => {
             });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
-        },
+        onSuccess: () => invalidateLedgerCaches(queryClient),
     });
 };
 
@@ -118,10 +110,7 @@ export const useUpdateJournal = () => {
             const { data } = await apiClient.put(`/accounting/journals/${id}/`, payload);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
-        },
+        onSuccess: () => invalidateLedgerCaches(queryClient),
     });
 };
 
@@ -159,10 +148,7 @@ export const useBulkDeleteJournals = () => {
             const { data } = await apiClient.post('/accounting/journals/bulk-delete/', { ids });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
-        },
+        onSuccess: () => invalidateLedgerCaches(queryClient),
     });
 };
 
@@ -185,8 +171,7 @@ export const useBulkPostJournals = () => {
             };
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['gl-balances'] });
+            invalidateLedgerCaches(queryClient);
         },
     });
 };

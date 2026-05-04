@@ -155,10 +155,12 @@ class BasePostingService:
         period = journal.posting_date.month
         # S3-05 — carry MDA dimension onto each GLBalance row so budget
         # execution reports can attribute actuals to the correct MDA.
+        # The legacy per-line ``cost_center`` override has been removed
+        # from this project; header MDA is the single source.
         j_mda_header = journal.mda
 
-        for line in journal.lines.select_related('cost_center').all():
-            line_mda = line.cost_center or j_mda_header
+        for line in journal.lines.all():
+            line_mda = j_mda_header
             # Try to get existing balance
             balance, created = GLBalance.objects.get_or_create(
                 account=line.account,
@@ -181,3 +183,30 @@ class BasePostingService:
                 debit_balance=F('debit_balance') + line.debit,
                 credit_balance=F('credit_balance') + line.credit
             )
+
+        # Flip the journal to ``Posted`` if it isn't already.
+        # Procurement callers (PO post, GRN post, Invoice Match post,
+        # vendor return, etc.) don't flip status themselves — and
+        # leaving the journal in Draft after GLBalance has been
+        # incremented makes Trial Balance / Income Statement (which
+        # filter ``header__status='Posted'``) miss these journals
+        # while the IPSAS reports (which read from GLBalance) see
+        # them. The two surfaces would disagree. Flipping here
+        # finalises the contract.
+        if journal.status != 'Posted':
+            journal.status = 'Posted'
+            journal.save(update_fields=['status'], _allow_status_change=True)
+
+        # Bust the IPSAS report cache so every Financial Position /
+        # Performance / Cash Flow / Notes / Budget Performance /
+        # Functional / Programme / Geographic / Fund / Revenue
+        # Performance report drops its cached entry. Mirrors the
+        # invalidation hooks in ``gl_posting.update_gl_from_journal``
+        # and ``IPSASJournalService._update_gl_balances`` — every
+        # GLBalance writer must trigger this so reports stay live
+        # regardless of which posting path ran.
+        try:
+            from accounting.services.report_cache import invalidate_period_reports
+            invalidate_period_reports(fiscal_year=fiscal_year)
+        except Exception:  # noqa: BLE001 — cache invalidation is best-effort
+            pass

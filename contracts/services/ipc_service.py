@@ -288,14 +288,16 @@ class IPCService:
 
         # Post via the standard service so balance roll-up + period
         # checks fire (same path used by every other accrual).
-        try:
-            from accounting.services.ipsas_journal_service import IPSASJournalService
-            IPSASJournalService.post_journal(journal, actor)
-        except Exception:
-            # Some test paths short-circuit ``post_journal``; the
-            # journal lines themselves are persisted regardless.
-            journal.status = 'Posted'
-            journal.save(update_fields=['status'])
+        #
+        # FAIL CLOSED: a posting error must bubble so the IPC approval
+        # rolls back. The previous fallback that manually set
+        # ``status='Posted'`` left ``GLBalance`` rows un-incremented
+        # while the IPC sat in APPROVED — silent ledger drift in the
+        # AP and Expense accounts. Trial Balance would understate
+        # total liabilities by the IPC accrual amount until the issue
+        # was discovered and a correcting JV posted.
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        IPSASJournalService.post_journal(journal, actor)
 
         # Pin it to the IPC for audit + UI display.
         ipc.accrual_journal = journal
@@ -759,18 +761,18 @@ class IPCService:
         # are booked even though cash hasn't moved yet. Retention and
         # mobilization recovery hit their respective liability/asset
         # GLs so the trial balance reflects the full obligation. WHT
-        # and VAT stay deferred to PV time (cash-basis). Failure to
-        # post is logged but does NOT block the approval — the
-        # operator should re-run via the dedicated post action when
-        # the underlying CoA gap is fixed.
-        try:
-            cls._post_accrual_journal(ipc, actor)
-        except Exception as exc:
-            import logging as _logging
-            _logging.getLogger(__name__).error(
-                'IPC accrual journal post failed for ipc=%s: %s',
-                ipc.pk, exc, exc_info=True,
-            )
+        # and VAT stay deferred to PV time (cash-basis).
+        #
+        # FAIL-CLOSED: a posting error must bubble so the surrounding
+        # @transaction.atomic rolls back the entire approval. The
+        # previous swallow let IPCs reach APPROVED / VOUCHER_RAISED
+        # / PAID without a journal — the IPC's "GL LEDGER" panel
+        # showed projected lines but ``GLBalance`` was never touched,
+        # so the Income Statement and every IPSAS report under-
+        # reported the expense. Operators must now resolve the
+        # underlying CoA gap (missing account, no NCoA bridge, etc.)
+        # before the IPC can transition to APPROVED.
+        cls._post_accrual_journal(ipc, actor)
 
         ipc.transition_to(IPCStatus.APPROVED)
         # ``transition_to`` saved status+updated_at; persist the
@@ -829,6 +831,106 @@ class IPCService:
             notes or f"Payment voucher {payment_voucher_id} raised",
         )
         return ipc
+
+    # ── 4b. Auto-create draft Payment Voucher from IPC ──────────────────
+    #
+    # UX helper: spawns a ``PaymentVoucherGov`` in DRAFT pre-populated
+    # from the IPC + contract + vendor, then links it to the IPC and
+    # transitions IPC to VOUCHER_RAISED. The operator opens the new PV
+    # in Treasury to review, edit, and walk through CHECKED → APPROVED →
+    # SCHEDULED → PAID. Idempotent: if a PV is already linked, return
+    # it instead of creating a duplicate.
+    @classmethod
+    @transaction.atomic
+    def create_draft_voucher(
+        cls,
+        *,
+        ipc: InterimPaymentCertificate,
+        actor: "AbstractUser",
+        notes: str = "",
+    ):
+        from accounting.models.gl import TransactionSequence
+        from accounting.models.treasury import PaymentVoucherGov, TreasuryAccount
+
+        # Idempotency — if a PV is already attached, just return it.
+        if ipc.payment_voucher_id:
+            return ipc.payment_voucher
+
+        if ipc.status != IPCStatus.APPROVED:
+            raise InvalidTransitionError(
+                f"IPC must be APPROVED to raise a voucher (is {ipc.status}).",
+                context={"ipc_id": ipc.pk, "status": ipc.status},
+            )
+
+        cls._check_sod(ipc, actor, role="voucher_raiser")
+
+        contract = ipc.contract
+        vendor = contract.vendor
+
+        # Pick the first active TSA — operator can change it on the PV.
+        tsa = TreasuryAccount.objects.filter(is_active=True).first()
+        if tsa is None:
+            raise InvalidTransitionError(
+                "No active Treasury Account configured. Configure a TSA "
+                "before raising vouchers.",
+                context={"ipc_id": ipc.pk},
+            )
+
+        voucher_number = TransactionSequence.get_next(
+            "payment_voucher", prefix="PV-",
+        )
+
+        # Surface the MDA name in the narration so PV-list scanners
+        # know who owns the spend without drilling into NCoA segments.
+        # The full administrative classification is already inherited
+        # via ``ncoa_code`` (contract.ncoa_code carries it); this is
+        # the human-readable echo.
+        mda_name = ""
+        try:
+            mda_name = (
+                getattr(getattr(contract, "mda", None), "name", "")
+                or getattr(getattr(contract.ncoa_code, "administrative", None), "name", "")
+                or ""
+            )
+        except Exception:  # noqa: BLE001 — narration enrichment is best-effort
+            mda_name = ""
+        base_narration = (
+            f"Payment for IPC {ipc.ipc_number} "
+            f"under contract {contract.contract_number}"
+        )
+        if mda_name:
+            base_narration = f"[{mda_name}] {base_narration}"
+
+        pv = PaymentVoucherGov.objects.create(
+            voucher_number=voucher_number,
+            payment_type="VENDOR",
+            ncoa_code=contract.ncoa_code,
+            appropriation=None,  # operator selects in PV form (BudgetEncumbrance != Appropriation)
+            payee_name=getattr(vendor, "name", "") or contract.contract_number,
+            payee_account=getattr(vendor, "bank_account_number", "") or "",
+            payee_bank=getattr(vendor, "bank_name", "") or "",
+            gross_amount=ipc.net_payable,
+            wht_amount=Decimal("0"),
+            narration=base_narration[:500],
+            tsa_account=tsa,
+            source_document=contract.contract_number or f"CONTRACT-{contract.pk}",
+            status="DRAFT",
+            created_by=actor,
+            updated_by=actor,
+        )
+
+        # Link the PV to the IPC and transition the IPC. From this point
+        # onward the IPC is "VOUCHER_RAISED" — the PV's own lifecycle is
+        # tracked separately on the PaymentVoucherGov record.
+        ipc.payment_voucher_id = pv.pk
+        ipc.updated_by = actor
+        ipc.save(update_fields=["payment_voucher", "updated_by", "updated_at"])
+        ipc.transition_to(IPCStatus.VOUCHER_RAISED)
+        cls._record_step(
+            ipc, actor, ApprovalAction.APPROVE,
+            notes or f"Draft voucher {voucher_number} created from IPC.",
+        )
+        return pv
 
     # ── 5. Mark paid (VOUCHER_RAISED → PAID) ────────────────────────────
 

@@ -202,6 +202,18 @@ class WarrantSerializer(serializers.ModelSerializer):
         source='appropriation.economic.name', read_only=True,
     )
     attachment_url = serializers.SerializerMethodField()
+    # ── Live appropriation snapshot ────────────────────────────────────
+    # Surfaces the fresh approved / committed / expended / available
+    # figures alongside the warrant so list rows can render the
+    # full budget context next to each AIE without a second round-trip.
+    # Read from the denormalised cache columns when present, falling
+    # through to the live aggregate properties when the cache is empty
+    # (mirrors the model property behaviour).
+    appropriation_amount_approved = serializers.SerializerMethodField()
+    appropriation_total_committed = serializers.SerializerMethodField()
+    appropriation_total_expended = serializers.SerializerMethodField()
+    appropriation_available_balance = serializers.SerializerMethodField()
+    appropriation_total_warrants_released = serializers.SerializerMethodField()
 
     class Meta:
         model = Warrant
@@ -210,9 +222,44 @@ class WarrantSerializer(serializers.ModelSerializer):
             'quarter', 'amount_released', 'release_date',
             'authority_reference', 'issued_by', 'status',
             'attachment', 'attachment_url', 'notes',
+            'appropriation_amount_approved',
+            'appropriation_total_committed',
+            'appropriation_total_expended',
+            'appropriation_available_balance',
+            'appropriation_total_warrants_released',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'attachment_url']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'attachment_url',
+            'appropriation_amount_approved',
+            'appropriation_total_committed',
+            'appropriation_total_expended',
+            'appropriation_available_balance',
+            'appropriation_total_warrants_released',
+        ]
+
+    def _appr(self, obj):
+        return getattr(obj, 'appropriation', None)
+
+    def get_appropriation_amount_approved(self, obj: Warrant) -> str:
+        appr = self._appr(obj)
+        return str(getattr(appr, 'amount_approved', '0') or '0')
+
+    def get_appropriation_total_committed(self, obj: Warrant) -> str:
+        appr = self._appr(obj)
+        return str(getattr(appr, 'total_committed', '0') or '0')
+
+    def get_appropriation_total_expended(self, obj: Warrant) -> str:
+        appr = self._appr(obj)
+        return str(getattr(appr, 'total_expended', '0') or '0')
+
+    def get_appropriation_available_balance(self, obj: Warrant) -> str:
+        appr = self._appr(obj)
+        return str(getattr(appr, 'available_balance', '0') or '0')
+
+    def get_appropriation_total_warrants_released(self, obj: Warrant) -> str:
+        appr = self._appr(obj)
+        return str(getattr(appr, 'total_warrants_released', '0') or '0')
 
     def get_attachment_url(self, obj: Warrant) -> str | None:
         if obj.attachment:

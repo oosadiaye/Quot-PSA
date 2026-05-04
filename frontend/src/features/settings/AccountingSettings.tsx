@@ -16,6 +16,12 @@ interface AccountingSettingsData {
     // When true, outgoing Payments MUST reference a PV. When false,
     // verifiers can raise direct payments from vendor invoices.
     require_pv_before_payment: boolean;
+    // When true (the safe default), outgoing Payments are blocked when
+    // the released warrant balance can't cover the amount. When false,
+    // the payment-stage AND the invoice-stage warrant ceiling checks
+    // are bypassed — useful for tenants not yet operating on
+    // warrant-based cash control.
+    require_warrant_before_payment: boolean;
 }
 
 interface IncomeAccountOption {
@@ -47,6 +53,10 @@ export default function AccountingSettingsPage() {
     const [requireVendorInvoice, setRequireVendorInvoice] = useState(true);
     const [vendorRegRevenueAccount, setVendorRegRevenueAccount] = useState<string>('');
     const [requirePvBeforePayment, setRequirePvBeforePayment] = useState(false);
+    // Default to true to match the backend safe default — if the
+    // settings row hasn't loaded yet, the toggle visually reflects
+    // the enforced state until the real value lands.
+    const [requireWarrantBeforePayment, setRequireWarrantBeforePayment] = useState(true);
 
     // Income GL list for the registration-revenue selector. Pulls every
     // active Income account on the COA so tenants pick from real data,
@@ -82,6 +92,7 @@ export default function AccountingSettingsPage() {
                     : ''
             );
             setRequirePvBeforePayment(settings.require_pv_before_payment ?? false);
+            setRequireWarrantBeforePayment(settings.require_warrant_before_payment ?? true);
         }
     }, [settings]);
 
@@ -96,6 +107,7 @@ export default function AccountingSettingsPage() {
                     ? parseInt(vendorRegRevenueAccount)
                     : null,
                 require_pv_before_payment: requirePvBeforePayment,
+                require_warrant_before_payment: requireWarrantBeforePayment,
             });
             return res.data;
         },
@@ -336,6 +348,106 @@ export default function AccountingSettingsPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* ── Warrant-before-Payment gate ──────────────────────
+                    The cash-control gate. Public-sector accounting
+                    typically requires a released Warrant (AIE) before
+                    cash leaves the consolidated account; this toggle
+                    bypasses that check for tenants not yet on
+                    warrant-based control. */}
+                <div style={{
+                    marginTop: '28px', paddingTop: '24px',
+                    borderTop: '1px solid #f1f5f9',
+                    display: 'flex', alignItems: 'flex-start', gap: '16px',
+                    marginBottom: '20px',
+                }}>
+                    <div style={{
+                        width: '48px', height: '48px', borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #ef444410, #ef444406)',
+                        border: '1.5px solid #ef444420',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                    }}>
+                        <ShieldAlert size={22} color="#ef4444" />
+                    </div>
+                    <div>
+                        <h2 style={{
+                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            margin: '0 0 4px 0', letterSpacing: '-0.2px',
+                        }}>
+                            Require Warrant (AIE) before Payment
+                        </h2>
+                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                            Controls whether outgoing payments and AP-invoice posting
+                            are gated by released Warrant (AIE) availability. When
+                            disabled, both stages skip the warrant ceiling check —
+                            useful for tenants not yet operating on warrant-based
+                            cash control. The default (enabled) is GIFMIS-compliant.
+                        </p>
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '20px',
+                    padding: '16px 20px', borderRadius: '14px',
+                    background: requireWarrantBeforePayment ? '#fee2e2' : '#f8fafc',
+                    border: `1.5px solid ${requireWarrantBeforePayment ? '#fecaca' : '#e2e8f0'}`,
+                    transition: 'all 0.3s',
+                }}>
+                    <button
+                        type="button"
+                        onClick={() => setRequireWarrantBeforePayment(!requireWarrantBeforePayment)}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '12px',
+                            padding: '0', border: 'none', background: 'none',
+                            cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                    >
+                        <div style={{
+                            width: '44px', height: '24px', borderRadius: '12px',
+                            background: requireWarrantBeforePayment
+                                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                                : '#cbd5e1',
+                            transition: 'background 0.25s', position: 'relative',
+                            boxShadow: requireWarrantBeforePayment ? '0 2px 8px rgba(239, 68, 68, 0.3)' : 'none',
+                        }}>
+                            <div style={{
+                                width: '18px', height: '18px', borderRadius: '50%',
+                                background: 'white', position: 'absolute',
+                                top: '3px', left: requireWarrantBeforePayment ? '23px' : '3px',
+                                transition: 'left 0.25s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                            }} />
+                        </div>
+                    </button>
+                    <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireWarrantBeforePayment ? '#dc2626' : '#64748b' }}>
+                            {requireWarrantBeforePayment ? 'Enabled — Warrant Required' : 'Disabled — Warrant bypassed'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                            {requireWarrantBeforePayment
+                                ? 'Payments are blocked when released Warrant (AIE) for the MDA + Fund + Account would not cover the amount. AP-invoice posting respects the same ceiling.'
+                                : 'Both AP-invoice posting and outgoing payments skip the warrant ceiling check. Cash can leave the TSA without a released Warrant — use only for non-warrant-based jurisdictions.'}
+                        </div>
+                    </div>
+                </div>
+
+                {!requireWarrantBeforePayment && (
+                    <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '10px',
+                        padding: '14px 16px', borderRadius: '12px',
+                        background: '#fffbeb', border: '1.5px solid #fde68a',
+                        marginTop: '16px',
+                    }}>
+                        <AlertCircle size={16} color="#d97706" style={{ marginTop: '1px', flexShrink: 0 }} />
+                        <div style={{ fontSize: '12px', color: '#92400e', lineHeight: 1.6 }}>
+                            <strong>Warning:</strong> With warrant enforcement OFF, the system
+                            will allow payments to post even when no Warrant has been released
+                            for the relevant appropriation. Make sure your finance controls
+                            cover this gap externally.
+                        </div>
+                    </div>
+                )}
 
                 {/* Save Button */}
                 <div style={{

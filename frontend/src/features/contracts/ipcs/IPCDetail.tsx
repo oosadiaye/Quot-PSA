@@ -33,7 +33,8 @@ import {
 import LoadingScreen from '../../../components/common/LoadingScreen';
 import {
   useIPC, useIPCs,
-  useCertifyIPC, useApproveIPC, useRaiseVoucher,
+  useCertifyIPC, useApproveIPC,
+  useCreateDraftVoucherFromIPC,
   useMarkIPCPaid, useRejectIPC, useSetIPCWhtExemption,
 } from '../hooks/useIPCs';
 import { useContract } from '../hooks/useContracts';
@@ -43,11 +44,18 @@ import { useCurrency } from '../../../context/CurrencyContext';
 import { ListPageShell } from '../../../components/layout';
 
 // ── Status → step machine (which buttons are valid) ──────────────────
+//
+// Note: VOUCHER_RAISED no longer surfaces a "Mark Paid" affordance.
+// The IPC auto-flips to PAID when the linked Payment Voucher's cash
+// disbursement posts in Outgoing Payments — see the PV-driven
+// propagation in ``accounting.views.payables.PaymentViewSet.post_payment``.
+// Keeping a manual button would create a second path to PAID that
+// bypasses cash control; the auto path is now the only path.
 const ACTION_MAP: Record<string, Array<'certify' | 'approve' | 'raise_voucher' | 'mark_paid'>> = {
   SUBMITTED:          ['certify'],
   CERTIFIER_REVIEWED: ['approve'],
   APPROVED:           ['raise_voucher'],
-  VOUCHER_RAISED:     ['mark_paid'],
+  VOUCHER_RAISED:     [],  // mark_paid is auto-propagated from Payment posting
 };
 
 const STATUS_PILL: Record<string, { bg: string; fg: string }> = {
@@ -80,7 +88,7 @@ const IPCDetail = () => {
 
   const certify = useCertifyIPC();
   const approve = useApproveIPC();
-  const raiseV = useRaiseVoucher();
+  const createDraftPV = useCreateDraftVoucherFromIPC();
   const markPaid = useMarkIPCPaid();
   const reject = useRejectIPC();
   const setWhtExempt = useSetIPCWhtExemption();
@@ -110,6 +118,13 @@ const IPCDetail = () => {
 
   const allowed = ACTION_MAP[ipc.status] ?? [];
   const terminal = ['PAID', 'REJECTED'].includes(ipc.status);
+  // PV-link lock: once a Payment Voucher has been raised, the IPC
+  // cannot be rejected — except when the PV has been cancelled or
+  // reversed. The Reject button is hidden in the locked state so the
+  // operator never sees an affordance that would 400 on the server.
+  const pvLocked = !!ipc.payment_voucher
+    && !!ipc.payment_voucher_status
+    && !['CANCELLED', 'REVERSED'].includes(ipc.payment_voucher_status);
   const tag = STATUS_PILL[ipc.status] ?? STATUS_PILL.DRAFT;
 
   // ── Action handlers ─────────────────────────────────────────────────
@@ -122,6 +137,27 @@ const IPCDetail = () => {
       message.success(`${label} successful`);
     } catch (e) {
       message.error(formatServiceError(e, `${label} failed`));
+    }
+  };
+
+  // Approval gets a richer message — IPC number is the handle
+  // operators will use to find this IPC when raising a PV directly
+  // from the Treasury page, so we surface it prominently.
+  const handleApprove = async () => {
+    try {
+      await approve.mutateAsync({ id: iid });
+      message.success({
+        content: (
+          <span>
+            IPC <strong>{ipc?.ipc_number ?? `#${iid}`}</strong> approved.
+            Click <em>Raise Voucher</em> to auto-create a draft PV, or
+            create a PV in Treasury referencing this IPC number.
+          </span>
+        ),
+        duration: 6,
+      });
+    } catch (e) {
+      message.error(formatServiceError(e, 'Approve failed'));
     }
   };
 
@@ -153,7 +189,7 @@ const IPCDetail = () => {
             <button onClick={() => window.print()} style={topBtnGhost}>
               <Printer size={14} /> Print Preview
             </button>
-            {!terminal && (
+            {!terminal && !pvLocked && (
               <button onClick={() => setRejectOpen(true)} style={topBtnDanger}>
                 Reject
               </button>
@@ -168,15 +204,44 @@ const IPCDetail = () => {
                 title="Approve this IPC?"
                 description="Approval triggers the accrual journal: DR Expense / CR AP."
                 okText="Yes, approve" cancelText="Cancel"
-                onConfirm={() => runAction('Approve', approve)}
+                onConfirm={handleApprove}
               >
                 <button style={topBtnPrimary}>Approve</button>
               </Popconfirm>
             )}
             {allowed.includes('raise_voucher') && (
-              <button onClick={() => runAction('Raise Voucher', raiseV)} style={topBtnPrimary}>
-                Raise Voucher
-              </button>
+              <Popconfirm
+                title="Raise Payment Voucher?"
+                description={
+                  <div style={{ maxWidth: 320 }}>
+                    A draft Payment Voucher will be auto-created from
+                    this IPC (amount, MDA, vendor, account code, narration
+                    pre-filled from the contract). You'll be taken to the
+                    PV page to review and approve.
+                  </div>
+                }
+                okText="Create Draft PV"
+                cancelText="Cancel"
+                onConfirm={async () => {
+                  try {
+                    const result = await createDraftPV.mutateAsync({ id: iid });
+                    const pv = result.payment_voucher;
+                    message.success(
+                      `Draft PV ${pv.voucher_number} created from IPC ${ipc.ipc_number}. Opening for review…`,
+                    );
+                    navigate(`/accounting/payment-vouchers/${pv.id}`);
+                  } catch (e) {
+                    message.error(formatServiceError(e, 'Failed to create draft voucher'));
+                  }
+                }}
+              >
+                <button
+                  style={topBtnPrimary}
+                  disabled={createDraftPV.isPending}
+                >
+                  {createDraftPV.isPending ? 'Creating PV…' : 'Raise Voucher'}
+                </button>
+              </Popconfirm>
             )}
             {allowed.includes('mark_paid') && (
               <button onClick={() => runAction('Mark Paid', markPaid)} style={topBtnPrimary}>
@@ -491,6 +556,7 @@ const IPCDetail = () => {
           onChange={(e) => setRejectReason(e.target.value)}
         />
       </Modal>
+
     </ListPageShell>
   );
 };

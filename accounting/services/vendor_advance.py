@@ -183,13 +183,15 @@ class VendorAdvanceService:
             debit=ZERO, credit=amount,
             memo=f"Cash out — {reference}",
         )
-        try:
-            IPSASJournalService.post_journal(journal, actor)
-        except Exception:
-            # Test paths short-circuit ipsas_journal_service; the
-            # lines are persisted so the books still balance.
-            journal.status = "Posted"
-            journal.save(update_fields=["status"])
+        # FAIL CLOSED: do NOT swallow IPSAS posting errors. Previously
+        # a bare-except marked the journal "Posted" manually, which
+        # left the GL balances un-incremented while the cash had
+        # already left the TSA — silent ledger drift. Now any
+        # validation or posting error bubbles, the surrounding
+        # @transaction.atomic rolls back the disbursement, and the
+        # operator sees the actual problem (closed period, unbalanced
+        # journal, missing CoA bridge, etc.).
+        IPSASJournalService.post_journal(journal, actor)
 
         # ── Create the ledger row ────────────────────────────────────
         advance = VendorAdvance.objects.create(
@@ -345,11 +347,10 @@ class VendorAdvanceService:
             debit=ZERO, credit=amount,
             memo=f"Clear advance — {advance.reference}",
         )
-        try:
-            IPSASJournalService.post_journal(journal, actor)
-        except Exception:
-            journal.status = "Posted"
-            journal.save(update_fields=["status"])
+        # FAIL CLOSED — see ``disburse`` for rationale. A clearance
+        # that fails GL posting must roll back, not silently mark the
+        # journal Posted while skipping ``_update_gl_balances``.
+        IPSASJournalService.post_journal(journal, actor)
 
         clearance = VendorAdvanceClearance.objects.create(
             advance=advance,

@@ -148,6 +148,34 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return Response(IPCSerializer(ipc).data)
 
+    @action(detail=True, methods=["post"], url_path="create-draft-voucher",
+            permission_classes=[CanRaiseVoucher])
+    def create_draft_voucher(self, request, pk=None):
+        """Auto-create a draft PaymentVoucherGov pre-populated from this
+        IPC + contract + vendor, link it, and transition the IPC to
+        VOUCHER_RAISED. Idempotent — re-calling returns the existing PV.
+
+        Returns: ``{ipc: <IPC>, payment_voucher: {id, voucher_number, status}}``
+        so the frontend can navigate straight to the new PV for review.
+        """
+        ipc = self.get_object()
+        with translate_service_errors():
+            pv = IPCService.create_draft_voucher(
+                ipc=ipc, actor=request.user,
+                notes=request.data.get("notes", ""),
+            )
+        ipc.refresh_from_db()
+        return Response({
+            "ipc": IPCSerializer(ipc).data,
+            "payment_voucher": {
+                "id": pv.pk,
+                "voucher_number": pv.voucher_number,
+                "status": pv.status,
+                "gross_amount": str(pv.gross_amount),
+                "net_amount": str(pv.net_amount),
+            },
+        })
+
     @action(detail=True, methods=["post"], url_path="raise-voucher",
             permission_classes=[CanRaiseVoucher])
     def raise_voucher(self, request, pk=None):
@@ -168,6 +196,22 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], url_path="mark-paid",
             permission_classes=[CanMarkIPCPaid])
     def mark_paid(self, request, pk=None):
+        """Deprecated direct path. Marking an IPC paid now happens
+        automatically when the linked Payment Voucher's outgoing
+        Payment is posted in Treasury — that's the canonical
+        cash-control event. Posting the cash there cascades to:
+
+          1. Flip the PV → PAID
+          2. Mark the source VendorInvoice → Paid
+          3. Call ``IPCService.mark_paid`` to flip every linked IPC
+
+        This API endpoint is preserved as a fallback for ops that
+        need to recover from a cascade failure (the cascade catches
+        and logs IPC-side errors so cash movement isn't blocked, but
+        leaves the IPC in VOUCHER_RAISED). When invoked, it still
+        runs through ``IPCService.mark_paid`` — same SoD checks, same
+        ContractBalance updates, same audit trail.
+        """
         ipc = self.get_object()
         payload = IPCMarkPaidSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -186,6 +230,28 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[CanCertifyIPC])
     def reject(self, request, pk=None):
         ipc = self.get_object()
+        # Lock against rejection once a Payment Voucher has been
+        # raised against this IPC — except when that PV has been
+        # cancelled / reversed, in which case the IPC is unlocked
+        # again and a fresh attempt is legitimate.
+        if ipc.payment_voucher_id:
+            pv = ipc.payment_voucher
+            if pv.status not in ('CANCELLED', 'REVERSED'):
+                return Response(
+                    {
+                        'error': (
+                            f'Cannot reject this IPC: a Payment Voucher '
+                            f'({pv.voucher_number}, status {pv.status}) '
+                            f'has been raised against it. Cancel or '
+                            f'reverse the PV first.'
+                        ),
+                        'pv_link_locked': True,
+                        'payment_voucher_number': pv.voucher_number,
+                        'payment_voucher_status': pv.status,
+                    },
+                    status=400,
+                )
+
         payload = IPCRejectSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         with translate_service_errors():

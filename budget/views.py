@@ -1506,6 +1506,41 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'appropriation__administrative', 'appropriation__economic',
         )
 
+    # ── Cache refresh helper ────────────────────────────────────────────
+    # A Warrant doesn't itself add to ``total_expended`` (expenditure is
+    # recognised when a vendor invoice posts), but the warrant screen
+    # surfaces ``cached_total_expended`` next to the new AIE and that
+    # cache may have drifted since its last write. Every warrant
+    # mutation refreshes the cached totals so the UI shows fresh
+    # numbers immediately. The refresh is a single update with a
+    # ``SELECT … FOR UPDATE`` lock — safe under concurrent writers.
+    @staticmethod
+    def _refresh_appropriation_totals(appropriation):
+        if appropriation is None:
+            return
+        try:
+            from accounting.services.appropriation_totals import refresh_totals
+            refresh_totals(appropriation)
+        except Exception:  # noqa: BLE001 — refresh is best-effort, never blocks the warrant write
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to refresh cached totals for appropriation %s",
+                getattr(appropriation, 'pk', '?'),
+            )
+
+    def perform_create(self, serializer):
+        warrant = serializer.save()
+        self._refresh_appropriation_totals(warrant.appropriation)
+
+    def perform_update(self, serializer):
+        warrant = serializer.save()
+        self._refresh_appropriation_totals(warrant.appropriation)
+
+    def perform_destroy(self, instance):
+        appropriation = instance.appropriation
+        super().perform_destroy(instance)
+        self._refresh_appropriation_totals(appropriation)
+
     @action(detail=True, methods=['post'])
     def release(self, request, pk=None):
         """Release a pending warrant (AIE) and notify MDA accountant + AG."""
@@ -1520,6 +1555,8 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         # ── Notify MDA accountant + AG on warrant release ──────
         self._notify_warrant_released(warrant, request.user)
+        # ── Refresh cached expended/committed so the UI is fresh ──
+        self._refresh_appropriation_totals(warrant.appropriation)
 
         return Response(WarrantSerializer(warrant).data)
 
@@ -1534,6 +1571,7 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             )
         warrant.status = 'SUSPENDED'
         warrant.save(update_fields=['status', 'updated_at'])
+        self._refresh_appropriation_totals(warrant.appropriation)
         return Response(WarrantSerializer(warrant).data)
 
     def _notify_warrant_released(self, warrant, released_by):
