@@ -83,6 +83,174 @@ class TSABalanceService:
             )
 
     @classmethod
+    def process_transfer(
+        cls,
+        *,
+        source_tsa,
+        target_tsa,
+        amount,
+        actor,
+        transfer_date=None,
+        narration: str = '',
+    ):
+        """Atomic inter-TSA transfer.
+
+        Moves cash between two ``TreasuryAccount`` rows — used for
+        manual liquidity rebalancing between Main TSA, sub-accounts,
+        and consolidated/revenue accounts when the daily auto-sweep
+        is not the right fit (e.g. an ad-hoc fund top-up to an MDA
+        zero-balance account ahead of a large warrant).
+
+        Mirrors the BankAccount.transfer pattern (audit fix H10) but
+        keyed on ``gl_cash_account`` (TSA-side FK) rather than
+        ``gl_account``. Posts the JV via ``IPSASJournalService.post_journal``
+        so the chokepoint (``assert_balanced`` +
+        ``invalidate_period_reports`` + GLBalance roll-up) fires —
+        keeping the GL view of cash, TSA balances, and reports in
+        lockstep.
+
+            DR  target_tsa.gl_cash_account     amount
+            CR  source_tsa.gl_cash_account     amount
+
+        Race-safety: both TSA rows are locked in pk-order via
+        ``select_for_update`` to avoid deadlocks under concurrent
+        opposite-direction transfers. Sufficient-funds check is done
+        AFTER the lock, against the freshly-locked balance.
+
+        Args:
+            source_tsa:    TreasuryAccount cash leaves
+            target_tsa:    TreasuryAccount cash arrives
+            amount:        Decimal — must be > 0
+            actor:         User initiating the transfer (audit trail)
+            transfer_date: Optional date (defaults to today)
+            narration:     Optional human description appended to journal
+
+        Returns:
+            JournalHeader of the posted transfer JV.
+
+        Raises:
+            ValueError: invalid inputs (same TSA, non-positive amount,
+                        missing gl_cash_account, insufficient funds).
+        """
+        from datetime import date as _date
+        from decimal import Decimal as _Decimal
+        from django.db.models import F as _F
+        from django.utils import timezone
+        from accounting.models import (
+            JournalHeader, JournalLine, TransactionSequence,
+        )
+        from accounting.models.treasury import TreasuryAccount
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+
+        # Coerce amount to Decimal at the boundary so float-string-from-
+        # JSON inputs don't sneak through (M8 lesson).
+        try:
+            amount = _Decimal(str(amount))
+        except Exception as exc:
+            raise ValueError(f'amount must be a decimal value: {exc}')
+
+        if amount <= _Decimal('0'):
+            raise ValueError('amount must be greater than zero.')
+
+        if source_tsa.pk == target_tsa.pk:
+            raise ValueError('Source and target TSA accounts must differ.')
+
+        if not source_tsa.is_active or not target_tsa.is_active:
+            raise ValueError('Both source and target TSAs must be active.')
+
+        if not source_tsa.gl_cash_account_id or not target_tsa.gl_cash_account_id:
+            raise ValueError(
+                'Both source and target TSAs must have gl_cash_account configured. '
+                'Edit the TreasuryAccount records to assign GL control accounts before transferring.'
+            )
+
+        first_pk = min(source_tsa.pk, target_tsa.pk)
+        second_pk = max(source_tsa.pk, target_tsa.pk)
+
+        with transaction.atomic():
+            # Lock both rows in pk-order — pulls fresh
+            # ``current_balance`` for the funds check below.
+            locked = list(
+                TreasuryAccount.objects
+                .select_for_update()
+                .select_related('gl_cash_account')
+                .filter(pk__in=[first_pk, second_pk])
+                .order_by('pk')
+            )
+            if len(locked) != 2:
+                raise ValueError('One or both TSA accounts not found.')
+            by_id = {ta.pk: ta for ta in locked}
+            source_locked = by_id[source_tsa.pk]
+            target_locked = by_id[target_tsa.pk]
+
+            if (source_locked.current_balance or _Decimal('0')) < amount:
+                raise ValueError(
+                    f'Insufficient funds in source TSA '
+                    f'({source_locked.account_number}): '
+                    f'{source_locked.current_balance} < {amount}.'
+                )
+
+            jv_ref = (
+                f"TT-{TransactionSequence.get_next('tsa_transfer', 'TT-')}"
+            )
+            description = (
+                f"TSA transfer {source_locked.account_number} → "
+                f"{target_locked.account_number}"
+            )
+            if narration:
+                description = f"{description} | {narration}"
+
+            journal = JournalHeader.objects.create(
+                posting_date=transfer_date or _date.today(),
+                reference_number=jv_ref,
+                description=description,
+                # Inherit MDA from the source TSA (when set) so the GL
+                # roll-up lands on that MDA's bucket — matches how
+                # other TSA-cash postings (process_payment /
+                # process_revenue) already work.
+                mda=getattr(source_locked, 'mda', None),
+                fund=getattr(source_locked.fund_segment, 'legacy_fund', None) if source_locked.fund_segment_id else None,
+                status='Draft',
+                source_module='treasury',
+                posted_by=actor,
+            )
+            JournalLine.objects.create(
+                header=journal,
+                account=target_locked.gl_cash_account,
+                debit=amount,
+                credit=_Decimal('0'),
+                memo=f"Transfer in from TSA {source_locked.account_number}",
+            )
+            JournalLine.objects.create(
+                header=journal,
+                account=source_locked.gl_cash_account,
+                debit=_Decimal('0'),
+                credit=amount,
+                memo=f"Transfer out to TSA {target_locked.account_number}",
+            )
+
+            # Post via the chokepoint — assert_balanced + cache invalidation.
+            IPSASJournalService.post_journal(journal, actor)
+
+            # F()-update both TSA balances under the same atomic.
+            TreasuryAccount.objects.filter(pk=source_locked.pk).update(
+                current_balance=_F('current_balance') - amount,
+                updated_at=timezone.now(),
+            )
+            TreasuryAccount.objects.filter(pk=target_locked.pk).update(
+                current_balance=_F('current_balance') + amount,
+                updated_at=timezone.now(),
+            )
+
+            logger.info(
+                'TSA TRANSFER: %s -> %s | Amount: %s | JV: %s | by=%s',
+                source_locked.account_number, target_locked.account_number,
+                amount, jv_ref, getattr(actor, 'username', actor),
+            )
+
+            return journal
+
+    @classmethod
     def reverse_payment(cls, payment_instruction) -> None:
         """Reverse a processed payment (credit TSA back)."""
         tsa = payment_instruction.tsa_account

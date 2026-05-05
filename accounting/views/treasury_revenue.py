@@ -249,6 +249,124 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'by_type': by_type,
         })
 
+    @action(detail=False, methods=['post'])
+    def transfer(self, request):
+        """Atomic inter-TSA transfer.
+
+        ``POST /api/.../treasury-accounts/transfer/``
+
+        Body:
+          - ``source_tsa_id`` (int, required)
+          - ``target_tsa_id`` (int, required)
+          - ``amount`` (decimal string, required, > 0)
+          - ``transfer_date`` (YYYY-MM-DD, optional — defaults to today)
+          - ``narration`` (str, optional — appended to journal description)
+
+        Posts a balanced JV (DR target.gl_cash_account /
+        CR source.gl_cash_account) via
+        ``IPSASJournalService.post_journal`` so the chokepoint fires;
+        F()-updates both ``TreasuryAccount.current_balance`` rows under
+        ``select_for_update`` in pk-order to avoid deadlock under
+        concurrent opposite-direction transfers.
+
+        Mirrors the BankAccount.transfer endpoint added in audit fix
+        H10, but keyed on ``gl_cash_account`` (the TSA-side FK) rather
+        than ``gl_account`` so the GL row that holds TSA cash takes
+        the credit/debit.
+
+        Returns 201 with the journal id and reference. 400 on
+        validation failures (same source+target, missing GL, etc.),
+        404 when either TSA doesn't exist.
+        """
+        from accounting.services.treasury_service import TSABalanceService
+        from datetime import datetime as _dt
+
+        source_id = request.data.get('source_tsa_id')
+        target_id = request.data.get('target_tsa_id')
+        raw_amount = request.data.get('amount')
+        if not (source_id and target_id and raw_amount):
+            return Response(
+                {'error': 'source_tsa_id, target_tsa_id and amount are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            source_id = int(source_id)
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'TSA ids must be integers.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Resolve through the same MDA-filtered queryset so a tenant
+        # operator can't transfer across tenants — the queryset
+        # already honours OrganizationFilterMixin's MDA scoping.
+        qs = self.get_queryset()
+        try:
+            source = qs.get(pk=source_id)
+        except TreasuryAccount.DoesNotExist:
+            return Response(
+                {'error': f'Source TSA #{source_id} not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            target = qs.get(pk=target_id)
+        except TreasuryAccount.DoesNotExist:
+            return Response(
+                {'error': f'Target TSA #{target_id} not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        transfer_date_raw = request.data.get('transfer_date')
+        transfer_date = None
+        if transfer_date_raw:
+            try:
+                transfer_date = _dt.strptime(transfer_date_raw, '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'transfer_date must be YYYY-MM-DD.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        narration = (request.data.get('narration') or '').strip()
+
+        try:
+            journal = TSABalanceService.process_transfer(
+                source_tsa=source,
+                target_tsa=target,
+                amount=raw_amount,
+                actor=request.user,
+                transfer_date=transfer_date,
+                narration=narration,
+            )
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Refresh in-memory rows so the response carries post-transfer
+        # balances (the F()-updates above bypassed the Python objects).
+        source.refresh_from_db(fields=['current_balance'])
+        target.refresh_from_db(fields=['current_balance'])
+
+        return Response({
+            'status': 'transferred',
+            'journal_id': journal.pk,
+            'journal_reference': journal.reference_number,
+            'source': {
+                'id': source.pk,
+                'account_number': source.account_number,
+                'current_balance': str(source.current_balance),
+            },
+            'target': {
+                'id': target.pk,
+                'account_number': target.account_number,
+                'current_balance': str(target.current_balance),
+            },
+            'amount': str(raw_amount),
+        }, status=status.HTTP_201_CREATED)
+
 
 class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_admin_field = 'appropriation__administrative'
