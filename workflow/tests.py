@@ -223,6 +223,34 @@ class ApprovalGroupConstraintTests(SimpleTestCase):
         self.assertIn('uniq_approvalgroup_name_per_org', names)
 
 
+class DocumentApprovalSignalTests(SimpleTestCase):
+    """V6: ``document_approval_completed`` is the cross-module hook
+    that decouples workflow from procurement. Regression guards:
+    (a) the signal is exposed under the documented name, (b) the
+    procurement receiver is connected for it.
+    """
+
+    def test_signal_is_exposed(self):
+        from workflow.signals import document_approval_completed
+        # Django Signal instances expose .send() — the public API.
+        self.assertTrue(hasattr(document_approval_completed, 'send'))
+
+    def test_procurement_receiver_is_connected(self):
+        """The procurement receiver registers under a stable
+        ``dispatch_uid``. Use it to verify the wire is in place
+        without firing the signal (which would need a real document)."""
+        from workflow.signals import document_approval_completed
+        # Each receiver tuple is ((dispatch_uid, sender_id), weakref).
+        connected_uids = {
+            r[0][0] for r in document_approval_completed.receivers
+        }
+        self.assertIn(
+            'procurement.invoicematching_auto_post', connected_uids,
+            'procurement.signals.auto_post_invoicematching_on_approval '
+            'is not connected to document_approval_completed',
+        )
+
+
 class ApprovalIndexTests(SimpleTestCase):
     """M8: declarative check that the GenericFK and status indexes are
     declared. Catches accidental removal during model edits."""

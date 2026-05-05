@@ -1057,28 +1057,16 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                     doc.status = 'Approved'
                     doc.save()
 
-                # ── Auto-post InvoiceMatching to GL on approval ──
-                # User expectation: once an Invoice Verification
-                # (three-way match) is approved — whether by auto-
-                # routing (no approver required) or by a human
-                # approver via the workflow inbox — the GL journal
-                # should fire immediately (DR GR/IR / CR AP) and the
-                # budget commitment should close. No extra "Post to
-                # GL" click. Matches the already-auto-posting
-                # behaviour of ``verify_and_post``.
-                if model_name == 'invoicematching' and doc.status == 'Approved':
-                    try:
-                        from procurement.views import InvoiceMatchingViewSet
-                        from django.db import transaction as _tx
-                        with _tx.atomic():
-                            InvoiceMatchingViewSet._post_matching_to_gl_inner(doc)
-                    except Exception as exc:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            'Workflow-approved matching %s auto-post to GL '
-                            'failed (user can still retry via Post to GL): %s',
-                            doc.pk, exc,
-                        )
+                # Cross-module side-effects (e.g. auto-post InvoiceMatching
+                # to GL) are now driven by the ``document_approval_completed``
+                # signal — see ``workflow/signals.py`` and the receiver in
+                # ``procurement/signals.py``. Synchronous dispatch inside
+                # this atomic() preserves the rollback guarantee: if the
+                # GL post fails, the approval transition is rolled back too.
+                # The previous code imported ``procurement.views.InvoiceMatchingViewSet``
+                # directly, which was a runtime cross-module coupling that
+                # would crash with ImportError if procurement weren't
+                # installed (or if loading order changed).
 
             elif action == 'reject':
                 rejected_status = {
@@ -1097,6 +1085,19 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 else:
                     doc.status = 'Rejected'
                     doc.save()
+
+            # Notify any cross-module receivers (e.g. procurement's
+            # auto-post-to-GL on InvoiceMatching approval). Receivers run
+            # synchronously inside the caller's atomic block — see
+            # workflow/signals.py docstring for the full contract.
+            from .signals import document_approval_completed
+            document_approval_completed.send(
+                sender=approval.__class__,
+                approval=approval,
+                model_name=model_name,
+                document=doc,
+                action=action,
+            )
 
         except Exception as e:
             import logging
