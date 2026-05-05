@@ -284,9 +284,11 @@ CACHE_TTL = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# django-tenants test runner — creates an isolated tenant schema for each test
-# class that extends TenantTestCase, mirroring production multi-tenant behaviour.
-TEST_RUNNER = 'django_tenants.test.runner.TenantTestRunner'
+# Tests use Django's default runner. Tests that need a real tenant schema
+# extend ``django_tenants.test.cases.TenantTestCase`` (or FastTenantTestCase),
+# which sets up the schema per-class. The legacy
+# ``django_tenants.test.runner.TenantTestRunner`` was removed in
+# django-tenants 3.x, so we deliberately do NOT set ``TEST_RUNNER``.
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 
