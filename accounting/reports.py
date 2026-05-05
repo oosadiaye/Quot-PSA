@@ -680,35 +680,80 @@ class GeneralLedgerReportService:
 class TrialBalanceReportService:
     @staticmethod
     def generate_trial_balance(start_date: date, end_date: date) -> Dict:
-        balances = FinancialReportService.get_account_balances(start_date, end_date)
+        """Build a Trial Balance from posted journal lines.
+
+        Reads raw debit/credit totals per account directly from
+        ``JournalLine`` (not from ``get_account_balances``, which
+        returns a signed normal-direction balance and loses offsetting
+        entries). For each account we compute ``net = total_debit -
+        total_credit`` and place it on the DR side if positive, CR
+        side if negative — handling contra / abnormal balances
+        correctly regardless of the account's "normal" direction.
+
+        This mirrors ``JournalViewSet.trial_balance`` (the legacy GL
+        action) so both endpoints agree on totals, and guarantees
+        ``sum(debit_column) == sum(credit_column)`` whenever every
+        underlying journal is balanced — i.e. the report total is an
+        invariant of double-entry, not an artefact of how we display
+        each account's balance.
+        """
+        from accounting.models import JournalLine
+        from django.db.models import Sum
+
+        rows = (
+            JournalLine.objects
+            .filter(
+                header__posting_date__gte=start_date,
+                header__posting_date__lte=end_date,
+                header__status='Posted',
+            )
+            .values(
+                'account__code', 'account__name', 'account__account_type',
+            )
+            .annotate(
+                total_debit=Sum('debit'),
+                total_credit=Sum('credit'),
+            )
+            .order_by('account__code')
+        )
 
         debit_total = Decimal('0')
         credit_total = Decimal('0')
-
         account_list = []
-        for code, data in sorted(balances.items()):
-            amount = abs(data['amount'])
-            if data['type'] in ['Asset', 'Expense']:
-                debit_total += amount
-                debit = amount
+
+        for r in rows:
+            code = r['account__code']
+            name = r['account__name'] or ''
+            acct_type = r['account__account_type'] or ''
+            td = r['total_debit'] or Decimal('0')
+            tc = r['total_credit'] or Decimal('0')
+            net = td - tc
+
+            if net >= 0:
+                debit = net
                 credit = Decimal('0')
             else:
-                credit_total += amount
                 debit = Decimal('0')
-                credit = amount
+                credit = -net
+
+            debit_total += debit
+            credit_total += credit
 
             account_list.append({
                 # Backward-compatible short keys.
                 'code': code,
-                'name': data['name'],
+                'name': name,
                 'debit': debit,
                 'credit': credit,
                 # Frontend-friendly aliases — Trial Balance screen reads these.
                 'account_code':    code,
-                'account_name':    data['name'],
-                'account_type':    data.get('type', ''),
+                'account_name':    name,
+                'account_type':    acct_type,
                 'debit_balance':   debit,
                 'credit_balance':  credit,
+                # Raw period activity — useful for drill-down + audit.
+                'period_debit':    td,
+                'period_credit':   tc,
             })
 
         return {
