@@ -125,6 +125,11 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'view_journalheader', module: 'treasury',
         subItems: [
             { name: 'TSA Accounts', path: '/accounting/tsa-accounts', icon: Landmark },
+            // Atomic inter-TSA transfer — posts a balanced JV (DR target /
+            // CR source) and updates both ``current_balance`` rows in real
+            // time. Sits next to ``TSA Accounts`` so operators reach it
+            // from the same mental cluster as account management.
+            { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
             { name: 'Payment Instructions', path: '/accounting/payment-instructions', icon: CreditCard },

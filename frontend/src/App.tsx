@@ -87,6 +87,7 @@ const WarrantForm = lazy(() => import('./pages/gov/WarrantForm'));
 const WarrantDetail = lazy(() => import('./pages/gov/WarrantDetail'));
 const RevenueBudgetForm = lazy(() => import('./pages/gov/RevenueBudgetForm'));
 const TSAAccountForm = lazy(() => import('./pages/gov/TSAAccountForm'));
+const TSATransferForm = lazy(() => import('./pages/gov/TSATransferForm'));
 const TSALedger = lazy(() => import('./pages/gov/TSALedger'));
 const BankReconciliation = lazy(() => import('./pages/gov/BankReconciliation'));
 const NCoAAdminForm = lazy(() => import('./pages/gov/NCoAAdminForm'));
@@ -684,6 +685,9 @@ function App() {
                       <Route path="/budget/warrants/new" element={<ProtectedRoute><WarrantForm /></ProtectedRoute>} />
                       <Route path="/budget/warrants/:id" element={<ProtectedRoute><WarrantDetail /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts/new" element={<ProtectedRoute><TSAAccountForm /></ProtectedRoute>} />
+                      {/* Note: ``/transfer`` MUST come before ``/:id/edit`` so the
+                          router doesn't try to interpret "transfer" as a numeric pk. */}
+                      <Route path="/accounting/tsa-accounts/transfer" element={<ProtectedRoute><TSATransferForm /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts/:id/edit" element={<ProtectedRoute><TSAAccountForm /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts/:id/ledger" element={<ProtectedRoute><TSALedger /></ProtectedRoute>} />
                       <Route path="/accounting/bank-reconciliation" element={<ProtectedRoute><BankReconciliation /></ProtectedRoute>} />
