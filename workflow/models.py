@@ -94,6 +94,21 @@ class ApprovalGroup(AuditBaseModel):
 
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        # Two groups with the same name within the same scope (same MDA, or
+        # both global) is almost always a data-entry mistake, and it makes
+        # the template-step UI ambiguous (which "Finance Director" group?).
+        # Note: this constraint treats two NULL ``organization`` values as
+        # equal in PostgreSQL ≥ 15 with NULLS NOT DISTINCT — older versions
+        # treat NULLs as distinct. Acceptable: global groups are admin-
+        # managed and rarely conflict.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'organization'],
+                name='uniq_approvalgroup_name_per_org',
+            ),
+        ]
+
     def __str__(self):
         return self.name
 
@@ -161,27 +176,40 @@ class Approval(AuditBaseModel):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
-    
+
     # Approval details
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    
-    # Status
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
-    
+
+    # Status — indexed: hot path on dashboards / inbox queries (filter
+    # by status='Pending' is on every workflow page load).
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='Draft', db_index=True,
+    )
+
     # Current approval level
     current_step = models.PositiveIntegerField(default=1)
     total_steps = models.PositiveIntegerField(default=1)
-    
+
     # Requester
     requested_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, related_name='approval_requests')
-    
+
     # Template used
     template = models.ForeignKey(ApprovalTemplate, on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            # GenericForeignKey lookup: ``Approval.objects.filter(
+            # content_type=..., object_id=...)`` is the canonical "find
+            # the approval for this document" query; without this index
+            # it scans the whole table.
+            models.Index(
+                fields=['content_type', 'object_id'],
+                name='approval_genericfk_idx',
+            ),
+        ]
     
     def __str__(self):
         return f"{self.title} - {self.status}"
@@ -199,8 +227,11 @@ class ApprovalStep(AuditBaseModel):
     step_number = models.PositiveIntegerField()
     approver_group = models.ForeignKey(ApprovalGroup, on_delete=models.SET_NULL, null=True)
     approver = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, related_name='approvals_given')
-    
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+
+    # Indexed: pending-approvals dashboard filters by status='Pending'.
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='Pending', db_index=True,
+    )
     comment = models.TextField(blank=True)
     acted_at = models.DateTimeField(null=True, blank=True)
     
@@ -212,9 +243,35 @@ class ApprovalStep(AuditBaseModel):
     class Meta:
         ordering = ['step_number']
         unique_together = ['approval', 'step_number']
-    
+
     def __str__(self):
         return f"Step {self.step_number} - {self.status}"
+
+    def clean(self):
+        """Validate ``step_number`` is sequential — no gaps from 1.
+
+        ``unique_together(approval, step_number)`` already prevents
+        duplicates, but it doesn't stop someone from creating steps
+        1, 3, 5 without a 2 or 4. The advance logic in approve()
+        increments ``approval.current_step`` by 1, so a gap means
+        approvals get stuck at the missing step number forever.
+        Validates only the new step is at most max_existing + 1.
+        """
+        super().clean()
+        if self.approval_id is None or self.step_number is None:
+            return
+        existing = ApprovalStep.objects.filter(approval_id=self.approval_id)
+        if self.pk:
+            existing = existing.exclude(pk=self.pk)
+        max_existing = existing.aggregate(m=models.Max('step_number')).get('m') or 0
+        if self.step_number > max_existing + 1:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({
+                'step_number': (
+                    f"Step number {self.step_number} would create a gap "
+                    f"(max existing is {max_existing}). Use {max_existing + 1}."
+                ),
+            })
     
     @property
     def is_overdue(self):
