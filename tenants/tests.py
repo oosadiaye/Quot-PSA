@@ -130,3 +130,83 @@ class ProvisioningStatusChoicesTests(SimpleTestCase):
         """Regression guard — turning this back on re-introduces the hang."""
         from tenants.models import Client
         self.assertFalse(Client.auto_create_schema)
+
+    def test_auto_drop_schema_is_disabled(self):
+        """Regression guard — auto_drop_schema=True with the
+        is_deleted soft-delete field would silently destroy schemas
+        (and every accounting/contracts/procurement row inside) on
+        Client.delete(). Must remain False; hard-delete is opt-in
+        via the explicit ``hard_delete`` method."""
+        from tenants.models import Client
+        self.assertFalse(Client.auto_drop_schema)
+
+
+class SubscriptionPlanValidationTests(SimpleTestCase):
+    """``allowed_modules`` must reject typos against AVAILABLE_MODULES."""
+
+    def test_unknown_module_raises_validation_error(self):
+        from django.core.exceptions import ValidationError
+        from tenants.models import SubscriptionPlan
+        plan = SubscriptionPlan(
+            name='Bad Plan',
+            allowed_modules=['accounting', 'acccounting'],  # typo
+        )
+        with self.assertRaises(ValidationError):
+            plan.full_clean()
+
+    def test_known_modules_pass_validation(self):
+        from tenants.models import SubscriptionPlan, AVAILABLE_MODULES
+        plan = SubscriptionPlan(
+            name='Good Plan',
+            allowed_modules=[AVAILABLE_MODULES[0][0]],
+        )
+        plan.full_clean()  # should not raise
+
+
+class SchemaNameRegexTests(SimpleTestCase):
+    """``run_tenant_migrations`` must refuse schema_name strings that
+    don't match the PostgreSQL identifier shape."""
+
+    def test_invalid_schema_names_rejected(self):
+        from tenants.tasks import _SCHEMA_NAME_REGEX
+        for bad in [
+            '', 'public schema', 'a' * 70, '1leadingdigit',
+            'has-hyphens', 'UpperCase', None,
+        ]:
+            self.assertIsNone(
+                _SCHEMA_NAME_REGEX.match(bad or ''),
+                f'expected reject: {bad!r}',
+            )
+
+    def test_valid_schema_names_accepted(self):
+        from tenants.tasks import _SCHEMA_NAME_REGEX
+        for good in ['acme', 'oag_delta', 'a', 'abc123', 'a' * 63]:
+            self.assertIsNotNone(
+                _SCHEMA_NAME_REGEX.match(good),
+                f'expected accept: {good!r}',
+            )
+
+
+class FileSignatureTests(SimpleTestCase):
+    """Magic-byte sniffing on TenantPayment receipt uploads."""
+
+    def _fake_file(self, head: bytes):
+        """Minimal stand-in for ``UploadedFile`` — just supports
+        ``.read()`` and ``.seek(0)``."""
+        from io import BytesIO
+        return BytesIO(head)
+
+    def test_pdf_bytes_match_pdf_extension(self):
+        from tenants.views import _file_signature_matches
+        f = self._fake_file(b'%PDF-1.4\n...')
+        self.assertTrue(_file_signature_matches(f, '.pdf'))
+
+    def test_exe_renamed_to_pdf_rejected(self):
+        from tenants.views import _file_signature_matches
+        f = self._fake_file(b'MZ\x90\x00...')  # Windows PE header
+        self.assertFalse(_file_signature_matches(f, '.pdf'))
+
+    def test_unknown_extension_rejected(self):
+        from tenants.views import _file_signature_matches
+        f = self._fake_file(b'%PDF-1.4')
+        self.assertFalse(_file_signature_matches(f, '.exe'))

@@ -145,7 +145,13 @@ class Client(TenantMixin):
     # Schema creation is explicit — the Celery task calls create_schema()
     # so the API request returns in milliseconds instead of minutes.
     auto_create_schema = False
-    auto_drop_schema = True
+    # ``auto_drop_schema=False`` is the safe default: a hard ``Client.delete()``
+    # would otherwise drop the entire Postgres schema (and every accounting
+    # row inside it) with no recovery path. We provide a soft-delete via
+    # the overridden ``delete()`` below; an explicit physical drop is
+    # still possible via the ``hard_delete`` method, which is the only
+    # path that should ever destroy a tenant's schema.
+    auto_drop_schema = False
 
     def save(self, *args, **kwargs):
         # Auto-generate a slug on first save if the caller didn't provide
@@ -190,6 +196,62 @@ class Client(TenantMixin):
         if scheme is None:
             scheme = getattr(settings, 'TENANT_DEFAULT_SCHEME', 'https')
         return f'{scheme}://{self.subdomain}'
+
+    def delete(self, *args, **kwargs):
+        """Soft delete — flag the row as deleted but keep the schema intact.
+
+        Hard-deleting a Client previously dropped the entire Postgres
+        schema (every accounting / contracts / procurement row inside),
+        with no recovery path. The model carries ``is_deleted`` and
+        ``deleted_at`` fields specifically to support reversible
+        deletion, but no override existed to honour them — calling
+        ``client.delete()`` bypassed both flags entirely.
+
+        Now ``delete()`` flips the flags + revokes UserTenantRoles +
+        suspends the subscription. The schema itself stays intact and
+        the row stays queryable via the ``all_objects`` manager (or
+        ``hard_delete()`` if a permanent drop is required).
+        """
+        from django.utils import timezone
+        from django.db import transaction as _txn
+        with _txn.atomic():
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
+            # Marking the schema as not the canonical name protects
+            # against accidental ``select_tenant`` resolution against
+            # this row after delete; the schema itself is preserved
+            # for audit / recovery.
+            self.save(update_fields=['is_deleted', 'deleted_at'])
+            # Revoke active tenant roles on the deleted tenant so users
+            # who'd previously been members can't reach the schema via
+            # the user-tenants list.
+            UserTenantRole.objects.filter(
+                tenant=self, is_active=True,
+            ).update(is_active=False)
+            # Cancel the subscription (one-to-one).
+            sub = TenantSubscription.objects.filter(tenant=self).first()
+            if sub and sub.status not in ('cancelled', 'expired'):
+                sub.status = 'cancelled'
+                sub.save(update_fields=['status', 'updated_at'])
+
+    def hard_delete(self, *args, **kwargs):
+        """Permanent destruction — drops the schema AND deletes the row.
+
+        Only callable explicitly. Use this when the operator has
+        confirmed (e.g., via a destructive-action dialog with
+        re-typed tenant name) that the data should be physically
+        destroyed. Sets ``auto_drop_schema=True`` for the duration of
+        this call so django-tenants drops the schema as part of the
+        normal delete cascade.
+        """
+        from django.db import transaction as _txn
+        with _txn.atomic():
+            self._meta.auto_drop_schema = True
+            try:
+                # Bypass our own soft-delete by calling super().delete().
+                models.Model.delete(self, *args, **kwargs)
+            finally:
+                self._meta.auto_drop_schema = False
 
 
 class Domain(DomainMixin):
@@ -278,6 +340,39 @@ class SubscriptionPlan(models.Model):
 
     def __str__(self):
         return f"{self.name} - ${self.price}/{self.billing_cycle}"
+
+    def clean(self):
+        """Validate ``allowed_modules`` against the canonical
+        ``AVAILABLE_MODULES`` registry.
+
+        Without this, a typo ('accounting'->'acccounting') silently
+        persists as an entry that no module-resolution check will
+        ever match — the plan stays "valid" but tenants on it can't
+        actually unlock the misspelled module. Surface as a
+        ValidationError at save time (admin / API both call clean()).
+        """
+        super().clean()
+        if not isinstance(self.allowed_modules, list):
+            from django.core.exceptions import ValidationError
+            raise ValidationError({
+                'allowed_modules': 'Must be a list of module names.',
+            })
+        valid_keys = {key for (key, _title, _desc) in AVAILABLE_MODULES}
+        unknown = [m for m in self.allowed_modules if m not in valid_keys]
+        if unknown:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({
+                'allowed_modules': (
+                    f'Unknown module(s): {sorted(unknown)}. '
+                    f'Allowed values: {sorted(valid_keys)}.'
+                ),
+            })
+
+    def save(self, *args, **kwargs):
+        # Run full_clean before save so admin + API + raw model
+        # creates all surface validation errors at the same boundary.
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class TenantSubscription(models.Model):

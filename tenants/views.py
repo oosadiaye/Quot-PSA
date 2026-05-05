@@ -12,6 +12,38 @@ from datetime import timedelta
 
 ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx', '.xlsx'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Magic-byte signatures for the allowed file types. We sniff the
+# first ~8 bytes of every upload and reject when they don't match an
+# expected file class. This catches the rename-attack (renaming a
+# .exe to .pdf) that pure extension validation lets through.
+#
+# Office 2007+ formats (docx / xlsx) ARE zip files, so they share the
+# 'PK\x03\x04' magic with any other zip. That's acceptable here —
+# the size + extension gate constrains the misuse window.
+_MAGIC_SIGNATURES = {
+    '.pdf':  [b'%PDF-'],
+    '.jpg':  [b'\xff\xd8\xff'],
+    '.jpeg': [b'\xff\xd8\xff'],
+    '.png':  [b'\x89PNG\r\n\x1a\n'],
+    '.doc':  [b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'],   # OLE compound
+    '.docx': [b'PK\x03\x04'],                          # zip
+    '.xlsx': [b'PK\x03\x04'],                          # zip
+}
+
+
+def _file_signature_matches(uploaded_file, ext: str) -> bool:
+    """Read the first 16 bytes and check against the expected magic
+    bytes for ``ext``. Resets the file pointer afterwards so the
+    later ``.save()`` still writes the full content.
+    """
+    sigs = _MAGIC_SIGNATURES.get(ext.lower())
+    if not sigs:
+        # Unknown extension — caller should have rejected before us.
+        return False
+    head = uploaded_file.read(16)
+    uploaded_file.seek(0)
+    return any(head.startswith(s) for s in sigs)
 from django_tenants.utils import schema_context
 from .models import Client, TenantModule, TenantSubscription, SubscriptionPlan, AVAILABLE_MODULES, TenantPayment, UserTenantRole, Role, get_tenant_settings
 # Per-tenant schema models (live in each tenant's own PostgreSQL schema)
@@ -324,34 +356,42 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def initialize_modules(self, request):
-        """Initialize all available modules for a tenant with default settings"""
+        """Initialize all available modules for a tenant with default settings.
+
+        Writes to ``PerTenantModule`` (the new per-schema model) so the
+        rest of this viewset's CRUD actions (which already read/write
+        PerTenantModule) see the same source of truth. The legacy
+        public-schema ``TenantModule`` model is kept around only until
+        the deprecation cleanup migration drops it.
+        """
+        from django_tenants.utils import schema_context
         tenant_id = request.data.get('tenant_id')
         if not tenant_id:
             return Response({'error': 'tenant_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             tenant = Client.objects.get(pk=tenant_id)
         except Client.DoesNotExist:
             return Response({'error': 'Tenant not found'}, status=status.HTTP_404_NOT_FOUND)
-        
+
         created_modules = []
-        for mod_name, mod_title, mod_desc in AVAILABLE_MODULES:
-            module, created = TenantModule.objects.update_or_create(
-                tenant=tenant,
-                module_name=mod_name,
-                defaults={
-                    'module_title': mod_title,
-                    'description': mod_desc,
-                    'is_active': True
-                }
-            )
-            created_modules.append(module)
-        
-        serializer = self.get_serializer(created_modules, many=True)
-        return Response({
-            'status': 'Modules initialized',
-            'modules': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        with schema_context(tenant.schema_name):
+            for mod_name, mod_title, mod_desc in AVAILABLE_MODULES:
+                module, _created = PerTenantModule.objects.update_or_create(
+                    module_name=mod_name,
+                    defaults={
+                        'module_title': mod_title,
+                        'description': mod_desc,
+                        'is_active': True,
+                    },
+                )
+                created_modules.append(module)
+
+            serializer = self.get_serializer(created_modules, many=True)
+            return Response({
+                'status': 'Modules initialized',
+                'modules': serializer.data,
+            }, status=status.HTTP_201_CREATED)
 
 
 class SubscriptionPlanViewSet(viewsets.ModelViewSet):
@@ -860,6 +900,12 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
             ext = os.path.splitext(uploaded_file.name)[1].lower()
             if ext not in ALLOWED_EXTENSIONS:
                 return Response({'error': f'File type {ext} not allowed'}, status=status.HTTP_400_BAD_REQUEST)
+            # Magic-byte check defeats rename attacks (.exe -> .pdf).
+            if not _file_signature_matches(uploaded_file, ext):
+                return Response(
+                    {'error': f'Uploaded file content does not match the {ext} format.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if uploaded_file.size > MAX_FILE_SIZE:
                 return Response({'error': 'File size exceeds 10MB limit'}, status=status.HTTP_400_BAD_REQUEST)
             payment.receipt_document = uploaded_file
@@ -895,6 +941,12 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
             ext = os.path.splitext(uploaded_file.name)[1].lower()
             if ext not in ALLOWED_EXTENSIONS:
                 return Response({'error': f'File type {ext} not allowed'}, status=status.HTTP_400_BAD_REQUEST)
+            # Magic-byte check defeats rename attacks (.exe -> .pdf).
+            if not _file_signature_matches(uploaded_file, ext):
+                return Response(
+                    {'error': f'Uploaded file content does not match the {ext} format.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             if uploaded_file.size > MAX_FILE_SIZE:
                 return Response({'error': 'File size exceeds 10MB limit'}, status=status.HTTP_400_BAD_REQUEST)
             payment.receipt_document = uploaded_file
@@ -928,14 +980,34 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
         
         if payment.status != 'pending':
             return Response({'error': f'Payment is already {payment.status}'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # Cross-tenant integrity check: a payment row carries both
+        # ``tenant`` and ``subscription`` FKs — they MUST point to the
+        # same tenant. Without this guard a misconfigured payment
+        # (e.g. created via API with a swapped subscription_id) could
+        # extend tenant B's subscription on the strength of tenant
+        # A's bank receipt.
+        if payment.subscription_id and payment.subscription.tenant_id != payment.tenant_id:
+            return Response(
+                {
+                    'error': (
+                        f'Payment integrity error: payment.tenant_id '
+                        f'({payment.tenant_id}) does not match '
+                        f'subscription.tenant_id '
+                        f'({payment.subscription.tenant_id}). '
+                        f'Cannot approve.'
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if action == 'approve':
             payment.status = 'approved'
             payment.approved_by = request.user
             payment.approved_date = timezone.now()
             payment.approval_notes = notes
             payment.save()
-            
+
             # Update subscription if exists
             if payment.subscription:
                 payment.subscription.status = 'active'
@@ -998,6 +1070,23 @@ def pending_payments_list(request):
     
     return Response(TenantPaymentSerializer(payments, many=True).data)
 
+def _user_has_tenant_access(user, tenant) -> bool:
+    """True if the user is a superuser or holds an active
+    UserTenantRole on the given tenant. Used to gate tenant-scoped
+    APIs so a stray X-Tenant-Domain header from a user without a
+    role on that tenant can't read or mutate that tenant's settings.
+    """
+    if user is None or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if tenant is None:
+        return False
+    return UserTenantRole.objects.filter(
+        user=user, tenant=tenant, is_active=True,
+    ).exists()
+
+
 @api_view(['GET', 'PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def tenant_settings_api(request):
@@ -1005,6 +1094,18 @@ def tenant_settings_api(request):
     tenant = getattr(request, 'tenant', None)
     if not tenant:
         return Response({'error': 'No tenant context'}, status=400)
+
+    # Reject requests where the authenticated user has no role on the
+    # tenant resolved by middleware (X-Tenant-Domain header). The
+    # middleware sets ``request.tenant`` from the header alone — it
+    # doesn't verify the user actually belongs to that tenant. Without
+    # this gate any authenticated user could read or mutate any
+    # tenant's settings just by changing the header.
+    if not _user_has_tenant_access(request.user, tenant):
+        return Response(
+            {'error': 'You do not have access to this tenant.'},
+            status=403,
+        )
 
     if request.method == 'GET':
         sub = getattr(tenant, 'subscription', None)
@@ -1080,6 +1181,14 @@ def tenant_branding_api(request):
     tenant = getattr(request, 'tenant', None)
     if not tenant:
         return Response({'error': 'No tenant context'}, status=400)
+
+    # Same gate as tenant_settings_api: an authenticated user with no
+    # UserTenantRole on this tenant cannot view or mutate its branding.
+    if not _user_has_tenant_access(request.user, tenant):
+        return Response(
+            {'error': 'You do not have access to this tenant.'},
+            status=403,
+        )
 
     if request.method == 'GET':
         return Response({
@@ -1354,9 +1463,26 @@ def configure_government(request):
         seeded = True
     except Exception as e:
         seeded = False
+        # Log the full exception server-side; return only the safe
+        # operator-facing message to the client. ``str(exc)`` can leak
+        # SQL fragments / file paths / library version hints in 500s
+        # — never the right thing to return to a partially-trusted
+        # caller. Operators get the exception in logs; clients get a
+        # bounded message + a correlation-friendly tier/state
+        # echo so they can re-try with corrected inputs.
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            'configure_government seed failed for tier=%s state=%s',
+            tier, state_name,
+        )
         return Response({
             'status': 'configured_with_errors',
-            'error': str(e),
+            'error': (
+                'Government setup partially failed during seeding. '
+                'The tenant is configured but Chart-of-Accounts seeding '
+                'did not complete. Contact your platform administrator '
+                'to inspect the logs.'
+            ),
             'government_tier': tier,
             'state_name': state_name,
         }, status=500)

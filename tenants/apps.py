@@ -6,3 +6,4 @@ class TenantsConfig(AppConfig):
 
     def ready(self):
         import tenants.signals  # noqa: F401
+        import tenants.checks   # noqa: F401 — registers system checks

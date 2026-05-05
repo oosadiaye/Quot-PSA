@@ -6,6 +6,7 @@ expensive operations like schema creation, migration, and maintenance.
 """
 
 import logging
+import re
 
 from celery import shared_task
 from django.core.cache import caches
@@ -13,63 +14,16 @@ from django.core.cache import caches
 logger = logging.getLogger('dtsg')
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def create_tenant_schema(self, tenant_id):
-    """Async schema creation for a new tenant.
+# NOTE: ``create_tenant_schema`` was removed — it had zero call sites
+# anywhere in the codebase (verified by repo-wide grep). The newer
+# ``provision_tenant_schema`` (defined below) is the live tenant-
+# creation path used by every dispatcher (superadmin/views.py,
+# signup flow, management commands). Keeping a second async path
+# alongside the live one created risk of one or the other drifting
+# out of sync; deleting the dead surface is the cleanup.
 
-    Called after the Client record is saved. Runs migrations on the new
-    schema without blocking the signup HTTP response.
-    """
-    from tenants.models import Client
 
-    try:
-        tenant = Client.objects.get(pk=tenant_id)
-        if not tenant.schema_name:
-            logger.error('Tenant %s has no schema_name', tenant_id)
-            return
-
-        # django-tenants creates the schema and runs migrations
-        # when auto_create_schema=True on save(). If we want manual control:
-        from django.core.management import call_command
-        from django_tenants.utils import schema_context
-
-        call_command('migrate_schemas', '--schema', tenant.schema_name, verbosity=0)
-
-        # Seed the Chart of Accounts so every module's GL posting works
-        # from day one. Uses get_or_create internally, so safe to re-run.
-        with schema_context(tenant.schema_name):
-            call_command('seed_coa', '--validate', verbosity=0)
-
-        # Seed tenant defaults: warehouse, asset categories, UOMs, base currency
-        with schema_context(tenant.schema_name):
-            from core.management.commands.seed_tenant_defaults import seed_defaults
-            seed_defaults(tenant_name=tenant.name)
-
-        # Bridge any pre-existing NCoA segments → legacy MDA/Fund/Function/
-        # Program/Geo so the Journal/Voucher/Asset forms have populated
-        # dropdowns from day one. Idempotent. The post_save signal in
-        # ``accounting.signals.ncoa_to_legacy`` keeps the bridge in sync
-        # going forward; this initial run covers segments that were created
-        # before the signal had a chance to fire (seeders, raw SQL imports).
-        with schema_context(tenant.schema_name):
-            try:
-                call_command('backfill_legacy_dims', verbosity=0)
-            except Exception:
-                # Bridge is a UI convenience; never fail tenant provisioning
-                # because of it. Log and carry on.
-                logger.exception(
-                    'NCoA → legacy bridge backfill failed for tenant %s; '
-                    'forms may need manual `backfill_legacy_dims` run.',
-                    tenant.schema_name,
-                )
-
-        logger.info('Schema created, migrated, COA + defaults seeded for tenant %s (%s)',
-                     tenant.schema_name, tenant_id)
-    except Client.DoesNotExist:
-        logger.error('Tenant %s does not exist', tenant_id)
-    except Exception as exc:
-        logger.exception('Schema creation failed for tenant %s', tenant_id)
-        raise self.retry(exc=exc)
+_SCHEMA_NAME_REGEX = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
@@ -78,7 +32,20 @@ def run_tenant_migrations(self, schema_name):
 
     Useful for rolling out migrations one tenant at a time
     instead of blocking the deploy.
+
+    Validates ``schema_name`` against PostgreSQL identifier rules
+    before invoking ``migrate_schemas``. Without this guard a
+    crafted schema_name string from any caller could in principle
+    feed unexpected input to the management command. Defence in
+    depth — django-tenants also validates internally, but a regex
+    here makes the contract explicit at the task boundary.
     """
+    if not _SCHEMA_NAME_REGEX.match(schema_name or ''):
+        logger.error(
+            'Refusing to migrate invalid schema_name %r — must match '
+            '[a-z][a-z0-9_]{0,62}.', schema_name,
+        )
+        return  # don't retry — invalid input won't become valid
     try:
         from django.core.management import call_command
         call_command('migrate_schemas', '--schema', schema_name, verbosity=0)
