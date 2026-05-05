@@ -7,12 +7,12 @@ Models a mixed public-sector workload:
 
 Run a local smoke test (no UI):
     pip install locust
-    locust -f tests/load/locustfile.py --headless \\
+    locust -f loadtests/load/locustfile.py --headless \\
         -u 100 -r 10 --run-time 5m \\
         --host https://tenant-demo.quotpse.local
 
 Target: 100 concurrent users × 10 req/s per user.
-Exit criteria (see tests/load/README.md):
+Exit criteria (see loadtests/load/README.md):
     p50 < 200 ms, p95 < 1 s, error-rate < 0.5 %.
 """
 from __future__ import annotations

@@ -690,5 +690,5 @@ If you shipped an irreversible migration (data backfill, column drop), **don't r
 - **DR drill:** [`docs/DR_DRILL.md`](DR_DRILL.md) — 9-step restore
 - **Tenant onboarding:** [`docs/RUNBOOK_ONBOARD_TENANT.md`](RUNBOOK_ONBOARD_TENANT.md)
 - **Performance audit:** [`docs/PERFORMANCE_AUDIT.md`](PERFORMANCE_AUDIT.md)
-- **Load test:** [`tests/load/README.md`](../tests/load/README.md)
+- **Load test:** [`loadtests/load/README.md`](../loadtests/load/README.md)
 - **API reference (live):** `https://<your-host>/api/docs/`

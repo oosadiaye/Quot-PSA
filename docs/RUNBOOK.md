@@ -221,7 +221,7 @@ tail -100 /var/log/quotpse/backup.log
 Before a release, rerun the Locust harness (§P6-T3):
 
 ```bash
-locust -f tests/load/locustfile.py --headless \
+locust -f loadtests/load/locustfile.py --headless \
   -u 100 -r 10 --run-time 5m --host https://staging.quotpse.ng
 ```
 
@@ -248,5 +248,5 @@ the verdict in `docs/LOAD_TEST_RESULTS.md` (append, never overwrite).
 - **Tenant onboarding:** [docs/RUNBOOK_ONBOARD_TENANT.md](RUNBOOK_ONBOARD_TENANT.md)
 - **DR drill procedure:** [docs/DR_DRILL.md](DR_DRILL.md)
 - **Performance audit:** [docs/PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md)
-- **Load test harness:** [tests/load/README.md](../tests/load/README.md)
+- **Load test harness:** [loadtests/load/README.md](../loadtests/load/README.md)
 - **API reference (live):** <https://api.quotpse.ng/api/docs/>

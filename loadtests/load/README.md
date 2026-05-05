@@ -14,7 +14,7 @@ pip install locust==2.27.0
 export LOCUST_EMAIL=loadtest@quotpse.local
 export LOCUST_PASSWORD=loadtest-pwd
 
-locust -f tests/load/locustfile.py --headless \
+locust -f loadtests/load/locustfile.py --headless \
     -u 100 -r 10 --run-time 5m \
     --host https://tenant-demo.quotpse.local \
     --csv reports/load_$(date +%Y%m%d_%H%M)

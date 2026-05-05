@@ -27,7 +27,7 @@ Hot paths identified from access logs + report generators:
 
 ## EXPLAIN ANALYZE — baseline (N=500k JournalLines across 50k Headers)
 
-(Measured on staging replay — see `tests/load/perf_baseline.csv`.)
+(Measured on staging replay — see `loadtests/load/perf_baseline.csv`.)
 
 ```
 Q1 before: Seq Scan on accounting_journalline  (cost=0..18427)  actual=412ms

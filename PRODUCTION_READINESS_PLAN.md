@@ -98,7 +98,7 @@ Each task has an ID (`P1-T1` = Phase 1 Task 1).
 |---|---|---|
 | **P6-T1** | DB index + `EXPLAIN ANALYZE` review | `docs/PERFORMANCE_AUDIT.md` with before/after |
 | **P6-T2** | Denormalise `Appropriation.total_committed` / `.total_expended` | Columns + backfill migration; property still works |
-| **P6-T3** | Load-test harness (Locust) — 100 users × 10 req/s | `tests/load/` + report |
+| **P6-T3** | Load-test harness (Locust) — 100 users × 10 req/s | `loadtests/load/` + report |
 | **P6-T4** | Redis cache for hot reports (SoFP, SoFPerf) with cache-bust on post | 10× latency improvement on repeat fetches |
 
 ---
