@@ -1087,12 +1087,32 @@ export const useDeleteWithholdingTax = () => {
 // GL BALANCE HOOKS (REPORTING)
 // ============================================================================
 
-export const useGLBalances = (filters = {}) => {
+export const useGLBalances = (filters: Record<string, any> = {}) => {
     return useQuery({
         queryKey: ['gl-balances', filters],
         queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/gl-balances/', { params: filters });
-            return data.results;
+            // Two corrections vs the legacy call:
+            //   1. Translate ``fiscal_period`` (the legacy frontend
+            //      param name) to ``period`` so the backend
+            //      ``filterset_fields = ['fiscal_year', 'period', ...]``
+            //      actually applies the filter — previously it was
+            //      silently dropped, so every page was the FY total
+            //      paginated.
+            //   2. Request the full page in one shot via
+            //      ``page_size=10000`` (matches AccountingPagination's
+            //      max). Without this, GLBalanceViewSet returns 20
+            //      rows on the first page and the SPA computes
+            //      totals over only that subset — unbalanced
+            //      "partial-page" sums on the GL Reports screen.
+            const { fiscal_period, period, page_size, ...rest } = filters;
+            const params: Record<string, any> = { ...rest, page_size: page_size ?? 10000 };
+            const periodValue = period ?? fiscal_period;
+            if (periodValue !== undefined && periodValue !== null && periodValue !== '') {
+                params.period = periodValue;
+            }
+            const { data } = await apiClient.get('/accounting/gl-balances/', { params });
+            // Paginated response → ``results``; non-paginated → array.
+            return Array.isArray(data) ? data : (data?.results ?? []);
         },
         staleTime: DEFAULT_STALE_TIME,
         retry: false,

@@ -1529,10 +1529,18 @@ class CurrencyViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 class GLBalanceViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only viewset for GL balance reporting."""
+    """Read-only viewset for GL balance reporting.
+
+    Uses ``AccountingPagination`` (max_page_size=10000) instead of the
+    default 20 so the GL Reports screen receives every GLBalance row
+    for the requested fiscal year in one response. With the global
+    default the SPA was computing totals from the first 20 rows only,
+    producing partial-page sums that didn't equal the FY total.
+    """
     serializer_class = GLBalanceSerializer
     filterset_fields = ['fiscal_year', 'period', 'account', 'fund', 'function', 'program', 'geo']
     search_fields = ['account__code', 'account__name']
+    pagination_class = AccountingPagination
 
     def get_queryset(self):
         from django.db.models import Subquery, OuterRef, CharField, Value
