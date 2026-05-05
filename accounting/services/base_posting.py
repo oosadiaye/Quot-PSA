@@ -96,6 +96,39 @@ class BasePostingService:
             )
 
     @staticmethod
+    def assert_balanced(journal):
+        """Pure double-entry check — raises if SUM(DR) != SUM(CR).
+
+        No side effects. This is the chokepoint invariant every
+        GL-writer (``update_gl_from_journal``,
+        ``BasePostingService._update_gl_balances``,
+        ``IPSASJournalService._update_gl_balances``) calls before
+        touching ``GLBalance``. It guarantees that no posting path —
+        AR Invoice, AR Receipt, AP Invoice, AP Credit Memo, AP
+        Payment, GRN, Invoice Verification, IPC Accrual, Vendor
+        Advance, Asset Disposal, Manual JE, Bank Transfer, Revenue
+        Collection — can produce an unbalanced GL.
+
+        Differs from ``_validate_journal_balanced`` (which also runs
+        asset capitalisation as a side-effect) in being a pure
+        invariant assertion suitable for unconditional use inside
+        the low-level writer.
+        """
+        agg = journal.lines.aggregate(
+            d=Sum('debit'), c=Sum('credit'),
+        )
+        total_debit = agg['d'] or Decimal('0.00')
+        total_credit = agg['c'] or Decimal('0.00')
+        if total_debit != total_credit:
+            raise TransactionPostingError(
+                f"Journal {journal.reference_number} is unbalanced. "
+                f"Debits: {total_debit}, Credits: {total_credit}, "
+                f"Difference: {total_debit - total_credit}. "
+                f"Double-entry violation — every posting must have "
+                f"SUM(debits) == SUM(credits)."
+            )
+
+    @staticmethod
     def _validate_journal_balanced(journal):
         """Ensure journal has >= 2 lines and debits equal credits.
 
@@ -150,7 +183,15 @@ class BasePostingService:
 
         Args:
             journal: JournalHeader instance
+
+        Raises:
+            TransactionPostingError if the journal isn't balanced
+            (SUM(debit) != SUM(credit)). Mandatory double-entry
+            invariant — see BasePostingService.assert_balanced.
         """
+        # Mandatory double-entry assertion before any GL state mutates.
+        BasePostingService.assert_balanced(journal)
+
         fiscal_year = journal.posting_date.year
         period = journal.posting_date.month
         # S3-05 — carry MDA dimension onto each GLBalance row so budget

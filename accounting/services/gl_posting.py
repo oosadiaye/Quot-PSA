@@ -15,8 +15,20 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
 
     Uses UPDATE ... SET debit_balance = debit_balance + X instead of
     read-modify-write, which is safe under concurrent access.
+
+    DOUBLE-ENTRY GUARD (mandatory): refuses to update GLBalance unless
+    SUM(debits) == SUM(credits) on the supplied journal. This is the
+    chokepoint that enforces the invariant for every posting flow —
+    AR / AP / Payment / Receipt / Manual JE / GRN / Invoice
+    Verification / IPC / Vendor Advance / Bank Transfer / Revenue.
+    Bypass-by-skipping-the-validator-at-the-callsite is no longer
+    possible.
     """
     from accounting.models import GLBalance
+    from accounting.services.base_posting import BasePostingService
+
+    # Mandatory double-entry assertion before any GL state mutates.
+    BasePostingService.assert_balanced(journal)
 
     fiscal_year = journal.posting_date.year
     period = journal.posting_date.month

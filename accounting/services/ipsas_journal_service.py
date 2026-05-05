@@ -268,9 +268,19 @@ class IPSASJournalService:
 
         GLBalance has: account, fund, function, program, geo,
                        debit_balance, credit_balance, fiscal_year, period
+
+        Raises ``TransactionPostingError`` (via assert_balanced) if the
+        journal violates double-entry — same chokepoint as
+        ``update_gl_from_journal`` and
+        ``BasePostingService._update_gl_balances`` so every posting
+        path goes through the same invariant.
         """
         from accounting.models.balances import GLBalance
+        from accounting.services.base_posting import BasePostingService
         from django.db.models import F
+
+        # Mandatory double-entry assertion.
+        BasePostingService.assert_balanced(journal)
 
         # Extract fiscal year and period from posting date
         fiscal_year = journal.posting_date.year
