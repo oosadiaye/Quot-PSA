@@ -1202,24 +1202,41 @@ class GoodsReceivedNoteLine(models.Model):
 
     def save(self, *args, **kwargs):
         if self.po_line:
-            # Validate that total received across all GRNs does not exceed PO qty
-            already_received = self.po_line.quantity_received or Decimal('0')
+            # Validate that total received across all GRNs does not exceed PO qty.
+            # Race-safe: re-read the PO line under select_for_update so two
+            # concurrent GRN line saves can't both pass the over-receipt
+            # check against the same stale ``quantity_received`` value.
+            # Locking is best-effort outside of an atomic block (Django
+            # raises ``TransactionManagementError`` if no transaction is
+            # active) — the model save() is typically wrapped in atomic()
+            # by the caller (post_grn / serializer save), but if not we
+            # fall back to a plain reload.
+            from django.db import transaction as _txn
+            try:
+                po_line_locked = (
+                    type(self.po_line).objects
+                    .select_for_update()
+                    .get(pk=self.po_line_id)
+                )
+            except _txn.TransactionManagementError:
+                po_line_locked = type(self.po_line).objects.get(pk=self.po_line_id)
+            already_received = po_line_locked.quantity_received or Decimal('0')
             # Exclude self if updating an existing line
             if self.pk:
                 existing = GoodsReceivedNoteLine.objects.filter(pk=self.pk).first()
                 if existing:
                     already_received -= existing.quantity_received
-            remaining = self.po_line.quantity - already_received
+            remaining = po_line_locked.quantity - already_received
             if self.quantity_received > remaining:
                 raise ValidationError(
                     f"Cannot receive {self.quantity_received}. "
-                    f"PO line qty: {self.po_line.quantity}, "
+                    f"PO line qty: {po_line_locked.quantity}, "
                     f"already received: {already_received}, "
                     f"remaining: {remaining}."
                 )
 
             total_after = already_received + self.quantity_received
-            if total_after < self.po_line.quantity:
+            if total_after < po_line_locked.quantity:
                 self.received_quantity_status = 'Partial'
             else:
                 self.received_quantity_status = 'Full'

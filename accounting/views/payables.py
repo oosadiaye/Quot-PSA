@@ -1,6 +1,7 @@
 from .common import (
     viewsets, status, Response, action, transaction, Decimal, AccountingPagination, Sum,
 )
+from django.db.models import F
 from core.permissions import IsApprover
 from ..models import (
     VendorInvoice, Payment, PaymentAllocation,
@@ -262,50 +263,57 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         from procurement.models import Vendor
         created, skipped, errors = 0, 0, []
 
-        for idx, row in df.iterrows():
-            row_num = idx + 2
-            try:
-                vendor_name = str(row['vendor_name']).strip()
-                vendor = Vendor.objects.filter(name__iexact=vendor_name).first()
-                if not vendor:
-                    errors.append(f'Row {row_num}: Vendor "{vendor_name}" not found')
-                    continue
+        # Wrap the whole loop in a single atomic. If a row fails its
+        # per-row try/except already collects the error and the loop
+        # continues. If the request itself dies mid-loop (timeout,
+        # OOM, worker kill) the outer atomic rolls back every row
+        # that wasn't yet flushed — no partial / inconsistent imports
+        # are persisted to the DB.
+        with transaction.atomic():
+            for idx, row in df.iterrows():
+                row_num = idx + 2
+                try:
+                    vendor_name = str(row['vendor_name']).strip()
+                    vendor = Vendor.objects.filter(name__iexact=vendor_name).first()
+                    if not vendor:
+                        errors.append(f'Row {row_num}: Vendor "{vendor_name}" not found')
+                        continue
 
-                ref = str(row['reference']).strip()
-                if VendorInvoice.objects.filter(reference=ref).exists():
-                    skipped += 1
-                    continue
+                    ref = str(row['reference']).strip()
+                    if VendorInvoice.objects.filter(reference=ref).exists():
+                        skipped += 1
+                        continue
 
-                acct = Account.objects.filter(code=str(row['account_code']).strip()).first()
-                mda = None
-                if 'mda_code' in df.columns and pd.notna(row.get('mda_code')):
-                    mda = MDA.objects.filter(code=str(row['mda_code']).strip()).first()
+                    acct = Account.objects.filter(code=str(row['account_code']).strip()).first()
+                    mda = None
+                    if 'mda_code' in df.columns and pd.notna(row.get('mda_code')):
+                        mda = MDA.objects.filter(code=str(row['mda_code']).strip()).first()
 
-                amt = float(row['amount'])
-                if amt <= 0:
-                    errors.append(f'Row {row_num}: Invalid amount')
-                    continue
+                    amt = float(row['amount'])
+                    if amt <= 0:
+                        errors.append(f'Row {row_num}: Invalid amount')
+                        continue
 
-                from accounting.models.gl import Fund, Function, Program, Geo
-                fund = Fund.objects.filter(code=str(row.get('fund_code', '')).strip()).first() if pd.notna(row.get('fund_code')) else None
-                func = Function.objects.filter(code=str(row.get('function_code', '')).strip()).first() if pd.notna(row.get('function_code')) else None
-                prog = Program.objects.filter(code=str(row.get('program_code', '')).strip()).first() if pd.notna(row.get('program_code')) else None
-                geo = Geo.objects.filter(code=str(row.get('geo_code', '')).strip()).first() if pd.notna(row.get('geo_code')) else None
+                    from accounting.models.gl import Fund, Function, Program, Geo
+                    fund = Fund.objects.filter(code=str(row.get('fund_code', '')).strip()).first() if pd.notna(row.get('fund_code')) else None
+                    func = Function.objects.filter(code=str(row.get('function_code', '')).strip()).first() if pd.notna(row.get('function_code')) else None
+                    prog = Program.objects.filter(code=str(row.get('program_code', '')).strip()).first() if pd.notna(row.get('program_code')) else None
+                    geo = Geo.objects.filter(code=str(row.get('geo_code', '')).strip()).first() if pd.notna(row.get('geo_code')) else None
 
-                desc = str(row.get('description', '')).strip() if pd.notna(row.get('description')) else ''
-                due = str(row.get('due_date', row['invoice_date'])).strip()[:10]
+                    desc = str(row.get('description', '')).strip() if pd.notna(row.get('description')) else ''
+                    due = str(row.get('due_date', row['invoice_date'])).strip()[:10]
 
-                inv = VendorInvoice.objects.create(
-                    vendor=vendor, reference=ref, description=desc,
-                    invoice_date=str(row['invoice_date']).strip()[:10],
-                    due_date=due,
-                    account=acct, mda=mda,
-                    fund=fund, function=func, program=prog, geo=geo,
-                    total_amount=amt, subtotal=amt,
-                )
-                created += 1
-            except Exception as e:
-                errors.append(f'Row {row_num}: {e}')
+                    inv = VendorInvoice.objects.create(
+                        vendor=vendor, reference=ref, description=desc,
+                        invoice_date=str(row['invoice_date']).strip()[:10],
+                        due_date=due,
+                        account=acct, mda=mda,
+                        fund=fund, function=func, program=prog, geo=geo,
+                        total_amount=amt, subtotal=amt,
+                    )
+                    created += 1
+                except Exception as e:
+                    errors.append(f'Row {row_num}: {e}')
 
         return Response({
             'success': True, 'created': created, 'updated': 0, 'skipped': skipped, 'errors': errors,
@@ -600,6 +608,62 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
                 invoice.save(_allow_status_change=True)
                 invoice.refresh_from_db()
 
+        # ── TOCTOU guard: lock candidate Appropriations before
+        # validation runs.
+        #
+        # Previously ``validate_expenditure`` ran OUTSIDE any
+        # transaction, so two concurrent posts could read the same
+        # ``available_balance``, both pass the check, then both
+        # proceed to the inner atomic and silently over-appropriate.
+        #
+        # The fix here: run a short ``transaction.atomic()`` that
+        # acquires a row-level lock on every active appropriation
+        # in the invoice's (MDA, Fund) tuple, runs the full budget
+        # validation inside the lock, and only releases when this
+        # method returns or commits. We achieve that by wrapping the
+        # entire remainder of ``post_invoice`` in
+        # ``transaction.atomic()`` via the helper below.
+        return self._post_invoice_locked(request, invoice)
+
+    def _post_invoice_locked(self, request, invoice):
+        """Continuation of ``post_invoice`` running inside a single
+        ``transaction.atomic()`` so ``select_for_update`` on the
+        matched Appropriation rows is held across validation AND
+        journal posting. Concurrent posts on the same appropriation
+        are serialised on the row lock; posts on different
+        appropriations stay parallel.
+        """
+        with transaction.atomic():
+            if invoice.mda_id and invoice.fund_id:
+                try:
+                    from budget.models import Appropriation
+                    from accounting.models.ncoa import (
+                        AdministrativeSegment, FundSegment,
+                    )
+                    _admin_seg = AdministrativeSegment.objects.filter(
+                        legacy_mda=invoice.mda,
+                    ).first()
+                    _fund_seg = FundSegment.objects.filter(
+                        legacy_fund=invoice.fund,
+                    ).first()
+                    if _admin_seg and _fund_seg:
+                        list(
+                            Appropriation.objects
+                            .select_for_update()
+                            .filter(
+                                administrative=_admin_seg,
+                                fund=_fund_seg,
+                                status__iexact='ACTIVE',
+                            )
+                        )
+                except Exception:  # noqa: BLE001 — lock is best-effort
+                    pass
+            return self._post_invoice_body(request, invoice)
+
+    def _post_invoice_body(self, request, invoice):
+        """Original budget-validation + posting logic, factored out so
+        ``_post_invoice_locked`` can wrap it in a single outer atomic.
+        Behaviour is unchanged from the previous monolithic form."""
         # ── Budget Validation (Appropriation availability) ──────────
         # Like SAP FB60: budget check + posting happen together.
         #
@@ -1687,15 +1751,32 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 payment.status = 'Posted'
                 payment.save(_allow_status_change=True)
 
-                # Update invoice paid amounts
+                # Update invoice paid amounts.
+                #
+                # Race-safe pattern: lock the invoice row, atomic
+                # F() update of paid_amount, then re-read to compute
+                # the new status. Previously this was a read-modify-
+                # write (``invoice.paid_amount += allocation.amount``
+                # in Python) — two concurrent payment posts against
+                # the same invoice would both read the same starting
+                # value and the second save would silently drop the
+                # first increment, corrupting the AP subledger.
+                from accounting.models.receivables import VendorInvoice
                 for allocation in payment.allocations.select_related('invoice').all():
-                    invoice = allocation.invoice
-                    invoice.paid_amount += allocation.amount
-                    if invoice.paid_amount >= invoice.total_amount:
-                        invoice.status = 'Paid'
-                    else:
-                        invoice.status = 'Partially Paid'
-                    invoice.save(_allow_status_change=True)
+                    inv_pk = allocation.invoice_id
+                    # Acquire row lock.
+                    locked = VendorInvoice.objects.select_for_update().get(pk=inv_pk)
+                    # Atomic increment via F().
+                    VendorInvoice.objects.filter(pk=inv_pk).update(
+                        paid_amount=F('paid_amount') + allocation.amount,
+                    )
+                    # Re-read post-increment to settle status field.
+                    locked.refresh_from_db(fields=['paid_amount', 'total_amount'])
+                    new_status = (
+                        'Paid' if locked.paid_amount >= locked.total_amount
+                        else 'Partially Paid'
+                    )
+                    VendorInvoice.objects.filter(pk=inv_pk).update(status=new_status)
 
                 # ── PV-driven propagation ────────────────────────────
                 # Payments created via the PV ``schedule_payment`` flow
@@ -1796,18 +1877,30 @@ class PaymentViewSet(viewsets.ModelViewSet):
                         break
 
                 if po_reference:
-                    encumbrances = BudgetEncumbrance.objects.filter(
-                        reference_type='PO',
-                        reference_id=po_reference.pk,
-                        status__in=['ACTIVE', 'PARTIALLY_LIQUIDATED']
+                    # Race-safe encumbrance liquidation: lock + F() update.
+                    # Previously this was read-modify-write so two
+                    # concurrent payments against the same PO could both
+                    # read the same liquidated_amount and one save would
+                    # silently overwrite the other's increment.
+                    enc_ids = list(
+                        BudgetEncumbrance.objects.filter(
+                            reference_type='PO',
+                            reference_id=po_reference.pk,
+                            status__in=['ACTIVE', 'PARTIALLY_LIQUIDATED'],
+                        ).values_list('pk', flat=True)
                     )
-                    for enc in encumbrances:
-                        enc.liquidated_amount = (enc.liquidated_amount or Decimal('0')) + allocation.amount
-                        if enc.liquidated_amount >= enc.amount:
-                            enc.status = 'FULLY_LIQUIDATED'
-                        else:
-                            enc.status = 'PARTIALLY_LIQUIDATED'
-                        enc.save()
+                    for enc_id in enc_ids:
+                        # Lock + atomic F() update.
+                        BudgetEncumbrance.objects.select_for_update().filter(pk=enc_id).update(
+                            liquidated_amount=F('liquidated_amount') + allocation.amount,
+                        )
+                        # Re-read to settle status field.
+                        enc = BudgetEncumbrance.objects.get(pk=enc_id)
+                        new_status = (
+                            'FULLY_LIQUIDATED' if (enc.liquidated_amount or Decimal('0')) >= (enc.amount or Decimal('0'))
+                            else 'PARTIALLY_LIQUIDATED'
+                        )
+                        BudgetEncumbrance.objects.filter(pk=enc_id).update(status=new_status)
 
             return Response({
                 "status": "Payment posted successfully.",

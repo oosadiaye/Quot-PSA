@@ -48,7 +48,24 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
         credit = line.credit or Decimal('0.00')
         line_mda = j_mda_header
 
-        gl_bal, created = GLBalance.objects.get_or_create(
+        # Race-safe pattern:
+        #   1. ``get_or_create`` with zero defaults atomically reserves
+        #      the (account, dimensions, fy, period) bucket. The DB
+        #      uniqueness constraint serialises concurrent inserts —
+        #      only one thread wins the INSERT; the others fall
+        #      through to a regular SELECT.
+        #   2. A SINGLE ``UPDATE ... SET balance = balance + delta``
+        #      then increments the row using F() expressions. Both
+        #      the just-created (zero-balance) and the existing-row
+        #      paths use the same additive update, so there's no
+        #      branch where a non-additive UPDATE can stomp a
+        #      concurrent increment.
+        #
+        # The previous implementation took a non-additive ``UPDATE
+        # SET balance = <delta>`` on the just-created path, which
+        # under concurrency could overwrite another thread's
+        # increment.
+        GLBalance.objects.get_or_create(
             account=line.account,
             fund=j_fund,
             function=j_function,
@@ -57,21 +74,24 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
             mda=line_mda,
             fiscal_year=fiscal_year,
             period=period,
-            defaults={'debit_balance': Decimal('0.00'), 'credit_balance': Decimal('0.00')}
+            defaults={
+                'debit_balance': Decimal('0.00'),
+                'credit_balance': Decimal('0.00'),
+            },
         )
-
-        if created:
-            # Just created with defaults, set the initial values
-            GLBalance.objects.filter(pk=gl_bal.pk).update(
-                debit_balance=debit,
-                credit_balance=credit
-            )
-        else:
-            # Atomic increment using F() expressions — no race condition
-            GLBalance.objects.filter(pk=gl_bal.pk).update(
-                debit_balance=F('debit_balance') + debit,
-                credit_balance=F('credit_balance') + credit
-            )
+        GLBalance.objects.filter(
+            account=line.account,
+            fund=j_fund,
+            function=j_function,
+            program=j_program,
+            geo=j_geo,
+            mda=line_mda,
+            fiscal_year=fiscal_year,
+            period=period,
+        ).update(
+            debit_balance=F('debit_balance') + debit,
+            credit_balance=F('credit_balance') + credit,
+        )
 
     # ── Bust the IPSAS report cache for this fiscal year ───────────────
     # Every posting path (manual JE, AP/AR invoice, Payment, PV, IPC

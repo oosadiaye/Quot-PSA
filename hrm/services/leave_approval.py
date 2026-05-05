@@ -117,9 +117,17 @@ def decide_step(
       and the parent request flips to ``Rejected``.
     * If this was the final pending step and all prior are Approved,
       the request flips to ``Approved``.
+
+    Race-safe: re-reads the step under ``select_for_update`` so two
+    concurrent decision requests on the same step (e.g., a manager
+    double-clicking Approve) can't both pass the
+    ``decision == PENDING`` guard and double-debit the leave balance.
     """
     if decision not in VALID_DECISIONS:
         raise ApprovalError(f'Invalid decision: {decision!r}')
+
+    # Lock + re-read the step inside the atomic.
+    step = LeaveApprovalStep.objects.select_for_update().get(pk=step.pk)
     if step.decision != DECISION_PENDING:
         raise ApprovalError(
             f'Step already decided ({step.decision}); cannot overwrite.'

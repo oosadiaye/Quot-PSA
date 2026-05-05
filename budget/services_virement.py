@@ -26,23 +26,22 @@ class VirementError(Exception):
 
 
 def _generate_reference_number() -> str:
-    """VIR-YYYY-#### with a gap-free per-year sequence."""
-    from budget.models import AppropriationVirement
+    """``VIR-YYYY-####`` per-year sequence, race-safe.
+
+    Uses ``TransactionSequence.get_next`` (which holds a row lock on
+    its sequence record) so two concurrent ``create_virement`` calls
+    can't both compute the same next sequence number. The previous
+    MAX-by-string approach raced under concurrency AND broke
+    lexicographically once the suffix passed 9999 (5-digit suffix
+    sorts after 4-digit but a re-read returned the wrong "last").
+    """
+    from accounting.models.gl import TransactionSequence
     year = timezone.now().year
     prefix = f'VIR-{year}-'
-    last = (
-        AppropriationVirement.objects
-        .filter(reference_number__startswith=prefix)
-        .order_by('-reference_number')
-        .first()
-    )
-    next_seq = 1
-    if last:
-        try:
-            next_seq = int(last.reference_number.rsplit('-', 1)[-1]) + 1
-        except (ValueError, IndexError):
-            next_seq = 1
-    return f'{prefix}{next_seq:04d}'
+    # ``get_next`` returns the formatted code directly. Use a
+    # year-scoped sequence name so 2026's sequence is independent of
+    # 2027's.
+    return TransactionSequence.get_next(f'virement_{year}', prefix=prefix)
 
 
 def create_virement(
@@ -149,24 +148,24 @@ def approve_and_apply_virement(virement, user) -> 'AppropriationVirement':
     virement.from_balance_before = source.amount_approved
     virement.to_balance_before = target.amount_approved
 
-    # Move the money
+    # Move the money. Persist ``amount_approved`` only — DO NOT reset
+    # ``cached_total_committed`` / ``cached_total_expended`` to None
+    # here. The previous code set both to None first and called
+    # ``refresh_totals`` afterwards. If ``refresh_totals`` raised
+    # mid-recompute, the savepoint rolled back the recomputation but
+    # the outer atomic had already committed ``cache=None``,
+    # leaving the cache in a permanent NULL state that the
+    # application treats differently from a real zero.
+    #
+    # ``refresh_totals`` (called below) recomputes from scratch and
+    # writes the new value, overwriting any stale cache. There is no
+    # reason to null the cache between the ceiling change and the
+    # refresh — the stale value never gets read.
     source.amount_approved = (source.amount_approved or Decimal('0')) - virement.amount
     target.amount_approved = (target.amount_approved or Decimal('0')) + virement.amount
 
-    # Reset cached totals so next read recomputes against the new ceiling
-    source.cached_total_committed = None
-    source.cached_total_expended = None
-    target.cached_total_committed = None
-    target.cached_total_expended = None
-
-    source.save(update_fields=[
-        'amount_approved',
-        'cached_total_committed', 'cached_total_expended',
-    ])
-    target.save(update_fields=[
-        'amount_approved',
-        'cached_total_committed', 'cached_total_expended',
-    ])
+    source.save(update_fields=['amount_approved'])
+    target.save(update_fields=['amount_approved'])
 
     virement.from_balance_after = source.amount_approved
     virement.to_balance_after = target.amount_approved
