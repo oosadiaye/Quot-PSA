@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from .models import (
     ApprovalGroup, ApprovalTemplate, ApprovalTemplateStep,
@@ -260,10 +261,27 @@ class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
         """Configure approval settings for a module"""
         module = request.data.get('module')
         approval_mode = request.data.get('approval_mode')
-        
+
         if not module or not approval_mode:
             return Response({'error': 'module and approval_mode are required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # Reject typos / unknown modules at the boundary — otherwise a
+        # bad ``module`` string is silently persisted and the module
+        # never surfaces in the UI's settings list (which iterates
+        # MODULE_CHOICES).
+        valid_modules = {key for key, _ in GlobalApprovalSettings.MODULE_CHOICES}
+        if module not in valid_modules:
+            return Response(
+                {'error': f"Unknown module '{module}'. Valid: {sorted(valid_modules)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        valid_modes = {key for key, _ in GlobalApprovalSettings.APPROVAL_MODE_CHOICES}
+        if approval_mode not in valid_modes:
+            return Response(
+                {'error': f"Unknown approval_mode '{approval_mode}'. Valid: {sorted(valid_modes)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         settings, created = GlobalApprovalSettings.objects.update_or_create(
             module=module,
             defaults={
@@ -551,9 +569,11 @@ class ApprovalViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         user = self.request.user
 
-        # Filter by user's approval groups (including delegated authority)
+        # Filter by user's approval groups (including delegated authority).
+        # Also include approvals where the current user is the requester —
+        # without this, requesters couldn't see the approvals they
+        # themselves submitted (only approvers could).
         if user and user.is_authenticated:
-            from django.db.models import Q
             user_groups = user.approval_groups.all()
 
             # Also include groups of users who have delegated to this user
@@ -562,14 +582,38 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 start_date__lte=timezone.now().date(),
                 end_date__gte=timezone.now().date(),
             ).values_list('delegator', flat=True)
-            from django.contrib.auth.models import User
             delegator_groups = ApprovalGroup.objects.filter(members__in=delegators)
 
             all_groups = user_groups | delegator_groups
             queryset = queryset.filter(
-                steps__approver_group__in=all_groups,
-                steps__status='Pending'
+                Q(steps__approver_group__in=all_groups, steps__status='Pending')
+                | Q(requested_by=user)
             ).distinct()
+
+            # MDA isolation: in SEPARATED mode a user from MDA-A must NOT
+            # see approvals on MDA-B's documents, even if they happen to
+            # share a (global) approver group. ``request.organization``
+            # and ``request.mda_isolation_mode`` are set by
+            # ``core.middleware.OrganizationContextMiddleware`` from the
+            # user's primary OrganizationMembership.
+            isolation = getattr(self.request, 'mda_isolation_mode', None)
+            org = getattr(self.request, 'organization', None)
+            if isolation == 'SEPARATED' and org is not None:
+                # Filter to approvals on documents that either:
+                #   (a) have an ``organization`` FK matching the user's MDA, OR
+                #   (b) the requester belongs to the same MDA, OR
+                #   (c) belong to the user (so they can always see their own).
+                # We can't filter on the GenericFK target's organization
+                # directly without joining each model — use the requester
+                # affiliation as a proxy (every approval has a requester,
+                # and the requester is always on the document's MDA).
+                from core.models import UserOrganization
+                org_user_ids = UserOrganization.objects.filter(
+                    organization=org, is_active=True,
+                ).values_list('user_id', flat=True)
+                queryset = queryset.filter(
+                    Q(requested_by_id__in=org_user_ids) | Q(requested_by=user)
+                ).distinct()
 
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -625,17 +669,19 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             group = current_step.approver_group
             user_is_member = group.members.filter(pk=request.user.pk).exists()
 
-            # Also accept if the user is an active delegate for any group member
+            # Also accept if the user is an active delegate for any group member.
+            # The previous guard had a tautological ``get_active_delegate.__func__
+            # is not None`` conjunct (always True — ``__func__`` is just the
+            # underlying function attribute of a classmethod). Dead code; the
+            # filter alone is the actual delegation test.
             if not user_is_member:
-                from .models import ApprovalDelegation
-                user_is_delegate = ApprovalDelegation.get_active_delegate.__func__ is not None and \
-                    ApprovalDelegation.objects.filter(
-                        delegate=request.user,
-                        delegator__in=group.members.all(),
-                        is_active=True,
-                        start_date__lte=timezone.now().date(),
-                        end_date__gte=timezone.now().date(),
-                    ).exists()
+                user_is_delegate = ApprovalDelegation.objects.filter(
+                    delegate=request.user,
+                    delegator__in=group.members.all(),
+                    is_active=True,
+                    start_date__lte=timezone.now().date(),
+                    end_date__gte=timezone.now().date(),
+                ).exists()
                 if not user_is_delegate:
                     return Response(
                         {"error": f"You are not authorised to approve step {approval.current_step}. "
@@ -738,12 +784,26 @@ class ApprovalViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
-        """Cancel an approval request"""
+        """Cancel an approval request.
+
+        Authorization: only the requester or a platform admin may cancel.
+        Without this guard any authenticated user could cancel any other
+        user's pending approval — a denial-of-service against the
+        approval queue (and an audit-trail noise vector).
+        """
         approval = self.get_object()
-        
+
         if approval.status not in ['Draft', 'Pending']:
             return Response({"error": "Cannot cancel this approval"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        is_requester = (approval.requested_by_id == request.user.pk)
+        is_admin = bool(request.user.is_staff or request.user.is_superuser)
+        if not (is_requester or is_admin):
+            return Response(
+                {"error": "Only the requester or a platform admin can cancel this approval."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         approval.status = 'Cancelled'
         approval.save()
         
@@ -773,17 +833,29 @@ class ApprovalViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def my_pending(self, request):
-        """Get all pending approvals for current user"""
+        """Get all pending approvals for current user.
+
+        Paginated — for users with deep approval inboxes (e.g. an
+        Accountant-General with thousands of PVs queued), returning the
+        full list materialises the entire queryset into memory and ships
+        it in a single response. Honours ``page`` / ``page_size`` query
+        params via the standard ApprovalPagination class.
+        """
         user = request.user
         if not user.is_authenticated:
             return Response([])
-        
+
         approvals = Approval.objects.filter(
             steps__approver_group__members=user,
             steps__status='Pending',
             status='Pending'
         ).distinct().select_related('content_type', 'requested_by')
-        
+
+        page = self.paginate_queryset(approvals)
+        if page is not None:
+            return self.get_paginated_response(
+                ApprovalSerializer(page, many=True).data
+            )
         return Response(ApprovalSerializer(approvals, many=True).data)
 
     @action(detail=False, methods=['post'])
@@ -808,12 +880,29 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate that the referenced document actually exists. Without
+        # this, ``submit_new`` happily creates Approval rows pointing at
+        # ghost object_ids — orphaned approvals that clutter the inbox
+        # and cannot be acted on (the ``content_object`` GenericFK will
+        # resolve to None during ``_trigger_document_action``).
+        model_class = ct.model_class()
+        if model_class is None or not model_class.objects.filter(pk=object_id).exists():
+            return Response(
+                {"error": f"{ct.model} with id={object_id} does not exist."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         # WF-H1: Automatic Approval Routing based on amount thresholds
         from decimal import Decimal
         amount_decimal = Decimal(str(amount)) if amount else Decimal('0')
         
-        # Check global settings for this module
-        module_name = model_name.capitalize()
+        # Check global settings for this module. ``model_name.capitalize()``
+        # silently breaks on multi-word ContentType names: ``invoicematching``
+        # → ``Invoicematching`` ≠ ``InvoiceVerification`` (the actual
+        # MODULE_CHOICES key). Use the canonical mapping declared at module
+        # scope; fall back to capitalize() for any model not yet mapped so
+        # behaviour stays additive.
+        module_name = _MODEL_TO_MODULE_KEY.get(model_name, model_name.capitalize())
         settings = GlobalApprovalSettings.objects.filter(module=module_name).first()
         
         # WF-H1: Auto-approve if below threshold
@@ -1025,9 +1114,44 @@ class ApprovalStepViewSet(viewsets.ModelViewSet):
 
 
 class ApprovalLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only audit trail for approvals.
+
+    Scoping: a non-staff user only sees logs whose approval they could
+    legitimately see — either they requested it, or they belong (or
+    delegate) to an approver group on one of its steps. Without this
+    filter every authenticated user could read every approval log in
+    the tenant, which is a workflow-history leak (who approved what,
+    rejection reasons, comments, internal review timing).
+    """
     queryset = ApprovalLog.objects.all().select_related('approval', 'step', 'user')
     serializer_class = ApprovalLogSerializer
     pagination_class = ApprovalPagination
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if not (user and user.is_authenticated):
+            return qs.none()
+        if user.is_staff or user.is_superuser:
+            return qs
+
+        # Approvals the user could see in ApprovalViewSet (member,
+        # delegate, or requester).
+        user_groups = user.approval_groups.all()
+        delegators = ApprovalDelegation.objects.filter(
+            delegate=user, is_active=True,
+            start_date__lte=timezone.now().date(),
+            end_date__gte=timezone.now().date(),
+        ).values_list('delegator', flat=True)
+        delegator_groups = ApprovalGroup.objects.filter(members__in=delegators)
+        accessible_approvals = Approval.objects.filter(
+            steps__approver_group__in=(user_groups | delegator_groups),
+        ).values_list('pk', flat=True)
+        return qs.filter(
+            Q(approval_id__in=accessible_approvals)
+            | Q(approval__requested_by=user)
+        ).distinct()
 
 
 class ApprovalDelegationViewSet(viewsets.ModelViewSet):
