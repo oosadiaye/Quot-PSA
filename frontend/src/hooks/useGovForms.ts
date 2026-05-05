@@ -13,30 +13,41 @@ import { invalidateLedgerCaches } from '../features/accounting/hooks/invalidateL
 
 // ─── Data Loading Hooks (for form dropdowns) ──────────────────────────
 
-/** Load all 6 NCoA segment types in parallel for form selectors */
+/** Load all 6 NCoA segment types in parallel for form selectors.
+ *  Uses ``Promise.allSettled`` so a single failing segment endpoint
+ *  doesn't blank the entire form — the fields whose segments loaded
+ *  successfully remain usable; only the failed segment renders empty.
+ *  Was ``Promise.all`` which fail-fasted on the first rejection. */
 export function useNCoASegments() {
     return useQuery({
         queryKey: ['ncoa-segments-all'],
         queryFn: async () => {
-            const [admin, economic, functional, programme, fund, geo] = await Promise.all([
-                apiClient.get('/accounting/ncoa/administrative/', { params: { page_size: 9999, is_active: true } }),
-                apiClient.get('/accounting/ncoa/economic/', { params: { page_size: 9999, is_active: true } }),
-                apiClient.get('/accounting/ncoa/functional/', { params: { page_size: 9999, is_active: true } }),
-                apiClient.get('/accounting/ncoa/programme/', { params: { page_size: 9999, is_active: true } }),
-                apiClient.get('/accounting/ncoa/fund/', { params: { page_size: 9999, is_active: true } }),
-                apiClient.get('/accounting/ncoa/geographic/', { params: { page_size: 9999, is_active: true } }),
-            ]);
-            const extract = (res: { data: any }) => {
-                const d = res.data;
+            const endpoints = [
+                '/accounting/ncoa/administrative/',
+                '/accounting/ncoa/economic/',
+                '/accounting/ncoa/functional/',
+                '/accounting/ncoa/programme/',
+                '/accounting/ncoa/fund/',
+                '/accounting/ncoa/geographic/',
+            ];
+            const results = await Promise.allSettled(
+                endpoints.map((url) =>
+                    apiClient.get(url, { params: { page_size: 9999, is_active: true } }),
+                ),
+            );
+            const extract = (idx: number) => {
+                const r = results[idx];
+                if (r.status !== 'fulfilled') return [];
+                const d = r.value.data;
                 return Array.isArray(d) ? d : d?.results || [];
             };
             return {
-                administrative: extract(admin),
-                economic: extract(economic),
-                functional: extract(functional),
-                programme: extract(programme),
-                fund: extract(fund),
-                geographic: extract(geo),
+                administrative: extract(0),
+                economic: extract(1),
+                functional: extract(2),
+                programme: extract(3),
+                fund: extract(4),
+                geographic: extract(5),
             };
         },
         staleTime: 10 * 60 * 1000,

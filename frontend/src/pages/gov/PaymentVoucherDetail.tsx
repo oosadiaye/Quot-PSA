@@ -29,6 +29,12 @@ export default function PaymentVoucherDetail() {
     const pvAction = usePVAction();
     const updatePV = useUpdatePV();
     const [actionError, setActionError] = useState('');
+    // Double-submit guard. ``pvAction.isPending`` only reflects the
+    // first caller's state, so a user clicking Approve immediately
+    // followed by Schedule Payment would queue both requests. This
+    // local flag toggles around every async action handler so a
+    // second click bails out before mutateAsync fires.
+    const [actionInFlight, setActionInFlight] = useState(false);
 
     // Edit-in-place mode for DRAFT vouchers. The auto-create-from-IPC
     // flow pre-fills most fields from the contract / vendor master, but
@@ -63,17 +69,36 @@ export default function PaymentVoucherDetail() {
 
     const doAction = async (action: string, extraData?: Record<string, unknown>) => {
         if (!pv?.id) return;
+        // Double-submit guard. Bail out immediately if any action is
+        // already in flight — prevents the operator from firing
+        // approve + schedule + mark-paid simultaneously by clicking
+        // multiple buttons before the first request resolves.
+        if (actionInFlight) return;
+        setActionInFlight(true);
         setActionError('');
         try {
             await pvAction.mutateAsync({ id: pv.id, action, data: extraData });
         } catch (err: any) {
             setActionError(formatApiError(err));
+        } finally {
+            setActionInFlight(false);
         }
     };
 
     const saveDraft = async () => {
         if (!pv?.id) return;
         setActionError('');
+        // Strict numeric validation. ``Number(...) || 0`` previously
+        // coerced any non-finite or NaN string into 0 silently — a
+        // user could zero out a payment voucher amount by typing
+        // garbage. We now reject explicitly with a user-facing error.
+        const grossNum = Number(draft.gross_amount);
+        if (!Number.isFinite(grossNum) || grossNum < 0 || grossNum > 999_999_999_999.99) {
+            setActionError(
+                'Gross Amount must be a positive number with at most 12 digits and 2 decimal places.'
+            );
+            return;
+        }
         try {
             await updatePV.mutateAsync({
                 id: pv.id,
@@ -81,7 +106,7 @@ export default function PaymentVoucherDetail() {
                     payee_name:      draft.payee_name,
                     payee_account:   draft.payee_account,
                     payee_bank:      draft.payee_bank,
-                    gross_amount:    Number(draft.gross_amount) || 0,
+                    gross_amount:    grossNum,
                     narration:       draft.narration,
                     source_document: draft.source_document,
                     invoice_number:  draft.invoice_number,
@@ -159,7 +184,7 @@ export default function PaymentVoucherDetail() {
                                 </>
                             )}
                             {!editing && ['DRAFT', 'CHECKED', 'AUDITED'].includes(pv.status) && (
-                                <button onClick={() => doAction('approve')} disabled={pvAction.isPending} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: 'none', background: GOV.green, color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+                                <button onClick={() => doAction('approve')} disabled={pvAction.isPending || actionInFlight} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: 'none', background: GOV.green, color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
                                     <CheckCircle size={16} /> Approve
                                 </button>
                             )}
@@ -188,7 +213,7 @@ export default function PaymentVoucherDetail() {
                                             setActionError(formatApiError(err));
                                         }
                                     }}
-                                    disabled={pvAction.isPending}
+                                    disabled={pvAction.isPending || actionInFlight}
                                     style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: 'none', background: GOV.blue, color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
                                     title={pv.status === 'APPROVED'
                                         ? 'Schedule for payment — creates a draft Payment in Outgoing Payments for Treasury to finalise'
@@ -198,7 +223,7 @@ export default function PaymentVoucherDetail() {
                                 </button>
                             )}
                             {pv.status === 'SCHEDULED' && (
-                                <button onClick={() => doAction('mark_paid')} disabled={pvAction.isPending} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: 'none', background: GOV.gold, color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+                                <button onClick={() => doAction('mark_paid')} disabled={pvAction.isPending || actionInFlight} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: 'none', background: GOV.gold, color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
                                     <CreditCard size={16} /> Mark Paid
                                 </button>
                             )}
@@ -252,7 +277,24 @@ export default function PaymentVoucherDetail() {
                             <div>
                                 <div style={fieldLabel}>Gross Amount</div>
                                 {editing ? (
-                                    <input type="number" step="0.01" value={draft.gross_amount} onChange={(e) => setDraft({ ...draft, gross_amount: e.target.value })} style={{ ...inlineInput, fontFamily: 'monospace' }} />
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max="999999999999.99"
+                                        value={draft.gross_amount}
+                                        onKeyDown={(e) => {
+                                            // Block characters that produce scientific notation
+                                            // / Infinity / negatives. Without this guard the
+                                            // submit handler coerces "1e5" to a number it
+                                            // shouldn't have accepted.
+                                            if (['e', 'E', '+', '-'].includes(e.key)) {
+                                                e.preventDefault();
+                                            }
+                                        }}
+                                        onChange={(e) => setDraft({ ...draft, gross_amount: e.target.value })}
+                                        style={{ ...inlineInput, fontFamily: 'monospace' }}
+                                    />
                                 ) : (
                                     <div style={{ ...fieldValue, fontFamily: 'monospace', fontSize: '18px' }}>{fmtNGN(pv.gross_amount)}</div>
                                 )}

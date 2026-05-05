@@ -214,38 +214,38 @@ class MobilizationService:
         payment.save(update_fields=["status", "payment_voucher", "payment_date", "updated_at"])
 
         # ── Special-GL ledger row + disbursement journal ─────────────
-        # Wrapped in try/except because a misconfigured tenant (no
-        # vendor_advance recon GL) shouldn't roll back the
-        # MobilizationPayment update — they can re-seed the recon
-        # account and re-run via a recovery management command.
-        try:
-            from accounting.services.vendor_advance import VendorAdvanceService
-            contract = payment.contract
-            VendorAdvanceService.disburse(
-                vendor=contract.vendor,
-                amount=payment.amount,
-                source_type="MOBILIZATION",
-                source_id=payment.pk,
-                reference=(
-                    f"{contract.contract_number or f'CONTRACT-{contract.pk}'}"
-                    f"-MOB"
-                ),
-                posting_date=payment_date,
-                actor=actor,
-                notes=(
-                    f"Mobilisation advance per contract "
-                    f"{contract.contract_number or contract.pk}."
-                ),
-            )
-        except Exception as exc:
-            import logging as _logging
-            _logging.getLogger(__name__).error(
-                "VendorAdvance disburse failed for mobilization payment "
-                "%s: %s. ContractBalance.mobilization_paid is updated "
-                "but the central advance ledger and recon journal are "
-                "missing — reseed and re-run.",
-                payment.pk, exc, exc_info=True,
-            )
+        # FAIL-CLOSED. The previous try/except let
+        # ``ContractBalance.mobilization_paid`` commit while
+        # ``VendorAdvanceService.disburse`` silently failed — leaving
+        # the balance flagged as paid without a journal posting and
+        # without a Special-GL ledger row. Downstream IPC ceiling
+        # checks then computed mobilization recovery against an
+        # advance that was never journalized, creating a phantom
+        # offset in the books.
+        #
+        # Now any disburse error bubbles, the surrounding
+        # @transaction.atomic on this method rolls back the
+        # mobilization_paid increment, and the operator must fix the
+        # CoA gap before retrying. The error message identifies the
+        # blocking configuration item directly.
+        from accounting.services.vendor_advance import VendorAdvanceService
+        contract = payment.contract
+        VendorAdvanceService.disburse(
+            vendor=contract.vendor,
+            amount=payment.amount,
+            source_type="MOBILIZATION",
+            source_id=payment.pk,
+            reference=(
+                f"{contract.contract_number or f'CONTRACT-{contract.pk}'}"
+                f"-MOB"
+            ),
+            posting_date=payment_date,
+            actor=actor,
+            notes=(
+                f"Mobilisation advance per contract "
+                f"{contract.contract_number or contract.pk}."
+            ),
+        )
 
         return payment
 
