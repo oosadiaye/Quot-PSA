@@ -1137,6 +1137,15 @@ def tenant_company_api(request):
     if not tenant:
         return Response({})
 
+    # Same gate as tenant_settings_api / tenant_branding_api: an
+    # authenticated user with no UserTenantRole on this tenant cannot
+    # read or mutate its company info.
+    if not _user_has_tenant_access(request.user, tenant):
+        return Response(
+            {'error': 'You do not have access to this tenant.'},
+            status=403,
+        )
+
     if request.method == 'GET':
         return Response({
             'name': tenant.name,
@@ -1252,10 +1261,22 @@ def tenant_branding_api(request):
 @api_view(['GET', 'PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def tenant_email_api(request):
-    """Get or update tenant email/SMTP settings."""
+    """Get or update tenant email/SMTP settings.
+
+    SMTP credentials are high-value — an attacker who could mutate
+    them could redirect tenant outbound mail through their own server
+    and harvest password resets / receipts. Gate behind the same
+    UserTenantRole check used on the rest of the tenant-config APIs.
+    """
     tenant = getattr(request, 'tenant', None)
     if not tenant:
         return Response({'provider': 'smtp'})
+
+    if not _user_has_tenant_access(request.user, tenant):
+        return Response(
+            {'error': 'You do not have access to this tenant.'},
+            status=403,
+        )
 
     from superadmin.models import TenantSMTPConfig
 
@@ -1297,10 +1318,15 @@ def tenant_email_api(request):
     return Response({'status': 'updated'})
 
 
-@api_view(['GET', 'PUT', 'PATCH'])
+@api_view(['GET'])  # was ['GET', 'PUT', 'PATCH'] — implementation is read-only.
 @permission_classes([IsAuthenticated])
 def tenant_payment_methods_api(request):
-    """Get accepted payment methods for the tenant's subscription payments."""
+    """Get accepted payment methods for the tenant's subscription payments.
+
+    The list is currently a static catalogue (no DB write), so PUT/PATCH
+    were dead verbs that mis-suggested a settings endpoint. Restricted
+    to GET to keep the contract honest.
+    """
     return Response([
         {'method': 'bank_transfer', 'label': 'Bank Transfer', 'enabled': True},
         {'method': 'bank_deposit', 'label': 'Bank Deposit', 'enabled': True},
