@@ -869,7 +869,22 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
             tenant = Client.objects.get(pk=tenant_id)
         except Client.DoesNotExist:
             return Response({'error': 'Tenant not found'}, status=status.HTTP_404_NOT_FOUND)
-        
+
+        # Membership check — mirrors upload_receipt. Without this a user
+        # who happens to hold a UserTenantRole on tenant A could pass
+        # tenant_id=B in the request body and pollute tenant B's payment
+        # queue with fake receipts. Superusers bypass (platform admin
+        # may submit on a tenant's behalf).
+        if not request.user.is_superuser:
+            user_tenants = UserTenantRole.objects.filter(
+                user=request.user, is_active=True,
+            ).values_list('tenant_id', flat=True)
+            if tenant.pk not in list(user_tenants):
+                return Response(
+                    {'error': 'You do not have access to this tenant.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         # Check for duplicate transaction reference
         if TenantPayment.objects.filter(transaction_reference=serializer.validated_data['transaction_reference']).exists():
             return Response({'error': 'Transaction reference already exists'}, status=status.HTTP_400_BAD_REQUEST)
