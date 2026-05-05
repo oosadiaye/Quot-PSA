@@ -58,20 +58,39 @@ def _completed_months(hire_date: date, as_of: date) -> int:
 def _current_balance(
     employee: Employee, leave_type: LeaveType, year: int
 ) -> Decimal:
-    """Year-to-date accrued - taken for the employee/type."""
-    accrued = (
-        LeaveAccrualEntry.objects.filter(
-            employee=employee, leave_type=leave_type, year=year,
-        ).aggregate(total=Sum('days_credited'))['total'] or ZERO
+    """Year-to-date accrued - taken for the employee/type.
+
+    Race-safe: when called from inside an atomic block (e.g. via
+    ``leave_approval.decide_step``), this acquires
+    ``select_for_update`` on every accrual + approved-leave row that
+    feeds the balance, so two concurrent approvals on the same
+    employee can't both read the same balance and double-debit. When
+    called outside an atomic block (e.g. from a read-only report)
+    the lock acquisition silently degrades to a regular SELECT.
+    """
+    from django.db import transaction as _txn
+    accrual_qs = LeaveAccrualEntry.objects.filter(
+        employee=employee, leave_type=leave_type, year=year,
     )
-    taken = (
-        LeaveRequest.objects.filter(
-            employee=employee,
-            leave_type=leave_type,
-            status='Approved',
-            start_date__year=year,
-        ).aggregate(total=Sum('total_days'))['total'] or ZERO
+    leave_qs = LeaveRequest.objects.filter(
+        employee=employee,
+        leave_type=leave_type,
+        status='Approved',
+        start_date__year=year,
     )
+    try:
+        # Acquire row locks before aggregation so a concurrent
+        # approve can't slip a new ``LeaveRequest`` row in between
+        # this aggregate and the caller's debit.
+        list(accrual_qs.select_for_update())
+        list(leave_qs.select_for_update())
+    except _txn.TransactionManagementError:
+        # No surrounding transaction — fall back to plain reads.
+        # The caller is doing a read-only computation; no debit
+        # follows, so we don't need a lock.
+        pass
+    accrued = accrual_qs.aggregate(total=Sum('days_credited'))['total'] or ZERO
+    taken = leave_qs.aggregate(total=Sum('total_days'))['total'] or ZERO
     return Decimal(accrued) - Decimal(taken)
 
 

@@ -409,16 +409,36 @@ class IPCService:
         balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
 
         # ── Control 3: Monotonicity ────────────────────────────────────
+        # Race-safe baseline. Compare against ``last_cumulative_
+        # submitted`` (the highest value of cumulative_work_done_to_date
+        # *submitted* on any IPC, regardless of approval status) rather
+        # than ``cumulative_gross_certified`` (which only updates on
+        # APPROVE).
+        #
+        # Why this matters under concurrency: two simultaneous
+        # submissions on the same contract used to both read the same
+        # ``cumulative_gross_certified`` baseline (since neither had
+        # been approved yet), both pass the monotonicity check, and
+        # both proceed — silently double-certifying the same work
+        # once both reach approval. Anchoring the check on
+        # ``last_cumulative_submitted`` (which we bump atomically
+        # under the SELECT FOR UPDATE below) closes the race: the
+        # second submission sees the first's update and refuses.
+        previous_submitted = balance.last_cumulative_submitted or balance.cumulative_gross_certified
         previous_certified = balance.cumulative_gross_certified
-        if cumulative_work_done_to_date < previous_certified:
+        if cumulative_work_done_to_date <= previous_submitted:
             raise MonotonicityError(
-                "Cumulative work done cannot be less than previously certified.",
+                "Cumulative work done must exceed the highest value previously submitted on any IPC.",
                 context={
+                    "previous_submitted": str(previous_submitted),
                     "previous_certified": str(previous_certified),
                     "this_cumulative": str(cumulative_work_done_to_date),
                 },
             )
 
+        # ``this_gross`` is the delta against *certified* (not
+        # submitted) — it represents the new gross certifiable amount
+        # this IPC adds to the books once approved.
         this_gross = quantize_currency(
             cumulative_work_done_to_date - previous_certified
         )
@@ -508,9 +528,18 @@ class IPCService:
         balance.pending_voucher_amount = quantize_currency(
             balance.pending_voucher_amount + this_gross + variation_claims
         )
+        # Anchor the monotonicity baseline atomically under the row
+        # lock. Subsequent concurrent submissions see this value and
+        # refuse to submit anything <= it.
+        balance.last_cumulative_submitted = cumulative_work_done_to_date
         balance.version = balance.version + 1
         balance.save(
-            update_fields=["pending_voucher_amount", "version", "updated_at"]
+            update_fields=[
+                "pending_voucher_amount",
+                "last_cumulative_submitted",
+                "version",
+                "updated_at",
+            ]
         )
 
         cls._record_step(

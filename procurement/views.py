@@ -1290,6 +1290,51 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         dpr = self.get_object()
         if dpr.status != 'Pending':
             return Response({"error": f"Cannot approve a request in '{dpr.status}' status."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Budget + warrant gate ─────────────────────────────────
+        # Down payments are an additional cash outflow on top of the
+        # PO's existing encumbrance. The PO's commitment guards the
+        # PO's full value; an approved DPR represents cash leaving
+        # the TSA *before* the goods/services are received, which
+        # must be independently validated against released warrants
+        # for the same appropriation.
+        po = dpr.purchase_order
+        if po and po.mda and po.fund and dpr.requested_amount:
+            try:
+                from accounting.budget_logic import (
+                    check_warrant_availability,
+                    is_warrant_pre_payment_enforced,
+                )
+                from accounting.models.advanced import AccountingSettings
+                _settings = AccountingSettings.objects.first()
+                _enforce_warrant = (
+                    bool(getattr(_settings, 'require_warrant_before_payment', True))
+                    if _settings is not None else True
+                )
+                if _enforce_warrant and is_warrant_pre_payment_enforced():
+                    line_account = po.lines.first().account if po.lines.exists() else None
+                    if line_account:
+                        allowed, msg, _info = check_warrant_availability(
+                            dimensions={'mda': po.mda, 'fund': po.fund},
+                            account=line_account,
+                            amount=dpr.requested_amount,
+                        )
+                        if not allowed:
+                            return Response(
+                                {
+                                    'error': (
+                                        f'Down payment exceeds released warrant: {msg}'
+                                    ),
+                                    'warrant_exceeded': True,
+                                },
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+            except Exception as exc:  # noqa: BLE001 — surface as 400
+                return Response(
+                    {'error': f'Budget/warrant check failed: {exc}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         dpr.status = 'Approved'
         dpr.save()
         return Response({"status": "Down payment request approved."})

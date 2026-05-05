@@ -186,7 +186,27 @@ class VariationService:
                 context={"prior_actors": list(prior_actors), "approver": actor.pk},
             )
 
-        # Approve + refresh ceiling atomically
+        # Approve + refresh ceiling atomically.
+        #
+        # Race-safe: acquire the ContractBalance row lock BEFORE
+        # flipping the variation status. Any concurrent IPC
+        # submission on this contract reads the same balance row
+        # (also via select_for_update inside ``submit_ipc``) and
+        # blocks until this approve commits — so the IPC's ceiling
+        # check always sees the final ceiling, never an in-flight
+        # snapshot.
+        #
+        # Previously the variation's status save (and the
+        # ``approved_variations_total`` aggregate it feeds) committed
+        # before the lock was taken. An IPC submission that started
+        # mid-approve could read the *new* aggregate ceiling but the
+        # *old* persisted snapshot, or vice versa, depending on
+        # interleaving — both directions caused incorrect ceiling
+        # decisions.
+        ContractBalance.objects.select_for_update().filter(
+            pk=variation.contract_id,
+        ).exists()  # acquire row lock without re-fetching for use
+
         variation.status = VariationStatus.APPROVED
         variation.approved_by = actor
         variation.approved_at = timezone.now()

@@ -767,24 +767,43 @@ class TenantPaymentViewSet(viewsets.ModelViewSet):
     serializer_class = TenantPaymentSerializer
     parser_classes = [MultiPartParser, FormParser]
     permission_classes = [IsAuthenticated]
-    
+
+    def get_permissions(self):
+        # Restrict mutating actions (update / partial_update / destroy
+        # / approve / reject) to platform superusers. Tenant operators
+        # may create receipts (uploading their own bank slip) and
+        # read their own tenant's payments — nothing more.
+        # Previously every action allowed any authenticated user; a
+        # tenant-A admin who shared a user account across tenants
+        # could see and mutate tenant-B's payment records via the
+        # upload_receipt and other mutating endpoints.
+        if self.action in ('list', 'retrieve', 'create'):
+            return [IsAuthenticated()]
+        # All write actions on existing rows are platform-admin only.
+        from rest_framework.permissions import BasePermission
+
+        class _IsSuper(BasePermission):
+            def has_permission(self, request, view):
+                return bool(request.user and request.user.is_superuser)
+        return [IsAuthenticated(), _IsSuper()]
+
     def get_queryset(self):
         queryset = super().get_queryset()
         tenant_id = self.request.query_params.get('tenant_id')
         status_filter = self.request.query_params.get('status')
-        
+
         if tenant_id:
             queryset = queryset.filter(tenant_id=tenant_id)
         if status_filter:
             queryset = queryset.filter(status=status_filter)
-        
+
         # Non-admin users can only see their tenant's payments
         if not self.request.user.is_superuser:
             user_tenants = UserTenantRole.objects.filter(
                 user=self.request.user, is_active=True
             ).values_list('tenant_id', flat=True)
             queryset = queryset.filter(tenant_id__in=user_tenants)
-        
+
         return queryset
     
     def create(self, request, *args, **kwargs):

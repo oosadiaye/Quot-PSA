@@ -179,23 +179,46 @@ def create_commitment_for_po(po, committed_amount=None) -> bool:
 def cancel_commitment_for_po(po) -> int:
     """Mark the ProcurementBudgetLink for this PO as CANCELLED.
 
-    Called when a PO transitions to Rejected/Closed so the appropriation's
-    committed balance is released. Returns the number of rows updated
-    (0 if no active link, 1 when cancelled, never >1 because PO→Link is
-    a OneToOne).
+    Called when a PO transitions to Rejected/Closed so the
+    appropriation's committed balance is released. Returns the number
+    of rows updated (0 if no active link, 1 when cancelled, never >1
+    because PO→Link is a OneToOne).
+
+    Race-safe: acquires ``select_for_update`` on both the link and
+    the parent Appropriation row before the cancellation. This
+    serialises with concurrent ``create_commitment_for_po`` /
+    ``close_commitment_for_po`` / ``mark_commitment_invoiced_for_po``
+    calls (all of which lock the same Appropriation), so the
+    ``cached_total_committed`` recomputed by ``refresh_totals``
+    always sees a consistent snapshot.
     """
     from procurement.models import ProcurementBudgetLink
-    link = ProcurementBudgetLink.objects.filter(purchase_order=po).first()
-    n = ProcurementBudgetLink.objects.filter(
-        purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
-    ).update(status='CANCELLED')
-    if n and link:
-        try:
-            from accounting.services.appropriation_totals import refresh_totals
-            refresh_totals(link.appropriation)
-        except Exception:
-            pass
-    return n
+    from django.db import transaction as _txn
+    with _txn.atomic():
+        link = (
+            ProcurementBudgetLink.objects
+            .select_for_update()
+            .filter(purchase_order=po)
+            .first()
+        )
+        if link is None:
+            return 0
+        # Lock the parent Appropriation row too so refresh_totals
+        # below operates on a serialised snapshot.
+        from budget.models import Appropriation
+        Appropriation.objects.select_for_update().filter(
+            pk=link.appropriation_id,
+        ).exists()
+        n = ProcurementBudgetLink.objects.filter(
+            purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
+        ).update(status='CANCELLED')
+        if n:
+            try:
+                from accounting.services.appropriation_totals import refresh_totals
+                refresh_totals(link.appropriation)
+            except Exception:
+                pass
+        return n
 
 
 def mark_commitment_invoiced_for_po(po) -> int:

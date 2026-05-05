@@ -338,6 +338,22 @@ class ContractBalance(models.Model):
         max_digits=20, decimal_places=2, default=ZERO,
         help_text="Total gross value certified across all approved IPCs",
     )
+    # Highest ``cumulative_work_done_to_date`` value yet *submitted* on
+    # any IPC (Draft / Submitted / Certifier-Reviewed / Approved /
+    # Voucher-Raised / Paid). Updated atomically inside ``submit_ipc``
+    # under the same SELECT FOR UPDATE that holds the row lock. Two
+    # concurrent submissions on the same contract can't both pass the
+    # monotonicity check because the second submission re-reads the
+    # locked row and sees the first's update.
+    last_cumulative_submitted = models.DecimalField(
+        max_digits=20, decimal_places=2, default=ZERO,
+        help_text=(
+            "Highest cumulative_work_done_to_date submitted on any IPC. "
+            "Anchors the monotonicity check — IPC submit refuses values "
+            "<= this. Bumped under SELECT FOR UPDATE so concurrent "
+            "submissions can't double-certify the same work."
+        ),
+    )
     pending_voucher_amount = models.DecimalField(
         max_digits=20, decimal_places=2, default=ZERO,
         help_text="IPC approved but PV not yet raised (committed, not yet paid)",

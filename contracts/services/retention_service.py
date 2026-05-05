@@ -117,6 +117,42 @@ class RetentionService:
                 f"A {release_type} release already exists for this contract.",
             )
 
+        # ── No-open-IPCs guard ───────────────────────────────────────
+        # Both PRACTICAL_COMPLETION and FINAL_COMPLETION releases must
+        # only fire AFTER every IPC has been approved or rejected. If
+        # an IPC is still in DRAFT / SUBMITTED / CERTIFIER_REVIEWED,
+        # additional retention will be deducted on it later — releasing
+        # 50 % of the *currently-held* amount now permanently traps the
+        # difference because ``unique_together(contract, release_type)``
+        # blocks a second release of the same type.
+        from contracts.models import (
+            InterimPaymentCertificate,
+            IPCStatus,
+        )
+        OPEN_IPC_STATUSES = (
+            IPCStatus.DRAFT,
+            IPCStatus.SUBMITTED,
+            IPCStatus.CERTIFIER_REVIEWED,
+        )
+        if InterimPaymentCertificate.objects.filter(
+            contract=contract, status__in=OPEN_IPC_STATUSES,
+        ).exists():
+            raise InvalidTransitionError(
+                "Cannot release retention while open IPCs exist on the "
+                "contract. Approve or reject every Draft / Submitted / "
+                "Certifier-Reviewed IPC before raising a retention release "
+                "— otherwise additional retention deducted later would be "
+                "permanently trapped (unique_together blocks a second "
+                "release of the same type).",
+                context={
+                    "contract_id": contract.pk,
+                    "release_type": release_type,
+                    "open_ipc_count": InterimPaymentCertificate.objects.filter(
+                        contract=contract, status__in=OPEN_IPC_STATUSES,
+                    ).count(),
+                },
+            )
+
         # Lock balance, compute amount
         balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
         remaining = balance.retention_held - balance.retention_released

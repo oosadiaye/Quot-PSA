@@ -149,6 +149,7 @@ def provision_tenant_schema(
     admin_username,
     admin_email,
     temp_password=None,
+    generate_password_in_task: bool = False,
     plan_type='',
     first_name='',
     last_name='',
@@ -258,6 +259,19 @@ def provision_tenant_schema(
                     'is_superuser': False,
                 },
             )
+            # Generate the password INSIDE the task when the
+            # dispatcher requested it. The previous implementation
+            # accepted ``temp_password`` as a Celery argument, which
+            # serialised through the broker (Redis / RabbitMQ) in
+            # plaintext — any operator with broker access could read
+            # the credentials of every newly provisioned tenant.
+            # When ``generate_password_in_task=True`` the dispatcher
+            # passes no password at all; the task generates one here
+            # using ``secrets.token_urlsafe`` so the broker never
+            # sees credentials.
+            if created and generate_password_in_task and not temp_password:
+                import secrets
+                temp_password = secrets.token_urlsafe(16)
             if created and temp_password:
                 admin_user.set_password(temp_password)
                 admin_user.save(update_fields=['password'])
@@ -378,10 +392,15 @@ def cleanup_expired_tokens():
     deleted when they expired (e.g., if user never made a request after expiry).
     """
     from datetime import timedelta
+    from django.conf import settings
     from django.utils import timezone
     from rest_framework.authtoken.models import Token
-    
-    expiration_hours = 24  # Should match TOKEN_EXPIRATION_HOURS in settings
+
+    # Read the TTL from settings rather than hardcoding 24h. Without
+    # this, a tenant tightening TOKEN_EXPIRATION_HOURS to (say) 8h
+    # for security would still see expired-but-undeleted tokens
+    # accumulate for a full day after a deploy.
+    expiration_hours = int(getattr(settings, 'TOKEN_EXPIRATION_HOURS', 24))
     cutoff = timezone.now() - timedelta(hours=expiration_hours)
     
     try:
