@@ -1196,17 +1196,65 @@ class ApprovalDelegationViewSet(viewsets.ModelViewSet):
             Q(delegator=user) | Q(delegate=user)
         ).select_related('delegator', 'delegate')
         return Response(ApprovalDelegationSerializer(delegations, many=True).data)
-# Legacy workflow views for backward compatibility
+# ─────────────────────────────────────────────────────────────────────
+# DEPRECATED — Legacy workflow ViewSets (WorkflowDefinition / Instance / Log)
+# ─────────────────────────────────────────────────────────────────────
+# These exist only for backward compatibility with deployed clients
+# that still call ``/workflow/definitions/`` and
+# ``/workflow/instances/`` from before the unified Approval API
+# replaced them.
+#
+# DO NOT add new logic here. New work goes on Approval / ApprovalStep /
+# ApprovalLog (above) which have:
+#   - a real ``user`` FK on every log row (not WorkflowLog's
+#     ``user_display`` charfield, which is unreliable for audit-trail
+#     purposes — V14 in the audit)
+#   - delegation, SLA tracking, and MDA-isolation support
+#   - a unified template designer
+#
+# When all known clients have migrated, drop the router registrations
+# in workflow/urls.py and delete this block.
+# ─────────────────────────────────────────────────────────────────────
+import warnings
+
 from .models import WorkflowDefinition, WorkflowInstance, WorkflowLog, WorkflowStep
 from .serializers import WorkflowDefinitionSerializer, WorkflowInstanceSerializer, WorkflowLogSerializer
 
+
+def _emit_legacy_workflow_warning(viewset_name: str) -> None:
+    """Emit a one-shot DeprecationWarning when a legacy ViewSet is hit.
+
+    Visible to anyone running with ``python -W default`` or in dev,
+    silent otherwise (so production logs aren't spammed). The point is
+    to tell developers and integration test suites that they're on a
+    deprecated code path.
+    """
+    warnings.warn(
+        f'{viewset_name} is deprecated; use the Approval API instead. '
+        f'See workflow/views.py for the migration path.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+
 class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
+    """DEPRECATED — use ApprovalTemplateViewSet."""
     queryset = WorkflowDefinition.objects.all().prefetch_related('steps')
     serializer_class = WorkflowDefinitionSerializer
 
+    def initial(self, request, *args, **kwargs):
+        _emit_legacy_workflow_warning('WorkflowDefinitionViewSet')
+        super().initial(request, *args, **kwargs)
+
+
 class WorkflowInstanceViewSet(viewsets.ModelViewSet):
+    """DEPRECATED — use ApprovalViewSet."""
     queryset = WorkflowInstance.objects.all().prefetch_related('logs', 'workflow__steps')
     serializer_class = WorkflowInstanceSerializer
+
+    def initial(self, request, *args, **kwargs):
+        _emit_legacy_workflow_warning('WorkflowInstanceViewSet')
+        super().initial(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def process_action(self, request, pk=None):
