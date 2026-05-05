@@ -80,6 +80,8 @@ def close_fiscal_year(fiscal_year: int, *, user=None) -> CloseResult:
     from django.utils import timezone
     from accounting.models import JournalHeader, JournalLine, GLBalance
     from django.db.models import F
+    from accounting.services.base_posting import BasePostingService
+    from accounting.services.report_cache import invalidate_period_reports
 
     with transaction.atomic():
         header = JournalHeader.objects.create(
@@ -107,6 +109,13 @@ def close_fiscal_year(fiscal_year: int, *, user=None) -> CloseResult:
             ))
         JournalLine.objects.bulk_create(lines_to_insert)
 
+        # H1 fix: enforce the same chokepoint every other GL writer
+        # respects. The plan is balanced by construction, but a future
+        # change to ``_build_close_plan`` (e.g. rounding on surplus
+        # calc) could silently emit unbalanced lines and corrupt
+        # GLBalance. Failing fast here surfaces the bug at close time.
+        BasePostingService.assert_balanced(header)
+
         # Update GLBalance so the SoFP sees the transferred balance.
         # For revenue/expense accounts we post the inverse of their
         # accrued balance — zeroing them. For Accumulated Fund we
@@ -123,6 +132,11 @@ def close_fiscal_year(fiscal_year: int, *, user=None) -> CloseResult:
                 debit_balance=F('debit_balance') + line['debit'],
                 credit_balance=F('credit_balance') + line['credit'],
             )
+
+        # H1 fix: bump the report-generation counter so cached IPSAS
+        # / Trial Balance reads pick up the post-close picture
+        # immediately instead of waiting for the 600s TTL to expire.
+        invalidate_period_reports(fiscal_year=fiscal_year)
 
     return CloseResult(
         fiscal_year=fiscal_year,

@@ -1760,6 +1760,24 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 journal.status = 'Posted'
                 journal.save(update_fields=['status'], _allow_status_change=True)
 
+                # ── H9 fix: keep BankAccount.current_balance live ────
+                # The GL is correct via _update_gl_from_journal above,
+                # but BankAccountViewSet.summary and the bank-rec
+                # ``book_balance`` read from BankAccount.current_balance
+                # — that field was previously stale the moment any
+                # AP payment posted (only TSA paths via
+                # TSABalanceService.process_payment kept it in sync).
+                # F()-decrement under the same atomic so two concurrent
+                # payments can't lose-update the bank balance.
+                if payment.bank_account_id:
+                    from accounting.models.banking import BankAccount as _BankAccount
+                    _BankAccount.objects.filter(
+                        pk=payment.bank_account_id,
+                    ).update(
+                        current_balance=F('current_balance') - amount,
+                        updated_at=timezone.now(),
+                    )
+
                 # Link journal to payment and update status
                 payment.journal_entry = journal
                 payment.status = 'Posted'

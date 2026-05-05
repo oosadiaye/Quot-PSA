@@ -1041,8 +1041,18 @@ class JournalViewSet(viewsets.ModelViewSet):
 
             with transaction.atomic():
                 for line in journal.lines.all():
+                    # H2 fix: include ``mda`` in the filter. All forward
+                    # GL writers (base_posting, gl_posting,
+                    # ipsas_journal_service) include mda in the
+                    # GLBalance unique-together bucket. Without it, an
+                    # unpost on an MDA-tagged journal targets the wrong
+                    # row (mda=None) and silently leaves the original
+                    # mda-keyed bucket untouched — phantom posted
+                    # balances accumulate after repeated post/unpost
+                    # cycles.
                     gl_balance = GLBalance.objects.filter(
                         account=line.account,
+                        mda=journal.mda,
                         fund=journal.fund,
                         function=journal.function,
                         program=journal.program,

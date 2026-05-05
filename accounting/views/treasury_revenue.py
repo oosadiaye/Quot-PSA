@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
-from django.db import models
+from django.db import models, transaction
 from django.db.models import ProtectedError
 
 from accounting.models.treasury import TreasuryAccount, PaymentVoucherGov, PaymentInstruction
@@ -466,7 +466,19 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def mark_paid(self, request, pk=None):
-        """Mark a PV as paid (after bank confirmation) and post IPSAS journal."""
+        """Mark a PV as paid (after bank confirmation) and post IPSAS journal.
+
+        H8 fix: ALL state changes (PaymentInstruction.status='PROCESSED',
+        TSA balance decrement, GL journal post, PV.status='PAID') run
+        inside ONE outer ``transaction.atomic()``. Without this guard a
+        failure in any later step (e.g. journal posting) would leave
+        ``PaymentInstruction`` PROCESSED and the TSA balance debited
+        with no GL journal — an orphan PROCESSED PI that auditors would
+        see as cash leaving the books with no offsetting accrual.
+        Inner ``transaction.atomic()`` blocks in TSABalanceService /
+        IPSASJournalService nest harmlessly as savepoints under this
+        outer transaction.
+        """
         pv = self.get_object()
         if pv.status != 'SCHEDULED':
             return Response(
@@ -476,24 +488,25 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         bank_reference = request.data.get('bank_reference', '')
 
-        # Update payment instruction
-        if hasattr(pv, 'payment_instruction'):
-            pi = pv.payment_instruction
-            pi.status = 'PROCESSED'
-            pi.bank_reference = bank_reference
-            pi.processed_at = timezone.now()
-            pi.save(update_fields=['status', 'bank_reference', 'processed_at', 'updated_at'])
+        with transaction.atomic():
+            # Update payment instruction
+            if hasattr(pv, 'payment_instruction'):
+                pi = pv.payment_instruction
+                pi.status = 'PROCESSED'
+                pi.bank_reference = bank_reference
+                pi.processed_at = timezone.now()
+                pi.save(update_fields=['status', 'bank_reference', 'processed_at', 'updated_at'])
 
-            # ── Update TSA balance (cash leaves government account) ──
-            from accounting.services.treasury_service import TSABalanceService
-            TSABalanceService.process_payment(pi)
+                # ── Update TSA balance (cash leaves government account) ──
+                from accounting.services.treasury_service import TSABalanceService
+                TSABalanceService.process_payment(pi)
 
-        # Post IPSAS journal entry
-        journal = self._post_payment_journal(pv, request.user)
+            # Post IPSAS journal entry
+            journal = self._post_payment_journal(pv, request.user)
 
-        pv.status = 'PAID'
-        pv.journal = journal
-        pv.save(update_fields=['status', 'journal', 'updated_at'])
+            pv.status = 'PAID'
+            pv.journal = journal
+            pv.save(update_fields=['status', 'journal', 'updated_at'])
 
         return Response(PaymentVoucherSerializer(pv).data)
 
