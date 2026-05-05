@@ -289,7 +289,14 @@ function App() {
                   </a>
                   <ImpersonationBanner />
                   <ImpersonationHandler />
+                  {/* Inner ErrorBoundary scopes route crashes to the
+                      content area — the outer ErrorBoundary at the
+                      top-level catches anything that escapes; this
+                      one absorbs lazy-route render errors so the
+                      sidebar + nav stay mounted and the user can
+                      navigate to a different page without reloading. */}
                   <Suspense fallback={<LoadingScreen message="Starting application..." />}>
+                    <ErrorBoundary>
                     <Routes>
                       {/* ── Public / Auth ────────────────────────────── */}
                       <Route path="/" element={<LandingOrImpersonation />} />
@@ -849,6 +856,7 @@ function App() {
                         } />
                       </Route>
                     </Routes>
+                    </ErrorBoundary>
                   </Suspense>
                 </Router>
                 {/* ToastContainer is rendered OUTSIDE Router so it

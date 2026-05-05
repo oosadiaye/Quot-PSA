@@ -47,7 +47,13 @@ class ContractViewSet(viewsets.ModelViewSet):
 
     queryset = (
         Contract.objects
-        .select_related("vendor", "mda", "fiscal_year", "ncoa_code")
+        # ``balance`` is the OneToOne reverse FK to ContractBalance.
+        # Without ``select_related('balance')`` the embedded
+        # ContractBalanceSerializer triggers an extra SELECT per row
+        # — a 50-contract list page becomes 51 queries. Pulling it
+        # into the same SQL JOIN gets the list down to a single
+        # query plus the milestones prefetch.
+        .select_related("vendor", "mda", "fiscal_year", "ncoa_code", "balance")
         .prefetch_related("milestones")
         .order_by("-created_at")
     )
