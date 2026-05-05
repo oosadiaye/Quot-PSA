@@ -8,8 +8,29 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 logger = logging.getLogger(__name__)
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
+
+
+def _get_content_type_cached(model_name: str):
+    """Return the ContentType for ``model_name`` with a 1-hour cache.
+
+    ContentType.objects.filter(model=...) is the hottest lookup in this
+    module — every submit_new / auto_route / seed_defaults / content_types
+    call performs at least one. The mapping (lowercase model → ContentType
+    row) is effectively immutable in production, so caching is safe.
+    Returns None for unknown models (callers already handle that).
+    """
+    if not model_name:
+        return None
+    cache_key = f'workflow:contenttype:{model_name}'
+    ct = cache.get(cache_key)
+    if ct is None:
+        ct = ContentType.objects.filter(model=model_name).first()
+        if ct is not None:
+            cache.set(cache_key, ct, timeout=3600)
+    return ct
 from django.utils import timezone
 from .models import (
     ApprovalGroup, ApprovalTemplate, ApprovalTemplateStep,
@@ -105,7 +126,7 @@ def auto_route_approval(obj, model_name, request, title=None, amount=None):
     from decimal import Decimal
     from django.db import transaction as db_transaction
 
-    ct = ContentType.objects.filter(model=model_name).first()
+    ct = _get_content_type_cached(model_name)
     if not ct:
         return {'approval_required': True, 'approval_id': None}
 
@@ -367,7 +388,7 @@ class ApprovalTemplateViewSet(viewsets.ModelViewSet):
         """Return valid document types for approval templates."""
         result = []
         for model_name in APPROVABLE_MODELS:
-            ct = ContentType.objects.filter(model=model_name).first()
+            ct = _get_content_type_cached(model_name)
             if ct:
                 result.append({
                     'id': ct.pk,
@@ -522,9 +543,11 @@ class ApprovalTemplateViewSet(viewsets.ModelViewSet):
             },
         ]
 
+        skipped_models = []
         for td in default_templates:
-            ct = ContentType.objects.filter(model=td['model']).first()
+            ct = _get_content_type_cached(td['model'])
             if not ct:
+                skipped_models.append(td['model'])
                 continue
             template, created = ApprovalTemplate.objects.get_or_create(
                 name=td['name'],
@@ -556,6 +579,9 @@ class ApprovalTemplateViewSet(viewsets.ModelViewSet):
             'skipped_groups': skipped_groups,
             'created_templates': created_templates,
             'skipped_templates': skipped_templates,
+            # V15: surface skipped models so the operator sees which
+            # ContentTypes weren't installed (instead of a silent skip).
+            'skipped_missing_contenttypes': skipped_models,
             'total_groups': len(default_groups),
             'total_templates': len(default_templates),
         })
@@ -873,7 +899,7 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        ct = ContentType.objects.filter(model=model_name).first()
+        ct = _get_content_type_cached(model_name)
         if not ct:
             return Response(
                 {"error": f"Unknown document type: {model_name}"},
