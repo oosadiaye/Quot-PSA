@@ -1249,9 +1249,16 @@ class GoodsReceivedNoteLine(models.Model):
     def __str__(self):
         return f"GRN Line: {self.po_line}"
 
-class DownPaymentRequest(AuditBaseModel):
+class DownPaymentRequest(StatusTransitionMixin, AuditBaseModel):
     """Down payment / advance payment request raised when a PO is created.
-    Finance reviews and processes it into an actual Payment."""
+    Finance reviews and processes it into an actual Payment.
+
+    State machine (enforced via ``StatusTransitionMixin``):
+      Pending → Approved | Rejected
+      Approved → Processed | Rejected
+      Processed (terminal)
+      Rejected (terminal)
+    """
 
     CALC_TYPE_CHOICES = [
         ('percentage', 'Percentage of PO Total'),
@@ -1267,6 +1274,12 @@ class DownPaymentRequest(AuditBaseModel):
         ('Rejected', 'Rejected'),
         ('Processed', 'Processed'),
     ]
+    ALLOWED_TRANSITIONS = {
+        'Pending':   ['Approved', 'Rejected'],
+        'Approved':  ['Processed', 'Rejected'],
+        'Processed': [],   # terminal
+        'Rejected':  [],   # terminal
+    }
 
     request_number = models.CharField(max_length=50, unique=True, blank=True)
     purchase_order = models.OneToOneField(

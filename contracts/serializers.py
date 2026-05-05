@@ -203,6 +203,42 @@ class ContractSerializer(serializers.ModelSerializer):
             "withholding_account_code", "input_tax_account_code",
         ]
 
+    def validate(self, attrs):
+        # Lock financial / structural fields after activation. The
+        # canonical path for changes after activation is
+        # ``ContractVariation`` (with tier-based approval).  Allowing
+        # PATCH on these fields would bypass the variation workflow
+        # entirely, mutating contract value with no audit trail and
+        # invalidating retention / mobilization formulas already
+        # applied to past IPCs.
+        attrs = super().validate(attrs)
+        if self.instance and self.instance.status not in ('DRAFT', None):
+            locked_fields = (
+                'original_sum',
+                'mobilization_rate',
+                'retention_rate',
+                'vendor',
+                'fiscal_year',
+                'ncoa_code',
+                'mda',
+            )
+            attempted_changes = {
+                f: attrs[f] for f in locked_fields
+                if f in attrs and getattr(self.instance, f, None) != attrs[f]
+            }
+            if attempted_changes:
+                raise serializers.ValidationError({
+                    'error': (
+                        f'Cannot modify contract {self.instance.contract_number} '
+                        f'fields after activation: {sorted(attempted_changes)}. '
+                        f'Use a Contract Variation (with tier approval) to change '
+                        f'contract value, deduction rates, or party assignments.'
+                    ),
+                    'locked_fields': sorted(attempted_changes),
+                    'contract_status': self.instance.status,
+                })
+        return attrs
+
 
 class ActivateContractSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")

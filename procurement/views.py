@@ -511,13 +511,18 @@ class VendorViewSet(viewsets.ModelViewSet):
             source_document_id=invoice.pk,
         )
 
-        # DR: TSA Bank Account
-        tsa_seg = EconomicSegment.objects.filter(code='31100100').first()
-        tsa_gl = tsa_seg.legacy_account if tsa_seg else Account.objects.filter(code='31100100').first()
-        if not tsa_gl:
+        # DR: TSA Cash GL — resolved via the central tsa_gl_resolver
+        # (per-TSA → tenant default → CoA scan). Same code path as
+        # confirm_registration_payment uses; previously this branch
+        # hardcoded NCoA 31100100 which silently posted to a wrong
+        # account on tenants whose TSA cash GL has a different code.
+        from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
+        try:
+            tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
+        except Exception as exc:
             header.delete()
             return Response(
-                {'error': 'TSA Cash account (31100100) not found in Chart of Accounts.'},
+                {'error': f'Cannot resolve TSA cash GL: {exc}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1807,7 +1812,21 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def match(self, request, pk=None):
-        """Manually match an invoice after reviewing variance"""
+        """Manually match an invoice after reviewing variance.
+
+        Variance-flagged matchings carry ``payment_hold=True``. The
+        previous implementation cleared status to 'Matched' without
+        also addressing the hold flag, so a reviewer could later
+        ``submit_for_approval`` and have the matching auto-approved
+        and posted to GL while ``payment_hold`` was still set — a
+        flagged invoice could pay through a control specifically
+        designed to block it.
+
+        New rule: clearing a variance via manual match REQUIRES an
+        explicit override reason in the request body. The reason is
+        recorded on the matching for audit trail; ``payment_hold``
+        is then cleared in the same write.
+        """
         matching = self.get_object()
 
         if matching.status in ('Matched', 'Approved', 'Rejected'):
@@ -1815,6 +1834,30 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                 {"error": f"Cannot manually match an invoice with status '{matching.status}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Payment-hold gate: refuse manual match unless the operator
+        # explicitly justifies the override.
+        if matching.payment_hold:
+            override_reason = (request.data.get('payment_hold_override_reason') or '').strip()
+            if not override_reason:
+                return Response(
+                    {
+                        "error": (
+                            "This verification is on payment hold due to a "
+                            "high variance. Provide ``payment_hold_override_reason`` "
+                            "in the request to override the hold."
+                        ),
+                        "payment_hold": True,
+                        "variance_percentage": str(matching.variance_percentage or 0),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Record the override in variance_reason (audit trail) and
+            # clear the hold so subsequent submit_for_approval can auto-post.
+            matching.variance_reason = (
+                f"[OVERRIDE by {request.user.username}] {override_reason}"
+            )
+            matching.payment_hold = False
 
         # Budget check before approving the invoice match
         po = matching.purchase_order

@@ -2,6 +2,7 @@ from .common import (
     viewsets, status, Response, action, transaction, Decimal, AccountingPagination, Sum,
 )
 from django.db.models import F
+from core.mixins import OrganizationFilterMixin
 from core.permissions import IsApprover
 from ..models import (
     VendorInvoice, Payment, PaymentAllocation,
@@ -10,7 +11,12 @@ from ..models import (
 from ..serializers import VendorInvoiceSerializer, PaymentSerializer, PaymentAllocationSerializer
 
 
-class VendorInvoiceViewSet(viewsets.ModelViewSet):
+class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    # Tenant MDA-isolation: in SEPARATED mode the queryset is auto-
+    # filtered to the operator's active MDA. In UNIFIED mode every
+    # invoice is visible. Mirrors PaymentVoucher / Treasury / Revenue
+    # viewsets which already use this mixin.
+    org_filter_field = 'mda'
     queryset = VendorInvoice.objects.all().select_related('vendor', 'fund', 'function', 'program', 'geo', 'currency', 'account')
     serializer_class = VendorInvoiceSerializer
     filterset_fields = ['status', 'vendor', 'invoice_date']
@@ -1463,10 +1469,18 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
         })
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
+class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    # Tenant MDA-isolation: the Payment doesn't carry an MDA directly,
+    # so we filter through ``allocations__invoice__mda``. In UNIFIED
+    # mode every payment is visible; in SEPARATED mode the operator
+    # sees only payments whose allocations touch their own MDA's
+    # invoices. ``.distinct()`` prevents duplicate rows when a
+    # payment's allocations span multiple invoices.
+    org_filter_field = 'allocations__invoice__mda'
+
     queryset = Payment.objects.all().select_related(
         'vendor', 'bank_account', 'currency', 'journal_entry'
-    ).prefetch_related('allocations')
+    ).prefetch_related('allocations').distinct()
     serializer_class = PaymentSerializer
     filterset_fields = ['status', 'payment_date', 'payment_method', 'is_advance', 'vendor']
 
