@@ -61,9 +61,21 @@ class TestIPCServiceDeductionsSurface:
     def test_deductions_for_ipc_accepts_ipc_argument(self):
         from contracts.services.ipc_service import IPCService
         sig = inspect.signature(IPCService.deductions_for_ipc)
-        # classmethod signature drops cls — first parameter is the IPC.
-        params = list(sig.parameters.keys())
-        assert params == ["ipc"]
+        # classmethod signature drops cls — first positional parameter
+        # is the IPC. ``lock`` was added (M5 fix) as a keyword-only
+        # opt-in for PV-creation callers; verify the positional shape
+        # is preserved AND the lock kwarg exists.
+        params = sig.parameters
+        positional = [
+            n for n, p in params.items()
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        assert positional == ["ipc"]
+        assert "lock" in params
+        assert params["lock"].kind == inspect.Parameter.KEYWORD_ONLY
 
     def test_record_status_verification_is_classmethod(self):
         from contracts.services.ipc_service import IPCService

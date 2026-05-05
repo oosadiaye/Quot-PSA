@@ -63,6 +63,165 @@ class BankAccountViewSet(viewsets.ModelViewSet):
             'outgoing_payments': PaymentSerializer(outgoing, many=True).data,
         })
 
+    @action(detail=False, methods=['post'])
+    def transfer(self, request):
+        """Atomic inter-bank transfer between two BankAccount rows.
+
+        H10 fix: prior to this, no atomic 2-leg path existed for moving
+        money between own bank accounts. Operators had to post raw JVs
+        and manually adjust ``BankAccount.current_balance`` on each side
+        (or the cash position drifted). The TSA cash-sweep path covers
+        only TSA accounts.
+
+        Body:
+          - source_bank_account_id (int, required)
+          - target_bank_account_id (int, required)
+          - amount (decimal, required, > 0)
+          - transfer_date (date, optional — defaults to today)
+          - reference (str, optional — appears on the journal memo)
+
+        Posts:
+          DR  target_bank_account.gl_account   amount
+          CR  source_bank_account.gl_account   amount
+
+        via IPSASJournalService.post_journal so the chokepoint
+        (assert_balanced + invalidate_period_reports + GLBalance roll-up)
+        fires; F()-decrements source.current_balance and F()-increments
+        target.current_balance under SELECT FOR UPDATE on both rows
+        (locked in pk-order to avoid deadlock).
+        """
+        source_id = request.data.get('source_bank_account_id')
+        target_id = request.data.get('target_bank_account_id')
+        raw_amount = request.data.get('amount')
+        if not (source_id and target_id and raw_amount):
+            return Response(
+                {'error': 'source_bank_account_id, target_bank_account_id and amount are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            source_id = int(source_id)
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'Bank account ids must be integers.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if source_id == target_id:
+            return Response(
+                {'error': 'Source and target bank accounts must differ.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            amount = Decimal(str(raw_amount))
+        except (InvalidOperation, ValueError):
+            return Response(
+                {'error': 'amount must be a decimal value.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if amount <= Decimal('0'):
+            return Response(
+                {'error': 'amount must be greater than zero.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from datetime import date as _date
+        from django.db.models import F as _F
+        from django.utils import timezone
+        from accounting.models import JournalHeader, JournalLine, TransactionSequence
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+
+        transfer_date = request.data.get('transfer_date') or _date.today().isoformat()
+        reference = (request.data.get('reference') or '').strip()
+
+        # Lock both rows in pk-order to avoid deadlocks under concurrent
+        # opposite-direction transfers.
+        first_id, second_id = sorted([source_id, target_id])
+        with transaction.atomic():
+            locked = list(
+                BankAccount.objects.select_for_update()
+                .select_related('gl_account')
+                .filter(pk__in=[first_id, second_id])
+                .order_by('pk')
+            )
+            if len(locked) != 2:
+                return Response(
+                    {'error': 'One or both bank accounts not found.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            by_id = {ba.pk: ba for ba in locked}
+            source = by_id[source_id]
+            target = by_id[target_id]
+
+            if not source.gl_account or not target.gl_account:
+                return Response(
+                    {'error': 'Both bank accounts must have a configured gl_account.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Sufficient-funds guard. We don't allow inter-bank transfers
+            # to overdraw a source account from this endpoint — operators
+            # who genuinely need overdraft transfers should use a JV with
+            # appropriate authorisation.
+            if source.current_balance < amount:
+                return Response(
+                    {'error': (
+                        f"Insufficient funds in source account "
+                        f"({source.current_balance} < {amount})."
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            jv_ref = (
+                reference or
+                f"BT-{TransactionSequence.get_next('bank_transfer', 'BT-')}"
+            )
+            journal = JournalHeader.objects.create(
+                posting_date=transfer_date,
+                reference_number=jv_ref,
+                description=(
+                    f"Bank transfer {source.name} → {target.name} "
+                    f"({reference})" if reference else
+                    f"Bank transfer {source.name} → {target.name}"
+                ),
+                status='Draft',
+                source_module='banking',
+                posted_by=request.user,
+            )
+            JournalLine.objects.create(
+                header=journal,
+                account=target.gl_account,
+                debit=amount,
+                credit=Decimal('0'),
+                memo=f"Transfer in from {source.name}",
+            )
+            JournalLine.objects.create(
+                header=journal,
+                account=source.gl_account,
+                debit=Decimal('0'),
+                credit=amount,
+                memo=f"Transfer out to {target.name}",
+            )
+
+            # Post via the chokepoint — assert_balanced + cache invalidation.
+            IPSASJournalService.post_journal(journal, request.user)
+
+            # F()-update both bank-account balances under the same atomic.
+            BankAccount.objects.filter(pk=source_id).update(
+                current_balance=_F('current_balance') - amount,
+                updated_at=timezone.now(),
+            )
+            BankAccount.objects.filter(pk=target_id).update(
+                current_balance=_F('current_balance') + amount,
+                updated_at=timezone.now(),
+            )
+
+        return Response({
+            'status': 'transferred',
+            'journal_id': journal.pk,
+            'journal_reference': journal.reference_number,
+            'amount': str(amount),
+        }, status=status.HTTP_201_CREATED)
+
 
 class CheckbookViewSet(viewsets.ModelViewSet):
     queryset = Checkbook.objects.all().select_related('bank_account')
@@ -76,6 +235,87 @@ class CheckViewSet(viewsets.ModelViewSet):
     filterset_fields = ['checkbook', 'status']
 
 
+def _post_bank_charges_journal(recon, amount, actor):
+    """Post the bank-charges JV during recon completion.
+
+    DR  Bank Charges Expense   amount
+    CR  Bank GL (recon's bank) amount
+
+    Bank Charges Expense GL is resolved via:
+      1. Account.reconciliation_type='bank_charges' (CoA-portable)
+      2. Settings DEFAULT_GL_ACCOUNTS['BANK_CHARGES']
+      3. Expense account name matches /bank.charge|service.charge/i
+
+    Posts via IPSASJournalService.post_journal so the chokepoint
+    (assert_balanced + invalidate_period_reports + GLBalance roll-up)
+    fires. Raises if neither GL leg can be resolved — recon should
+    fail closed rather than silently swallow the bank charge.
+    """
+    from accounting.models import Account, JournalHeader, JournalLine
+    from accounting.services.ipsas_journal_service import IPSASJournalService
+    from django.conf import settings as dj_settings
+
+    bank_account = recon.bank_account
+    bank_gl = bank_account.gl_account
+    if bank_gl is None:
+        bank_gl = Account.objects.filter(
+            reconciliation_type='bank_accounting', is_active=True,
+        ).first()
+    if bank_gl is None:
+        raise ValueError(
+            'Cannot post bank charges: no Bank GL account found on the '
+            'BankAccount record nor flagged via reconciliation_type=bank_accounting.'
+        )
+
+    charges_gl = Account.objects.filter(
+        reconciliation_type='bank_charges', is_active=True,
+    ).first()
+    if charges_gl is None:
+        code = (getattr(dj_settings, 'DEFAULT_GL_ACCOUNTS', {}) or {}).get('BANK_CHARGES')
+        if code:
+            charges_gl = Account.objects.filter(code=code, is_active=True).first()
+    if charges_gl is None:
+        charges_gl = Account.objects.filter(
+            account_type='Expense', is_active=True,
+            name__iregex=r'bank.charge|service.charge|account.maintenance',
+        ).first()
+    if charges_gl is None:
+        raise ValueError(
+            'Cannot post bank charges: no Bank Charges Expense GL found. '
+            "Configure an Expense account with reconciliation_type='bank_charges' "
+            "OR set DEFAULT_GL_ACCOUNTS['BANK_CHARGES']."
+        )
+
+    journal = JournalHeader.objects.create(
+        posting_date=recon.reconciliation_date if hasattr(recon, 'reconciliation_date') else None,
+        reference_number=f"BR-{recon.pk}-CHARGES",
+        description=f"Bank charges from reconciliation #{recon.pk} on {bank_account.name}",
+        status='Draft',
+        source_module='banking',
+        source_document_id=recon.pk,
+        posted_by=actor,
+    )
+    JournalLine.objects.create(
+        header=journal, account=charges_gl,
+        debit=amount, credit=Decimal('0'),
+        memo=f"Bank charges — {bank_account.name}",
+    )
+    JournalLine.objects.create(
+        header=journal, account=bank_gl,
+        debit=Decimal('0'), credit=amount,
+        memo=f"Bank charges debit — {bank_account.name}",
+    )
+    IPSASJournalService.post_journal(journal, actor)
+
+    # Keep BankAccount.current_balance in sync with the new credit.
+    from django.db.models import F as _F
+    from django.utils import timezone
+    BankAccount.objects.filter(pk=bank_account.pk).update(
+        current_balance=_F('current_balance') - amount,
+        updated_at=timezone.now(),
+    )
+
+
 class BankReconciliationViewSet(viewsets.ModelViewSet):
     queryset = BankReconciliation.objects.all().select_related('bank_account', 'reconciled_by', 'approved_by')
     serializer_class = BankReconciliationSerializer
@@ -83,14 +323,38 @@ class BankReconciliationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reconcile(self, request, pk=None):
+        """Complete a bank reconciliation.
+
+        M8 fix: previous code did ``book_balance + deposits_in_transit
+        - outstanding_checks - bank_charges`` mixing Decimal (book) and
+        floats (JSON-decoded inputs). Python silently downgraded the
+        whole expression to float — money math via float is a money bug
+        waiting to happen. All inputs are now coerced to ``Decimal`` at
+        the boundary.
+
+        M8 fix #2: when ``bank_charges > 0`` we now post a balanced
+        JV (DR Bank Charges Expense / CR Bank GL) so the GL reflects
+        the charge the operator entered during recon. Without this the
+        bank ledger drifts from the GL by exactly bank_charges every
+        time recon runs.
+        """
         recon = self.get_object()
-        book_balance = recon.bank_account.current_balance
 
-        deposits_in_transit = request.data.get('deposits_in_transit', 0)
-        outstanding_checks = request.data.get('outstanding_checks', 0)
-        bank_charges = request.data.get('bank_charges', 0)
+        def _coerce(raw, default='0'):
+            try:
+                return Decimal(str(raw if raw is not None else default))
+            except (InvalidOperation, ValueError):
+                return Decimal(default)
 
-        reconciled_balance = book_balance + deposits_in_transit - outstanding_checks - bank_charges
+        book_balance = recon.bank_account.current_balance  # already Decimal
+
+        deposits_in_transit = _coerce(request.data.get('deposits_in_transit'))
+        outstanding_checks = _coerce(request.data.get('outstanding_checks'))
+        bank_charges = _coerce(request.data.get('bank_charges'))
+
+        reconciled_balance = (
+            book_balance + deposits_in_transit - outstanding_checks - bank_charges
+        )
         difference = reconciled_balance - recon.statement_balance
 
         with transaction.atomic():
@@ -103,6 +367,13 @@ class BankReconciliationViewSet(viewsets.ModelViewSet):
             recon.status = 'Reconciled'
             recon.reconciled_by = request.user
             recon.save()
+
+            # M8: book the bank-charge expense to GL if any. Done inside
+            # the same atomic so a recon that "finds" a bank charge
+            # leaves both the recon record AND the GL in sync.
+            if bank_charges > Decimal('0'):
+                _post_bank_charges_journal(recon, bank_charges, request.user)
+
             recon.complete(approved_by_user=request.user)
 
         return Response(BankReconciliationSerializer(recon).data)

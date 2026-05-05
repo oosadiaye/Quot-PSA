@@ -16,7 +16,6 @@ Services for government IFMIS financial operations:
     - cost_allocation: Automatic cost distribution
     - xbrl_export: XBRL/iXBRL export for audit reporting
     - asset_revaluation: Asset revaluation per IPSAS 17
-    - trial_balance: Trial balance report generator
     - aging_reports: AR/AP aging reports
     - vat_returns: VAT return processing
     - gl_posting: GL balance update service
@@ -41,7 +40,11 @@ from .depreciation_service import DepreciationService
 from .cost_allocation import CostAllocationService
 from .xbrl_export import XBRLExportService
 from .asset_revaluation import AssetRevaluationRunService
-from .trial_balance import TrialBalanceService
+# M1: legacy ``trial_balance`` service deleted — its Sum('debit_amount')
+# / Sum('credit_amount') aggregations referenced fields that don't
+# exist on GLBalance (real names are debit_balance / credit_balance) so
+# the function silently returned zeros. The wired-in trial-balance
+# generator is ``accounting.reports.TrialBalanceReportService``.
 from .aging_reports import AgingReportService
 from .vat_returns import VATReturnService
 from .gl_posting import update_gl_from_journal
@@ -69,7 +72,6 @@ __all__ = [
     'CostAllocationService',
     'XBRLExportService',
     'AssetRevaluationRunService',
-    'TrialBalanceService',
     'AgingReportService',
     'VATReturnService',
     'update_gl_from_journal',

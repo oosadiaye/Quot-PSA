@@ -95,6 +95,27 @@ class TreasuryAccount(AuditBaseModel):
         ordering = ['account_type', 'account_number']
         verbose_name = 'TSA Account'
         verbose_name_plural = 'TSA Accounts'
+        constraints = [
+            # M9 fix: at most one active MAIN_TSA per tenant (per MDA, or
+            # global if mda is null). CashSweepService and the cash
+            # resolver in payment/revenue posting silently pick
+            # ``.first()``; if the data layer ever has two MAIN_TSA rows
+            # — through a fixture mistake or a forgotten test seed — the
+            # sweep destination becomes nondeterministic and revenue
+            # could land on the wrong consolidated account.
+            #
+            # Conditional unique on (account_type, mda) WHERE
+            # account_type='MAIN_TSA' AND is_active=True. PostgreSQL's
+            # NULLS NOT DISTINCT in PG15+ makes the global (mda=NULL)
+            # case behave correctly; older PG versions effectively allow
+            # multiple null-mda rows but the constraint still catches
+            # the much more common case of two rows for the same MDA.
+            models.UniqueConstraint(
+                fields=['account_type', 'mda'],
+                condition=models.Q(account_type='MAIN_TSA', is_active=True),
+                name='uniq_main_tsa_per_mda_active',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.account_number} - {self.account_name}"

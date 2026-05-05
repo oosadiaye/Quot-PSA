@@ -237,22 +237,42 @@ def mark_commitment_invoiced_for_po(po) -> int:
     Returns the number of rows updated (0 if the PO has no ACTIVE link,
     1 on success). Idempotent — calling it again on an INVOICED link
     is a no-op.
+
+    M2 fix: now race-safe via the same lock pattern as
+    ``cancel_commitment_for_po``. Without the atomic+select_for_update,
+    a concurrent close vs invoice (e.g. retry on a stale tab) would
+    interleave ``refresh_totals`` reads and could momentarily mis-set
+    ``cached_total_committed``.
     """
     from procurement.models import ProcurementBudgetLink
-    link = ProcurementBudgetLink.objects.filter(purchase_order=po).first()
-    n = ProcurementBudgetLink.objects.filter(
-        purchase_order=po, status='ACTIVE',
-    ).update(status='INVOICED')
-    # INVOICED still counts toward total_committed (no change), but the
-    # refresh is cheap and keeps the refresh_at timestamp current so
-    # downstream staleness alerts work.
-    if n and link:
-        try:
-            from accounting.services.appropriation_totals import refresh_totals
-            refresh_totals(link.appropriation)
-        except Exception:
-            pass
-    return n
+    from django.db import transaction as _txn
+    from budget.models import Appropriation
+
+    with _txn.atomic():
+        link = (
+            ProcurementBudgetLink.objects
+            .select_for_update()
+            .filter(purchase_order=po)
+            .first()
+        )
+        if link is None:
+            return 0
+        Appropriation.objects.select_for_update().filter(
+            pk=link.appropriation_id,
+        ).exists()
+        n = ProcurementBudgetLink.objects.filter(
+            purchase_order=po, status='ACTIVE',
+        ).update(status='INVOICED')
+        # INVOICED still counts toward total_committed (no change), but
+        # the refresh is cheap and keeps the refresh_at timestamp
+        # current so downstream staleness alerts work.
+        if n:
+            try:
+                from accounting.services.appropriation_totals import refresh_totals
+                refresh_totals(link.appropriation)
+            except Exception:
+                pass
+        return n
 
 
 def mark_commitment_closed_for_po(po) -> int:
@@ -282,35 +302,48 @@ def mark_commitment_closed_for_po(po) -> int:
         every downstream report.
     """
     from procurement.models import ProcurementBudgetLink
+    from django.db import transaction as _txn
+    from budget.models import Appropriation
 
-    # Snapshot every appropriation this PO touches BEFORE the bulk update,
-    # so we can refresh every one of them after — not just .first().
-    appropriation_ids = list(
-        ProcurementBudgetLink.objects
-        .filter(purchase_order=po)
-        .values_list('appropriation_id', flat=True)
-        .distinct()
-    )
-
-    n = ProcurementBudgetLink.objects.filter(
-        purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
-    ).update(status='CLOSED')
-
-    if appropriation_ids:
-        try:
-            from accounting.services.appropriation_totals import refresh_totals
-            from budget.models import Appropriation
-            for appr in Appropriation.objects.filter(pk__in=appropriation_ids):
-                refresh_totals(appr)
-        except Exception as exc:
-            logger.error(
-                'CRITICAL: Appropriation cache refresh failed after closing '
-                'commitment for PO %s (appr_ids=%s): %s. Run '
-                '`./manage.py resync_appropriation_totals` to recover.',
-                getattr(po, 'po_number', po.pk), appropriation_ids, exc,
-                exc_info=True,
+    # M2 fix: atomic + lock both the link rows AND the appropriations
+    # before mutating + refreshing. Same pattern as
+    # ``cancel_commitment_for_po``.
+    with _txn.atomic():
+        # Snapshot every appropriation this PO touches BEFORE the bulk
+        # update, so we can refresh every one after — not just .first().
+        appropriation_ids = list(
+            ProcurementBudgetLink.objects
+            .select_for_update()
+            .filter(purchase_order=po)
+            .values_list('appropriation_id', flat=True)
+            .distinct()
+        )
+        # Lock parent Appropriation rows in pk order to avoid deadlock.
+        if appropriation_ids:
+            list(
+                Appropriation.objects.select_for_update()
+                .filter(pk__in=appropriation_ids)
+                .order_by('pk')
             )
-    return n
+
+        n = ProcurementBudgetLink.objects.filter(
+            purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
+        ).update(status='CLOSED')
+
+        if appropriation_ids:
+            try:
+                from accounting.services.appropriation_totals import refresh_totals
+                for appr in Appropriation.objects.filter(pk__in=appropriation_ids):
+                    refresh_totals(appr)
+            except Exception as exc:
+                logger.error(
+                    'CRITICAL: Appropriation cache refresh failed after closing '
+                    'commitment for PO %s (appr_ids=%s): %s. Run '
+                    '`./manage.py resync_appropriation_totals` to recover.',
+                    getattr(po, 'po_number', po.pk), appropriation_ids, exc,
+                    exc_info=True,
+                )
+        return n
 
 
 def refresh_appropriations_for_po(po) -> int:

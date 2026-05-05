@@ -724,6 +724,19 @@ class IPCService:
             .get(pk=ipc.contract_id)
         )
 
+        # M6 fix: defensive ceiling re-refresh under the lock. If a
+        # variation approval committed since the last refresh (or if a
+        # migration backfill drifted the cached value), the snapshot in
+        # ``balance.contract_ceiling`` may lag the live
+        # ``contract.contract_ceiling`` property which re-aggregates
+        # APPROVED variations on every read. Take the min of the two so
+        # we fail closed against either source.
+        live_ceiling = ipc.contract.contract_ceiling
+        if balance.contract_ceiling != live_ceiling:
+            from contracts.services.variation_service import VariationService
+            VariationService._refresh_contract_ceiling(ipc.contract)
+            balance.refresh_from_db()
+
         # ── Control 2: Coherence ───────────────────────────────────────
         expected_net = ipc.compute_net_payable()
         if abs(expected_net - ipc.net_payable) > COHERENCE_TOLERANCE:
@@ -1151,6 +1164,8 @@ class IPCService:
     def deductions_for_ipc(
         cls,
         ipc: InterimPaymentCertificate,
+        *,
+        lock: bool = False,
     ) -> list:
         """
         Compute the statutory deductions for this IPC's payment voucher.
@@ -1169,12 +1184,28 @@ class IPCService:
         Status Verification is applied unless a
         ``VendorStatusVerification`` row already exists for
         ``(vendor, current_year)``.
+
+        M5 fix: callers from PV-creation paths should pass ``lock=True``
+        so the ``ContractBalance`` row is read under
+        ``select_for_update`` — without this, a concurrent IPC approval
+        moving ``cumulative_gross_paid`` from 0 to non-zero between
+        the read and the PV write can flip ``is_first_payment``
+        incorrectly, causing the handling charge to apply twice or
+        be missed. Read-only callers (display, reports) keep the
+        default ``lock=False`` which is unchanged.
         """
         from datetime import date
         from accounting.services import contract_deductions as deductions_mod
         from contracts.models import VendorStatusVerification
 
-        balance = ContractBalance.objects.get(pk=ipc.contract_id)
+        if lock:
+            balance = (
+                ContractBalance.objects
+                .select_for_update()
+                .get(pk=ipc.contract_id)
+            )
+        else:
+            balance = ContractBalance.objects.get(pk=ipc.contract_id)
         is_first_payment = balance.cumulative_gross_paid == ZERO
 
         current_year = date.today().year

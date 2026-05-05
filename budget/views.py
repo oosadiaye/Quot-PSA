@@ -1275,17 +1275,54 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def enact(self, request, pk=None):
-        """Enact an approved appropriation — makes it ACTIVE for spending."""
-        appro = self.get_object()
-        if appro.status not in ('APPROVED', 'SUBMITTED'):
-            return Response(
-                {'error': f'Only APPROVED appropriations can be enacted. Current: "{appro.status}"'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        appro.status = 'ACTIVE'
+        """Enact an approved appropriation — makes it ACTIVE for spending.
+
+        H11 fix: do this race-safely. The previous code took no lock,
+        so two concurrent enactments could both see status='APPROVED'
+        and both flip ACTIVE — usually harmless but it doubled the
+        ``original_amount`` snapshot setup below. Also previously the
+        cached commitment totals were not refreshed at activation, so
+        the budget execution report could show stale figures from a
+        prior closed cycle until the first commit landed and refreshed
+        them.
+
+        Steps under one atomic + SELECT FOR UPDATE on the appropriation:
+          1. Re-validate status under the lock.
+          2. Capture ``original_amount`` snapshot (S2-04) if not set.
+          3. Flip to ACTIVE + stamp enactment_date.
+          4. Refresh cached committed/expended totals so reports
+             show a clean post-enactment baseline immediately.
+        """
+        from django.db import transaction
         from django.utils import timezone
-        appro.enactment_date = appro.enactment_date or timezone.now().date()
-        appro.save(update_fields=['status', 'enactment_date', 'updated_at'])
+        from accounting.services.appropriation_totals import refresh_totals
+
+        with transaction.atomic():
+            appro = (
+                self.get_queryset()
+                .select_for_update()
+                .get(pk=pk)
+            )
+            if appro.status not in ('APPROVED', 'SUBMITTED'):
+                return Response(
+                    {'error': f'Only APPROVED appropriations can be enacted. Current: "{appro.status}"'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            update_fields = ['status', 'enactment_date', 'updated_at']
+            appro.status = 'ACTIVE'
+            appro.enactment_date = appro.enactment_date or timezone.now().date()
+            # S2-04 snapshot — capture the as-enacted amount once. After
+            # this point ``amount_approved`` may evolve via virements
+            # (becoming the IPSAS 24 "Final Budget"); ``original_amount``
+            # stays immutable for the IPSAS variance disclosure.
+            if appro.original_amount is None:
+                appro.original_amount = appro.amount_approved
+                update_fields.append('original_amount')
+            appro.save(update_fields=update_fields)
+
+            # Refresh cached totals so reports see a clean baseline.
+            refresh_totals(appro)
+
         return Response(AppropriationSerializer(appro).data)
 
     @action(detail=True, methods=['post'])

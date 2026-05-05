@@ -71,6 +71,22 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if not asset.mda:
             return Response({"error": "MDA is required for asset acquisition. Assign this asset to an MDA first."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # L4 fix: refuse to acquire (post a separate ACQ JV) when the
+        # asset was already auto-capitalised from an AP invoice line.
+        # ``apply_asset_capitalization`` stamps the source journal-line
+        # FK on the asset; calling ``acquire`` on top would double-book
+        # DR Asset / CR Cash for the same acquisition.
+        if getattr(asset, 'created_from_journal_line_id', None):
+            return Response(
+                {"error": (
+                    "Asset was already capitalised from a vendor invoice "
+                    f"(JournalLine #{asset.created_from_journal_line_id}). "
+                    "The acquisition GL entry has already been booked — "
+                    "calling ``acquire`` again would double-book."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # ── Budget Validation (capital budget check) ──────────────
         if asset.mda and asset.asset_account and asset.fund:
             try:

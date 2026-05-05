@@ -1889,6 +1889,58 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                                     "PV propagation: IPC %s mark-paid failed: %s",
                                     ipc.pk, exc,
                                 )
+
+                        # M7 fix: liquidate the contract commitment for
+                        # PV-driven payments. The encumbrance-liquidation
+                        # block below only fires for payments linked to
+                        # a PO (allocation.invoice.purchase_order); IPC
+                        # payments don't have allocations, so without
+                        # this branch the IPC's parent contract
+                        # commitment stayed inflated forever and Variance
+                        # / Availability reports overstated committed.
+                        # ``ContractBalance.cumulative_gross_paid`` was
+                        # already updated by ``IPCService.mark_paid``
+                        # above; here we additionally close any
+                        # appropriation-side commitment link tied to
+                        # this contract via its PO (if the contract has
+                        # an associated PO).
+                        try:
+                            from accounting.services.procurement_commitments import (
+                                mark_commitment_closed_for_po,
+                            )
+                            for ipc in ipcs:
+                                contract_po = getattr(ipc.contract, 'purchase_order', None)
+                                if contract_po is not None:
+                                    mark_commitment_closed_for_po(contract_po)
+                        except Exception as exc:  # noqa: BLE001
+                            _log.warning(
+                                "PV propagation: contract commitment close "
+                                "failed for PV %s: %s", pv.pk, exc,
+                            )
+
+                        # Refresh the source appropriation totals so the
+                        # Budget Execution Report sees the new
+                        # committed/expended split immediately.
+                        try:
+                            from accounting.services.appropriation_totals import refresh_totals
+                            from budget.models import Appropriation
+                            for ipc in ipcs:
+                                ncoa = getattr(ipc.contract, 'ncoa_code', None)
+                                if ncoa is None:
+                                    continue
+                                appropriations = Appropriation.objects.filter(
+                                    fiscal_year=getattr(ipc.contract, 'fiscal_year', None),
+                                    administrative=getattr(ncoa, 'administrative', None),
+                                    economic=getattr(ncoa, 'economic', None),
+                                    status='ACTIVE',
+                                )
+                                for appr in appropriations:
+                                    refresh_totals(appr)
+                        except Exception as exc:  # noqa: BLE001
+                            _log.warning(
+                                "PV propagation: appropriation refresh "
+                                "failed for PV %s: %s", pv.pk, exc,
+                            )
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("PV propagation: top-level failure for payment %s: %s", payment.pk, exc)
 

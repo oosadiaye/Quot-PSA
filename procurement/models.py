@@ -545,63 +545,70 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         if self.pk:
             self.calculate_tax()
 
-        if not is_new:
-            old_inst = PurchaseOrder.objects.get(pk=self.pk)
-            old_status = old_inst.status
-
-        # Budget encumbrance transitions also require lines, so they only
-        # make sense on UPDATE (when self.pk exists). On insert, status is
-        # 'Draft' anyway — encumbrance kicks in later when status moves
-        # to Approved/Posted.
-        if self.pk and self.status in ['Approved', 'Posted'] and old_status not in ['Approved', 'Posted']:
-            # ── Warrant ceiling check (PSA Authority to Incur Expenditure) ──
-            # Block the Approved transition if the PO would push committed +
-            # expended beyond what has been warranted/released. This is the
-            # quarterly cash-release ceiling — distinct from the annual
-            # appropriation ceiling already validated by
-            # process_budget_encumbrance().
-            self._check_warrant_ceiling()
-            self.process_budget_encumbrance()
-            # ── Register Appropriation commitment (ProcurementBudgetLink) ──
-            # This is what populates the "Committed" column on the Budget
-            # Execution Report. Booking it on Approved (not only Posted)
-            # aligns with IPSAS — the MDA has a legal obligation the moment
-            # the PO is approved, so the appropriation should be encumbered
-            # immediately, not deferred to GL journal entry time.
-            try:
-                from accounting.services.procurement_commitments import create_commitment_for_po
-                create_commitment_for_po(self)
-            except Exception as exc:  # Don't block the save on commitment failure
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Commitment link failed for PO %s: %s", self.po_number, exc,
+        # M4 fix: read+lock the PO row, run all status-transition side
+        # effects (encumbrance, commitment, cancel), and finally
+        # super().save() — all inside a single ``transaction.atomic()``
+        # so two concurrent approvals can't both observe
+        # ``old_status='Draft'`` and both run the side effects.
+        # ``create_commitment_for_po`` is idempotent (re-locks the
+        # Appropriation), but the legacy ``process_budget_encumbrance``
+        # is NOT — concurrent approvals could otherwise produce
+        # duplicate ``BudgetEncumbrance`` rows. ``select_for_update``
+        # held under one atomic serialises the second save until the
+        # first commit lands; the second then sees the new ``old_status``
+        # and the transition guards correctly evaluate False.
+        with transaction.atomic():
+            if not is_new:
+                old_inst = (
+                    PurchaseOrder.objects
+                    .select_for_update()
+                    .get(pk=self.pk)
                 )
+                old_status = old_inst.status
 
-        # Refresh commitment when an already-Approved/Posted PO is saved
-        # (e.g. header edit or price change before any GRN exists).
-        if self.pk and self.status in ['Approved', 'Posted'] and old_status in ['Approved', 'Posted']:
-            try:
-                from accounting.services.procurement_commitments import create_commitment_for_po
-                create_commitment_for_po(self)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Commitment refresh failed for PO %s: %s", self.po_number, exc,
-                )
+            # Budget encumbrance transitions require lines, so only
+            # make sense on UPDATE. On insert, status is 'Draft'
+            # anyway — encumbrance kicks in later when status moves
+            # to Approved/Posted.
+            if self.pk and self.status in ['Approved', 'Posted'] and old_status not in ['Approved', 'Posted']:
+                # ── Warrant ceiling check (PSA Authority to Incur Expenditure) ──
+                self._check_warrant_ceiling()
+                self.process_budget_encumbrance()
+                # ── Register Appropriation commitment (ProcurementBudgetLink) ──
+                try:
+                    from accounting.services.procurement_commitments import create_commitment_for_po
+                    create_commitment_for_po(self)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Commitment link failed for PO %s: %s", self.po_number, exc,
+                    )
 
-        if self.pk and old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
-            self.cancel_budget_encumbrance()
-            # Release the appropriation commitment when the PO is cancelled.
-            try:
-                from accounting.services.procurement_commitments import cancel_commitment_for_po
-                cancel_commitment_for_po(self)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Cancel commitment failed for PO %s: %s", self.po_number, exc,
-                )
+            # Refresh commitment when an already-Approved/Posted PO is
+            # saved (e.g. header edit or price change before any GRN
+            # exists).
+            if self.pk and self.status in ['Approved', 'Posted'] and old_status in ['Approved', 'Posted']:
+                try:
+                    from accounting.services.procurement_commitments import create_commitment_for_po
+                    create_commitment_for_po(self)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Commitment refresh failed for PO %s: %s", self.po_number, exc,
+                    )
 
-        super().save(*args, **kwargs)
+            if self.pk and old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
+                self.cancel_budget_encumbrance()
+                try:
+                    from accounting.services.procurement_commitments import cancel_commitment_for_po
+                    cancel_commitment_for_po(self)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Cancel commitment failed for PO %s: %s", self.po_number, exc,
+                    )
+
+            super().save(*args, **kwargs)
 
     def _check_warrant_ceiling(self):
         """Validate the PO total against the released-warrant ceiling.
@@ -1193,6 +1200,33 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
                         "GRN %s: commitment INVOICED flip failed (non-fatal): %s",
                         self.grn_number, exc,
                     )
+
+                # M3 fix: post the GR/IR accrual journal here, inside
+                # the same atomic block as the status flip and
+                # commitment progression. Previously the journal was
+                # only created in the ``post_grn`` view action — a
+                # programmatic status flip (admin / shell / fixture)
+                # would update inventory and the commitment but NOT
+                # book the GR/IR credit, so the later Invoice
+                # Verification debited a GR/IR balance that was never
+                # credited (phantom debit, trial-balance imbalance
+                # until manually corrected).
+                # ``post_goods_received_note`` is idempotent via
+                # ``_check_duplicate_posting``, so a subsequent
+                # ``post_grn`` view action call (legacy path) becomes
+                # a no-op rather than a duplicate.
+                try:
+                    from accounting.services.procurement_posting import (
+                        ProcurementPostingService,
+                    )
+                    ProcurementPostingService.post_goods_received_note(self)
+                except Exception as exc:
+                    # Re-raise: if the GL post fails the entire save
+                    # MUST roll back so we don't end up with the
+                    # GR/IR-debit-without-credit foot-gun the audit
+                    # called out. Inventory + commitment changes are
+                    # part of the same atomic, so they roll back too.
+                    raise
             else:
                 # Normal save path (status not transitioning to Posted).
                 super().save(*args, **kwargs)

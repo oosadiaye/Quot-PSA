@@ -634,26 +634,56 @@ class BudgetTransferViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
+        """Approve a legacy BudgetTransfer.
+
+        L3 fix: race-safe via select_for_update on both budgets in
+        pk-order, F() updates on revised_amount. The previous code did
+        read-modify-write (``revised_amount = (revised or allocated) -
+        amount``) on unlocked rows — two concurrent approvers could
+        both read the same starting value and the second save would
+        overwrite the first, so the source budget could be over-drawn.
+        Mirrors the canonical pattern in
+        ``services_virement.approve_and_apply_virement``.
+        """
         transfer = self.get_object()
         if transfer.status != 'PENDING':
             return Response({"error": "Only pending transfers can be approved"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
+            from django.db.models import F as _F
             with transaction.atomic():
+                # Lock both budgets in pk order to avoid deadlock under
+                # concurrent reciprocal transfers.
+                first_pk = min(transfer.from_budget_id, transfer.to_budget_id)
+                second_pk = max(transfer.from_budget_id, transfer.to_budget_id)
+                from accounting.models import Budget as _Budget
+                list(
+                    _Budget.objects.select_for_update()
+                    .filter(pk__in=[first_pk, second_pk]).order_by('pk')
+                )
+
                 from_budget = transfer.from_budget
                 to_budget = transfer.to_budget
+                # Re-read locked snapshots so the availability check
+                # operates on a consistent view of revised_amount.
+                from_budget.refresh_from_db()
+                to_budget.refresh_from_db()
 
-                # Check availability on source
+                # Check availability on source under the lock
                 is_available, message, available = from_budget.check_availability(transfer.amount)
                 if not is_available:
                     return Response({"error": f"Source budget insufficient: {message}"}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Execute transfer
-                from_budget.revised_amount = (from_budget.revised_amount or from_budget.allocated_amount) - transfer.amount
-                to_budget.revised_amount = (to_budget.revised_amount or to_budget.allocated_amount) + transfer.amount
-
-                from_budget.save()
-                to_budget.save()
+                # F()-update both budgets atomically. ``Coalesce`` to
+                # ``allocated_amount`` when ``revised_amount`` is NULL
+                # so the first edit picks the correct base.
+                from django.db.models.functions import Coalesce
+                _Budget.objects.filter(pk=from_budget.pk).update(
+                    revised_amount=Coalesce(_F('revised_amount'), _F('allocated_amount')) - transfer.amount,
+                )
+                _Budget.objects.filter(pk=to_budget.pk).update(
+                    revised_amount=Coalesce(_F('revised_amount'), _F('allocated_amount')) + transfer.amount,
+                )
 
                 transfer.status = 'APPROVED'
                 transfer.approved_by = request.user
