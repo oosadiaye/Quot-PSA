@@ -21,7 +21,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
+from django.utils import timezone
+
+from contracts.services.exceptions import ConcurrencyError
 
 from contracts.models import (
     Contract,
@@ -203,9 +207,22 @@ class MobilizationService:
             .select_for_update()
             .get(pk=payment.contract_id)
         )
-        balance.mobilization_paid = quantize_currency(balance.mobilization_paid + payment.amount)
-        balance.version = balance.version + 1
-        balance.save(update_fields=["mobilization_paid", "version", "updated_at"])
+        # H6 fix: F('version')+1 server-side increment — race-safe even
+        # if a future caller passes a stale ``balance`` from outside the
+        # SELECT FOR UPDATE.
+        new_paid = quantize_currency(balance.mobilization_paid + payment.amount)
+        try:
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                mobilization_paid=new_paid,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as exc:
+            raise ConcurrencyError(
+                "ContractBalance update rejected by DB trigger; retry.",
+                context={"contract_id": balance.pk},
+            ) from exc
+        balance.refresh_from_db()
 
         payment.status          = MobilizationPaymentStatus.PAID
         payment.payment_voucher_id = payment_voucher_id

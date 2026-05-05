@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from contracts.models import (
@@ -198,12 +199,152 @@ class RetentionService:
             raise SegregationOfDutiesError(
                 "Approver cannot be the same user who created the release.",
             )
+
+        # Post the GL accrual journal BEFORE flipping status, so a
+        # posting failure rolls the whole approval back atomically (the
+        # @transaction.atomic decorator covers both). Mirrors the IPC
+        # accrual-on-approve pattern in ``IPCService._post_accrual_journal``.
+        # Audit fix C1: without this, Retention-Held liability never
+        # cleared on the trial balance and AP-Contractor was never
+        # recognised when the contractor was paid via PV.
+        journal = cls._post_release_accrual_journal(release, actor)
+
         release.status       = RetentionReleaseStatus.APPROVED
         release.approved_by  = actor
         release.updated_by   = actor
-        release.save(update_fields=["status", "approved_by", "updated_by", "updated_at"])
+        release.accrual_journal = journal
+        release.save(update_fields=[
+            "status", "approved_by", "updated_by", "updated_at",
+            "accrual_journal",
+        ])
         cls._record_step(release, actor, ApprovalAction.APPROVE, notes)
         return release
+
+    # ── GL accrual journal posting on approve ────────────────────────
+    # Layered account resolver mirrors IPCService — we share the same
+    # retention liability GL slot so the credit at IPC accrual and the
+    # debit at retention release land on the same row in GLBalance.
+
+    @staticmethod
+    def _resolve_retention_account():
+        """Layered ladder for the Retention-Held GL account.
+
+        Order (mirrors IPCService._resolve_retention_account so credit
+        and debit hit the same GL row):
+          1. Account.reconciliation_type='retention_held' (CoA-portable)
+          2. Settings DEFAULT_GL_ACCOUNTS['RETENTION_HELD']
+          3. Liability account whose code starts with '41' AND name
+             matches /retention|deposit|holdback/i
+        """
+        from accounting.models import Account
+        recon = Account.objects.filter(
+            reconciliation_type='retention_held', is_active=True,
+        ).first()
+        if recon:
+            return recon
+
+        from django.conf import settings as dj_settings
+        code = (
+            getattr(dj_settings, 'DEFAULT_GL_ACCOUNTS', {}) or {}
+        ).get('RETENTION_HELD')
+        if code:
+            via_code = Account.objects.filter(code=code, is_active=True).first()
+            if via_code:
+                return via_code
+
+        return Account.objects.filter(
+            account_type='Liability', is_active=True,
+            code__startswith='41',
+            name__iregex=r'retention|holdback|security.deposit',
+        ).first()
+
+    @classmethod
+    def _post_release_accrual_journal(
+        cls,
+        release: RetentionRelease,
+        actor,
+    ):
+        """Post the IPSAS journal recognising the retention release.
+
+            DR  Retention Held (liability)        release.amount
+            CR  Accounts Payable (vendor recon)   release.amount
+
+        Idempotent: returns the existing journal if one is already
+        linked. Posted via ``IPSASJournalService.post_journal`` so the
+        chokepoint (assert_balanced + invalidate_period_reports +
+        GLBalance roll-up) fires.
+        """
+        from accounting.models import JournalHeader, JournalLine
+        from accounting.services.procurement_posting import get_vendor_ap_account
+        from accounting.services.base_posting import TransactionPostingError
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+
+        if release.accrual_journal_id:
+            return release.accrual_journal
+
+        contract = release.contract
+        amount = quantize_currency(release.amount)
+        if amount <= ZERO:
+            raise InvalidTransitionError(
+                "Cannot post retention-release journal for zero or negative amount.",
+                context={"amount": str(amount)},
+            )
+
+        retention_account = cls._resolve_retention_account()
+        if retention_account is None:
+            raise TransactionPostingError(
+                "Cannot post retention release accrual: no Retention-Held GL "
+                "account found. Configure an Account with "
+                "reconciliation_type='retention_held' OR set "
+                "DEFAULT_GL_ACCOUNTS['RETENTION_HELD'] OR ensure a Liability "
+                "account exists matching code 41* AND name "
+                "/retention|holdback|security.deposit/i."
+            )
+
+        ap_account, _src = get_vendor_ap_account(contract.vendor)
+
+        # Build the journal — copy contract MDA/fund/etc dimensions so
+        # the GL roll-up lands on the same MDA bucket as the IPC accrual
+        # that originally credited Retention-Held.
+        ncoa = contract.ncoa_code
+        journal = JournalHeader.objects.create(
+            posting_date=release.payment_date or timezone.now().date(),
+            reference_number=f"RR-{release.pk}-{release.release_type}",
+            description=(
+                f"Retention release ({release.get_release_type_display()}) "
+                f"— {contract.contract_number}"
+            ),
+            mda=getattr(getattr(ncoa, 'administrative', None), 'legacy_mda', None) if ncoa else None,
+            fund=getattr(getattr(ncoa, 'fund', None), 'legacy_fund', None) if ncoa else None,
+            function=getattr(getattr(ncoa, 'functional', None), 'legacy_function', None) if ncoa else None,
+            program=getattr(getattr(ncoa, 'programme', None), 'legacy_program', None) if ncoa else None,
+            geo=getattr(getattr(ncoa, 'geographic', None), 'legacy_geo', None) if ncoa else None,
+            status='Draft',
+            source_module='contracts',
+            source_document_id=release.pk,
+            posted_by=actor,
+        )
+
+        # DR Retention-Held — clears the liability previously raised
+        # at IPC accrual.
+        JournalLine.objects.create(
+            header=journal, account=retention_account,
+            debit=amount, credit=ZERO,
+            memo=f"Retention release {release.get_release_type_display()} — "
+                 f"{contract.contract_number}",
+        )
+
+        # CR Accounts Payable — recognises the contractor receivable
+        # before cash settles via PV.
+        JournalLine.objects.create(
+            header=journal, account=ap_account,
+            debit=ZERO, credit=amount,
+            memo=f"AP — retention release {contract.contract_number} "
+                 f"({contract.vendor.name})",
+        )
+
+        IPSASJournalService.post_journal(journal, actor)
+        return journal
 
     @classmethod
     @transaction.atomic
@@ -231,9 +372,20 @@ class RetentionService:
                     "this_release":  str(release.amount),
                 },
             )
-        balance.retention_released = new_released
-        balance.version            = balance.version + 1
-        balance.save(update_fields=["retention_released", "version", "updated_at"])
+        # H6 fix: F('version')+1 server-side increment — race-safe.
+        from django.db import IntegrityError
+        try:
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                retention_released=new_released,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as exc:
+            raise InvalidTransitionError(
+                "ContractBalance update rejected by DB trigger; retry.",
+                context={"contract_id": balance.pk},
+            ) from exc
+        balance.refresh_from_db()
 
         release.status             = RetentionReleaseStatus.PAID
         release.payment_voucher_id = payment_voucher_id

@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import F
+from django.utils import timezone
 
 from contracts.models import (
     ApprovalAction,
@@ -525,22 +527,29 @@ class IPCService:
         # Bump pending_voucher_amount — this reserves the gross against
         # the ceiling even before certifier review, so a second concurrent
         # IPC in this same window will correctly fail the ceiling check.
-        balance.pending_voucher_amount = quantize_currency(
+        # H6 fix: use F('version')+1 update() instead of python-side
+        # increment so the BEFORE-UPDATE trigger never sees a
+        # potentially-stale Python-side value, even if a future caller
+        # passes a stale ``balance`` object obtained outside the lock.
+        new_pending = quantize_currency(
             balance.pending_voucher_amount + this_gross + variation_claims
         )
-        # Anchor the monotonicity baseline atomically under the row
-        # lock. Subsequent concurrent submissions see this value and
-        # refuse to submit anything <= it.
-        balance.last_cumulative_submitted = cumulative_work_done_to_date
-        balance.version = balance.version + 1
-        balance.save(
-            update_fields=[
-                "pending_voucher_amount",
-                "last_cumulative_submitted",
-                "version",
-                "updated_at",
-            ]
-        )
+        try:
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                pending_voucher_amount=new_pending,
+                # Anchor the monotonicity baseline atomically under the
+                # row lock. Subsequent concurrent submissions see this
+                # value and refuse to submit anything <= it.
+                last_cumulative_submitted=cumulative_work_done_to_date,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as exc:
+            raise ConcurrencyError(
+                "ContractBalance update rejected by DB trigger; retry.",
+                context={"contract_id": balance.pk},
+            ) from exc
+        balance.refresh_from_db()
 
         cls._record_step(
             ipc, actor, ApprovalAction.REQUEST_INFO,
@@ -761,19 +770,22 @@ class IPCService:
             deduction_amount=ipc.retention_deduction_this_cert,
         )
 
-        # Move gross from pending → certified.
-        balance.cumulative_gross_certified = projected_certified
-        balance.pending_voucher_amount = remaining_pending
-        balance.version = balance.version + 1
+        # Move gross from pending → certified. H6 fix: use update() with
+        # F('version')+1 so the version increment happens at the SQL
+        # layer atomically with the field updates — the BEFORE-UPDATE
+        # trigger sees a server-side computation, not a Python value
+        # that could be stale under multi-tab races. mobilization_recovered
+        # and retention_held were mutated in-memory by MobilizationService
+        # and RetentionService above; we forward those values explicitly.
         try:
-            balance.save(update_fields=[
-                "cumulative_gross_certified",
-                "pending_voucher_amount",
-                "mobilization_recovered",
-                "retention_held",
-                "version",
-                "updated_at",
-            ])
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                cumulative_gross_certified=projected_certified,
+                pending_voucher_amount=remaining_pending,
+                mobilization_recovered=balance.mobilization_recovered,
+                retention_held=balance.retention_held,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
         except IntegrityError as exc:
             # PG trigger rejected the write — a deeper invariant was
             # violated (e.g. version not strictly increasing under a
@@ -782,6 +794,7 @@ class IPCService:
                 "ContractBalance update rejected by DB trigger; retry.",
                 context={"contract_id": balance.pk},
             ) from exc
+        balance.refresh_from_db()
 
         ipc.updated_by = actor
 
@@ -1043,17 +1056,19 @@ class IPCService:
                     "this_payment_gross": str(paid_gross),
                 },
             )
-        balance.cumulative_gross_paid = new_paid
-        balance.version = balance.version + 1
+        # H6 fix: F('version')+1 server-side increment (race-safe).
         try:
-            balance.save(update_fields=[
-                "cumulative_gross_paid", "version", "updated_at",
-            ])
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                cumulative_gross_paid=new_paid,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
         except IntegrityError as exc:
             raise ConcurrencyError(
                 "ContractBalance update rejected by DB trigger; retry.",
                 context={"contract_id": balance.pk},
             ) from exc
+        balance.refresh_from_db()
 
         ipc.updated_by = actor
         ipc.save(update_fields=[
@@ -1107,11 +1122,19 @@ class IPCService:
         )
         if new_pending < ZERO:
             new_pending = ZERO
-        balance.pending_voucher_amount = new_pending
-        balance.version = balance.version + 1
-        balance.save(update_fields=[
-            "pending_voucher_amount", "version", "updated_at",
-        ])
+        # H6 fix: race-safe versioning.
+        try:
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                pending_voucher_amount=new_pending,
+                version=F('version') + 1,
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as exc:
+            raise ConcurrencyError(
+                "ContractBalance update rejected by DB trigger; retry.",
+                context={"contract_id": balance.pk},
+            ) from exc
+        balance.refresh_from_db()
 
         ipc.rejection_reason = reason
         ipc.updated_by = actor

@@ -21,7 +21,11 @@ from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
+from django.utils import timezone
+
+from contracts.services.exceptions import ConcurrencyError
 
 from contracts.models import (
     Contract,
@@ -128,11 +132,21 @@ class ContractActivationService:
             },
         )
         if not created:
-            # Keep the ceiling in sync if variations were approved before activation
+            # Keep the ceiling in sync if variations were approved before activation.
+            # H6 fix: F('version')+1 server-side increment.
             if balance.contract_ceiling != ceiling:
-                balance.contract_ceiling = ceiling
-                balance.version = balance.version + 1
-                balance.save(update_fields=["contract_ceiling", "version", "updated_at"])
+                try:
+                    ContractBalance.objects.filter(pk=balance.pk).update(
+                        contract_ceiling=ceiling,
+                        version=F('version') + 1,
+                        updated_at=timezone.now(),
+                    )
+                except IntegrityError as exc:
+                    raise ConcurrencyError(
+                        "ContractBalance update rejected by DB trigger; retry.",
+                        context={"contract_id": balance.pk},
+                    ) from exc
+                balance.refresh_from_db()
 
         # 6. Flip status
         contract.transition_to(ContractStatus.ACTIVATED, actor=actor)

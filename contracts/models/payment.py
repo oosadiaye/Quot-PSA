@@ -501,6 +501,20 @@ class RetentionRelease(AuditBaseModel):
         max_length=20, choices=RetentionReleaseStatus.choices,
         default=RetentionReleaseStatus.PENDING,
     )
+    # ── Linked GL journal (posted on APPROVED) ───────────────────────────
+    # Mirrors ``InterimPaymentCertificate.accrual_journal``. Set when
+    # ``RetentionService.approve`` posts the release accrual journal:
+    #   DR Retention-Held (liability)   release.amount
+    #   CR Accounts Payable (vendor)    release.amount
+    # Recognises the contractor's payable for the held retention BEFORE
+    # the cash settles via PV. Without this journal the trial balance
+    # carries the full Retention-Held liability forever and AP-Contractor
+    # is never recognised — see audit C1.
+    accrual_journal = models.ForeignKey(
+        "accounting.JournalHeader", null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name="retention_release_accruals",
+    )
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL,
