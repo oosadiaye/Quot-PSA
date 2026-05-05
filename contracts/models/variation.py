@@ -163,14 +163,38 @@ class ContractVariation(AuditBaseModel):
     # ── Tier computation ────────────────────────────────────────────────
 
     def compute_approval_tier(self) -> str:
-        """
-        Determine the required approval tier based on this variation's amount
-        as a percentage of the contract's original sum.
+        """Determine the required approval tier.
+
+        H7 fix: tier is computed from CUMULATIVE variations, not this
+        variation alone. Without this, a drafter could fragment a 60%
+        variation into four 15% variations and route each to LOCAL
+        approval, bypassing BPP no-objection (NPPCA / due-process
+        violation). The cumulative basis is:
+
+            cumulative_pct = (sum_existing_approved + |this_amount|)
+                             / original_sum * 100
+
+        ``approved_variations_total`` excludes THIS variation if it's
+        not yet APPROVED, so we add the absolute value of THIS amount
+        on top. If THIS variation is itself already APPROVED (a
+        re-tier on edit), ``approved_variations_total`` already
+        includes it and we don't double-count.
         """
         original = self.contract.original_sum
         if original <= ZERO:
             return VariationApprovalTier.BPP_REQUIRED
-        pct = abs(self.amount) / original * HUNDRED
+
+        existing_approved = self.contract.approved_variations_total
+        # If THIS variation is already in the APPROVED bucket, exclude
+        # it before adding the new amount — otherwise we double-count
+        # on a re-tier.
+        if self.status == VariationStatus.APPROVED and self.pk:
+            existing_approved = existing_approved - abs(self.amount)
+            if existing_approved < ZERO:
+                existing_approved = ZERO
+
+        cumulative = existing_approved + abs(self.amount)
+        pct = cumulative / original * HUNDRED
         if pct <= TIER_LOCAL_MAX:
             return VariationApprovalTier.LOCAL
         if pct <= TIER_BOARD_MAX:

@@ -994,15 +994,31 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
         is_new = self.pk is None
         old_status = None
 
-        if not is_new:
-            old_status = GoodsReceivedNote.objects.get(pk=self.pk).status
+        # H5 fix: read+lock ``old_status`` INSIDE an atomic block so
+        # two near-simultaneous saves can't both observe
+        # ``old_status='Approved'`` and produce two stock-IN movements.
+        # Previously the read happened on a plain ``.get()`` outside
+        # any lock — the second worker raced past status='Posted'
+        # before the first commit landed. ``select_for_update`` makes
+        # the second worker block until the first transaction commits,
+        # at which point it sees the new ``status='Posted'`` and the
+        # ``should_process_posting`` guard correctly evaluates False.
+        # We open ``transaction.atomic()`` here regardless so the
+        # lock + read are part of the same transaction as the eventual
+        # ``super().save()``.
+        with transaction.atomic():
+            if not is_new:
+                old_status = (
+                    GoodsReceivedNote.objects
+                    .select_for_update()
+                    .get(pk=self.pk)
+                    .status
+                )
 
-        # Only process GRN posting logic when transitioning to Posted
-        should_process_posting = (old_status != 'Posted' and self.status == 'Posted')
+            should_process_posting = (old_status != 'Posted' and self.status == 'Posted')
 
-        if should_process_posting:
-            with transaction.atomic():
-                # First save the GRN to get its PK
+            if should_process_posting:
+                # First save the GRN to get its PK / commit the new status
                 super().save(*args, **kwargs)
 
                 # Now process the posting
@@ -1177,9 +1193,9 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
                         "GRN %s: commitment INVOICED flip failed (non-fatal): %s",
                         self.grn_number, exc,
                     )
-        else:
-            # Normal save path
-            super().save(*args, **kwargs)
+            else:
+                # Normal save path (status not transitioning to Posted).
+                super().save(*args, **kwargs)
 
 class GoodsReceivedNoteLine(models.Model):
     grn = models.ForeignKey(GoodsReceivedNote, related_name='lines', on_delete=models.CASCADE)
@@ -1441,6 +1457,19 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
     # headroom up to 99,999,999.99% — safely beyond any sane data.
     variance_percentage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     variance_reason = models.TextField(blank=True)
+
+    # H3 audit fix: surface failures from the workflow auto-post path.
+    # When an approval clears but ``_post_matching_to_gl_inner`` raises
+    # (e.g. missing GL account, budget breach), the receiver swallows
+    # the exception (so the workflow approval still commits) but stamps
+    # the error here so the UI can render a banner / red flag and the
+    # operator can retry via the manual "Post to GL" action.
+    # Cleared atomically on a successful subsequent post.
+    gl_post_error = models.TextField(
+        blank=True, default='',
+        help_text='Last GL auto-post error from the workflow signal — '
+                  'cleared on successful retry.',
+    )
     matched_date = models.DateField(null=True, blank=True)
     payment_hold = models.BooleanField(
         default=False,

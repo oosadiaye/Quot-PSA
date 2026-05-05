@@ -1838,7 +1838,15 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
             # the entire submit_for_approval rolls back — matching
             # stays in its prior status, journal isn't created, and
             # the operator sees the actual error to fix.
+            #
+            # H4 fix: tag the in-memory matching object with
+            # ``_auto_posted`` so the workflow ``document_approval_completed``
+            # receiver (procurement/signals.py) skips its own call. The
+            # idempotency guard in ``_post_matching_to_gl_inner`` would
+            # otherwise raise "already posted" on the second invocation
+            # and the receiver would log it as a spurious warning.
             if matching.status == 'Approved' and matching.purchase_order:
+                matching._auto_posted = True
                 vi, journal, closed_count = self._post_matching_to_gl_inner(matching)
                 auto_post_info = {
                     'journal_id':         journal.id if journal else None,

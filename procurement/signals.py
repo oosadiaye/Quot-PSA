@@ -57,18 +57,35 @@ if document_approval_completed is not None:
         user expectation is that a 3-way-matched invoice books to GL
         the moment its approval clears, with no extra "Post to GL"
         click. The receiver runs inside the workflow's atomic block, so
-        a posting failure rolls back the approval transition and the
-        document status change together.
+        a posting failure does NOT roll back the approval (the
+        exception is captured into ``document.gl_post_error`` so the
+        UI can surface it for manual retry); but successful posting
+        clears any prior error.
 
         Scoped tightly: only the ``invoicematching`` model on a
-        successful approval. All other approvals are ignored (the
-        ``return`` early-exits keep this signal cheap for the common
-        case).
+        successful approval. All other approvals are ignored.
+
+        H4 guard: skip when the caller has already posted directly via
+        the ``submit_for_approval`` auto-approve fast path
+        (``matching._auto_posted`` sentinel). Without this, every auto-
+        approval would log a spurious "already_posted" warning because
+        the idempotency guard in ``_post_matching_to_gl_inner`` raises
+        on the second call.
         """
         if action != 'approve' or model_name != 'invoicematching':
             return
         if document is None or getattr(document, 'status', None) != 'Approved':
             return
+        # H4 sentinel — the caller posted directly already.
+        if getattr(document, '_auto_posted', False):
+            return
+        # Idempotency: skip if the matching is already linked to a
+        # Posted journal (mirrors the ``_post_matching_to_gl_inner``
+        # internal guard but check it here too so we never log noisy
+        # "already posted" warnings).
+        if getattr(document, 'journal_entry_id', None):
+            return
+
         try:
             # Local import — circular at module load (procurement.views
             # imports procurement.models which imports procurement.signals
@@ -78,13 +95,35 @@ if document_approval_completed is not None:
             from procurement.views import InvoiceMatchingViewSet
             InvoiceMatchingViewSet._post_matching_to_gl_inner(document)
         except Exception as exc:
-            # Don't re-raise: the user expectation is "approval succeeds
-            # even if GL posting hiccups; user retries via Post to GL".
-            # The previous direct-call code already had this swallow
-            # behaviour (logged, not re-raised). Preserve it so the
-            # signal switch is behaviour-preserving.
+            # H3 fix: surface the failure to the operator instead of
+            # silent log-only behaviour. Approval still commits (so the
+            # workflow trail isn't disrupted); the matching carries a
+            # ``gl_post_error`` flag the UI renders as a banner. A
+            # subsequent successful "Post to GL" clears the flag.
             logger.warning(
                 'Workflow-approved matching %s auto-post to GL failed '
-                '(user can still retry via Post to GL): %s',
+                '(user can retry via Post to GL): %s',
                 getattr(document, 'pk', '?'), exc,
             )
+            err_msg = f'{type(exc).__name__}: {exc}'[:5000]
+            try:
+                # Use update() so we don't re-trigger any save-time
+                # signals (this whole block runs inside the workflow
+                # atomic; an inner save() that touches status would
+                # fight the parent transaction).
+                from procurement.models import InvoiceMatching
+                InvoiceMatching.objects.filter(pk=document.pk).update(
+                    gl_post_error=err_msg,
+                )
+            except Exception:  # noqa: BLE001 — last-ditch best effort
+                logger.exception(
+                    'Failed to stamp gl_post_error on matching %s',
+                    getattr(document, 'pk', '?'),
+                )
+        else:
+            # Clear any prior error stamp on success.
+            if getattr(document, 'gl_post_error', ''):
+                from procurement.models import InvoiceMatching
+                InvoiceMatching.objects.filter(pk=document.pk).update(
+                    gl_post_error='',
+                )
