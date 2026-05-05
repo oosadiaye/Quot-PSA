@@ -346,30 +346,33 @@ function App() {
                         <ProtectedRoute requiredRole="senior_manager"><UserManagement /></ProtectedRoute>
                       } />
 
-                      {/* ── Settings (no module guard) ───────────────── */}
+                      {/* ── Settings (no module guard) ─────────────────
+                          All settings routes mutate tenant-wide
+                          configuration; gated to ``admin`` role so a
+                          ``viewer`` or ``user`` can't reach them. */}
                       <Route path="/settings/accounting" element={
-                        <ProtectedRoute><AccountingSettingsPage /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><AccountingSettingsPage /></ProtectedRoute>
                       } />
                       <Route path="/settings/accounting/budget-check-rules" element={
-                        <ProtectedRoute><BudgetCheckRulesSettings /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><BudgetCheckRulesSettings /></ProtectedRoute>
                       } />
                       <Route path="/settings/inventory" element={
-                        <ProtectedRoute><InventorySettingsPage /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><InventorySettingsPage /></ProtectedRoute>
                       } />
                       <Route path="/settings/accounting/currencies" element={
-                        <ProtectedRoute><CurrencyManagement /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><CurrencyManagement /></ProtectedRoute>
                       } />
                       <Route path="/settings/fiscal-year" element={
-                        <ProtectedRoute><FiscalYearPage /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><FiscalYearPage /></ProtectedRoute>
                       } />
                       <Route path="/settings/tax" element={
-                        <ProtectedRoute><TaxManagement /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><TaxManagement /></ProtectedRoute>
                       } />
                       <Route path="/settings/bank-accounts" element={
-                        <ProtectedRoute><BankAccountSettings /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><BankAccountSettings /></ProtectedRoute>
                       } />
                       <Route path="/settings/branding" element={
-                        <ProtectedRoute><BrandingSettings /></ProtectedRoute>
+                        <ProtectedRoute requiredRole="admin"><BrandingSettings /></ProtectedRoute>
                       } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════
@@ -694,14 +697,19 @@ function App() {
                       <Route path="/accounting/ipsas/geographic-distribution" element={<ProtectedRoute><GeographicDistributionReport /></ProtectedRoute>} />
                       <Route path="/accounting/ipsas/fund-performance" element={<ProtectedRoute><FundPerformanceReport /></ProtectedRoute>} />
                       <Route path="/accounting/data-quality" element={<ProtectedRoute><DataQualityPage /></ProtectedRoute>} />
-                      <Route path="/admin/roles" element={<ProtectedRoute><RolesAndPermissionsPage /></ProtectedRoute>} />
-                      <Route path="/admin/approval-rules" element={<ProtectedRoute><ApprovalRulesPage /></ProtectedRoute>} />
-                      <Route path="/admin/audit/overrides" element={<ProtectedRoute><OverrideAuditPage /></ProtectedRoute>} />
-                      <Route path="/admin/fiscal-years" element={<ProtectedRoute><FiscalYearAdminPage /></ProtectedRoute>} />
+                      {/* Admin-only routes — gated by ``requiredRole='admin'``.
+                          Previously these were bare ``ProtectedRoute`` so any
+                          authenticated user (including ``viewer``) could reach
+                          mutating role/approval/audit/fiscal-year config
+                          screens. */}
+                      <Route path="/admin/roles" element={<ProtectedRoute requiredRole="admin"><RolesAndPermissionsPage /></ProtectedRoute>} />
+                      <Route path="/admin/approval-rules" element={<ProtectedRoute requiredRole="admin"><ApprovalRulesPage /></ProtectedRoute>} />
+                      <Route path="/admin/audit/overrides" element={<ProtectedRoute requiredRole="admin"><OverrideAuditPage /></ProtectedRoute>} />
+                      <Route path="/admin/fiscal-years" element={<ProtectedRoute requiredRole="admin"><FiscalYearAdminPage /></ProtectedRoute>} />
                       <Route path="/budget/appropriations" element={<ProtectedRoute><AppropriationAdminPage /></ProtectedRoute>} />
                       <Route path="/budget/commitment-report" element={<ProtectedRoute><CommitmentReport /></ProtectedRoute>} />
-                      <Route path="/settings/government" element={<ProtectedRoute><GovernmentSetup /></ProtectedRoute>} />
-                      <Route path="/settings/organizations" element={<ProtectedRoute><OrganizationManagement /></ProtectedRoute>} />
+                      <Route path="/settings/government" element={<ProtectedRoute requiredRole="admin"><GovernmentSetup /></ProtectedRoute>} />
+                      <Route path="/settings/organizations" element={<ProtectedRoute requiredRole="admin"><OrganizationManagement /></ProtectedRoute>} />
                       <Route path="/audit/trail" element={<ProtectedRoute><AuditTrailViewer /></ProtectedRoute>} />
 
                       {/* ── HRM module ───────────────────────────────── */}

@@ -132,8 +132,18 @@ class MFADisableView(APIView):
         except MFAError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Clear the MFA session flag so protected views stop accepting.
-        request.session.pop('mfa_verified_at', None)
+        # Clear MFA freshness on BOTH the session (legacy path) and
+        # every UserSession row owned by this user (token path) so
+        # protected views stop accepting until the user re-verifies.
+        if hasattr(request, 'session'):
+            request.session.pop('mfa_verified_at', None)
+        try:
+            from core.models import UserSession
+            UserSession.objects.filter(user=request.user).update(
+                mfa_verified_at=None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return Response({'disabled': True})
 
 
@@ -173,8 +183,25 @@ def _mark_session_mfa_verified(request) -> None:
     authorise a payment posting.
     """
     from django.utils import timezone
+    now = timezone.now()
+    # Session stamp (legacy / Django admin path) — kept for
+    # backward compatibility.
     if hasattr(request, 'session'):
-        request.session['mfa_verified_at'] = timezone.now().isoformat()
+        request.session['mfa_verified_at'] = now.isoformat()
+    # Token-attached stamp — the canonical path under stateless
+    # token auth (production frontend). ``RequiresMFA`` reads
+    # ``UserSession.mfa_verified_at`` first; falls back to the
+    # session stamp only when token auth isn't in use.
+    auth = getattr(request, 'auth', None)
+    token_key = getattr(auth, 'key', None)
+    if token_key:
+        try:
+            from core.models import UserSession
+            UserSession.objects.filter(
+                token_key=token_key, is_active=True,
+            ).update(mfa_verified_at=now)
+        except Exception:  # noqa: BLE001 — best-effort dual-write
+            pass
 
 
 def _session_mfa_is_fresh(request, max_age_minutes: int = 30) -> bool:

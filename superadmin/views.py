@@ -143,18 +143,46 @@ def generate_temp_password():
 
 
 def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
-    """Send welcome email to new tenant admin.
+    """Send welcome email to a new tenant admin.
 
-    If temp_password is None, the user chose their own password during signup
-    and the email omits the password line.
+    Security model:
+      • The internal Postgres ``schema_name`` is NEVER included in
+        outbound email — leaking it gives an attacker the exact
+        identifier needed to craft tenant-targeted queries.
+      • The temporary password is NEVER included in plaintext. When
+        ``temp_password`` is provided, we generate a one-time
+        password-set token and embed a reset link instead. The
+        recipient clicks the link, sets their own password
+        in-browser, and the temporary credential is discarded.
+      • When ``temp_password`` is None (signup flow where the user
+        chose their own password), no credential references appear.
     """
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
     frontend_url = django_settings.FRONTEND_URL
     subject = f"Welcome to QUOT ERP - {tenant.name} Organization Created"
 
-    password_line = (
-        f"Temporary Password: {temp_password}\n" if temp_password
-        else "Password: (the one you chose during sign-up)\n"
-    )
+    if temp_password:
+        # Generate a signed, single-use password-reset link. The
+        # recipient sets their own password in-browser; the
+        # ``temp_password`` we generated server-side is the database
+        # value but is never shown to the user via email — they
+        # supersede it on first login.
+        uidb64 = urlsafe_base64_encode(force_bytes(admin_user.pk))
+        token = default_token_generator.make_token(admin_user)
+        reset_link = f"{frontend_url}/reset-password/{uidb64}/{token}"
+        credential_block = (
+            "Set Your Password:\n"
+            f"  {reset_link}\n\n"
+            "This link is single-use and expires after first use or "
+            "after the standard reset-token validity window."
+        )
+    else:
+        credential_block = (
+            "Login with the password you chose during sign-up."
+        )
 
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
@@ -165,15 +193,15 @@ Login Details:
 --------------
 Portal URL: {frontend_url}
 Username: {admin_user.username}
-{password_line}
 Subscription Plan: {plan_name}
-Organization Schema: {tenant.schema_name}
+
+{credential_block}
 
 Important Next Steps:
 --------------------
-1. Login with the credentials above
-{('2. Change your password immediately' + chr(10)) if temp_password else ''}3. Complete your organization profile
-4. Invite team members
+1. Click the link above (if shown) and set your password
+2. Complete your organization profile
+3. Invite team members
 
 If you have any questions, please contact support.
 

@@ -109,7 +109,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return (getStored('mdaIsolationMode') as 'UNIFIED' | 'SEPARATED') || 'UNIFIED';
     });
 
-    const isAuthenticated = !!getStored('authToken') && !!user;
+    // Derive auth state from the ``user`` state variable only — NOT
+    // from synchronous storage reads. ``user`` is set via
+    // ``setAuthData`` only after the token was persisted, and cleared
+    // via ``logout`` immediately after the token is removed. Tying
+    // ``isAuthenticated`` to a storage read produces a one-render
+    // window where storage was just cleared but state hasn't flushed,
+    // so consumers see ``isAuthenticated=true`` momentarily after a
+    // 401 logout. Sourcing it from ``user`` makes it fully reactive
+    // and eliminates that desync.
+    const isAuthenticated = !!user;
     const tenantRole = tenantInfo?.role ?? null;
 
     const hasPermission = useCallback((perm: string): boolean => {
@@ -206,6 +215,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         window.addEventListener('storage', handler);
         return () => window.removeEventListener('storage', handler);
+    }, [logout]);
+
+    // Same-tab token expiry: ``apiClient`` dispatches ``auth-expired``
+    // when a 401 lands. The ``storage`` event above doesn't fire in
+    // the same tab that cleared the token, so without this listener
+    // the user state would persist after a session-expired response
+    // and ``isAuthenticated`` would briefly remain true.
+    useEffect(() => {
+        const handler = () => logout();
+        window.addEventListener('auth-expired', handler);
+        return () => window.removeEventListener('auth-expired', handler);
     }, [logout]);
 
     const value = useMemo(() => ({

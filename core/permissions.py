@@ -103,7 +103,18 @@ class RBACPermission(permissions.DjangoModelPermissions):
         # Determine current tenant
         tenant = getattr(connection, 'tenant', None)
         if not tenant or tenant.schema_name == 'public':
-            return True  # Public schema endpoints — no model-level restrictions
+            # FAIL CLOSED on public schema. Previously this returned
+            # True unconditionally, relying on every public-schema
+            # view to apply ``IsSuperAdminUser`` itself. A single
+            # missed decorator was a full RBAC bypass. Now only
+            # superusers reach public-schema endpoints; views that
+            # need tenant-admin access on the public schema must
+            # explicitly re-grant it.
+            self.message = (
+                'Public-schema endpoints require superuser access. '
+                'Contact your platform administrator if you need this access.'
+            )
+            return False
 
         # Get tenant-scoped role
         utr = _get_tenant_role(request.user, tenant)

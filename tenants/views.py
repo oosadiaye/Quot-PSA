@@ -1216,6 +1216,23 @@ _NBS_STATES = {
 }
 
 
+def _is_tenant_admin(user, tenant) -> bool:
+    """True if the user holds an ``admin`` (or ``senior_manager``) role
+    on the given tenant. Used to gate destructive tenant-wide actions
+    (configure_government, isolation_mode, etc.) without forcing the
+    operator to be a platform-level superuser."""
+    if user is None or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if tenant is None:
+        return False
+    return UserTenantRole.objects.filter(
+        user=user, tenant=tenant, is_active=True,
+        role__in=('admin', 'senior_manager'),
+    ).exists()
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def configure_government(request):
@@ -1223,10 +1240,27 @@ def configure_government(request):
     GET: Returns current government configuration + list of available states.
     POST: Configure the tenant's government tier, state, and LGA.
           Triggers NCoA seeding for the selected state/tier.
+
+    POST is restricted to tenant admins (or superusers). The endpoint
+    re-seeds the entire Chart of Accounts for the tenant — letting any
+    authenticated user trigger this would let any tenant member wipe
+    and rebuild the live ledger.
     """
     tenant = getattr(request, 'tenant', None)
     if not tenant:
         return Response({'error': 'No tenant context'}, status=400)
+
+    # Authorisation gate for the destructive POST path.
+    if request.method == 'POST':
+        if not (request.user.is_superuser or _is_tenant_admin(request.user, tenant)):
+            return Response(
+                {'error': (
+                    'configure_government is restricted to tenant administrators. '
+                    'It re-seeds the Chart of Accounts and other tenant defaults; '
+                    'unauthorised use would corrupt your live ledger.'
+                )},
+                status=403,
+            )
 
     if request.method == 'GET':
         states = [
@@ -1324,7 +1358,10 @@ def configure_government(request):
 def isolation_mode(request):
     """
     GET: Returns current MDA isolation mode.
-    POST: Toggle between UNIFIED and SEPARATED.
+    POST: Toggle between UNIFIED and SEPARATED. Restricted to tenant
+          administrators — flipping from SEPARATED to UNIFIED exposes
+          every MDA's transactions to every user in the tenant
+          immediately, so it is a tenant-wide privacy event.
     """
     from django_tenants.utils import schema_context
     with schema_context('public'):
@@ -1334,6 +1371,17 @@ def isolation_mode(request):
         return Response({
             'mda_isolation_mode': tenant.mda_isolation_mode,
         })
+
+    # Authorisation gate for the privacy-event POST path.
+    if not (request.user.is_superuser or _is_tenant_admin(request.user, tenant)):
+        return Response(
+            {'error': (
+                'isolation_mode is restricted to tenant administrators. '
+                'Switching MDA isolation affects which users can see which '
+                'MDA records — only an admin should make that change.'
+            )},
+            status=403,
+        )
 
     mode = request.data.get('mda_isolation_mode', '')
     if mode not in ('UNIFIED', 'SEPARATED'):

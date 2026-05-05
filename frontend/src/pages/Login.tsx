@@ -201,31 +201,32 @@ const Login: React.FC = () => {
                         // for a public hostname. Same header-based
                         // fallback as the non-routable case.
                     } else if (target.host !== window.location.host) {
-                        // Cross-host redirect: ``localStorage`` doesn't
-                        // travel across origins, so we hand the auth
-                        // token + tenant info to the destination via
-                        // URL fragment. The fragment never reaches the
-                        // server (browsers strip ``#...`` from HTTP
-                        // requests) but the destination JS reads it on
-                        // mount, copies into its own ``localStorage``,
-                        // then strips the fragment from the URL bar
-                        // via ``history.replaceState`` so the token
-                        // doesn't sit in browser history.
-                        const token =
-                            localStorage.getItem('authToken') ??
-                            sessionStorage.getItem('authToken');
-                        const userJson =
-                            localStorage.getItem('user') ??
-                            sessionStorage.getItem('user');
-                        target.pathname = targetPath;
-                        const params = new URLSearchParams();
-                        if (token) params.set('t', token);
-                        if (userJson) params.set('u', btoa(unescape(encodeURIComponent(userJson))));
-                        params.set('d', domain);
-                        params.set('tn', tenant_name || '');
-                        if (role) params.set('r', String(role));
-                        if (permissions) params.set('p', btoa(JSON.stringify(permissions)));
-                        target.hash = params.toString();
+                        // Cross-host redirect: send the operator to
+                        // the tenant-specific origin without putting
+                        // the auth token in the URL.
+                        //
+                        // Previously this path embedded the live auth
+                        // token in the URL fragment (``#t=...``). Even
+                        // though browsers don't send the fragment on
+                        // HTTP requests, it's still visible in browser
+                        // history, DevTools navigation logs, and any
+                        // browser extension that reads
+                        // ``window.location.hash``. For an enterprise
+                        // financial system that is an unacceptable
+                        // credential exposure.
+                        //
+                        // The new flow:
+                        //   1. Redirect to the destination ``/login``
+                        //      with the tenant hint in a query param.
+                        //   2. Destination shows a tenant-specific
+                        //      login screen and the user re-enters
+                        //      credentials (or, if SSO is configured,
+                        //      authenticates silently).
+                        //
+                        // Token stays on the origin that issued it.
+                        target.pathname = '/login';
+                        target.search = `?tenant=${encodeURIComponent(domain)}`;
+                        target.hash = '';
                         window.location.replace(target.toString());
                         return; // Don't fall through to navigate() below.
                     }

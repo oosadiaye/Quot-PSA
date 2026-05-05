@@ -879,6 +879,13 @@ class UserSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_activity = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    # MFA freshness tracker — replaces the legacy ``request.session
+    # ['mfa_verified_at']`` stamp which was inoperative under stateless
+    # token auth (the session dict is empty between requests). When the
+    # user completes MFA verification, ``core.views.mfa.verify_mfa``
+    # writes ``timezone.now()`` here on this token's UserSession row.
+    # ``RequiresMFA`` reads it via the token attached to the request.
+    mfa_verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-last_activity']

@@ -190,10 +190,48 @@ def _user_is_mfa_enrolled(user) -> bool:
 
 
 def _session_mfa_is_fresh(request, max_age_minutes: int) -> bool:
-    """Whether the session's MFA verification is still fresh."""
+    """Whether the request's MFA verification is still fresh.
+
+    Checks both auth modes:
+
+    1. **Token auth** (production): reads ``mfa_verified_at`` from the
+       ``UserSession`` row keyed by the token attached to the request.
+       This is the canonical path because the production frontend uses
+       stateless DRF tokens; the Django session dict is empty between
+       requests so the legacy session-based check was inoperative.
+
+    2. **Session auth** (Django admin / legacy): falls back to
+       ``request.session['mfa_verified_at']``. Preserves backward
+       compatibility for the few admin-only flows that still use
+       cookie-session auth.
+
+    First mode that yields a fresh stamp wins.
+    """
     from datetime import datetime
     from django.utils import timezone
 
+    now = timezone.now()
+    threshold_seconds = max_age_minutes * 60
+
+    # Path 1 — token-attached UserSession (production token auth).
+    auth = getattr(request, 'auth', None)
+    token_key = getattr(auth, 'key', None)
+    if token_key:
+        try:
+            from core.models import UserSession
+            sess = UserSession.objects.filter(
+                token_key=token_key, is_active=True,
+            ).only('mfa_verified_at').first()
+            if sess and sess.mfa_verified_at:
+                age = (now - sess.mfa_verified_at).total_seconds()
+                if age <= threshold_seconds:
+                    return True
+        except Exception:
+            # If UserSession isn't queryable (migration order, schema
+            # drift), fall through to the session-cookie check.
+            pass
+
+    # Path 2 — Django session cookie (admin / legacy paths).
     session = getattr(request, 'session', None)
     if session is None:
         return False
@@ -204,5 +242,5 @@ def _session_mfa_is_fresh(request, max_age_minutes: int) -> bool:
         verified_at = datetime.fromisoformat(stamp)
     except (ValueError, TypeError):
         return False
-    age = timezone.now() - verified_at
-    return age.total_seconds() <= max_age_minutes * 60
+    age = now - verified_at
+    return age.total_seconds() <= threshold_seconds

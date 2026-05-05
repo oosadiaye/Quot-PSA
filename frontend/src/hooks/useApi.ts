@@ -1,8 +1,33 @@
+/**
+ * useApi.ts
+ * ---------
+ * **Deprecated.** Prefer ``apiClient`` (from ``src/api/client.ts``)
+ * via TanStack Query (``useQuery`` / ``useMutation``) for all new
+ * code. ``apiClient`` injects:
+ *   • ``Authorization`` header from the auth context
+ *   • ``X-Tenant-Domain`` and ``X-Organization-Id`` headers
+ *   • 401 → ``auth-expired`` event (handled by ``AuthContext``)
+ *
+ * The previous implementation here used raw ``fetch`` with NO header
+ * injection — every caller would have gone unauthenticated. There
+ * are currently zero callers in the codebase, but this file is kept
+ * (and rewritten as a thin ``apiClient`` wrapper) so any future
+ * accidental import doesn't silently bypass auth.
+ *
+ * ``useMutation`` re-export is preserved for callers that still use
+ * the lightweight pattern, but it now uses ``apiClient`` under the
+ * hood when a URL is supplied.
+ */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import apiClient from '../api/client';
+import type { AxiosRequestConfig } from 'axios';
 
-interface UseApiOptions extends RequestInit {
+interface UseApiOptions {
   skip?: boolean;
   timeout?: number;
+  method?: AxiosRequestConfig['method'];
+  data?: unknown;
+  params?: Record<string, unknown>;
 }
 
 interface UseApiState<T> {
@@ -19,98 +44,64 @@ interface UseApiReturn<T> extends UseApiState<T> {
 
 export function useApi<T = unknown>(
   url: string | null,
-  options: UseApiOptions = {}
+  options: UseApiOptions = {},
 ): UseApiReturn<T> {
-  const { skip = false, timeout = 30000, ...fetchOptions } = options;
-  
+  const { skip = false, timeout = 30000, method = 'GET', data: body, params } = options;
+
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(!skip);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<number | null>(null);
-  
+
   const abortControllerRef = useRef<AbortController | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchData = useCallback(() => {
     if (!url || skip) {
       setLoading(false);
       return;
     }
-
     const controller = new AbortController();
     abortControllerRef.current = controller;
-
     setLoading(true);
     setError(null);
-    setStatus(null);
 
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-      setError('Request timeout');
-      setLoading(false);
-    }, timeout);
-
-    timeoutRef.current = timeoutId;
-
-    fetch(url, {
-      ...fetchOptions,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...fetchOptions.headers,
-      },
-    })
-      .then((response) => {
-        setStatus(response.status);
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.location.href = '/login';
-            throw new Error('Unauthorized');
-          }
-          return response.json().then((err) => {
-            throw new Error(err.detail || `HTTP ${response.status}`);
-          });
-        }
-        return response.json();
+    apiClient
+      .request<T>({
+        url,
+        method,
+        data: body,
+        params,
+        signal: controller.signal,
+        timeout,
       })
-      .then((result) => {
-        clearTimeout(timeoutId);
-        setData(result);
+      .then((res) => {
+        setStatus(res.status);
+        setData(res.data);
         setError(null);
       })
       .catch((err) => {
-        clearTimeout(timeoutId);
-        if (err.name !== 'AbortError') {
-          setError(err.message || 'An unexpected error occurred');
-        }
+        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+        setStatus(err?.response?.status ?? null);
+        setError(err?.response?.data?.detail || err?.message || 'Request failed');
       })
-      .finally(() => {
-        setLoading(false);
-        clearTimeout(timeoutId);
-      });
-  }, [url, skip, timeout, fetchOptions]);
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, skip, timeout, method, JSON.stringify(body ?? null), JSON.stringify(params ?? null)]);
 
   const abort = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
+    abortControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
     fetchData();
-    return () => {
-      abort();
-    };
+    return () => abort();
   }, [fetchData, abort]);
 
   return { data, loading, error, status, refetch: fetchData, abort };
 }
 
 export function useMutation<TData = unknown, TVariables = unknown>(
-  mutationFn: (variables: TVariables) => Promise<TData>
+  mutationFn: (variables: TVariables) => Promise<TData>,
 ) {
   const [data, setData] = useState<TData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -132,8 +123,17 @@ export function useMutation<TData = unknown, TVariables = unknown>(
         setLoading(false);
       }
     },
-    [mutationFn]
+    [mutationFn],
   );
 
-  return { mutate, data, loading, error, reset: () => { setData(null); setError(null); } };
+  return {
+    mutate,
+    data,
+    loading,
+    error,
+    reset: () => {
+      setData(null);
+      setError(null);
+    },
+  };
 }
