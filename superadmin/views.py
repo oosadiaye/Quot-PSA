@@ -989,20 +989,31 @@ def tenant_change_plan(request, tenant_id):
     sub = getattr(tenant, 'subscription', None)
     old_plan = sub.plan if sub else None
 
+    # Map billing_cycle → months. Matches the canonical mapping used by
+    # ``payment_approve`` so the new-subscription end_date and the
+    # renewal end_date computed at payment time stay consistent.
+    # Falls back to 1 month for any unknown cycle (the safest default —
+    # short cycle means more frequent billing prompts, not free time).
+    _BILLING_MONTHS = {'monthly': 1, 'quarterly': 3, 'yearly': 12}
+
     with transaction.atomic():
         if sub:
             sub.plan = plan
             sub.status = 'active'
             sub.save(update_fields=['plan', 'status'])
         else:
+            months = _BILLING_MONTHS.get(plan.billing_cycle, 1)
             TenantSubscription.objects.create(
                 tenant=tenant,
                 plan=plan,
                 status='active',
                 start_date=timezone.now().date(),
-                end_date=timezone.now().date() + timedelta(
-                    days=30 if plan.billing_cycle == 'monthly' else 365
-                ),
+                # ``relativedelta`` (already imported at top of module
+                # for ``payment_approve``) handles month-boundary edge
+                # cases correctly — adding ``timedelta(days=90)`` to
+                # 31-Jan would produce 1-May, while
+                # ``relativedelta(months=3)`` produces 30-Apr.
+                end_date=timezone.now().date() + relativedelta(months=months),
             )
 
         # Sync modules in the tenant's own schema to match the new plan
@@ -1022,6 +1033,17 @@ def tenant_change_plan(request, tenant_id):
 
     send_plan_change_email(tenant, old_plan, plan)
     cache.delete('superadmin_dashboard_stats')
+
+    # Audit-log plan changes — they affect tenant module entitlements
+    # AND billing cadence, so they belong in the security log next to
+    # impersonation and bulk-delete events.
+    security_logger.info(
+        'TENANT_PLAN_CHANGE: tenant=%s old=%s new=%s by=%s',
+        tenant.schema_name,
+        old_plan.name if old_plan else 'none',
+        plan.name,
+        request.user.username,
+    )
 
     return Response({'message': 'Plan changed successfully', 'new_plan': plan.name})
 
@@ -1120,6 +1142,22 @@ def payment_approve(request, payment_id):
 
     if action not in ('approve', 'reject'):
         return Response({'error': 'action must be "approve" or "reject"'}, status=400)
+
+    # Defence-in-depth: refuse to act on a payment whose ``tenant`` and
+    # ``subscription.tenant`` disagree. Only a corrupted row (or a
+    # malicious tenant-side write) can produce that state, but
+    # approving such a row would extend the WRONG tenant's
+    # subscription end_date — silent billing fraud.
+    if (
+        payment.subscription
+        and payment.subscription.tenant_id
+        and payment.tenant_id
+        and payment.subscription.tenant_id != payment.tenant_id
+    ):
+        return Response(
+            {'error': 'Payment tenant does not match its subscription tenant; refusing to act.'},
+            status=409,
+        )
 
     with transaction.atomic():
         if action == 'approve':
@@ -1680,13 +1718,21 @@ def impersonate_user(request):
                 if User.objects.filter(email=auto_email).exists():
                     auto_email = f"admin{tenant.id}@{tenant.schema_name}.dtsg.test"
 
+                # ``is_staff=False`` is intentional — tenant admins do
+                # not need (and must not have) access to the Django
+                # ``/admin/`` site. ``is_staff`` is reserved for
+                # platform-level superadmins (see
+                # ``superadmin/management/commands/create_superadmin.py``).
+                # The tenant-side "admin" role is enforced via
+                # ``UserTenantRole.role='admin'`` below, not via the
+                # auth.User.is_staff flag.
                 target_user = User.objects.create_user(
                     username=auto_username.lower(),
                     email=auto_email,
                     password=auto_password,
                     first_name='Admin',
                     last_name=tenant.name,
-                    is_staff=True,
+                    is_staff=False,
                     is_superuser=False,
                 )
                 UserTenantRole.objects.create(
