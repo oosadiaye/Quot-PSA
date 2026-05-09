@@ -105,6 +105,11 @@ class BudgetValidationService:
 
         # 1. Find active appropriation — case-insensitive status so
         # seed scripts that wrote 'Active' or 'active' still match.
+        # Lock the row when we're already in a transaction; this prevents
+        # two concurrent posters from reading a stale cached_total_committed
+        # between their respective writes (parity with
+        # accounting.services.procurement_commitments which already locks).
+        from django.db import transaction
         qs = Appropriation.objects.filter(
             administrative_id=administrative_id,
             economic_id=economic_id,
@@ -112,7 +117,8 @@ class BudgetValidationService:
             fiscal_year_id=fiscal_year_id,
             status__iexact='ACTIVE',
         )
-        appropriation = qs.first()
+        with transaction.atomic():
+            appropriation = qs.select_for_update().first()
 
         if appropriation is None:
             # Ask the policy what to do when no appropriation exists.

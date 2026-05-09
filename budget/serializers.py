@@ -94,7 +94,7 @@ BudgetAllocationSerializer = UnifiedBudgetSerializer
 
 # ─── Government Appropriation & Warrant (Quot PSE Phase 3) ───────────
 
-from .models import Appropriation, Warrant
+from .models import Appropriation, Warrant, WarrantPrintoutSettings
 
 
 class AppropriationSerializer(serializers.ModelSerializer):
@@ -116,7 +116,27 @@ class AppropriationSerializer(serializers.ModelSerializer):
     total_warrants_released = serializers.DecimalField(
         max_digits=20, decimal_places=2, read_only=True,
     )
+    # PO-only commitment total — read by budget-check rules & virement
+    # services. Kept as-is for backwards compatibility with those callers.
     total_committed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    # Live recompute of total_committed (bypasses cached_total_committed).
+    # Used by E2E invariants to detect cache drift; ops should compare
+    # this to ``total_committed`` and alert on mismatch.
+    total_committed_live = serializers.SerializerMethodField()
+    cached_total_committed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True, allow_null=True,
+    )
+    # Contract-driven commitments (live aggregate of ContractYearPlan rows
+    # referencing this appropriation). New in the multi-year contract
+    # feature; surfaces commitments that ``total_committed`` doesn't see.
+    total_contract_committed = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    # Combined PO + Contract commitments — what the appropriation
+    # dashboard's "Committed" column should render.
+    total_all_committed = serializers.DecimalField(
         max_digits=20, decimal_places=2, read_only=True,
     )
     total_expended = serializers.DecimalField(
@@ -139,11 +159,22 @@ class AppropriationSerializer(serializers.ModelSerializer):
             'geographic', 'geographic_code', 'geographic_name',
             'amount_approved', 'appropriation_type', 'status',
             'law_reference', 'enactment_date', 'description', 'notes',
-            'total_warrants_released', 'total_committed',
+            'total_warrants_released',
+            'total_committed', 'cached_total_committed', 'total_committed_live',
+            'total_contract_committed', 'total_all_committed',
             'total_expended', 'available_balance', 'execution_rate',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_total_committed_live(self, obj: Appropriation) -> str:
+        """Live aggregate of open commitments — bypasses cache."""
+        from decimal import Decimal
+        from django.db.models import Sum
+        live = obj.commitments.filter(
+            status__in=['ACTIVE', 'INVOICED'],
+        ).aggregate(total=Sum('committed_amount'))['total'] or Decimal('0')
+        return str(live)
 
     def validate(self, attrs):
         """Business-rule pre-check: one active row per dimension tuple.
@@ -198,8 +229,16 @@ class WarrantSerializer(serializers.ModelSerializer):
     appropriation_mda = serializers.CharField(
         source='appropriation.administrative.name', read_only=True,
     )
+    appropriation_mda_code = serializers.CharField(
+        source='appropriation.administrative.code', read_only=True,
+    )
     appropriation_account = serializers.CharField(
         source='appropriation.economic.name', read_only=True,
+    )
+    # Economic code surfaces in the printout's Code column. Without
+    # this, multi-line composite warrants would only show the name.
+    appropriation_economic_code = serializers.CharField(
+        source='appropriation.economic.code', read_only=True,
     )
     attachment_url = serializers.SerializerMethodField()
     # ── Live appropriation snapshot ────────────────────────────────────
@@ -215,12 +254,38 @@ class WarrantSerializer(serializers.ModelSerializer):
     appropriation_available_balance = serializers.SerializerMethodField()
     appropriation_total_warrants_released = serializers.SerializerMethodField()
 
+    # Real-time expiry overlay — see ``Warrant.effective_status`` for
+    # the rules. Surfaced separately from ``status`` so the UI can
+    # render the live state without losing the persisted value (useful
+    # in audit views that want to see when a row was *last* persisted
+    # vs. its current effective state).
+    effective_status = serializers.CharField(read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    # Effective period bounds — used by the create form's date pickers
+    # and the print layout's title block. ``required=False`` so legacy
+    # rows with only a ``quarter`` value still serialize; the
+    # ``fiscal_year_start_date`` / ``_end_date`` derived from the
+    # appropriation are exposed so the frontend can default new
+    # warrants to the full fiscal year (the "annual" default).
+    effective_from = serializers.DateField(required=False)
+    effective_to = serializers.DateField(required=False)
+    fiscal_year_start_date = serializers.DateField(
+        source='appropriation.fiscal_year.start_date', read_only=True,
+    )
+    fiscal_year_end_date = serializers.DateField(
+        source='appropriation.fiscal_year.end_date', read_only=True,
+    )
+
     class Meta:
         model = Warrant
         fields = [
-            'id', 'appropriation', 'appropriation_mda', 'appropriation_account',
-            'quarter', 'amount_released', 'release_date',
+            'id', 'appropriation', 'appropriation_mda', 'appropriation_mda_code',
+            'appropriation_account', 'appropriation_economic_code',
+            'quarter', 'effective_from', 'effective_to',
+            'fiscal_year_start_date', 'fiscal_year_end_date',
+            'amount_released', 'release_date',
             'authority_reference', 'issued_by', 'status',
+            'effective_status', 'is_expired',
             'attachment', 'attachment_url', 'notes',
             'appropriation_amount_approved',
             'appropriation_total_committed',
@@ -231,12 +296,30 @@ class WarrantSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'attachment_url',
+            'effective_status', 'is_expired',
+            'fiscal_year_start_date', 'fiscal_year_end_date',
             'appropriation_amount_approved',
             'appropriation_total_committed',
             'appropriation_total_expended',
             'appropriation_available_balance',
             'appropriation_total_warrants_released',
         ]
+
+    def validate(self, attrs):
+        """Run the model's clean() so ``effective_to >= effective_from``,
+        the range-overlap rule and the cumulative-budget ceiling are
+        enforced consistently across single-create, bulk-create and
+        admin writes."""
+        attrs = super().validate(attrs)
+        instance = Warrant(
+            **{k: v for k, v in attrs.items() if k != 'attachment'}
+        )
+        # Carry the existing pk on update so clean() excludes self
+        # from the overlap check.
+        if self.instance is not None:
+            instance.pk = self.instance.pk
+        instance.clean()
+        return attrs
 
     def _appr(self, obj):
         return getattr(obj, 'appropriation', None)
@@ -409,3 +492,100 @@ class AppropriationVirementSerializer(serializers.ModelSerializer):
                 ),
             })
         return attrs
+
+
+class WarrantPrintoutSettingsSerializer(serializers.ModelSerializer):
+    """Tenant-wide warrant-printout configuration.
+
+    All image fields ride alongside the JSON shape and accept multipart
+    uploads on PATCH. The frontend renders the existing image as a small
+    preview using the URL supplied on read; uploading a new file replaces
+    it. Pass ``null`` (or an empty form value) to clear a slot.
+
+    The reference PDF (``reference_pdf_template``) is a design artefact —
+    operators upload the agreed sample warrant PDF so it stays linked to
+    this configuration; the printout itself is rendered fresh from each
+    warrant's actual data, never from the stored PDF.
+    """
+
+    letterhead_logo_url = serializers.SerializerMethodField()
+    governor_signature_url = serializers.SerializerMethodField()
+    finance_commissioner_signature_url = serializers.SerializerMethodField()
+    accountant_general_signature_url = serializers.SerializerMethodField()
+    reference_pdf_template_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WarrantPrintoutSettings
+        fields = [
+            'id',
+            # Letterhead
+            'state_name', 'ministry_of_finance_name', 'office_address',
+            'letterhead_logo', 'letterhead_logo_url',
+            # Signatory: Governor
+            'governor_name', 'governor_title',
+            'governor_signature', 'governor_signature_url',
+            # Signatory: Finance Commissioner
+            'finance_commissioner_name', 'finance_commissioner_title',
+            'finance_commissioner_signature',
+            'finance_commissioner_signature_url',
+            # Signatory: Accountant-General
+            'accountant_general_name', 'accountant_general_title',
+            'accountant_general_signature',
+            'accountant_general_signature_url',
+            # Footer + reference
+            'footer_notes',
+            'reference_pdf_template', 'reference_pdf_template_url',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+        # Image / file fields are write-only on the form FK — read access
+        # goes through the *_url method fields so the frontend gets a
+        # ready-to-render absolute URL with the auth token.
+        extra_kwargs = {
+            'letterhead_logo': {'write_only': True, 'required': False},
+            'governor_signature': {'write_only': True, 'required': False},
+            'finance_commissioner_signature': {'write_only': True, 'required': False},
+            'accountant_general_signature': {'write_only': True, 'required': False},
+            'reference_pdf_template': {'write_only': True, 'required': False},
+        }
+
+    def _absolute(self, request, field):
+        """Return absolute URL for an uploaded file, or None.
+
+        Wrapping ``request.build_absolute_uri`` in a single helper keeps
+        the five getters trivial and consistent. Falls back to a relative
+        URL if no request is in context (rare — admin shell, mainly).
+        """
+        if not field:
+            return None
+        try:
+            url = field.url
+        except (ValueError, AttributeError):
+            return None
+        if request is None:
+            return url
+        return request.build_absolute_uri(url)
+
+    def get_letterhead_logo_url(self, obj):
+        return self._absolute(self.context.get('request'), obj.letterhead_logo)
+
+    def get_governor_signature_url(self, obj):
+        return self._absolute(self.context.get('request'), obj.governor_signature)
+
+    def get_finance_commissioner_signature_url(self, obj):
+        return self._absolute(
+            self.context.get('request'),
+            obj.finance_commissioner_signature,
+        )
+
+    def get_accountant_general_signature_url(self, obj):
+        return self._absolute(
+            self.context.get('request'),
+            obj.accountant_general_signature,
+        )
+
+    def get_reference_pdf_template_url(self, obj):
+        return self._absolute(
+            self.context.get('request'),
+            obj.reference_pdf_template,
+        )
