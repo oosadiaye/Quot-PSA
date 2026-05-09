@@ -364,9 +364,11 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        # Global burst limits.
-        'anon': '100/hour',
-        'user': '1000/hour',
+        # Global burst limits — env-configurable so test runs (which
+        # batch dozens of API calls per spec) can raise the ceiling
+        # without changing prod behaviour.
+        'anon': os.getenv('ANON_THROTTLE_RATE', '100/hour'),
+        'user': os.getenv('USER_THROTTLE_RATE', '1000/hour'),
         # Per-endpoint scopes. Apply via
         #     throttle_classes = [ScopedRateThrottle]
         #     throttle_scope = '<name>'
