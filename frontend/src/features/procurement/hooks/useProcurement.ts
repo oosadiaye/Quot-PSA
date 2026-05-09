@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
+import { invalidateProcurementCaches } from './invalidateProcurement';
 
 // ============================================================================
 // PAYLOAD INTERFACES
@@ -342,10 +343,10 @@ export const useConvertPRtoPO = () => {
             });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
-            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-        },
+        // PR→PO conversion changes both PR active_po_* fields and creates
+        // a new PO row. Once the PO is approved a commitment lands; cover
+        // the broader fan-out via the shared invalidator.
+        onSuccess: () => invalidateProcurementCaches(queryClient),
     });
 };
 
@@ -422,14 +423,10 @@ export const usePostPO = () => {
             });
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-alerts'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-encumbrances'] });
-            // PO posting records DR Inventory / CR AP and increments vendor.balance
-            queryClient.invalidateQueries({ queryKey: ['vendors'] });
+            // PO posting affects journals, budget execution, vendor balances —
+            // delegate to the shared procurement invalidator (covers all P2P,
+            // budget-dependent, and GL-dependent keys in one call).
+            invalidateProcurementCaches(queryClient);
             queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
         },
         onError: () => {
@@ -460,12 +457,10 @@ export const useApprovePO = () => {
             const { data } = await apiClient.post(`/procurement/orders/${id}/approve/`);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-            queryClient.invalidateQueries({ queryKey: ['purchase-order'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
-        },
+        // PO approval creates a ProcurementBudgetLink (ACTIVE) and
+        // recomputes Appropriation.cached_total_committed — so every
+        // budget/appropriation query needs to refetch.
+        onSuccess: () => invalidateProcurementCaches(queryClient),
     });
 };
 
@@ -556,22 +551,16 @@ export const usePostGRN = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['grns'] });
-            queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-            // Cross-module: GRN posting creates stock movements and updates inventory
+            // GRN posting flips ProcurementBudgetLink ACTIVE→INVOICED,
+            // posts an AP journal, creates stock movements, and updates
+            // vendor balance. Single invalidator call covers all P2P,
+            // budget, and GL keys; tack on inventory keys explicitly.
+            invalidateProcurementCaches(queryClient);
             queryClient.invalidateQueries({ queryKey: ['items'] });
             queryClient.invalidateQueries({ queryKey: ['stock-movements'] });
             queryClient.invalidateQueries({ queryKey: ['inventory-stocks'] });
-            queryClient.invalidateQueries({ queryKey: ['inventory-stock'] }); // prefix match
+            queryClient.invalidateQueries({ queryKey: ['inventory-stock'] });
             queryClient.invalidateQueries({ queryKey: ['inventory-valuation'] });
-            // GRN posting also posts AP journal and affects budget utilization
-            queryClient.invalidateQueries({ queryKey: ['journals'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-summary'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-utilization'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-alerts'] });
-            queryClient.invalidateQueries({ queryKey: ['budget-encumbrances'] });
-            // When PO is not yet Posted, GRN posting increments vendor.balance
-            queryClient.invalidateQueries({ queryKey: ['vendors'] });
             queryClient.invalidateQueries({ queryKey: ['vendor-ledger'] });
         },
     });
