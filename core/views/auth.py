@@ -100,10 +100,18 @@ def _set_auth_cookie(response, token_key: str) -> None:
     """
     if not getattr(settings, 'AUTH_COOKIE_ENABLED', False):
         return
+    # Prefer the explicit AUTH_COOKIE_MAX_AGE setting (seconds). Fall
+    # back to TOKEN_EXPIRATION_HOURS for older configs that don't set
+    # the new var. Keeps the cookie lifetime aligned with token TTL.
+    max_age = int(getattr(
+        settings,
+        'AUTH_COOKIE_MAX_AGE',
+        int(getattr(settings, 'TOKEN_EXPIRATION_HOURS', 24)) * 3600,
+    ))
     response.set_cookie(
         key=getattr(settings, 'AUTH_COOKIE_NAME', 'auth_token'),
         value=token_key,
-        max_age=int(getattr(settings, 'TOKEN_EXPIRATION_HOURS', 24)) * 3600,
+        max_age=max_age,
         secure=getattr(settings, 'AUTH_COOKIE_SECURE', True),
         httponly=True,
         samesite=getattr(settings, 'AUTH_COOKIE_SAMESITE', 'Lax'),
@@ -249,16 +257,25 @@ def login_view(request):
             getattr(user, 'pk', '?'), exc,
         )
 
-    response = Response({
+    # AUTH_COOKIE_ONLY suppresses the token in the response body so the
+    # browser MUST use the httpOnly cookie. Defaults to False so the
+    # current frontend builds (which still read the token from the body
+    # during the migration window) keep working. Cookie itself is set
+    # below whenever AUTH_COOKIE_ENABLED is True regardless of the
+    # ONLY flag.
+    body = {
         'user': UserSerializer(user).data,
-        'token': token.key,
         'tenants': tenants,
         'email_verified': email_verified,
-    })
+    }
+    if not getattr(settings, 'AUTH_COOKIE_ONLY', False):
+        body['token'] = token.key
+    response = Response(body)
     # Cookie path: no-op when AUTH_COOKIE_ENABLED is False (default).
     # When enabled, the SAME token is also returned as an httpOnly
     # cookie so the browser never has to surface it to JavaScript.
-    # Legacy callers reading the JSON body continue to work.
+    # Legacy callers reading the JSON body continue to work as long as
+    # AUTH_COOKIE_ONLY is False (the default).
     _set_auth_cookie(response, token.key)
     return response
 

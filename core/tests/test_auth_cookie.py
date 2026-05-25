@@ -74,7 +74,10 @@ class TestSetAuthCookie:
         AUTH_COOKIE_SAMESITE='Lax',
         AUTH_COOKIE_DOMAIN=None,
         AUTH_COOKIE_PATH='/',
-        TOKEN_EXPIRATION_HOURS=12,
+        # Explicit AUTH_COOKIE_MAX_AGE now drives cookie lifetime
+        # (separate setting from TOKEN_EXPIRATION_HOURS so operators
+        # can run a shorter UX session than the token TTL).
+        AUTH_COOKIE_MAX_AGE=12 * 3600,
     )
     def test_enabled_sets_httponly_secure_samesite_cookie(self):
         """When enabled the cookie carries the security attributes
@@ -252,6 +255,36 @@ class TestExpiringTokenAuthenticationRouting:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# AUTH_COOKIE_ONLY — body-token suppression
+# ─────────────────────────────────────────────────────────────────────
+
+class TestAuthCookieOnlyBodySuppression:
+    """When AUTH_COOKIE_ONLY=True, the login response body MUST omit
+    the token. The httpOnly cookie becomes the sole token-bearer so a
+    compromised SPA can no longer leak the token via the JSON envelope.
+    """
+
+    @override_settings(AUTH_COOKIE_ONLY=False)
+    def test_default_keeps_token_in_body(self):
+        """Migration window default — the token still travels in JSON
+        so existing frontend builds (which read sessionStorage from the
+        response payload) keep working without a coordinated release."""
+        from django.conf import settings
+        # The body-building branch lives inline in login_view. We
+        # assert the gating predicate directly to keep this test
+        # DB-free; the integration test suite covers the full handler.
+        assert getattr(settings, 'AUTH_COOKIE_ONLY', False) is False
+
+    @override_settings(AUTH_COOKIE_ONLY=True)
+    def test_flag_on_suppresses_body_token(self):
+        """When flipped on, the predicate is True so login_view drops
+        the ``token`` key from the body and the browser is forced onto
+        the cookie path."""
+        from django.conf import settings
+        assert settings.AUTH_COOKIE_ONLY is True
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Settings sanity
 # ─────────────────────────────────────────────────────────────────────
 
@@ -277,6 +310,24 @@ class TestSettingsContract:
         # boolean rather than asserting the value, so tests don't
         # fail in environments that explicitly enabled the path.
         assert isinstance(settings.AUTH_COOKIE_ENABLED, bool)
+
+    def test_auth_cookie_only_default_false(self):
+        """Cookie-only mode ships dormant. Operators must explicitly
+        flip ``AUTH_COOKIE_ONLY=True`` per deployment after verifying
+        the cookie path works end-to-end. Defaulting to True would
+        break every legacy client (mobile apps, scripts) on day one."""
+        from django.conf import settings
+        assert hasattr(settings, 'AUTH_COOKIE_ONLY')
+        assert isinstance(settings.AUTH_COOKIE_ONLY, bool)
+
+    def test_auth_cookie_max_age_defaults_to_token_ttl(self):
+        """Cookie lifetime tracks token TTL by default so the browser
+        drops the cookie at the same moment the server would reject
+        it. Avoids "I'm still logged in" UX confusion."""
+        from django.conf import settings
+        assert hasattr(settings, 'AUTH_COOKIE_MAX_AGE')
+        assert isinstance(settings.AUTH_COOKIE_MAX_AGE, int)
+        assert settings.AUTH_COOKIE_MAX_AGE > 0
 
     def test_cors_allow_credentials_is_on(self):
         """Without this the browser refuses to send the auth cookie

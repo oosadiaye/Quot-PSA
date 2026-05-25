@@ -1,4 +1,13 @@
 import React, { createContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import apiClient from '../api/client';
+
+// VITE_AUTH_COOKIE_ONLY is the frontend twin of the backend
+// AUTH_COOKIE_ONLY flag. When 'true', the SPA does NOT write the
+// auth token to sessionStorage on login and hydrates user state via
+// GET /core/users/me/ on mount. Defaults to false during the
+// migration window so existing builds keep working unchanged.
+const COOKIE_ONLY =
+  String(import.meta.env.VITE_AUTH_COOKIE_ONLY ?? 'false').toLowerCase() === 'true';
 
 interface UserInfo {
     id: number;
@@ -171,8 +180,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // for the lifetime of the browser profile. ``user`` is mirrored
         // to both storages because it's non-sensitive (display name /
         // role) and the right-click → "Open in new tab" UX needs it.
-        // (Token-bearing httpOnly cookie migration is the long-term fix.)
-        sessionStorage.setItem('authToken', token);
+        //
+        // COOKIE_ONLY mode: the backend has set an httpOnly cookie so
+        // the token never needs to touch storage. Skip the
+        // sessionStorage write entirely — the cookie is authoritative
+        // and survives navigation natively. We still mirror ``user``
+        // (display name / role) for fast first-render and for the
+        // multi-tab "right-click open in new tab" UX.
+        if (!COOKIE_ONLY) {
+            sessionStorage.setItem('authToken', token);
+        }
         sessionStorage.setItem('user', JSON.stringify(newUser));
         localStorage.setItem('user', JSON.stringify(newUser));
 
@@ -215,6 +232,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     const logout = useCallback(() => {
+        // Hit the server logout endpoint so the backend deletes both
+        // the auth token (server-side) AND the httpOnly cookie
+        // (Set-Cookie max-age=0). Fire-and-forget — if it fails the
+        // local state is still cleared below and the token will be
+        // garbage-collected by the next expiry sweep.
+        apiClient.post('/core/auth/logout/').catch(() => {
+            /* swallow — local cleanup below is the source of truth */
+        });
         // Clear auth data from both storages
         const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo',
                       'tenantPermissions', 'activeTenant', 'impersonation',
@@ -231,6 +256,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserOrganizations([]);
         setMdaIsolationMode('UNIFIED');
     }, []);
+
+    // ── Cookie-only hydration ─────────────────────────────────────────
+    //
+    // In cookie-only mode the SPA has no token in storage to detect
+    // "am I logged in?". On mount we ping /core/users/me/ — if the
+    // browser holds the httpOnly auth cookie the request succeeds
+    // and we hydrate ``user`` from the response. 401 means anonymous
+    // and we leave state empty (ProtectedRoute redirects to /login).
+    //
+    // Skipped entirely when COOKIE_ONLY is false: the legacy storage-
+    // read path already hydrated ``user`` synchronously above.
+    useEffect(() => {
+        if (!COOKIE_ONLY) return;
+        if (user) return;  // already hydrated from a previous mount cycle
+        let cancelled = false;
+        apiClient.get('/core/users/me/').then((res) => {
+            if (cancelled) return;
+            const data = res.data || {};
+            // Shape parity with login response — username/email/etc.
+            setUser({
+                id: data.id,
+                username: data.username,
+                email: data.email,
+                first_name: data.first_name,
+                last_name: data.last_name,
+                is_superuser: data.is_superuser,
+            });
+        }).catch(() => {
+            /* 401/network — leave state empty, user is anonymous */
+        });
+        return () => { cancelled = true; };
+    }, [user]);
 
     // Sync with storage changes from other tabs (localStorage only — sessionStorage doesn't fire cross-tab)
     useEffect(() => {
@@ -282,6 +339,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // typeof check so older browsers degrade gracefully.
     useEffect(() => {
         if (typeof BroadcastChannel === 'undefined') return;
+        // COOKIE_ONLY: the httpOnly cookie is shared natively across
+        // tabs in the same browser profile so we don't need to replay
+        // the token via BroadcastChannel. Skip the whole handshake to
+        // avoid race conditions between the /me/ hydration and an
+        // older sibling tab broadcasting stale storage values.
+        if (COOKIE_ONLY) return;
         const channel = new BroadcastChannel('quot-auth');
 
         type SyncMessage =

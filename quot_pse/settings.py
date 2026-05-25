@@ -515,6 +515,22 @@ AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
 AUTH_COOKIE_DOMAIN   = os.getenv('AUTH_COOKIE_DOMAIN', '') or None
 # Path defaults to '/' so the cookie travels with every API request.
 AUTH_COOKIE_PATH     = os.getenv('AUTH_COOKIE_PATH', '/')
+# AUTH_COOKIE_ONLY — when True the login response OMITS the token from
+# the JSON body, forcing the browser to rely solely on the httpOnly
+# cookie. Defaults to False so that during the migration window the
+# legacy clients (mobile, scripts, current frontend builds) keep
+# working. Flip per-tenant only AFTER ``AUTH_COOKIE_ENABLED`` has been
+# verified for that deployment. Cookie itself is still emitted whenever
+# AUTH_COOKIE_ENABLED is True regardless of this flag.
+AUTH_COOKIE_ONLY     = os.getenv('AUTH_COOKIE_ONLY', 'False').lower() == 'true'
+# AUTH_COOKIE_MAX_AGE — explicit cookie lifetime (seconds). Defaults to
+# TOKEN_EXPIRATION_HOURS so the browser drops the cookie at the same
+# moment the server-side token would be rejected. Override only if you
+# need a shorter UX session window than the token TTL.
+AUTH_COOKIE_MAX_AGE  = int(os.getenv(
+    'AUTH_COOKIE_MAX_AGE',
+    str(TOKEN_EXPIRATION_HOURS * 3600),
+))
 
 # =============================================================================
 # JWT SETTINGS

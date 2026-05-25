@@ -36,16 +36,29 @@ apiClient.interceptors.request.use((config) => {
     // Authorization header path — still emitted for the migration
     // window so users who logged in before AUTH_COOKIE_ENABLED was
     // flipped on continue to authenticate. After the migration is
-    // complete the localStorage read can be deleted; the cookie
+    // complete the sessionStorage read can be deleted; the cookie
     // travels via ``withCredentials: true`` above.
-    // Auth tokens are stored in sessionStorage only — localStorage is
-    // XSS-readable for the lifetime of the browser profile. sessionStorage
-    // is still XSS-readable while the tab is open but at least dies with
-    // the tab. (httpOnly cookie migration is the proper fix; tracked
-    // separately.)
-    const token = sessionStorage.getItem('authToken');
-    if (token) {
-      config.headers['Authorization'] = `Token ${token}`;
+    //
+    // ``VITE_AUTH_COOKIE_ONLY`` is the frontend twin of the backend
+    // ``AUTH_COOKIE_ONLY`` flag. When True the SPA stops reading from
+    // sessionStorage entirely — auth is cookie-only and the backend
+    // hydrates state via ``GET /api/v1/core/users/me/``. Defaults to
+    // false so existing builds keep working. When the cookie path is
+    // active and BOTH are present, the backend prefers the header
+    // (back-compat); the cookie kicks in for browsers that never
+    // received a body token (cookie-only mode).
+    const cookieOnly =
+      String(import.meta.env.VITE_AUTH_COOKIE_ONLY ?? 'false').toLowerCase() === 'true';
+    if (!cookieOnly) {
+      // Auth tokens are stored in sessionStorage only — localStorage is
+      // XSS-readable for the lifetime of the browser profile. sessionStorage
+      // is still XSS-readable while the tab is open but at least dies with
+      // the tab. (httpOnly cookie migration is the proper fix; tracked
+      // separately.)
+      const token = sessionStorage.getItem('authToken');
+      if (token) {
+        config.headers['Authorization'] = `Token ${token}`;
+      }
     }
 
     // Tenant resolution: hostname (subdomain) wins over localStorage so
