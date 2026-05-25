@@ -176,16 +176,35 @@ class TestDuplicateIPC:
         self, activated_contract, drafter,
     ):
         """
-        The partial unique index on integrity_hash fires at save() time.
-        Two IPCs with identical contract/period_from/period_to/cumulative
-        must collide.
+        The partial unique index on integrity_hash is a defence-in-depth
+        backstop. Two IPCs with identical (contract, posting_date,
+        cumulative) must collide at the DB level even if the service
+        layer's MonotonicityError check is bypassed (which is what would
+        happen for any code path that calls the model's ``save()``
+        directly — e.g. a future import pipeline).
         """
-        from contracts.services.exceptions import DuplicateIPCError
+        # First IPC via the service to populate normal state.
+        first = _submit(activated_contract, drafter, cumulative="10000000.00")
 
-        _submit(activated_contract, drafter, cumulative="10000000.00")
-        with pytest.raises(DuplicateIPCError):
-            # Exact same period + cumulative.
-            _submit(activated_contract, drafter, cumulative="10000000.00")
+        # Bypass the service entirely and try to write a row with the
+        # same integrity_hash directly through the ORM. The unique
+        # index on ``integrity_hash`` (partial WHERE NOT NULL) must
+        # reject it.
+        from contracts.models import InterimPaymentCertificate, IPCStatus
+        # The partial unique index only covers active rows (WHERE status
+        # NOT IN ('REJECTED', 'DRAFT')) — set SUBMITTED so the constraint
+        # actually fires.
+        dup = InterimPaymentCertificate(
+            contract=activated_contract,
+            posting_date=first.posting_date,
+            cumulative_work_done_to_date=first.cumulative_work_done_to_date,
+            status=IPCStatus.SUBMITTED,
+            created_by=drafter,
+            updated_by=drafter,
+        )
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                dup.save()
 
 
 # ── #7 Retention cap ───────────────────────────────────────────────────
@@ -355,7 +374,10 @@ class TestStateMachine:
         ipc = _submit(activated_contract, drafter, cumulative="5000000.00")
         IPCService.certify(ipc=ipc, actor=certifier)
         IPCService.approve(ipc=ipc, actor=approver)
-        IPCService.raise_voucher(
+        # ``raise_voucher`` re-loads the IPC under SELECT FOR UPDATE and
+        # mutates the locked copy, not the caller's snapshot. Capture
+        # the returned instance to observe the post-transition state.
+        ipc = IPCService.raise_voucher(
             ipc=ipc, payment_voucher_id=payment_voucher.id,
             voucher_gross=ipc.net_payable, actor=voucher_raiser,
         )
@@ -429,8 +451,10 @@ class TestHappyPath:
         assert bal.pending_voucher_amount == Decimal("0.00")
         assert ipc.status == IPCStatus.APPROVED
 
-        # Voucher
-        IPCService.raise_voucher(
+        # Voucher — capture the returned (locked-and-reloaded) IPC
+        # because raise_voucher mutates a SELECT FOR UPDATE copy, not
+        # the caller's snapshot.
+        ipc = IPCService.raise_voucher(
             ipc=ipc, payment_voucher_id=payment_voucher.id,
             voucher_gross=ipc.net_payable, actor=voucher_raiser,
         )

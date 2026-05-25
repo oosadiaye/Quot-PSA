@@ -52,13 +52,24 @@ class TestFiscalPeriodReopenGate:
 
     def test_reopen_requires_reason(self, closed_fiscal_period, superuser, rf):
         """reopen without a reason (or with a short one) returns 400."""
+        # FiscalPeriodViewSet.reopen reads ``request.data`` (DRF), so
+        # the test request must be built via DRF's APIRequestFactory —
+        # Django's plain RequestFactory yields a WSGIRequest that only
+        # exposes ``request.POST``.
+        from rest_framework.test import APIRequestFactory
+        from rest_framework.request import Request
         from accounting.views.period_fiscal import FiscalPeriodViewSet
+        _drf = APIRequestFactory()
         viewset = FiscalPeriodViewSet()
         viewset.kwargs = {'pk': closed_fiscal_period.pk}
-        viewset.request = rf.post(
-            f'/periods/{closed_fiscal_period.pk}/reopen/',
-            {'reason': 'oops'},  # too short (< 10 chars)
-            content_type='application/json',
+        from rest_framework.parsers import JSONParser
+        viewset.request = Request(
+            _drf.post(
+                f'/periods/{closed_fiscal_period.pk}/reopen/',
+                {'reason': 'oops'},  # too short (< 10 chars)
+                format='json',
+            ),
+            parsers=[JSONParser()],
         )
         viewset.request.user = superuser
         viewset.format_kwarg = None
@@ -69,13 +80,20 @@ class TestFiscalPeriodReopenGate:
     def test_reopen_refused_without_permission(self, closed_fiscal_period,
                                                maker_user, rf):
         """Regular users (no is_staff, no reopen_fiscal_period perm) are 403."""
+        from rest_framework.test import APIRequestFactory
+        from rest_framework.request import Request
         from accounting.views.period_fiscal import FiscalPeriodViewSet
+        _drf = APIRequestFactory()
         viewset = FiscalPeriodViewSet()
         viewset.kwargs = {'pk': closed_fiscal_period.pk}
-        viewset.request = rf.post(
-            f'/periods/{closed_fiscal_period.pk}/reopen/',
-            {'reason': 'Need to amend prior year for audit'},
-            content_type='application/json',
+        from rest_framework.parsers import JSONParser
+        viewset.request = Request(
+            _drf.post(
+                f'/periods/{closed_fiscal_period.pk}/reopen/',
+                {'reason': 'Need to amend prior year for audit'},
+                format='json',
+            ),
+            parsers=[JSONParser()],
         )
         viewset.request.user = maker_user
         viewset.format_kwarg = None

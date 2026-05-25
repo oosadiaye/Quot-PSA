@@ -471,6 +471,11 @@ class JournalHeader(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
                             f"Cannot modify posted journal {prior.reference_number}: "
                             f"attempted to change {changed}. Reverse the journal instead."
                         )
+                # The base ``core.models.TransactionBase.save`` enforces a
+                # blanket "no Posted mutation" rule unless ``_allow_status_change``
+                # is passed. We've just run the more granular whitelist
+                # check above, so we explicitly bypass the base block here.
+                kwargs['_allow_status_change'] = True
         return super().save(*args, **kwargs)
 
 

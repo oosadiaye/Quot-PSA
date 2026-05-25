@@ -301,6 +301,26 @@ def fiscal_year(db):
             "period_type": "Yearly",
         },
     )
+    # Seed monthly FiscalPeriods so IPSAS journal posting passes the
+    # period gate (PeriodControlService.check_period_status). Without
+    # this, every IPC approve raises ``JournalPostingError: No period
+    # defined for date ...``.
+    from accounting.models import FiscalPeriod
+    import calendar
+    for m in range(1, 13):
+        last_day = calendar.monthrange(2026, m)[1]
+        FiscalPeriod.objects.get_or_create(
+            fiscal_year=2026,
+            period_number=m,
+            period_type="Monthly",
+            defaults={
+                "name": f"FY2026-P{m:02d}",
+                "start_date": date(2026, m, 1),
+                "end_date": date(2026, m, last_day),
+                "status": "Open",
+                "allow_journal_entry": True,
+            },
+        )
     return fy
 
 
@@ -323,7 +343,62 @@ def mda_segment(db):
 
 
 @pytest.fixture
-def _segments(db):
+def _legacy_accounts(db):
+    """Seed legacy ``accounting.Account`` rows the IPC accrual journal needs.
+
+    ``IPCService._post_accrual_journal`` (added pre fix-sweep) resolves
+    four GL accounts: the expense (bridged off the contract's NCoA
+    EconomicSegment), AP control, retention-held, and mobilization-recovery.
+    Without these the accrual journal raises ``TransactionPostingError``
+    and every test that takes the approve / mark_paid path fails.
+    """
+    from accounting.models import Account
+    expense, _ = Account.objects.get_or_create(
+        code="22010101",
+        defaults={
+            "name": "Construction Expenditure",
+            "account_type": "Expense",
+            "is_active": True,
+            "is_postable": True,
+        },
+    )
+    ap, _ = Account.objects.get_or_create(
+        code="41010001",
+        defaults={
+            "name": "Accounts Payable - Trade",
+            "account_type": "Liability",
+            "is_active": True,
+            "is_postable": True,
+            "is_reconciliation": True,
+            "reconciliation_type": "accounts_payable",
+        },
+    )
+    retention, _ = Account.objects.get_or_create(
+        code="41020001",
+        defaults={
+            "name": "Retention Held",
+            "account_type": "Liability",
+            "is_active": True,
+            "is_postable": True,
+            "reconciliation_type": "retention_held",
+        },
+    )
+    mob, _ = Account.objects.get_or_create(
+        code="12030001",
+        defaults={
+            "name": "Mobilization Advance Receivable",
+            "account_type": "Asset",
+            "is_active": True,
+            "is_postable": True,
+            "reconciliation_type": "mobilization_advance",
+        },
+    )
+    from types import SimpleNamespace
+    return SimpleNamespace(expense=expense, ap=ap, retention=retention, mob=mob)
+
+
+@pytest.fixture
+def _segments(db, _legacy_accounts):
     """Build one of each non-administrative NCoA segment for composite code."""
     from accounting.models import (
         EconomicSegment,
@@ -340,8 +415,14 @@ def _segments(db):
             "is_posting_level": True,
             "normal_balance": "DEBIT",
             "is_active": True,
+            "legacy_account": _legacy_accounts.expense,
         },
     )
+    # In case the segment already existed (other test session) without the bridge,
+    # ensure it's wired now.
+    if econ.legacy_account_id is None:
+        econ.legacy_account = _legacy_accounts.expense
+        econ.save(update_fields=["legacy_account"])
     func, _ = FunctionalSegment.objects.get_or_create(
         code="70111",
         defaults={
@@ -412,7 +493,35 @@ def vendor(db):
 
 
 @pytest.fixture
-def draft_contract(db, vendor, mda_segment, ncoa_code, fiscal_year, drafter):
+def appropriation(db, fiscal_year, mda_segment, _segments):
+    """An ACTIVE Appropriation row covering the contract's economic GL.
+
+    Required because ``IPCService.approve`` now runs an appropriation
+    gate (added by the comprehensive-review fix sweep). The seeded
+    ``BudgetCheckRule`` for GL range 20000000–29999999 is STRICT, so
+    without an active appropriation every ``approve`` raises
+    ``BudgetExceededError``.
+    """
+    from budget.models import Appropriation
+    appr, _ = Appropriation.objects.get_or_create(
+        fiscal_year=fiscal_year,
+        administrative=mda_segment,
+        economic=_segments.economic,
+        functional=_segments.functional,
+        programme=_segments.programme,
+        fund=_segments.fund,
+        defaults={
+            "amount_approved": Decimal("500000000.00"),  # ₦500 M — headroom for all tests
+            "status": "ACTIVE",
+            "appropriation_type": "ORIGINAL",
+            "description": "PyTest appropriation",
+        },
+    )
+    return appr
+
+
+@pytest.fixture
+def draft_contract(db, vendor, mda_segment, ncoa_code, fiscal_year, drafter, appropriation):
     """A DRAFT contract (no balance yet) — activated by ``activated_contract``."""
     from contracts.models import Contract, ContractType, ProcurementMethod, ContractStatus
     contract = Contract.objects.create(
@@ -425,6 +534,7 @@ def draft_contract(db, vendor, mda_segment, ncoa_code, fiscal_year, drafter):
         mda=mda_segment,
         ncoa_code=ncoa_code,
         fiscal_year=fiscal_year,
+        appropriation=appropriation,  # propagated to auto-created ContractYearPlan
         original_sum=Decimal("100000000.00"),  # ₦100 M
         mobilization_rate=Decimal("15.00"),
         retention_rate=Decimal("5.00"),
