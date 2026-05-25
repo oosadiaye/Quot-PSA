@@ -21,6 +21,7 @@ import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { useCurrency } from '../../../context/CurrencyContext';
+import AmountInput from '../../../components/AmountInput';
 import '../styles/glassmorphism.css';
 
 // ─── styles ──────────────────────────────────────────────────────────────────
@@ -367,7 +368,7 @@ function PaymentFormModal({
                             </div>
                             <div>
                                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
-                                <input style={inp} type="number" placeholder="0.00" step="0.01" value={form.total_amount} onChange={e => set('total_amount', e.target.value)} required />
+                                <AmountInput style={inp} placeholder="0.00" value={form.total_amount} onChange={v => set('total_amount', v)} required />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -472,7 +473,7 @@ function AdvanceFormModal({ vendors, bankAccounts, onSubmit, onClose, isLoading 
                             </div>
                             <div>
                                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
-                                <input style={inp} type="number" placeholder="0.00" step="0.01" value={form.total_amount} onChange={e => set('total_amount', e.target.value)} required />
+                                <AmountInput style={inp} placeholder="0.00" value={form.total_amount} onChange={v => set('total_amount', v)} required />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

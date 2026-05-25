@@ -17,6 +17,7 @@ import AccountingLayout from './AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { Save, X, Plus, Trash2, AlertCircle, Download, Upload, FileUp, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import LoadingScreen from '../../components/common/LoadingScreen';
+import AmountInput from '../../components/AmountInput';
 
 /**
  * Fixed-asset dropdown source for journal lines. Used for depreciation
@@ -503,10 +504,10 @@ const JournalForm = () => {
                                         />
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
-                                        <input type="number" step="0.01" value={line.debit} onChange={e => updateLine(idx, 'debit', e.target.value)} />
+                                        <AmountInput value={line.debit} onChange={v => updateLine(idx, 'debit', v)} />
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
-                                        <input type="number" step="0.01" value={line.credit} onChange={e => updateLine(idx, 'credit', e.target.value)} />
+                                        <AmountInput value={line.credit} onChange={v => updateLine(idx, 'credit', v)} />
                                     </td>
                                     <td style={{ padding: '0.75rem' }}>
                                         <input type="text" placeholder="Line memo" value={line.memo} onChange={e => updateLine(idx, 'memo', e.target.value)} />

@@ -18,6 +18,7 @@ import { useToast } from '../../../context/ToastContext';
 import AccountingLayout from '../AccountingLayout';
 import BackButton from '../../../components/BackButton';
 import SearchableSelect from '../../../components/SearchableSelect';
+import AmountInput from '../../../components/AmountInput';
 import apiClient from '../../../api/client';
 import '../styles/glassmorphism.css';
 
@@ -941,10 +942,11 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
                                         fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)',
                                         fontWeight: 700, pointerEvents: 'none',
                                     }}>{currencySymbol}</span>
-                                    <input style={{ ...inp, paddingLeft: '1.75rem' }}
-                                        type="number" step="0.01" min="0" placeholder="0.00"
+                                    <AmountInput style={{ ...inp, paddingLeft: '1.75rem' }}
+                                        placeholder="0.00"
+                                        min={0}
                                         value={header.vendor_credit_amount}
-                                        onChange={e => setHeader(h => ({ ...h, vendor_credit_amount: e.target.value }))}
+                                        onChange={v => setHeader(h => ({ ...h, vendor_credit_amount: v }))}
                                         required />
                                 </div>
                                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
@@ -1290,10 +1292,10 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
                                                         position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)',
                                                         fontSize: '0.65rem', color: 'var(--color-text-muted)', fontWeight: 700, pointerEvents: 'none',
                                                     }}>{currencySymbol}</span>
-                                                    <input style={{ ...inp, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem 0.38rem 1.35rem' }}
-                                                        type="number" step="0.01" min="0"
+                                                    <AmountInput style={{ ...inp, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem 0.38rem 1.35rem' }}
+                                                        min={0}
                                                         value={line.amount}
-                                                        onChange={e => updateLine(idx, 'amount', e.target.value)} required />
+                                                        onChange={v => updateLine(idx, 'amount', v)} required />
                                                 </div>
                                             </td>
                                             {/* Tax */}

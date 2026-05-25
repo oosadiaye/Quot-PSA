@@ -7,6 +7,7 @@ import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
 import { Save, X, Trash2, Package } from 'lucide-react';
 import LoadingScreen from '../../../components/common/LoadingScreen';
+import { useCurrency } from '../../../context/CurrencyContext';
 
 interface GLAccount {
     id: number;
@@ -22,6 +23,7 @@ const ItemForm = () => {
     const isEdit = Boolean(id);
     const itemId = isEdit && id ? Number(id) : undefined;
     const { data: item, isLoading } = useItem(itemId!);
+    const { formatCurrency } = useCurrency();
 
     // Show all categories — selecting one auto-sets product_type from the category's assigned type
     const { data: productCategories } = useProductCategories();
@@ -332,7 +334,7 @@ const ItemForm = () => {
                                     <span style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)' }}>
                                         {Number(item.total_quantity || 0).toFixed(2)} {item.unit_of_measure}
                                     </span>
-                                    <p style={helpStyle}>Total value: {Number(item.total_value || 0).toFixed(2)}</p>
+                                    <p style={helpStyle}>Total value: {formatCurrency(item.total_value || 0)}</p>
                                 </div>
                             </div>
                         )}
