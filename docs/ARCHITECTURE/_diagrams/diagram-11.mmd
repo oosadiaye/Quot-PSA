@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant Caller as Caller<br/>(procurement / contracts / hrm)
+    participant Service as IPSASJournalService
+    participant Sig as accounting.signals<br/>budget_enforcement
+    participant Bud as budget.services<br/>check_policy
+    participant DB as PostgreSQL
+
+    Caller->>Service: post_journal(journal, actor)
+    Service->>Service: validate DR == CR
+    Service->>Service: validate NCoA tags
+    Service->>Service: forbid posting to<br/>control accounts
+    Service->>DB: JournalHeader.status = 'Posted'<br/>(triggers signal)
+    DB->>Sig: pre_save signal
+    Sig->>Bud: check_policy(account, amount, appropriation)
+    alt policy.blocked
+        Bud-->>Sig: BudgetExceededError
+        Sig-->>DB: rollback
+        DB-->>Caller: ValidationError
+    else allowed
+        Bud-->>Sig: ok
+        DB-->>Sig: post_save
+        Sig->>Bud: refresh_totals(appropriation)
+        DB-->>Service: committed
+        Service-->>Caller: journal returned
+    end

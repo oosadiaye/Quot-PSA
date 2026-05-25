@@ -1827,6 +1827,13 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     import logging as _logging
                     from django.utils import timezone
                     _log = _logging.getLogger(__name__)
+                    # Accumulate cascade failures so they surface in the
+                    # API response (was: silent log only). Cash event
+                    # is committed regardless — but the operator now
+                    # sees exactly which downstream documents need
+                    # manual reconciliation. Stashed on the payment
+                    # instance and read by the view's response builder.
+                    payment._cascade_warnings = getattr(payment, '_cascade_warnings', [])
                     try:
                         pv = payment.payment_voucher
                         # 1. Flip the PV to PAID (terminal status). If
@@ -1883,12 +1890,30 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                                     )
                             except Exception as exc:  # noqa: BLE001
                                 # Don't roll back the cash event for
-                                # an IPC mark-paid failure — log and
-                                # leave the IPC for ops to reconcile.
+                                # an IPC mark-paid failure — cash has
+                                # already left the TSA. But DO surface
+                                # the failure so the operator can
+                                # reconcile manually rather than
+                                # discovering it during contract
+                                # closure (when cumulative_gross_paid
+                                # mismatches and blocks close).
                                 _log.warning(
                                     "PV propagation: IPC %s mark-paid failed: %s",
                                     ipc.pk, exc,
                                 )
+                                payment._cascade_warnings.append({
+                                    'kind':   'ipc_mark_paid_failed',
+                                    'ipc_id': ipc.pk,
+                                    'ipc_status': ipc.status,
+                                    'reason': str(exc),
+                                    'action_required': (
+                                        f'Manually mark IPC #{ipc.pk} as PAID via '
+                                        f'POST /contracts/ipcs/{ipc.pk}/mark_paid/ '
+                                        f'after resolving the underlying error '
+                                        f'(typically SoD: payer is also a prior actor, '
+                                        f'or ceiling re-check failure).'
+                                    ),
+                                })
 
                         # M7 fix: liquidate the contract commitment for
                         # PV-driven payments. The encumbrance-liquidation
@@ -1986,11 +2011,28 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         )
                         BudgetEncumbrance.objects.filter(pk=enc_id).update(status=new_status)
 
-            return Response({
-                "status": "Payment posted successfully.",
+            # Cascade warnings: when the PV-driven propagation block
+            # above failed to mark a linked IPC as PAID (typically an
+            # SoD violation because the payer is also a prior actor),
+            # we don't roll back — the cash event is real — but we
+            # MUST surface the failure so the operator knows which
+            # IPC needs manual reconciliation. Without this, a
+            # silently-stuck IPC would block contract closure weeks
+            # later and the operator would have no idea why.
+            response_body = {
+                "status":     "Payment posted successfully.",
                 "journal_id": journal.id,
-                "amount": str(amount)
-            })
+                "amount":     str(amount),
+            }
+            cascade_warnings = getattr(payment, '_cascade_warnings', None) or []
+            if cascade_warnings:
+                response_body['cascade_warnings'] = cascade_warnings
+                response_body['status'] = (
+                    'Payment posted successfully, but '
+                    f'{len(cascade_warnings)} downstream document(s) '
+                    'need manual reconciliation. See cascade_warnings.'
+                )
+            return Response(response_body)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

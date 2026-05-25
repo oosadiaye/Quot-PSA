@@ -83,19 +83,41 @@ class AccountSerializer(serializers.ModelSerializer):
         source='asset_category.name', read_only=True, default='',
     )
 
+    # SAP-style header / posting status hints for the UI:
+    #   ``is_postable`` is the writable flag operators toggle on the form.
+    #   ``has_children`` is derived — it's the cheap signal the picker
+    #     uses to render the hierarchy tree (account with children →
+    #     usually a header). Tenants can still flag a leaf as a header
+    #     (e.g. reserved system accounts) which is why ``is_postable``
+    #     stays the source of truth, not the derived ``has_children``.
+    has_children = serializers.SerializerMethodField()
+    parent_code = serializers.CharField(
+        source='parent.code', read_only=True, default='',
+    )
+
     class Meta:
         model = Account
         fields = [
             'id', 'code', 'name', 'account_type', 'is_active',
             'is_reconciliation', 'reconciliation_type', 'reconciliation_type_display',
             'current_balance',
+            # SAP-style hierarchy + posting flag.
+            'parent', 'parent_code', 'is_postable', 'has_children',
             # Phase 1 asset auto-capitalisation linkage. Both fields are
             # writable so the COA Add/Edit form can configure them; the
             # ``*_code``/``*_name`` companions are read-only display helpers.
             'auto_create_asset', 'asset_category',
             'asset_category_code', 'asset_category_name',
         ]
-        read_only_fields = ['id', 'current_balance', 'asset_category_code', 'asset_category_name']
+        read_only_fields = [
+            'id', 'current_balance', 'asset_category_code', 'asset_category_name',
+            'parent_code', 'has_children',
+        ]
+
+    def get_has_children(self, obj) -> bool:
+        # Calls the model helper which does ``.children.exists()`` — a
+        # cheap EXISTS query, no N+1 concerns even on large CoAs.
+        return obj.has_children() if hasattr(obj, 'has_children') else False
 
     def validate(self, attrs):
         # Mirror the model's clean(): cannot enable auto-create without a
@@ -227,7 +249,18 @@ class JournalHeaderSerializer(serializers.ModelSerializer):
             'total_debit', 'total_credit', 'document_number',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'total_debit', 'total_credit', 'document_number']
+        # ``status`` is read-only here because the ViewSet's ``create``
+        # path called ``_post_to_gl`` directly if a journal arrived
+        # already-Posted, which silently bypassed the
+        # ``IsApprover('post')`` permission gate enforced on the
+        # ``post_journal`` action. Posting is a privileged action and
+        # must go through the dedicated endpoint. Operators with the
+        # `post` permission can flip Draft → Posted there.
+        read_only_fields = [
+            'id', 'status',
+            'created_at', 'updated_at', 'created_by', 'updated_by',
+            'total_debit', 'total_credit', 'document_number',
+        ]
 
     def get_total_debit(self, obj):
         from django.db.models import Sum

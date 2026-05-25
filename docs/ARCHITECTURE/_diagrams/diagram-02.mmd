@@ -1,0 +1,43 @@
+flowchart TB
+    subgraph TXNAL[Transactional modules]
+        PROC[procurement]
+        CON[contracts]
+        HR[hrm]
+        INV[inventory]
+    end
+
+    subgraph CTRL[Control modules]
+        BUD[budget]
+        WF[workflow]
+    end
+
+    subgraph LEDGER[Ledger]
+        ACC[accounting]
+    end
+
+    PROC -- "create_commitment_for_po()" --> ACC
+    PROC -- "mark_commitment_invoiced_for_po()" --> ACC
+    PROC -- "IPSASJournalService.post_journal()" --> ACC
+    PROC -- "StockMovement create()" --> INV
+    PROC -- "validate_budget() → check_policy()" --> BUD
+
+    CON -- "IPSASJournalService.post_journal()" --> ACC
+    CON -- "PaymentVoucherGov create()" --> ACC
+    CON -- "_enforce_appropriation_gate() → check_policy()" --> BUD
+
+    HR -- "PayrollPostingService.post_payroll_run()" --> ACC
+
+    INV -- "InventoryPostingService" --> ACC
+
+    ACC -- "pre_save signal: budget_enforcement" --> BUD
+    ACC -- "post_save: refresh_totals(appropriation)" --> BUD
+
+    WF -. "document_approval_completed signal" .-> PROC
+    WF -. "document_approval_completed signal" .-> CON
+    WF -. "sync_document_status_on_approval" .-> PROC
+    WF -. "sync_document_status_on_approval" .-> CON
+    WF -. "sync_document_status_on_approval" .-> HR
+    WF -. "sync_document_status_on_approval" .-> BUD
+
+    classDef hub fill:#fde68a,stroke:#92400e,stroke-width:2px
+    class ACC hub

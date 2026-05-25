@@ -1,39 +1,79 @@
 # Quot PSE — Python runtime dependencies
 #
-# Pinned to the versions that Sprint 1-4 work has been validated against.
+# Pinned to the versions the codebase is validated against on the
+# 2026-05 working tree (post-Sprint A/B/C/D fixes). Verified by running
+# the full unit-test suite + ``manage.py check`` clean against this set.
+#
 # Update via pip-compile / manual pinning when bumping; do not use
-# unpinned ranges in production.
+# unpinned ranges in production. If you change a major version,
+# re-run the unit-test suite and ``manage.py makemigrations --check``.
+#
+# ─────────────────────────────────────────────────────────────────────
+# IMPORTANT — Django version bound:
+#
+# Django>=5.2,<6.0 is REQUIRED.
+#
+# Django 6.0 removed ``CheckConstraint(check=...)`` (replaced by
+# ``condition=...``); the codebase still uses ``check=`` in several
+# models (e.g. accounting/models/gl.py JournalLine.Meta), so an
+# unpinned bump to Django 6 raises a TypeError at app-registry boot.
+# Django 4.2 LTS is too old — ``django-tenants 3.10`` and several
+# 5.x-only model features are in use.
+# ─────────────────────────────────────────────────────────────────────
 
 # ── Core framework ─────────────────────────────────────────────────────
-Django==4.2.28
-django-tenants==3.7.0
-djangorestframework==3.15.2
-django-filter==24.3
-django-cors-headers==4.6.0
-django-simple-history==3.7.0
+Django>=5.2,<6.0
+django-tenants==3.10.1
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-filter==25.2
+django-cors-headers==4.9.0
+django-simple-history==3.11.0
+django-extensions==4.1
+
+# ── OpenAPI / API docs ────────────────────────────────────────────────
+# drf-spectacular powers /api/schema/ and /api/docs/ — referenced from
+# INSTALLED_APPS in quot_pse/settings.py, so missing it crashes boot.
+drf-spectacular==0.29.0
 
 # ── Database ───────────────────────────────────────────────────────────
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
 
 # ── Auth / security ────────────────────────────────────────────────────
-# (add django-otp + qrcode when MFA ticket lands)
+# Used by superadmin/encryption.py for Fernet-encrypted SMTP passwords
+# and similar tenant secrets. Required at app-registry boot.
+cryptography>=42,<49
+# Whitelist-based HTML sanitizer for superadmin announcement/ticket fields.
+bleach>=6.1,<7
+
+# ── Configuration ──────────────────────────────────────────────────────
+python-dotenv==1.2.2
 
 # ── Background / scheduling (optional) ─────────────────────────────────
-# django-celery-beat is imported behind a try/except in settings.py;
-# include it when the tenant needs scheduled jobs.
+# django-celery-beat is imported behind a ``try/except`` in
+# settings.py; include + uncomment when the tenant needs scheduled jobs.
+redis==7.4.0
 # django-celery-beat==2.7.0
 # celery==5.4.0
-# redis==5.2.0
 
 # ── File / report rendering ────────────────────────────────────────────
 openpyxl==3.1.5
-weasyprint==63.1    # for PDF export of IPSAS statements (when the
-                    # export ticket lands; harmless to preinstall)
+pillow==12.2.0
+# weasyprint==63.1   # for PDF export — re-enable when the export ticket
+#                    # lands; harmless to preinstall but adds GTK/Cairo
+#                    # native dependencies on Windows.
+
+# ── Numerics / data analysis ───────────────────────────────────────────
+# Used by report_cache, period_close, and the depreciation engine.
+numpy>=2.0,<3.0
+pandas>=2.0,<4.0
+
+# ── Operations / introspection ────────────────────────────────────────
+psutil==7.2.2
 
 # ── Development + test ─────────────────────────────────────────────────
-# These are harmless in production images but mostly used by CI. Keep
-# them pinned so pytest-django and the unit tests produce the same
-# results everywhere.
+# Mostly used by CI. Keep them pinned so pytest-django and the unit
+# tests produce the same results everywhere.
 pytest==7.4.4
 pytest-django==4.9.0
 pytest-cov==5.0.0

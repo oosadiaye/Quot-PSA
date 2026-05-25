@@ -82,21 +82,22 @@ class MFAService:
                 'via the /auth/mfa/disable/ endpoint (requires current code).'
             )
 
-        mfa.secret = pyotp.random_base32()
+        plain_secret = pyotp.random_base32()
+        mfa.set_secret(plain_secret)
         mfa.failed_attempts = 0
         mfa.locked_until = None
-        mfa.save(update_fields=['secret', 'failed_attempts', 'locked_until'])
+        mfa.save(update_fields=['secret', 'secret_encrypted', 'failed_attempts', 'locked_until'])
 
         issuer = cls._issuer()
         label = user.email or user.username
         uri = pyotp.totp.TOTP(
-            mfa.secret,
+            plain_secret,
             digits=UserMFA.TOTP_DIGITS,
             interval=UserMFA.TOTP_INTERVAL_SECONDS,
         ).provisioning_uri(name=label, issuer_name=issuer)
 
         return EnrollmentResult(
-            secret=mfa.secret,
+            secret=plain_secret,
             provisioning_uri=uri,
             issuer=issuer,
             label=label,
@@ -119,10 +120,11 @@ class MFAService:
         if mfa.is_enrolled:
             raise MFAError('MFA is already enrolled.')
 
-        if not mfa.secret:
+        plain_secret = mfa.get_secret()
+        if not plain_secret:
             raise MFAError('No secret on file — re-run /auth/mfa/enroll/.')
 
-        if not cls._verify_totp(mfa.secret, code):
+        if not cls._verify_totp(plain_secret, code):
             mfa.failed_attempts += 1
             mfa.save(update_fields=['failed_attempts'])
             raise MFAError('The verification code is incorrect or expired.')
@@ -191,7 +193,7 @@ class MFAService:
         # Try TOTP first (6 digits). If the code isn't 6 digits, skip
         # straight to recovery-code path.
         if len(normalized) == UserMFA.TOTP_DIGITS and normalized.isdigit():
-            if cls._verify_totp(mfa.secret, normalized):
+            if cls._verify_totp(mfa.get_secret(), normalized):
                 cls._mark_success(mfa)
                 return VerificationResult(
                     success=True, used_recovery_code=False,
@@ -240,7 +242,7 @@ class MFAService:
             raise MFAError(result.error or 'Invalid verification code.')
 
         mfa.is_enrolled = False
-        mfa.secret = ''
+        mfa.set_secret('')
         mfa.recovery_codes = []
         mfa.failed_attempts = 0
         mfa.locked_until = None
@@ -259,7 +261,7 @@ class MFAService:
         except UserMFA.DoesNotExist:
             return
         mfa.is_enrolled = False
-        mfa.secret = ''
+        mfa.set_secret('')
         mfa.recovery_codes = []
         mfa.failed_attempts = 0
         mfa.locked_until = None

@@ -38,6 +38,14 @@ interface InvoiceLine {
     withholding_tax: string;
 }
 
+// Minimal shape interfaces for reference-data hooks. Defined for use
+// by future refactors and to document the expected payload contract;
+// existing call-sites that still spell ``(x: any)`` inline are left
+// as-is to keep this change-set minimal and reviewable.
+export interface RefTaxCode { id: number | string; code: string; rate?: number | string; }
+export interface RefWithholdingTax { id: number | string; code: string; rate?: number | string; }
+export interface RefAccount { id: number | string; account_code?: string; account_name?: string; account_type?: string; code?: string; name?: string; }
+
 interface Props {
     onCancel: () => void;
     onSuccess: () => void;
@@ -98,10 +106,17 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
         error: accError,
         refetch: refetchAccounts,
     } = useQuery({
-        queryKey: ['accounts', 'ap-form', 'all-active'],
+        queryKey: ['accounts', 'ap-form', 'postable-active'],
         queryFn: async () => {
+            // is_postable=true skips SAP-style header / group accounts
+            // (Account.is_postable=False). Vendor invoice lines post
+            // through the GL the same way journal lines do, so the
+            // same posting-target restriction applies.
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { is_active: true, page_size: 10000, ordering: 'code' },
+                params: {
+                    is_active: true, is_postable: true,
+                    page_size: 10000, ordering: 'code',
+                },
             });
             return Array.isArray(data) ? data : (data?.results ?? []);
         },

@@ -159,6 +159,11 @@ def compute_line(
         if scale_basic is not None:
             basic = scale_basic
     except Exception:  # noqa: BLE001 — scale is optional, never break payroll
+        logger.warning(
+            "salary scale resolution failed for employee %s",
+            employee.pk,
+            exc_info=True,
+        )
         pass
 
     components: list[ComponentLine] = []
@@ -306,11 +311,16 @@ def run_payroll(
     *,
     user=None,
     auto_statutory: bool = True,
+    organization=None,
 ) -> PayrollRunSummary:
     """Compute and persist every line on ``run``.
 
     Safe to call repeatedly only on ``Draft`` runs; raises ``ValueError``
     otherwise so callers can't silently overwrite an approved run.
+
+    When ``organization`` is supplied, the employee scope is filtered to
+    that MDA via ``department.cost_center.organization`` so multi-tenant
+    runs cannot leak payroll across MDAs.
     """
     if run.status != "Draft":
         raise ValueError(
@@ -318,10 +328,27 @@ def run_payroll(
         )
 
     period = run.period
-    employees = (
-        Employee.objects.filter(status__in=["Active", "Probation"])
-        .select_related("salary_structure", "user")
-    )
+    if organization is not None:
+        # Direct FK scope (hrm.0016/0017) — single index hit, no JOIN.
+        employees = (
+            Employee.objects.filter(
+                status__in=["Active", "Probation"],
+                organization=organization,
+            )
+            .select_related("salary_structure", "user")
+        )
+    else:
+        # DEPRECATED: unscoped all-tenant scan. The ``organization`` kwarg
+        # will become required in the next release; callers must pass the
+        # MDA explicitly. See FOLLOWUP_WORKSTREAM_PLAN.md (Workstream 3).
+        logger.warning(
+            "run_payroll called without organization scope — defaulting to "
+            "all-tenant scan (deprecated)",
+        )
+        employees = (
+            Employee.objects.filter(status__in=["Active", "Probation"])
+            .select_related("salary_structure", "user")
+        )
     statutory_templates = list(
         StatutoryDeductionTemplate.objects.filter(is_active=True)
     )

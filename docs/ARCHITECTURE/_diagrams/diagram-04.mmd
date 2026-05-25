@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant U as User / API
+    participant V as Domain ViewSet
+    participant M as Domain Model<br/>(inherits AuditBaseModel<br/>+ StatusTransitionMixin)
+    participant A as core.AuditLog
+
+    U->>V: POST /domain/<id>/transition
+    V->>M: instance.status = 'Approved'<br/>instance.save()
+    M->>M: validate_status_transition()<br/>(StatusTransitionMixin)
+    M->>M: super().save()<br/>(updated_at, updated_by)
+    M->>A: AuditLog.objects.create(...)
+    A-->>U: 200 OK

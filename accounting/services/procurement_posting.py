@@ -528,7 +528,13 @@ class ProcurementPostingService(BasePostingService):
             program=invoice.program,
             geo=invoice.geo,
             status='Draft',
-            source_module='procurement',
+            # Use a distinct source_module so vendor invoices don't share
+            # the (source_module, source_document_id) keyspace with the
+            # legacy PO posting or other procurement docs — both used
+            # 'procurement', and a PO pk colliding with an invoice pk
+            # would trip any future unique index on this tuple. Matches
+            # the convention introduced for GRNs (source_module='grn').
+            source_module='vendor_invoice',
             source_document_id=invoice.pk,
         )
 
@@ -750,6 +756,13 @@ class ProcurementPostingService(BasePostingService):
         if hasattr(payment, 'journal_entry') and payment.journal_entry:
             raise TransactionPostingError("Payment already posted to GL")
 
+        # Cross-check by payment_number too: the journal_entry FK only
+        # blocks a re-post on the SAME in-memory Payment instance, but a
+        # double-click that retried the request before the first save's
+        # update_fields landed would let a second journal slip through.
+        # Mirrors the duplicate guard used by GRN, Invoice, and PO posting.
+        ProcurementPostingService._check_duplicate_posting(payment.payment_number)
+
         ProcurementPostingService._validate_fiscal_period(payment.payment_date)
 
         amount = payment.total_amount
@@ -770,7 +783,10 @@ class ProcurementPostingService(BasePostingService):
             description=f"Payment {payment.payment_number}",
             reference_number=payment.payment_number,
             status='Posted',
-            source_module='procurement',
+            # Distinct source_module per document type — see vendor
+            # invoice posting comment for the keyspace-collision
+            # rationale.
+            source_module='payment',
             source_document_id=payment.pk,
         )
 
@@ -822,20 +838,21 @@ class ProcurementPostingService(BasePostingService):
         Returns:
             JournalHeader: The created journal entry
         """
-        ap_account = Account.objects.filter(
-            account_type='Liability',
-            name__icontains='Payable'
-        ).first()
-
-        if not ap_account:
-            raise TransactionPostingError("No Accounts Payable account found")
+        # Resolve via the vendor → category → recon-account chain so
+        # tenants with multiple "Payable" liabilities (e.g. Local
+        # Suppliers vs Foreign Suppliers vs Statutory) post the
+        # reversal to the SAME control account the original invoice
+        # debited. The previous ``name__icontains='Payable'`` lookup
+        # picked an arbitrary Payable row, causing sub-ledger drift
+        # between the AP aging report and the GL control account.
+        ap_account, _ = get_vendor_ap_account(purchase_return.vendor)
 
         journal = JournalHeader.objects.create(
             posting_date=purchase_return.return_date,
             description=f"Purchase Return {purchase_return.return_number} - {purchase_return.vendor.name}",
             reference_number=purchase_return.return_number,
             status='Posted',
-            source_module='procurement',
+            source_module='purchase_return',
             source_document_id=purchase_return.pk,
             posted_at=timezone.now(),
         )
@@ -915,20 +932,18 @@ class ProcurementPostingService(BasePostingService):
         if credit_note.status not in ['Approved', 'Posted']:
             raise TransactionPostingError(f"Credit note must be Approved, got {credit_note.status}")
 
-        ap_account = Account.objects.filter(
-            account_type='Liability',
-            name__icontains='Payable'
-        ).first()
-
-        if not ap_account:
-            raise TransactionPostingError("No Accounts Payable account found")
+        # Resolve AP control via the vendor's category chain — see the
+        # comment in post_purchase_return for why the legacy
+        # ``name__icontains='Payable'`` lookup was unsafe on tenants
+        # with multiple Payable liabilities.
+        ap_account, _ = get_vendor_ap_account(credit_note.vendor)
 
         journal = JournalHeader.objects.create(
             posting_date=credit_note.credit_note_date,
             description=f"Vendor Credit Note {credit_note.credit_note_number} - {credit_note.vendor.name}",
             reference_number=credit_note.credit_note_number,
             status='Posted',
-            source_module='procurement',
+            source_module='vendor_credit_note',
             source_document_id=credit_note.pk,
             posted_at=timezone.now(),
         )
@@ -1001,20 +1016,16 @@ class ProcurementPostingService(BasePostingService):
         if debit_note.status not in ['Approved', 'Posted']:
             raise TransactionPostingError(f"Debit note must be Approved, got {debit_note.status}")
 
-        ap_account = Account.objects.filter(
-            account_type='Liability',
-            name__icontains='Payable'
-        ).first()
-
-        if not ap_account:
-            raise TransactionPostingError("No Accounts Payable account found")
+        # Resolve AP control via the vendor's category chain — see the
+        # comment in post_purchase_return for the rationale.
+        ap_account, _ = get_vendor_ap_account(debit_note.vendor)
 
         journal = JournalHeader.objects.create(
             posting_date=debit_note.debit_note_date,
             description=f"Vendor Debit Note {debit_note.debit_note_number} - {debit_note.vendor.name}",
             reference_number=debit_note.debit_note_number,
             status='Posted',
-            source_module='procurement',
+            source_module='vendor_debit_note',
             source_document_id=debit_note.pk,
             posted_at=timezone.now(),
         )

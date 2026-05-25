@@ -98,15 +98,26 @@ class TestCanViewFinancialStatements:
     # ── Defence-in-depth ─────────────────────────────────────────────────
 
     def test_oversight_lookup_failure_falls_through_to_deny(self):
-        """If UserOrganization lookup raises (older tenant), treat as no access."""
+        """If UserOrganization lookup raises a *narrow* DB error (older
+        tenant pre-migration), treat as no access.
+
+        The helper now narrows its except-branch to (ProgrammingError,
+        OperationalError) — unexpected exceptions propagate by design
+        so silent fail-open patterns can't hide bugs. This test mirrors
+        that narrowing.
+        """
+        from django.db.utils import ProgrammingError
+
         user = MagicMock(
             is_authenticated=True, is_superuser=False, is_staff=False,
         )
         user.has_perm.return_value = False
         # Real helper is tried — forces the except-branch by patching the
-        # underlying model import to raise.
+        # underlying model import to raise the narrowed DB error.
         with patch('core.models.UserOrganization') as UserOrg:
-            UserOrg.objects.filter.side_effect = RuntimeError('table missing')
+            UserOrg.objects.filter.side_effect = ProgrammingError(
+                'relation "core_userorganization" does not exist'
+            )
             # Should NOT raise; should return False.
             assert self.perm.has_permission(_request(user), view=None) is False
 

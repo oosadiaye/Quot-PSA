@@ -36,6 +36,7 @@ from contracts.permissions import (
     CanApproveRetention,
     CanCertifyIPC,
     CanDraftIPC,
+    CanManageContracts,
     CanMarkIPCPaid,
     CanPayRetention,
     CanRaiseVoucher,
@@ -64,6 +65,26 @@ from contracts.services import (
 from contracts.views._helpers import translate_service_errors
 
 
+def _scope_to_org(qs, request, contract_path: str = "contract__mda_id"):
+    """Tenant MDA-isolation helper. Filters ``qs`` to the requester's
+    authorized AdministrativeSegment when in SEPARATED mode. Mirrors
+    the ``OrganizationFilterMixin`` pattern. ``contract_path`` is the
+    ORM lookup that reaches AdministrativeSegment from the model.
+    """
+    if not request:
+        return qs
+    if getattr(request, 'mda_isolation_mode', 'UNIFIED') != 'SEPARATED':
+        return qs
+    org = getattr(request, 'organization', None)
+    if not org:
+        return qs.none()
+    if getattr(org, 'has_cross_mda_read', False):
+        return qs
+    if getattr(org, 'administrative_segment_id', None):
+        return qs.filter(**{contract_path: org.administrative_segment_id})
+    return qs.none()
+
+
 # ── Measurement Books ──────────────────────────────────────────────────
 
 class MeasurementBookViewSet(viewsets.ModelViewSet):
@@ -71,10 +92,19 @@ class MeasurementBookViewSet(viewsets.ModelViewSet):
         "-measurement_date", "-id",
     )
     serializer_class = MeasurementBookSerializer
-    permission_classes = [IsAuthenticated]
+    # MB rows certify physical work done on a contract — they feed the
+    # IPC value cap. Previously this viewset accepted any authenticated
+    # user, which meant any user in the tenant could write a fake MB
+    # against any contract. Now reads require ``view_contract`` and
+    # writes require ``add_contract``/``change_contract`` (the same
+    # gate as the contract header itself).
+    permission_classes = [CanViewContracts, CanManageContracts]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = MeasurementBookFilter
     ordering_fields = ["measurement_date", "created_at"]
+
+    def get_queryset(self):
+        return _scope_to_org(super().get_queryset(), getattr(self, 'request', None))
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
@@ -101,6 +131,9 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = IPCFilter
     ordering_fields = ["created_at", "posting_date", "this_certificate_gross"]
+
+    def get_queryset(self):
+        return _scope_to_org(super().get_queryset(), getattr(self, 'request', None))
 
     # ── Create (DRAFT → SUBMITTED in a single step) ───────────────────
 
@@ -306,6 +339,9 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = MobilizationPaymentFilter
 
+    def get_queryset(self):
+        return _scope_to_org(super().get_queryset(), getattr(self, 'request', None))
+
     @action(
         detail=False, methods=["post"],
         url_path="issue/(?P<contract_pk>[^/.]+)",
@@ -356,6 +392,9 @@ class RetentionReleaseViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_class = RetentionReleaseFilter
+
+    def get_queryset(self):
+        return _scope_to_org(super().get_queryset(), getattr(self, 'request', None))
 
     @action(detail=False, methods=["post"], url_path="create-release")
     def create_release(self, request):

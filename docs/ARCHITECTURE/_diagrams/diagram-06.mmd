@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> SUBMITTED : submit_for_approval()
+    SUBMITTED --> APPROVED : workflow approval
+    APPROVED --> ENACTED : House of Assembly enacts<br/>Appropriation Act
+    ENACTED --> ACTIVE : auto on FY start
+    ACTIVE --> CLOSED : FY end + final close
+
+    note right of ACTIVE
+      Spending allowed:
+      total_expended +
+      total_committed
+      <= amount_approved
+    end note

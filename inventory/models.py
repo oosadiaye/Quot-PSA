@@ -139,16 +139,40 @@ class Item(AuditBaseModel):
 
         Builds an ordered list of IN cost layers, then "consumes" them
         against cumulative OUT quantity in the appropriate order.
+
+        Restricted to the current fiscal year (falling back to the
+        previous 366 days when no fiscal year is active) to keep the
+        scan bounded on large catalogs.
         """
-        layers = list(
-            StockMovement.objects.filter(item=self, movement_type='IN')
-            .order_by('created_at')
-            .values_list('quantity', 'unit_price')
+        from datetime import timedelta
+        from django.utils import timezone as _tz
+
+        fy_start = None
+        try:
+            from accounting.models.advanced import FiscalYear
+            today = _tz.now().date()
+            fy = FiscalYear.objects.filter(
+                start_date__lte=today, end_date__gte=today
+            ).first()
+            if fy:
+                fy_start = fy.start_date
+        except Exception:
+            fy_start = None
+        if fy_start is None:
+            fy_start = _tz.now().date() - timedelta(days=366)
+
+        in_qs = StockMovement.objects.filter(
+            item=self, movement_type='IN', created_at__gte=fy_start
+        )
+        out_qs = StockMovement.objects.filter(
+            item=self, movement_type='OUT', created_at__gte=fy_start
         )
 
-        total_out = StockMovement.objects.filter(
-            item=self, movement_type='OUT'
-        ).aggregate(q=Sum('quantity'))['q'] or Decimal('0')
+        layers = list(
+            in_qs.order_by('created_at').values_list('quantity', 'unit_price')
+        )
+
+        total_out = out_qs.aggregate(q=Sum('quantity'))['q'] or Decimal('0')
 
         if self.valuation_method == 'LIFO':
             # LIFO: consume latest layers first, remaining value is oldest layers

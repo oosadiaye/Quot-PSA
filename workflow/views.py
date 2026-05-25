@@ -625,20 +625,18 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             isolation = getattr(self.request, 'mda_isolation_mode', None)
             org = getattr(self.request, 'organization', None)
             if isolation == 'SEPARATED' and org is not None:
-                # Filter to approvals on documents that either:
-                #   (a) have an ``organization`` FK matching the user's MDA, OR
-                #   (b) the requester belongs to the same MDA, OR
-                #   (c) belong to the user (so they can always see their own).
-                # We can't filter on the GenericFK target's organization
-                # directly without joining each model — use the requester
-                # affiliation as a proxy (every approval has a requester,
-                # and the requester is always on the document's MDA).
+                # Filter on the canonical ``Approval.organization`` FK
+                # (populated on submit, backfilled by data migration for
+                # legacy rows). Falls back to the requester-MDA proxy for
+                # any row where the FK is still null.
                 from core.models import UserOrganization
                 org_user_ids = UserOrganization.objects.filter(
                     organization=org, is_active=True,
                 ).values_list('user_id', flat=True)
                 queryset = queryset.filter(
-                    Q(requested_by_id__in=org_user_ids) | Q(requested_by=user)
+                    Q(organization=org)
+                    | Q(organization__isnull=True, requested_by_id__in=org_user_ids)
+                    | Q(requested_by=user)
                 ).distinct()
 
         # Filter by status

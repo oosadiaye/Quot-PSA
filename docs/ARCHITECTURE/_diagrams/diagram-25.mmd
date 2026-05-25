@@ -1,0 +1,27 @@
+flowchart TD
+    Bill([Annual Appropriation Bill]) --> AD[Appropriation<br/>DRAFT]
+    AD --> AS[SUBMITTED]
+    AS --> AA[APPROVED<br/>by Cabinet]
+    AA --> AE[ENACTED<br/>House of Assembly<br/>Appropriation Act]
+    AE --> AAct[ACTIVE<br/>at FY start]
+
+    AAct --> WPlan[Quarterly cash plan]
+    WPlan --> WP[Warrant<br/>PENDING]
+    WP --> WR[RELEASED<br/>by AG]
+
+    WR --> Spend{Any expenditure<br/>attempt}
+    Spend --> CP[check_policy<br/>amount_approved<br/>- committed - expended<br/>>= requested?]
+    CP -- yes --> WE{enforce_warrant?}
+    CP -- no --> Block[BudgetExceededError]
+    WE -- yes --> CW[check_warrant_availability<br/>against released warrants]
+    WE -- no --> Pass[Allow]
+    CW -- ok --> Pass
+    CW -- exceeded --> Block
+    Pass --> Posted[JournalHeader → Posted<br/>refresh_totals fires]
+
+    WR --> ExpireCheck{effective_to<br/>< today?}
+    ExpireCheck -- yes --> WE2[Daily sweep:<br/>expire_warrants_all_tenants<br/>→ EXPIRED]
+    ExpireCheck -- no --> WR
+
+    classDef gate fill:#fef3c7,stroke:#92400e
+    class CP,CW gate

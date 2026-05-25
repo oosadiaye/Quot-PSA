@@ -55,20 +55,30 @@ class ImpersonateThrottle(ScopedRateThrottle):
 # HTML sanitisation helper
 # ---------------------------------------------------------------------------
 
+_BLEACH_ALLOWED_TAGS = {
+    'p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'a',
+    'h1', 'h2', 'h3', 'h4', 'blockquote',
+}
+_BLEACH_ALLOWED_ATTRS = {'a': ['href', 'title']}
+
+
 def sanitize_html(html):
-    """Strip potentially dangerous HTML tags and attributes."""
+    """Strip potentially dangerous HTML using a whitelist sanitizer.
+
+    Regex-based stripping is hopeless against the long tail of XSS
+    vectors (mismatched quotes, SVG payloads, mutation XSS, etc.); use
+    ``bleach`` which parses the markup with html5lib and only emits
+    tags/attributes we explicitly allow.
+    """
     if not html:
         return ''
-    # Remove script/style tags and their content
-    html = re.sub(r'<(script|style|iframe|object|embed|form|input|textarea|select|button)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(script|style|iframe|object|embed|form|input|textarea|select|button)[^>]*/>', '', html, flags=re.IGNORECASE)
-    # Remove ALL event handlers (on*=) with any quoting style
-    html = re.sub(r'\s+on\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]*)', '', html, flags=re.IGNORECASE)
-    # Remove javascript: URLs
-    html = re.sub(r'(?:href|src|action)\s*=\s*(?:"javascript:[^"]*"|\'javascript:[^\']*\')', '', html, flags=re.IGNORECASE)
-    # Remove data: URLs (can contain scripts)
-    html = re.sub(r'(?:href|src)\s*=\s*(?:"data:[^"]*"|\'data:[^\']*\')', '', html, flags=re.IGNORECASE)
-    return html.strip()
+    import bleach
+    return bleach.clean(
+        html,
+        tags=_BLEACH_ALLOWED_TAGS,
+        attributes=_BLEACH_ALLOWED_ATTRS,
+        strip=True,
+    ).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1707,43 +1717,27 @@ def impersonate_user(request):
                     tenant=tenant, is_active=True,
                 ).select_related('user').first()
             if not admin_role:
-                # Auto-create an admin user for this orphaned tenant
-                auto_username = f"admin_{tenant.schema_name}"
-                auto_email = f"admin@{tenant.schema_name}.dtsg.test"
-                auto_password = generate_temp_password()
-
-                # Check if username/email already exists
-                if User.objects.filter(username=auto_username).exists():
-                    auto_username = f"admin_{tenant.schema_name}_{tenant.id}"
-                if User.objects.filter(email=auto_email).exists():
-                    auto_email = f"admin{tenant.id}@{tenant.schema_name}.dtsg.test"
-
-                # ``is_staff=False`` is intentional — tenant admins do
-                # not need (and must not have) access to the Django
-                # ``/admin/`` site. ``is_staff`` is reserved for
-                # platform-level superadmins (see
-                # ``superadmin/management/commands/create_superadmin.py``).
-                # The tenant-side "admin" role is enforced via
-                # ``UserTenantRole.role='admin'`` below, not via the
-                # auth.User.is_staff flag.
-                target_user = User.objects.create_user(
-                    username=auto_username.lower(),
-                    email=auto_email,
-                    password=auto_password,
-                    first_name='Admin',
-                    last_name=tenant.name,
-                    is_staff=False,
-                    is_superuser=False,
+                # SECURITY: Refuse impersonation for orphan tenants.
+                # We previously auto-created an admin user here, which
+                # silently granted full tenant access without any
+                # provisioning trail. Superadmins must now create the
+                # tenant user through the proper provisioning flow
+                # before they can impersonate.
+                security_logger.warning(
+                    'IMPERSONATION_REFUSED: orphan tenant=%s by admin=%s ip=%s',
+                    tenant.schema_name, request.user.username,
+                    request.META.get('REMOTE_ADDR'),
                 )
-                UserTenantRole.objects.create(
-                    user=target_user,
-                    tenant=tenant,
-                    role='admin',
-                    is_active=True,
-                )
-                logger.info(
-                    'AUTO_CREATED admin user %s for orphaned tenant %s during impersonation',
-                    auto_username, tenant.schema_name,
+                return Response(
+                    {
+                        'error': (
+                            'Tenant has no active users. Provision a user '
+                            'via the tenant user-management flow before '
+                            'attempting impersonation.'
+                        ),
+                        'tenant_schema': tenant.schema_name,
+                    },
+                    status=409,
                 )
             else:
                 target_user = admin_role.user
@@ -3827,11 +3821,9 @@ def public_currencies(request):
 
 
 def _get_client_ip(request):
-    """Extract real client IP from X-Forwarded-For or REMOTE_ADDR."""
-    xff = request.META.get('HTTP_X_FORWARDED_FOR')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '')
+    """Extract real client IP, honoring XFF only behind a trusted proxy."""
+    from core.security.client_ip import get_trusted_client_ip
+    return get_trusted_client_ip(request)
 
 
 @api_view(['GET'])

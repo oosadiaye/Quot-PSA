@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant A as Approver
+    participant I as IPCService
+    participant CB as ContractBalance
+    participant V as VariationService
+    participant Mob as MobilizationService
+    participant Ret as RetentionService
+    participant BCR as budget.check_policy
+    participant J as IPSASJournalService
+
+    A->>I: approve(ipc, actor)
+    I->>I: SoD check (approver ≠ drafter ≠ certifier)
+    I->>CB: SELECT FOR UPDATE
+    CB-->>I: locked balance
+    I->>V: refresh_contract_ceiling()
+    I->>I: Control 2 — coherence check
+    I->>I: Control 1 — re-check ceiling
+    I->>Mob: apply_recovery()
+    I->>Ret: apply_deduction()
+    I->>CB: UPDATE certified += gross<br/>version += 1 (PG trigger)
+    I->>BCR: _enforce_appropriation_gate()<br/>(audit fix #1)
+    BCR-->>I: ok or BudgetExceededError
+    I->>J: _post_accrual_journal()<br/>DR Expense, CR Mob/Retention/AP<br/>(document_number set, audit fix #6)
+    J-->>I: posted journal
+    I->>I: ipc.transition_to(APPROVED)
+    I-->>A: ipc returned

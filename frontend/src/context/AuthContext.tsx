@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import React, { createContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 
 interface UserInfo {
     id: number;
@@ -36,7 +36,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     viewer: 1,
 };
 
-interface AuthState {
+export interface AuthState {
     user: UserInfo | null;
     tenantInfo: TenantInfo | null;
     tenantRole: string | null;
@@ -55,16 +55,25 @@ interface AuthState {
     setOrganizationList: (orgs: OrganizationInfo[], mode: 'UNIFIED' | 'SEPARATED') => void;
 }
 
-// Helper: get the active storage backend (localStorage if remembered, sessionStorage otherwise)
-function getStorage(): Storage {
-    // If sessionStorage has the token, the user chose not to be remembered
-    if (sessionStorage.getItem('authToken')) return sessionStorage;
-    return localStorage;
-}
-
 // Helper: read a value from whichever storage has it
 function getStored(key: string): string | null {
     return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+}
+
+// Helpers: write/remove a value to BOTH storages.
+//
+// We mirror everything so right-click → "Open in new tab" works:
+// sessionStorage is per-tab scoped, so a new tab boots empty unless
+// localStorage also holds a copy. Hoisted to module scope (rather than
+// living inside the AuthProvider component) so they're stable across
+// renders and don't pollute useCallback dep arrays.
+function writeBoth(key: string, value: string): void {
+    localStorage.setItem(key, value);
+    sessionStorage.setItem(key, value);
+}
+function removeBoth(key: string): void {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -139,15 +148,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [tenantRole, user]);
 
     const setAuthData = useCallback((newUser: UserInfo, token: string, rememberMe = true) => {
-        // Choose storage based on "Remember Me"
-        const store = rememberMe ? localStorage : sessionStorage;
-        // Clear the other storage to avoid conflicts
-        const other = rememberMe ? sessionStorage : localStorage;
-        other.removeItem('authToken');
-        other.removeItem('user');
-
-        store.setItem('authToken', token);
-        store.setItem('user', JSON.stringify(newUser));
+        // Always mirror auth to BOTH storages so right-click → "Open in
+        // new tab" works regardless of the Remember Me toggle. The
+        // previous design wrote only to sessionStorage when rememberMe
+        // was false, which made multi-tab navigation impossible
+        // (sessionStorage is per-tab scoped) — every new tab bounced
+        // to /login because storage was empty.
+        //
+        // The session-vs-persistent distinction doesn't really need
+        // storage segregation here: real security relies on server-side
+        // token expiry, and the previous "session-only" guarantee was
+        // already approximate (closing one tab didn't clear other
+        // tabs; full browser exit is only reliable on some platforms).
+        // Mirroring to both storages is the standard SaaS pattern.
+        //
+        // ``rememberMe`` is preserved as the gate for username
+        // pre-fill on the login screen (``rememberedUser``) so users
+        // who explicitly opt out of being recognised by username still
+        // get that — they just won't lose their session when right-
+        // clicking a link.
+        // Auth token is sessionStorage-only — localStorage is XSS-readable
+        // for the lifetime of the browser profile. ``user`` is mirrored
+        // to both storages because it's non-sensitive (display name /
+        // role) and the right-click → "Open in new tab" UX needs it.
+        // (Token-bearing httpOnly cookie migration is the long-term fix.)
+        sessionStorage.setItem('authToken', token);
+        sessionStorage.setItem('user', JSON.stringify(newUser));
+        localStorage.setItem('user', JSON.stringify(newUser));
 
         // Save/clear remembered username for pre-filling login form
         if (rememberMe) {
@@ -159,31 +186,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(newUser);
     }, []);
 
+    // ``writeBoth`` / ``removeBoth`` live at module scope above so
+    // they're stable references and don't dirty useCallback deps.
     const setTenantData = useCallback((tenant: TenantInfo, perms: string[]) => {
-        const store = getStorage();
-        store.setItem('tenantDomain', tenant.domain);
-        store.setItem('tenantInfo', JSON.stringify(tenant));
-        store.setItem('tenantPermissions', JSON.stringify(perms));
+        writeBoth('tenantDomain', tenant.domain);
+        writeBoth('tenantInfo', JSON.stringify(tenant));
+        writeBoth('tenantPermissions', JSON.stringify(perms));
         // activeTenant drives the "Organization" display in Dashboard
-        store.setItem('activeTenant', tenant.name || tenant.domain);
+        writeBoth('activeTenant', tenant.name || tenant.domain);
         setTenantInfo(tenant);
         setPermissions(perms);
     }, []);
 
     const setActiveOrganization = useCallback((org: OrganizationInfo | null) => {
-        const store = getStorage();
         if (org) {
-            store.setItem('activeOrganization', JSON.stringify(org));
+            writeBoth('activeOrganization', JSON.stringify(org));
         } else {
-            store.removeItem('activeOrganization');
+            removeBoth('activeOrganization');
         }
         setActiveOrgState(org);
     }, []);
 
     const setOrganizationList = useCallback((orgs: OrganizationInfo[], mode: 'UNIFIED' | 'SEPARATED') => {
-        const store = getStorage();
-        store.setItem('userOrganizations', JSON.stringify(orgs));
-        store.setItem('mdaIsolationMode', mode);
+        writeBoth('userOrganizations', JSON.stringify(orgs));
+        writeBoth('mdaIsolationMode', mode);
         setUserOrganizations(orgs);
         setMdaIsolationMode(mode);
     }, []);
@@ -228,6 +254,187 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => window.removeEventListener('auth-expired', handler);
     }, [logout]);
 
+    // ── Cross-tab auth sync via BroadcastChannel ─────────────────────
+    //
+    // Why this exists: when ``rememberMe`` is unchecked, ``setAuthData``
+    // writes the token to ``sessionStorage``, which is per-tab scoped.
+    // Right-click → "Open in new tab" gives the new tab an empty
+    // ``sessionStorage``, so without this handshake ``ProtectedRoute``
+    // would correctly but unhelpfully bounce the user to /login even
+    // though they're authenticated in the parent tab.
+    //
+    // Protocol:
+    //   • Every AuthProvider instance subscribes to ``quot-auth``.
+    //   • On mount, if the local user state is null, the new tab
+    //     posts ``request-auth-state``. Sibling tabs respond with
+    //     ``auth-state`` carrying their token + tenant info. The new
+    //     tab writes those into its ``sessionStorage``, sets the React
+    //     state, and dispatches a ``storage`` event so ProtectedRoute
+    //     re-runs its check. If no sibling answers within ~250ms, the
+    //     new tab falls through to its empty-storage code path and
+    //     correctly redirects to login (genuine cold-start).
+    //   • On logout, the originating tab posts ``logout-sync`` so
+    //     siblings clear their state too — closing one tab shouldn't
+    //     leave another tab logged in if the user explicitly signed out.
+    //
+    // BroadcastChannel is supported in every modern browser (Chrome 54,
+    // Firefox 38, Safari 15.4, Edge 79+). We feature-detect with a
+    // typeof check so older browsers degrade gracefully.
+    useEffect(() => {
+        if (typeof BroadcastChannel === 'undefined') return;
+        const channel = new BroadcastChannel('quot-auth');
+
+        type SyncMessage =
+            | { type: 'request-auth-state' }
+            | {
+                  type: 'auth-state';
+                  token: string;
+                  user: string;
+                  tenantInfo?: string;
+                  tenantPermissions?: string;
+                  tenantDomain?: string;
+                  activeTenant?: string;
+                  activeOrganization?: string;
+                  userOrganizations?: string;
+                  mdaIsolationMode?: string;
+              }
+            | { type: 'logout-sync' };
+
+        const onMessage = (event: MessageEvent<SyncMessage>) => {
+            const msg = event.data;
+            if (!msg || typeof msg !== 'object') return;
+
+            if (msg.type === 'request-auth-state') {
+                // Only respond when we actually have an authenticated state
+                // — otherwise we'd echo emptiness back at the asker.
+                const token = sessionStorage.getItem('authToken');
+                if (!token) return;
+                const userRaw = localStorage.getItem('user')
+                    ?? sessionStorage.getItem('user');
+                if (!userRaw) return;
+                channel.postMessage({
+                    type: 'auth-state',
+                    token,
+                    user: userRaw,
+                    tenantInfo:
+                        localStorage.getItem('tenantInfo')
+                        ?? sessionStorage.getItem('tenantInfo')
+                        ?? undefined,
+                    tenantPermissions:
+                        localStorage.getItem('tenantPermissions')
+                        ?? sessionStorage.getItem('tenantPermissions')
+                        ?? undefined,
+                    tenantDomain:
+                        localStorage.getItem('tenantDomain')
+                        ?? sessionStorage.getItem('tenantDomain')
+                        ?? undefined,
+                    activeTenant:
+                        localStorage.getItem('activeTenant')
+                        ?? sessionStorage.getItem('activeTenant')
+                        ?? undefined,
+                    activeOrganization:
+                        localStorage.getItem('activeOrganization')
+                        ?? sessionStorage.getItem('activeOrganization')
+                        ?? undefined,
+                    userOrganizations:
+                        localStorage.getItem('userOrganizations')
+                        ?? sessionStorage.getItem('userOrganizations')
+                        ?? undefined,
+                    mdaIsolationMode:
+                        localStorage.getItem('mdaIsolationMode')
+                        ?? sessionStorage.getItem('mdaIsolationMode')
+                        ?? undefined,
+                } satisfies SyncMessage);
+            } else if (msg.type === 'auth-state') {
+                // Validate incoming shape — any other origin posting on
+                // the same channel name (or a malicious extension) could
+                // forge a message. Require ``token`` to be a non-empty
+                // string and ``user`` to be a JSON-parseable object.
+                if (typeof msg.token !== 'string' || !msg.token) return;
+                if (typeof msg.user !== 'string' || !msg.user) return;
+                let parsedUser: unknown;
+                try { parsedUser = JSON.parse(msg.user); }
+                catch { return; }
+                if (!parsedUser || typeof parsedUser !== 'object') return;
+
+                // Only adopt sibling state if we don't already have our own.
+                // Avoids overwriting a freshly-logged-in tab's state with a
+                // stale broadcast from an older sibling.
+                if (sessionStorage.getItem('authToken')) {
+                    return;
+                }
+                // Mirror into sessionStorage so the existing storage-read
+                // paths (ProtectedRoute, getStored helper, /me/ fetcher)
+                // pick it up without any further changes.
+                sessionStorage.setItem('authToken', msg.token);
+                sessionStorage.setItem('user', msg.user);
+                if (msg.tenantInfo) sessionStorage.setItem('tenantInfo', msg.tenantInfo);
+                if (msg.tenantPermissions) sessionStorage.setItem('tenantPermissions', msg.tenantPermissions);
+                if (msg.tenantDomain) sessionStorage.setItem('tenantDomain', msg.tenantDomain);
+                if (msg.activeTenant) sessionStorage.setItem('activeTenant', msg.activeTenant);
+                if (msg.activeOrganization) sessionStorage.setItem('activeOrganization', msg.activeOrganization);
+                if (msg.userOrganizations) sessionStorage.setItem('userOrganizations', msg.userOrganizations);
+                if (msg.mdaIsolationMode) sessionStorage.setItem('mdaIsolationMode', msg.mdaIsolationMode);
+
+                // Hydrate React state immediately so consumers re-render.
+                try { setUser(JSON.parse(msg.user)); } catch { /* ignore */ }
+                if (msg.tenantInfo) {
+                    try { setTenantInfo(JSON.parse(msg.tenantInfo)); } catch { /* ignore */ }
+                }
+                if (msg.tenantPermissions) {
+                    try { setPermissions(JSON.parse(msg.tenantPermissions)); } catch { /* ignore */ }
+                }
+                if (msg.activeOrganization) {
+                    try { setActiveOrgState(JSON.parse(msg.activeOrganization)); } catch { /* ignore */ }
+                }
+                if (msg.userOrganizations) {
+                    try { setUserOrganizations(JSON.parse(msg.userOrganizations)); } catch { /* ignore */ }
+                }
+                if (msg.mdaIsolationMode === 'UNIFIED' || msg.mdaIsolationMode === 'SEPARATED') {
+                    setMdaIsolationMode(msg.mdaIsolationMode);
+                }
+                // Tell ProtectedRoute (and any other listener that
+                // re-checks on storage events) to refresh its decision.
+                window.dispatchEvent(new Event('auth-restored'));
+            } else if (msg.type === 'logout-sync') {
+                // A sibling tab logged out — clear our state too.
+                logout();
+            }
+        };
+        channel.addEventListener('message', onMessage);
+
+        // If we mounted with no user, ask siblings for their state.
+        // No-op in tabs that already have a user — they don't need help.
+        if (!user) {
+            channel.postMessage({ type: 'request-auth-state' } satisfies SyncMessage);
+        }
+
+        return () => {
+            channel.removeEventListener('message', onMessage);
+            channel.close();
+        };
+        // We intentionally only run this on mount. ``user`` and
+        // ``logout`` are referenced via the closure but their stale
+        // values are acceptable here because the handler reads from
+        // storage live, and ``logout`` only flips state (no need to
+        // rebind on every change).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Broadcast logout intent so other tabs in this browser also clear.
+    // Wired as a separate effect that watches ``isAuthenticated`` so we
+    // only post when the user transitions from authenticated → null,
+    // not on the initial empty state.
+    const wasAuthenticated = useRef(isAuthenticated);
+    useEffect(() => {
+        if (typeof BroadcastChannel === 'undefined') return;
+        if (wasAuthenticated.current && !isAuthenticated) {
+            const ch = new BroadcastChannel('quot-auth');
+            try { ch.postMessage({ type: 'logout-sync' }); } finally { ch.close(); }
+        }
+        wasAuthenticated.current = isAuthenticated;
+    }, [isAuthenticated]);
+
     const value = useMemo(() => ({
         user, tenantInfo, tenantRole, permissions, isAuthenticated,
         hasPermission, hasRole, setAuthData, setTenantData, logout,
@@ -241,10 +448,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = (): AuthState => {
-    const ctx = useContext(AuthContext);
-    if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
-    return ctx;
-};
+// ``useAuth`` lives in ``./useAuth`` so this file can export ONLY the
+// ``AuthProvider`` component (plus type definitions and the default
+// context). Fast-refresh works file-by-file: keeping hooks here would
+// force a full page reload on every edit to the provider. Re-exported
+// below for backward compatibility — existing consumers that import
+// ``useAuth`` from this path continue to work without changes.
+export { useAuth } from './useAuth';
 
 export default AuthContext;

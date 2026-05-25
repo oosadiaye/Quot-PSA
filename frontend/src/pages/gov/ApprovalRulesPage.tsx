@@ -148,8 +148,7 @@ export default function ApprovalRulesPage() {
                 }}>
                     Quot PSE IFMIS — Approval Workflow Matrix
                 </div>
-            </main>
-        </div>
+        </ListPageShell>
     );
 }
 
@@ -176,7 +175,8 @@ function SummaryCard({ label, value, accent }: SummaryCardProps) {
                 fontFamily: 'monospace',
             }}>
                 {value}
-        </ListPageShell>
+            </div>
+        </div>
     );
 }
 

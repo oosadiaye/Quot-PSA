@@ -1180,20 +1180,50 @@ def tenant_company_api(request):
 @authentication_classes_decorator([])
 @permission_classes([AllowAny])
 def tenant_public_branding_api(request):
-    """Public endpoint — returns tenant name and logo for the login page.
+    """Public endpoint — returns tenant identity + contact info.
 
     No authentication required. The tenant is resolved by django-tenants
-    middleware from the request hostname. Only exposes name, tagline, and
-    logo — no sensitive data.
+    middleware from the request hostname. Used by:
+      • Login / Register / Verify-Email pages (need name + logo)
+      • In-app sidebar header (needs name + logo)
+      • Printable reports + warrant printout (need full contact block
+        on the letterhead — address, phone, email, website)
+
+    What's deliberately exposed:
+      ✅ name, tagline, logo            — already-public branding
+      ✅ address, city, state, country  — postal/visiting address
+      ✅ postal_code, phone, email, website — contact details
+
+    What's deliberately NOT exposed (still gated to authenticated callers):
+      ❌ subscription / billing data
+      ❌ user lists / approval rules
+      ❌ government segment configuration
+
+    A printout that travels outside the tenant (mailed PDF, FOI request)
+    is expected to carry these fields — they're equivalent to the
+    "About Us" footer on a public website.
     """
     tenant = getattr(request, 'tenant', None)
     if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
-        return Response({'name': 'QUOT ERP', 'tagline': '', 'logo': None})
+        return Response({
+            'name': 'QUOT ERP', 'tagline': '', 'logo': None,
+            'address': '', 'city': '', 'state': '', 'country': '',
+            'postal_code': '', 'phone': '', 'email': '', 'website': '',
+        })
 
     return Response({
         'name': tenant.name,
         'tagline': tenant.tagline,
         'logo': request.build_absolute_uri(tenant.logo.url) if tenant.logo else None,
+        # Contact / postal info — used by report letterheads.
+        'address': getattr(tenant, 'address', '') or '',
+        'city': getattr(tenant, 'city', '') or '',
+        'state': getattr(tenant, 'state', '') or '',
+        'country': getattr(tenant, 'country', '') or '',
+        'postal_code': getattr(tenant, 'postal_code', '') or '',
+        'phone': getattr(tenant, 'phone', '') or '',
+        'email': getattr(tenant, 'email', '') or '',
+        'website': getattr(tenant, 'website', '') or '',
     })
 
 

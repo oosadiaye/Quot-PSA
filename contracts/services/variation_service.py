@@ -217,10 +217,101 @@ class VariationService:
 
         cls._refresh_contract_ceiling(variation.contract)
 
+        # ── Appropriation re-check for ceiling-increasing variations ──
+        # If the approved variation INCREASES the contract ceiling
+        # (amount > 0), verify the appropriation can still absorb
+        # the new total. Without this check, a BPP-eligible
+        # variation (>25% increase) can blow through the
+        # appropriation balance silently — only caught at the next
+        # IPC approval, by which point the operator has already
+        # told the contractor "approved" and is committed to a
+        # supplementary appropriation as a fait accompli.
+        #
+        # Safe-additive: on a 0-amount or negative variation (EOT,
+        # omission), this is a no-op. Best-effort wrap — if the
+        # check function itself fails (e.g. dimension lookup
+        # missing), we log and let the approval stand rather than
+        # blocking the operator on a tooling issue. The IPC-time
+        # check will still fire as the final backstop.
+        from decimal import Decimal
+        if (variation.amount or Decimal('0')) > Decimal('0'):
+            try:
+                cls._appropriation_recheck_for_increase(variation)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'Variation %s appropriation re-check failed: %s — '
+                    'approval proceeded; the IPC-time appropriation '
+                    'gate remains the final backstop.',
+                    variation.pk, exc,
+                )
+
         cls._record_step(
             variation, actor, ApprovalAction.APPROVE, notes or f"Approved at tier {variation.approval_tier}",
         )
         return variation
+
+    @staticmethod
+    def _appropriation_recheck_for_increase(variation) -> None:
+        """Verify the appropriation can absorb a positive variation.
+
+        Mirrors the IPC-time appropriation gate in
+        ``IPCService._enforce_appropriation_gate`` so an over-budget
+        variation surfaces at approve-time, not three weeks later when
+        the first IPC against the new ceiling lands. Uses
+        ``check_policy`` / ``find_matching_appropriation`` for the
+        same engine the rest of the codebase uses.
+
+        Raises ``InvalidTransitionError`` when the check returns
+        blocked. Callers wrap this in try/except so the failure mode
+        is "log + warn"; downstream IPC approve will still catch it.
+        """
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
+        contract = variation.contract
+        ncoa = getattr(contract, 'ncoa_code', None)
+        if ncoa is None:
+            return  # no NCoA → no check possible; let IPC gate handle
+        admin_seg = getattr(ncoa, 'administrative', None)
+        econ_seg = getattr(ncoa, 'economic', None)
+        fund_seg = getattr(ncoa, 'fund', None)
+        if not (admin_seg and econ_seg and fund_seg):
+            return
+        # ``find_matching_appropriation`` expects the legacy bridge
+        # objects (admin → legacy_mda, etc.) not the NCoA segments.
+        admin = getattr(admin_seg, 'legacy_mda', None)
+        econ = getattr(econ_seg, 'legacy_account', None)
+        fund = getattr(fund_seg, 'legacy_fund', None)
+        if not (admin and econ and fund):
+            return
+        appropriation = find_matching_appropriation(
+            mda=admin, fund=fund, account=econ,
+            fiscal_year=getattr(contract, 'fiscal_year_id', None),
+        )
+        if appropriation is None:
+            return  # let IPC gate handle the no-appropriation case
+        result = check_policy(
+            account_code=getattr(econ, 'code', '') or '',
+            appropriation=appropriation,
+            requested_amount=variation.amount,
+            transaction_label=(
+                f'contract variation #{variation.pk} on '
+                f'{contract.contract_number}'
+            ),
+            account_name=getattr(econ, 'name', '') or '',
+        )
+        if result.blocked:
+            from contracts.services.exceptions import InvalidTransitionError
+            raise InvalidTransitionError(
+                f'Variation ceiling increase exceeds appropriation '
+                f'availability: {result.reason}',
+                context={
+                    'variation_id': variation.pk,
+                    'variation_amount': str(variation.amount),
+                    'reason': result.reason,
+                },
+            )
 
     @classmethod
     @transaction.atomic

@@ -16,6 +16,38 @@ logger = logging.getLogger('dtsg')
 security_logger = logging.getLogger('security')
 
 
+def _resolve_rbac_codes(user) -> list[str]:
+    """Return the granular RBAC permission codes a user holds in the
+    current tenant schema.
+
+    Walks ``RoleAssignment(is_active=True) → Role(is_active=True) →
+    PermissionDefinition.code`` and returns the deduplicated, sorted
+    list. Caller must already be inside a tenant ``schema_context`` —
+    the query implicitly hits the tenant-local ``core_role`` and
+    ``core_permissiondefinition`` tables.
+
+    Returns an empty list when the new RBAC tables don't exist yet
+    (defensive — fresh tenants migrating in stages might not have
+    run migration 0013 yet) or when the user has no active role
+    assignments.
+    """
+    try:
+        from core.models import RoleAssignment
+        codes = (
+            RoleAssignment.objects
+            .filter(user=user, is_active=True, role__is_active=True)
+            .values_list('role__permissions__code', flat=True)
+        )
+        # ``role__permissions__code`` returns ``None`` rows when a role
+        # has no permissions attached — strip those.
+        return sorted({c for c in codes if c})
+    except Exception as exc:  # pragma: no cover — defensive
+        # Never let RBAC resolution break ``/me/``. The legacy gate
+        # path still works without us.
+        logger.debug('RBAC permission resolution failed: %s', exc)
+        return []
+
+
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint that allows users to be viewed."""
     queryset = User.objects.all()
@@ -26,8 +58,24 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if not self.request.user.is_superuser:
-            queryset = queryset.filter(is_active=True)
+        user = self.request.user
+        if user.is_superuser:
+            return queryset
+
+        # Non-superusers may only see active users in their own tenant.
+        # Tenant scoping uses the same UserTenantRole table the rest of
+        # the auth layer reads from.
+        queryset = queryset.filter(is_active=True)
+        tenant = getattr(connection, 'tenant', None)
+        if tenant is not None and getattr(tenant, 'schema_name', 'public') != 'public':
+            from tenants.models import UserTenantRole
+            tenant_user_ids = UserTenantRole.objects.filter(
+                tenant=tenant, is_active=True,
+            ).values_list('user_id', flat=True)
+            queryset = queryset.filter(pk__in=list(tenant_user_ids))
+        else:
+            # Public schema (no tenant context) — restrict to self only.
+            queryset = queryset.filter(pk=user.pk)
         return queryset
 
     @action(detail=False, methods=['get'])
@@ -49,13 +97,47 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
                 data['tenant_groups'] = list(utr.groups.values_list('name', flat=True))
                 if utr.role == 'admin':
                     data['tenant_permissions'] = ['__all__']
+                    # Even for admins we surface the granular RBAC codes so
+                    # the React UI can render finer-grained controls (e.g.
+                    # only show the SoD-rules button to ``rbac.sod.manage``
+                    # holders) without re-resolving server-side.
+                    data['rbac_permissions'] = _resolve_rbac_codes(request.user)
                 else:
-                    data['tenant_permissions'] = sorted(
+                    # Two parallel permission sources flow into the
+                    # frontend's hasPermission():
+                    #
+                    # 1. ``tenant_permissions`` — legacy Django-auth
+                    #    codenames (last segment of ``app.codename``)
+                    #    that the existing sidebar gates use
+                    #    (``view_user``, ``view_journalheader``, …).
+                    # 2. ``rbac_permissions`` — granular RBAC codes from
+                    #    the new permission catalogue
+                    #    (``rbac.role.view``, ``budget.appropriation.approve``)
+                    #    held via ``core.RoleAssignment`` →
+                    #    ``Role.permissions``.
+                    #
+                    # We merge both into ``tenant_permissions`` so the
+                    # existing sidebar/page gates keep working AND any
+                    # check against a new code (``rbac.role.view``)
+                    # also resolves true. The original Django codenames
+                    # are preserved so legacy gates like
+                    # ``view_approvalrule`` still pass.
+                    legacy_codes = sorted(
                         p.split('.')[-1] for p in utr.get_all_permissions()
                     )
+                    rbac_codes = _resolve_rbac_codes(request.user)
+                    # ``set`` collapses any overlap; sort for determinism.
+                    merged = sorted(set(legacy_codes) | set(rbac_codes))
+                    data['tenant_permissions'] = merged
+                    data['rbac_permissions'] = rbac_codes
             except UserTenantRole.DoesNotExist:
                 data['tenant_role'] = None
-                data['tenant_permissions'] = []
+                # Even without a UserTenantRole, the user may hold
+                # tenant-scoped RoleAssignments (the new RBAC system
+                # is independent of the legacy UTR). Surface those
+                # codes so the gate still works.
+                data['tenant_permissions'] = _resolve_rbac_codes(request.user)
+                data['rbac_permissions'] = data['tenant_permissions']
 
         return Response(data)
 
@@ -155,10 +237,14 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
                             domain=tenant_domain_str
                         ).first()
                         if domain_obj and domain_obj.tenant.schema_name != 'public':
+                            # SECURITY: Self-registration must NOT grant 'admin'.
+                            # Lowest-privilege default ('viewer'); promotion to
+                            # admin requires an explicit superuser/admin action
+                            # via the tenant management flow.
                             UserTenantRole.objects.get_or_create(
                                 user=user,
                                 tenant=domain_obj.tenant,
-                                defaults={'role': 'admin', 'is_active': True},
+                                defaults={'role': 'viewer', 'is_active': True},
                             )
                             tenant_assigned = True
                             logger.info(

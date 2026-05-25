@@ -28,6 +28,14 @@ interface InvoiceLine {
     withholding_tax: string;
 }
 
+// Minimal shape interfaces for reference data hooks — replaces the
+// inline ``(x: any)`` casts that previously lived on every dropdown
+// renderer. Backend ids may be numeric (legacy) or stringified
+// uuid-like, so ``number | string`` is the safe union.
+interface RefTaxCode { id: number | string; code: string; rate?: number | string; }
+interface RefWithholdingTax { id: number | string; code: string; rate?: number | string; }
+interface RefAccount { id: number | string; account_code?: string; account_name?: string; account_type?: string; code?: string; name?: string; }
+
 interface Props {
     onCancel: () => void;
     onSuccess: () => void;
@@ -58,7 +66,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
     // Income-type accounts only (matches Account model choice 'Income')
     const revenueAccounts = useMemo(
-        () => dims?.accounts?.filter((a: any) => a.account_type === 'Income') ?? [],
+        () => dims?.accounts?.filter((a: RefAccount) => a.account_type === 'Income') ?? [],
         [dims?.accounts]
     );
 
@@ -69,11 +77,11 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
             const amtCents = Math.round(Number(line.amount || 0) * 100);
             subCents += amtCents;
             if (line.tax_code) {
-                const tc = taxCodes?.find((t: any) => String(t.id) === line.tax_code);
+                const tc = taxCodes?.find((t: RefTaxCode) => String(t.id) === line.tax_code);
                 if (tc) taxCents += Math.round(amtCents * Number(tc.rate) / 100);
             }
             if (line.withholding_tax) {
-                const wc = whtList?.find((w: any) => String(w.id) === line.withholding_tax);
+                const wc = whtList?.find((w: RefWithholdingTax) => String(w.id) === line.withholding_tax);
                 if (wc) whtCents += Math.round(amtCents * Number(wc.rate) / 100);
             }
         }
@@ -93,7 +101,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
     const switchTab = (tab: TabType) => {
         setActiveTab(tab);
-        setLines([{ account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
+        setLines([{ _uid: nextLineUid(), account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
         setFormError('');
     };
 
@@ -500,8 +508,8 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                                     value={line.account}
                                                     onChange={e => updateLine(idx, 'account', e.target.value)} required>
                                                     <option value="">Select…</option>
-                                                    {revenueAccounts.map((a: any) => (
-                                                        <option key={a.id} value={a.id}>{a.code} – {a.name}</option>
+                                                    {revenueAccounts.map((a: RefAccount) => (
+                                                        <option key={a.id} value={a.id}>{a.code ?? a.account_code} – {a.name ?? a.account_name}</option>
                                                     ))}
                                                 </select>
                                             </td>
@@ -528,7 +536,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                                     value={line.tax_code}
                                                     onChange={e => updateLine(idx, 'tax_code', e.target.value)}>
                                                     <option value="">No Tax</option>
-                                                    {taxCodes?.map((t: any) => (
+                                                    {taxCodes?.map((t: RefTaxCode) => (
                                                         <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>
                                                     ))}
                                                 </select>
@@ -538,7 +546,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                                     value={line.withholding_tax}
                                                     onChange={e => updateLine(idx, 'withholding_tax', e.target.value)}>
                                                     <option value="">No WHT</option>
-                                                    {whtList?.map((w: any) => (
+                                                    {whtList?.map((w: RefWithholdingTax) => (
                                                         <option key={w.id} value={w.id}>{w.code} ({w.rate}%)</option>
                                                     ))}
                                                 </select>

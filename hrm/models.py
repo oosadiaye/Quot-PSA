@@ -85,9 +85,24 @@ class Employee(AuditBaseModel):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='employee')
     employee_number = models.CharField(max_length=50, unique=True)
-    
+
     personal_info = models.JSONField(default=dict, blank=True)
-    
+
+    # Direct MDA/tenant scope. Source of truth for payroll-run scoping and
+    # tenant isolation. Previously inferred via
+    # ``department.cost_center.organization``; that chain was incomplete
+    # (CostCenter has no organization FK) and required JOINs on every query.
+    organization = models.ForeignKey(
+        'core.Organization',
+        null=True,  # nullable initially; backfill migration follows
+        blank=True,
+        on_delete=models.PROTECT,
+        db_index=True,
+        related_name='employees',
+        help_text='Tenant/MDA this employee belongs to. Source of truth for '
+                  'payroll-run scoping and tenant isolation.',
+    )
+
     department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name='employees')
     position = models.ForeignKey(Position, on_delete=models.PROTECT, related_name='employees')
     supervisor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='subordinates')

@@ -9,6 +9,7 @@ import Sidebar from '../../../components/Sidebar';
 import apiClient from '../../../api/client';
 import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
+import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 
 const fmtNGN = (v: number) => 'NGN ' + (v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
 const card: React.CSSProperties = { background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px' };
@@ -39,9 +40,32 @@ export default function FinancialPositionReport() {
 
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+            {/* Print-only stylesheet: hide the sidebar + screen header,
+                show the BrandedPrintHeader + report cards. The
+                ``.print-only`` block is invisible on screen but appears
+                at the top of every printed page so the report carries
+                the tenant's branding (logo, name, address) wherever it
+                travels. The screen-only version of the page-header
+                stays unchanged so day-to-day use isn't affected. */}
+            <style>{`
+                @media print {
+                    aside, nav, .no-print { display: none !important; }
+                    .print-only { display: block !important; }
+                    main.ipsas-report { margin-left: 0 !important; padding: 16mm !important; }
+                    body { background: white !important; }
+                }
+                .print-only { display: none; }
+            `}</style>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div className="print-only" style={{ marginBottom: 16 }}>
+                    <BrandedPrintHeader subtitle="Statement of Financial Position · IPSAS 1" />
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#475569', textAlign: 'center' }}>
+                        Fiscal Year: <strong>FY {fy}</strong>
+                    </div>
+                </div>
+
+                <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Statement of Financial Position</h1>
                         <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>IPSAS 1 — Balance Sheet</p>

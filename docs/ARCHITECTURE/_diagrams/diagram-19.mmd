@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> Draft : PayrollRun created<br/>for (MDA, PayrollPeriod)
+    Draft --> InProgress : compute()<br/>generates PayrollLine rows<br/>applies SalaryStructure + deductions
+    InProgress --> Approved : workflow approval<br/>(typically AG / HR Director)
+    Approved --> Paid : PayrollPostingService.post_payroll_run()<br/>creates JournalHeader<br/>spawns PaymentVoucherGov(s)
+    Paid --> [*]
+
+    note right of Approved
+      DR Salary Expense
+      CR Payroll Liability
+      CR Tax Payable (PAYE)
+      CR Pension Payable
+      CR NHF Payable
+    end note

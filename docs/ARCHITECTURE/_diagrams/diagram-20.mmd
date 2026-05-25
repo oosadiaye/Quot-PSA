@@ -1,0 +1,6 @@
+stateDiagram-v2
+    [*] --> Pending : Employee submits
+    Pending --> Approved : manager approves<br/>(deducts from leave balance)
+    Pending --> Rejected
+    Approved --> Cancelled : pre-start cancel<br/>(refunds balance)
+    Approved --> Taken : auto on end_date

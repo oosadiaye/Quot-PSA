@@ -289,6 +289,30 @@ def provision_tenant_schema(
                         },
                     )
 
+        # 3a. Tenant default seed — FiscalYear / FiscalPeriod /
+        #     BudgetPeriod / structural CoA / BudgetCheckRule / TSA.
+        #     Without this a fresh tenant cannot post any journal
+        #     (period gate fails, AP-recon lookup fails, mark-paid
+        #     fails). The seeder reads JSON from ``tenants/seed_data/``
+        #     so integrators can ship a custom default set per
+        #     deployment without editing Python. Best-effort: a seed
+        #     failure on (say) BudgetCheckRule doesn't block the
+        #     tenant from going active — the operator can re-run
+        #     ``manage.py seed_tenant_defaults --schema <name>`` to
+        #     fill the missing pieces idempotently.
+        try:
+            from tenants.services.default_seeder import TenantDefaultsSeeder
+            seed_report = TenantDefaultsSeeder(tenant.schema_name).seed_all()
+            logger.info(
+                'tenant defaults seeded for %s: %d rows created, skipped=%s',
+                tenant.schema_name, seed_report.total(), seed_report.skipped,
+            )
+        except Exception as seed_err:  # noqa: BLE001
+            logger.warning(
+                'tenant default seeding failed for %s: %s',
+                tenant.schema_name, seed_err,
+            )
+
         # 3b. Industry-specific seed (CoA, BOMs, work centers) — best-effort.
         #     Only runs on signup, where business_category is explicit; admin
         #     creation flow leaves it blank and skips.

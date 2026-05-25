@@ -68,6 +68,7 @@ class PayrollPostingService(BasePostingService):
         # approach and produces standard multi-dimensional GL entries.
         dept_totals = {}
         unallocated_gross = Decimal(str(payroll_run.total_gross or 0))
+        allocation_warning = None
         try:
             for line in payroll_run.lines.select_related('employee__department').all():
                 dept = getattr(line.employee, 'department', None) if line.employee else None
@@ -82,8 +83,16 @@ class PayrollPostingService(BasePostingService):
                         }
                     dept_totals[dept_id]['gross'] += line_gross
                     unallocated_gross -= line_gross
-        except Exception:
-            # If employee/department traversal fails fall back to single summary line
+        except Exception as exc:
+            # Log loudly AND surface on the journal memo — silently posting
+            # the entire run as unallocated wipes cost-centre payroll
+            # reports for the whole period with no signal to operators.
+            logger.warning(
+                'payroll cost-centre allocation failed; posting as unallocated',
+                extra={'payroll_run_id': payroll_run.pk},
+                exc_info=True,
+            )
+            allocation_warning = str(exc)
             dept_totals = {}
             unallocated_gross = Decimal(str(payroll_run.total_gross or 0))
 
@@ -100,9 +109,15 @@ class PayrollPostingService(BasePostingService):
         total_pension = Decimal(str(line_totals['total_pension'] or 0))
         total_other = total_deductions - total_tax - total_pension
 
+        description = f"Payroll Run: {payroll_run.run_number}"
+        if allocation_warning:
+            description = (
+                f"WARNING: posted unallocated due to: {allocation_warning} | "
+                + description
+            )
         journal = JournalHeader.objects.create(
             reference_number=journal_number,
-            description=f"Payroll Run: {payroll_run.run_number}",
+            description=description,
             posting_date=payroll_run.period.payment_date,
             status='Posted',
             created_by=payroll_run.created_by,

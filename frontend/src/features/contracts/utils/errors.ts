@@ -21,7 +21,7 @@ export interface ServiceErrorEnvelope {
 const CODE_HINTS: Record<string, string> = {
   CONTRACT_CEILING_BREACH: 'This action would exceed the contract ceiling.',
   IPC_DUPLICATE_HASH: 'An IPC with identical line items already exists.',
-  VARIATION_TIER_REQUIRED: 'Variation exceeds tier threshold — needs higher approval.',
+  VARIATION_TIER_REQUIRED: 'Write-up exceeds tier threshold — needs higher approval.',
   RETENTION_RELEASE_BLOCKED: 'Retention cannot be released yet.',
   MOBILIZATION_RECOVERY_SHORT: 'Mobilization advance not fully recovered.',
   IPC_STATE_INVALID: 'IPC is not in a state that allows this action.',

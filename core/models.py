@@ -307,11 +307,33 @@ class AuditLog(models.Model):
         log_entry.save()
         return log_entry
 
-    @staticmethod
-    def _get_field_values(instance):
-        """Extract relevant field values from an instance"""
+    # ── Sensitive field registry ────────────────────────────────────────
+    # Field names captured here are written to the audit log as
+    # ``[REDACTED]`` instead of their real value. Keyed by model class
+    # name (case-sensitive). Extend as new sensitive models land — the
+    # default policy is to redact PII, tax IDs, banking, salary, BVN,
+    # and NIN per Nigeria NDPR / IFMIS audit-trail requirements.
+    SENSITIVE_FIELDS_BY_MODEL = {
+        'Employee': {
+            'social_security_number', 'national_id_number',
+            'tax_identification_number', 'bank_account', 'bank_routing',
+            'base_salary', 'bvn', 'nin',
+        },
+    }
+    REDACTED_PLACEHOLDER = '[REDACTED]'
+
+    @classmethod
+    def _get_field_values(cls, instance):
+        """Extract relevant field values from an instance.
+
+        Sensitive fields (see ``SENSITIVE_FIELDS_BY_MODEL``) are
+        replaced with ``[REDACTED]`` so the audit log never persists
+        PII or banking details in cleartext.
+        """
         values = {}
         skip_fields = {'id', 'password', '_state', 'created_at', 'updated_at'}
+        model_name = instance.__class__.__name__
+        sensitive = cls.SENSITIVE_FIELDS_BY_MODEL.get(model_name, set())
 
         from datetime import date, datetime as dt
         for field in instance._meta.get_fields():
@@ -319,16 +341,20 @@ class AuditLog(models.Model):
                 continue
             try:
                 value = getattr(instance, field.name, None)
-                if value is not None:
-                    if isinstance(value, Decimal):
-                        values[field.name] = str(value)
-                    elif isinstance(value, (dt, date)):
-                        values[field.name] = value.isoformat()
-                    elif hasattr(value, '__dict__'):
-                        # Skip complex objects
-                        continue
-                    else:
-                        values[field.name] = value
+                if value is None:
+                    continue
+                if field.name in sensitive:
+                    values[field.name] = cls.REDACTED_PLACEHOLDER
+                    continue
+                if isinstance(value, Decimal):
+                    values[field.name] = str(value)
+                elif isinstance(value, (dt, date)):
+                    values[field.name] = value.isoformat()
+                elif hasattr(value, '__dict__'):
+                    # Skip complex objects
+                    continue
+                else:
+                    values[field.name] = value
             except (AttributeError, ValueError):
                 pass
 
@@ -518,6 +544,29 @@ class Role(models.Model):
         default=False,
         help_text='Default role assigned to new users in this module',
     )
+    is_system = models.BooleanField(
+        default=False,
+        help_text=(
+            'System-seeded role (e.g. accountant_general, budget_officer). '
+            'System roles can be edited by admins but not deleted — '
+            'tenants always have a path back to a known-good baseline.'
+        ),
+    )
+    description = models.TextField(
+        blank=True, default='',
+        help_text='Long-form explanation shown in the role editor.',
+    )
+    permissions = models.ManyToManyField(
+        'core.PermissionDefinition', blank=True, related_name='roles',
+        help_text=(
+            'Granular permissions held by this role. The legacy '
+            '``can_view`` / ``can_add`` / ``can_change`` / ``can_delete`` / '
+            '``can_approve`` / ``can_post`` flags are kept for backward '
+            'compatibility with existing permission-string consumers, '
+            'but new code reads from this M2M.'
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -652,6 +701,224 @@ class RoleAssignment(models.Model):
 
     def __str__(self):
         return f'{self.user.username} → {self.role.code}'
+
+
+# =============================================================================
+# GRANULAR PERMISSION CATALOG + RULE-DRIVEN SoD
+# =============================================================================
+#
+# Until now permissions were derived dynamically from ``Role.can_*`` boolean
+# flags + a hardcoded model list per module. SoD lived as inline checks
+# scattered through ``contracts/services/*``. That worked for the four
+# documents that had it but didn't extend to the wider ERP.
+#
+# These models give us a tenant-editable, data-driven permission catalogue
+# plus a SoDRule table the evaluator service consults at action time.
+# Existing code paths keep working — the boolean flags on ``Role`` are
+# preserved — but new code reads ``Role.permissions`` (the M2M to
+# ``PermissionDefinition``) and the SoD evaluator returns structured
+# violations the UI surfaces as warnings or hard blocks.
+#
+# Real-time effect: all three models invalidate ``tenant_perms:*`` cache
+# entries on save/delete via ``core.signals.role_perm_signals`` so a
+# permission change applied by an admin is visible to every active
+# session within one request cycle.
+
+class PermissionDefinition(models.Model):
+    """A single, named, granular permission in the system.
+
+    The catalogue is seeded by ``seed_permission_catalog`` and is the
+    source of truth for what permissions exist. The Role-editor UI
+    reads these to render its tree; the SoD-rule editor picks two of
+    them per rule. ``code`` is a stable string id (``module.resource.
+    action``) so signal handlers and policy evaluators can look up by
+    code without joining the M2M.
+    """
+
+    MODULE_CHOICES = [
+        ('accounting',  'General Ledger & Accounting'),
+        ('budget',      'Budget & Appropriation'),
+        ('treasury',    'Treasury & TSA'),
+        ('procurement', 'Procurement & Due Process'),
+        ('contracts',   'Contracts & IPC'),
+        ('inventory',   'Stores & Inventory'),
+        ('hrm',         'Human Resources & Payroll'),
+        ('revenue',     'Revenue Collection (IGR)'),
+        ('assets',      'Fixed Asset Management'),
+        ('workflow',    'Workflow & Approvals'),
+        ('reporting',   'Financial Reporting'),
+        ('audit',       'Internal Audit & Compliance'),
+        ('admin',       'System Administration'),
+        ('rbac',        'Roles & Permissions'),
+    ]
+
+    RISK_CHOICES = [
+        ('low',      'Low'),
+        ('medium',   'Medium'),
+        ('high',     'High'),
+        ('critical', 'Critical'),
+    ]
+
+    # ``module.resource.action`` — globally unique stable identifier.
+    # e.g. ``procurement.po.approve``, ``accounting.journal.post``.
+    code = models.CharField(max_length=120, unique=True, db_index=True)
+
+    module = models.CharField(
+        max_length=30, choices=MODULE_CHOICES, db_index=True,
+        help_text='Module the permission belongs to.',
+    )
+    resource = models.CharField(
+        max_length=60, db_index=True,
+        help_text='Resource within the module — e.g. "po", "ipc", "warrant".',
+    )
+    action = models.CharField(
+        max_length=40, db_index=True,
+        help_text=(
+            'Verb — e.g. "view", "create", "submit", "approve", "post", '
+            '"release", "reverse", "pay", "configure".'
+        ),
+    )
+
+    label = models.CharField(
+        max_length=200,
+        help_text='Human-readable label shown in the role editor.',
+    )
+    description = models.TextField(
+        blank=True, default='',
+        help_text='Long-form explanation displayed on hover / in details panel.',
+    )
+
+    risk_level = models.CharField(
+        max_length=10, choices=RISK_CHOICES, default='low',
+        help_text=(
+            'Surfaces in the UI so admins see which permissions carry '
+            'audit weight (high/critical permissions get a coloured badge).'
+        ),
+    )
+    sort_order = models.PositiveIntegerField(
+        default=100,
+        help_text='Display ordering inside the (module, resource) group.',
+    )
+
+    is_system = models.BooleanField(
+        default=True,
+        help_text=(
+            'System permissions are seeded and cannot be deleted by tenants. '
+            'Custom (is_system=False) permissions can be created by tenant '
+            'admins for tenant-specific resources.'
+        ),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['module', 'resource', 'sort_order', 'action']
+        indexes = [
+            models.Index(fields=['module', 'resource']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['module', 'resource', 'action'],
+                name='uniq_perm_module_resource_action',
+            ),
+        ]
+
+    def __str__(self):
+        return self.code
+
+
+class SoDRule(models.Model):
+    """A declarative segregation-of-duties incompatibility.
+
+    A rule names two ``PermissionDefinition`` rows that should not be
+    exercised together. ``scope`` decides WHEN the conflict matters:
+
+    - ``hold``: a single user must not hold both permissions at all.
+      Evaluated at role-assignment / role-edit time. Common for
+      strategic separations (e.g. a user can be "Budget Officer" OR
+      "Treasury Officer", never both, because the appropriation gate
+      and the cash-out gate must be operated by different people).
+
+    - ``same_document``: a user MAY hold both permissions, but cannot
+      exercise both on the same document. Evaluated at action time
+      (e.g. the user who created PR-2026-00091 cannot approve PR-2026-
+      00091, even though they have ``procurement.pr.create`` AND
+      ``procurement.pr.approve``).
+
+    ``severity`` controls the UI behaviour:
+    - ``block``: hard reject; the action / assignment fails with a 403.
+    - ``warn``: log the violation, allow the action, surface a banner.
+
+    Bypass: holders of ``rbac.bypass_sod`` (or staff/superuser) skip the
+    check — same escape hatch the existing ``actor_can_bypass_sod``
+    function provides for contracts. Bypass usage is logged.
+    """
+
+    SCOPE_CHOICES = [
+        ('hold',          'Cannot Hold Both Permissions'),
+        ('same_document', 'Cannot Exercise Both on Same Document'),
+    ]
+    SEVERITY_CHOICES = [
+        ('block', 'Block (hard reject)'),
+        ('warn',  'Warn (log, allow, banner)'),
+    ]
+
+    code = models.CharField(max_length=120, unique=True, db_index=True)
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default='')
+
+    permission_a = models.ForeignKey(
+        'core.PermissionDefinition', on_delete=models.CASCADE,
+        related_name='sod_rules_as_a',
+    )
+    permission_b = models.ForeignKey(
+        'core.PermissionDefinition', on_delete=models.CASCADE,
+        related_name='sod_rules_as_b',
+    )
+
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default='same_document')
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='block')
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_system = models.BooleanField(
+        default=False,
+        help_text=(
+            'System rules are seeded by ``seed_permission_catalog`` and '
+            'cannot be deleted (only deactivated). Tenant admins can add '
+            'their own non-system rules freely.'
+        ),
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['code']
+        constraints = [
+            # A → B and B → A would be redundant. Enforce ordering at the
+            # model level so the editor doesn't generate duplicates.
+            # We don't put a CHECK on ``permission_a_id < permission_b_id``
+            # because the FK ids are not stable across migrations; instead
+            # the save() method below enforces ordering.
+            models.UniqueConstraint(
+                fields=['permission_a', 'permission_b', 'scope'],
+                name='uniq_sod_rule_pair_scope',
+            ),
+        ]
+
+    def __str__(self):
+        return f'SoD: {self.permission_a.code} ⨯ {self.permission_b.code} [{self.scope}]'
+
+    def save(self, *args, **kwargs):
+        # Normalise pair order so (A,B) and (B,A) collapse to one row.
+        # Saves the editor from having to think about direction.
+        if self.permission_a_id and self.permission_b_id:
+            if self.permission_a_id > self.permission_b_id:
+                self.permission_a_id, self.permission_b_id = (
+                    self.permission_b_id, self.permission_a_id,
+                )
+        super().save(*args, **kwargs)
 
 
 # =============================================================================
@@ -860,11 +1127,19 @@ class EmailVerification(models.Model):
         self.verified_at = timezone.now()
         self.save(update_fields=['is_verified', 'verified_at'])
 
+    # Verification tokens are short-lived to limit the window in which
+    # a leaked link can be replayed. 24 hours is the standard balance
+    # between user UX (cover overnight + morning sign-up) and replay
+    # exposure.
+    TOKEN_EXPIRY_HOURS = 24
+
     @property
     def is_expired(self):
-        """Tokens expire after 72 hours."""
+        """Tokens expire after ``TOKEN_EXPIRY_HOURS``."""
         from django.utils import timezone
-        return self.created_at < timezone.now() - timezone.timedelta(hours=72)
+        return self.created_at < timezone.now() - timezone.timedelta(
+            hours=self.TOKEN_EXPIRY_HOURS,
+        )
 
 
 class UserSession(models.Model):
@@ -1196,11 +1471,15 @@ class UserMFA(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='mfa',
     )
-    # Base32 TOTP shared secret. Stored as-is; the row is protected by
-    # row-level permissions and the audit log. For production hardening,
-    # wrap this with an application-layer encryption field
-    # (django-cryptography or equivalent) — that's a future ticket.
-    secret = models.CharField(max_length=64, blank=True, default='')
+    # Base32 TOTP shared secret. Always written via ``set_secret()`` /
+    # read via ``get_secret()`` so callers never touch the at-rest form.
+    # When ``secret_encrypted`` is True the column holds Fernet
+    # ciphertext (see ``core.security.mfa_crypto``); when False it's
+    # legacy plaintext from before the encryption migration. The data
+    # migration re-encrypts in place, but the accessors keep working
+    # for any row that pre-dated the rollout.
+    secret = models.CharField(max_length=255, blank=True, default='')
+    secret_encrypted = models.BooleanField(default=False)
     is_enrolled = models.BooleanField(default=False, db_index=True)
     enrolled_at = models.DateTimeField(null=True, blank=True)
     last_verified_at = models.DateTimeField(null=True, blank=True)
@@ -1223,6 +1502,34 @@ class UserMFA(models.Model):
     def __str__(self):
         state = 'enrolled' if self.is_enrolled else 'pending'
         return f'{self.user.username} — MFA {state}'
+
+    # ── Secret accessors (encryption at rest) ────────────────────────
+    def set_secret(self, plain: str) -> None:
+        """Encrypt and store a plaintext TOTP secret."""
+        from core.security.mfa_crypto import encrypt_secret
+        if plain:
+            self.secret = encrypt_secret(plain)
+            self.secret_encrypted = True
+        else:
+            self.secret = ''
+            self.secret_encrypted = False
+
+    def get_secret(self) -> str:
+        """Return the plaintext TOTP secret, decrypting if needed.
+
+        Transparently handles legacy rows where ``secret_encrypted`` is
+        False (returns the stored plaintext as-is).
+        """
+        if not self.secret:
+            return ''
+        if not self.secret_encrypted:
+            return self.secret
+        from core.security.mfa_crypto import decrypt_secret, InvalidToken
+        try:
+            return decrypt_secret(self.secret)
+        except InvalidToken:
+            # Tampered or wrong key — fail closed.
+            return ''
 
     @property
     def is_locked(self) -> bool:

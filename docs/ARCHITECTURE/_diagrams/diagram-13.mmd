@@ -1,0 +1,34 @@
+sequenceDiagram
+    participant U as Requester
+    participant PR as PurchaseRequest
+    participant W as workflow.Approval
+    participant PO as PurchaseOrder
+    participant BCR as budget.check_policy
+    participant ACC as accounting<br/>(commitment + GL)
+    participant INV as inventory
+    participant GRN as GoodsReceivedNote
+    participant IM as InvoiceMatching
+    participant PV as PaymentVoucherGov
+
+    U->>PR: create + submit_for_approval
+    PR->>W: auto_route_approval()
+    W->>PR: Approved (SoD enforced)
+    PR->>PO: convert (Draft)
+    PO->>PO: approve()
+    PO->>BCR: check_policy() w/ select_for_update
+    BCR-->>PO: ok
+    PO->>ACC: create_commitment_for_po()<br/>ProcurementBudgetLink.ACTIVE
+
+    Note over PO,GRN: Goods delivered
+    GRN->>GRN: Post()
+    GRN->>INV: StockMovement create
+    GRN->>ACC: mark_commitment_invoiced_for_po()<br/>ProcurementBudgetLink.INVOICED
+
+    Note over GRN,IM: Vendor invoice arrives
+    IM->>IM: 3-way match (PO=GRN=Invoice)
+    IM->>BCR: check_policy(invoice_amount)
+    IM->>W: submit_for_approval
+    W-->>IM: Approved (signal)
+    IM->>ACC: _post_matching_to_gl_inner()<br/>DR GR/IR Clearing, CR AP<br/>ProcurementBudgetLink.CLOSED
+    ACC->>PV: spawn PaymentVoucherGov(DRAFT)
+    PV->>PV: CHECKED → AUDITED → APPROVED → PAID

@@ -8,6 +8,7 @@ from contracts.models import (
     Contract,
     ContractBalance,
     ContractVariation,
+    ContractYearPlan,
     MilestoneSchedule,
     MeasurementBook,
     InterimPaymentCertificate,
@@ -32,6 +33,37 @@ class ContractVariationInline(admin.TabularInline):
     extra = 0
     fields = ["variation_number", "variation_type", "amount", "status", "approval_tier"]
     readonly_fields = ["variation_number", "approval_tier"]
+
+
+class ContractYearPlanInline(admin.TabularInline):
+    """Inline editor for a contract's multi-year payment plan.
+
+    Sequence is editable to let an operator re-order years before
+    activation. After activation the inline becomes effectively
+    read-only (the activation flow has already validated the sum).
+    """
+    model = ContractYearPlan
+    extra = 0
+    fields = [
+        "sequence", "fiscal_year", "appropriation",
+        "planned_amount", "carried_forward_from_prior_year",
+    ]
+    ordering = ["sequence"]
+
+
+@admin.register(ContractYearPlan)
+class ContractYearPlanAdmin(admin.ModelAdmin):
+    list_display = [
+        "contract", "sequence", "fiscal_year", "appropriation",
+        "planned_amount", "carried_forward_from_prior_year",
+    ]
+    list_filter = ["fiscal_year", "sequence"]
+    search_fields = ["contract__contract_number", "contract__title"]
+    # Skipping autocomplete_fields — FiscalYearAdmin / AppropriationAdmin
+    # don't define ``search_fields``, which Django requires for autocomplete
+    # targets. Default raw_id-style picker is fine for an admin-only screen.
+    raw_id_fields = ["contract", "fiscal_year", "appropriation"]
+    ordering = ["contract", "sequence"]
 
 
 class ContractDocumentInline(admin.TabularInline):

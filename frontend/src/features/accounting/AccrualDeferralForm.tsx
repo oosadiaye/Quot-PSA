@@ -17,13 +17,24 @@ import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../api/client';
 
 const useAccounts = () => useQuery({
-    queryKey: ['accounts-select'],
+    queryKey: ['accounts-select-postable'],
     queryFn: async () => {
-        const { data } = await apiClient.get('/accounting/accounts/', { params: { is_active: true, page_size: 500 } });
+        // is_postable=true hides SAP-style header / group accounts
+        // (Account.is_postable=False) — those aggregate child balances
+        // and the backend rejects journal lines that target them, so
+        // they have no business in the picker.
+        const { data } = await apiClient.get('/accounting/accounts/', {
+            params: { is_active: true, is_postable: true, page_size: 500 },
+        });
         return data.results || data;
     },
     staleTime: 5 * 60 * 1000,
 });
+
+// Minimal shape interfaces — narrow down what we actually use so the
+// dropdown renderers don't fall through to ``any``.
+interface RefAccountLite { id: number | string; code?: string; name?: string; }
+interface BudgetPeriodLite { id: number | string; fiscal_year?: number | string; period_type?: string; period_number?: number | string; }
 
 const inp: React.CSSProperties = {
     width: '100%', padding: '9px 12px', border: '1.5px solid var(--color-border, #e2e8f0)',
@@ -43,8 +54,21 @@ const AccrualDeferralForm = () => {
     const isEdit = Boolean(id);
     const isAccrual = (type || 'accrual') === 'accrual';
 
-    const { data: accrual, isLoading: aLoading } = useAccrual(Number(id), isEdit && isAccrual);
-    const { data: deferral, isLoading: dLoading } = useDeferral(Number(id), isEdit && !isAccrual);
+    // Edit routes carry ``:id``; new routes don't. Calling ``Number(id)``
+    // on undefined yields NaN, which the detail hooks happily pass into
+    // the URL — surfacing as a 404 from the backend. Pre-parse here so
+    // we can route around the bad request entirely.
+    const numericId = id ? Number(id) : NaN;
+    const idIsValid = !isEdit || (Number.isFinite(numericId) && numericId > 0);
+
+    useEffect(() => {
+        if (isEdit && !idIsValid) {
+            navigate('/accounting/accruals-deferrals', { replace: true });
+        }
+    }, [isEdit, idIsValid, navigate]);
+
+    const { data: accrual, isLoading: aLoading } = useAccrual(numericId, isEdit && isAccrual && idIsValid);
+    const { data: deferral, isLoading: dLoading } = useDeferral(numericId, isEdit && !isAccrual && idIsValid);
     const { data: periods = [] } = useBudgetPeriods();
     const { data: accounts = [] } = useAccounts();
 
@@ -119,13 +143,13 @@ const AccrualDeferralForm = () => {
                 if (!payload.reversal_date) delete payload.reversal_date;
                 if (!payload.account) delete payload.account;
                 if (!payload.counterpart_account) delete payload.counterpart_account;
-                if (isEdit) await updateAccrual.mutateAsync({ id: Number(id), data: payload });
+                if (isEdit) await updateAccrual.mutateAsync({ id: numericId, data: payload });
                 else await createAccrual.mutateAsync(payload);
             } else {
                 const payload: any = { ...dForm };
                 if (!payload.account) delete payload.account;
                 if (!payload.counterpart_account) delete payload.counterpart_account;
-                if (isEdit) await updateDeferral.mutateAsync({ id: Number(id), data: payload });
+                if (isEdit) await updateDeferral.mutateAsync({ id: numericId, data: payload });
                 else await createDeferral.mutateAsync(payload);
             }
             navigate('/accounting/accruals-deferrals');
@@ -211,14 +235,14 @@ const AccrualDeferralForm = () => {
                                     <label style={lbl}>{aForm.accrual_type === 'expense' ? 'Expense Account' : 'Revenue Account'} (Dr)</label>
                                     <select style={sel} value={aForm.account} onChange={e => setAForm(p => ({ ...p, account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
-                                        {(accounts as any[]).map((a: any) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
+                                        {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label style={lbl}>{aForm.accrual_type === 'expense' ? 'Accrued Liability Account' : 'Accrued Receivable Account'} (Cr)</label>
                                     <select style={sel} value={aForm.counterpart_account} onChange={e => setAForm(p => ({ ...p, counterpart_account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
-                                        {(accounts as any[]).map((a: any) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
+                                        {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                             </div>
@@ -227,7 +251,7 @@ const AccrualDeferralForm = () => {
                                     <label style={lbl}>Fiscal Period</label>
                                     <select style={sel} value={aForm.period} onChange={e => setAForm(p => ({ ...p, period: e.target.value }))}>
                                         <option value="">— Select Period —</option>
-                                        {(periods as any[]).map((p: any) => <option key={p.id} value={p.id}>FY{p.fiscal_year} – {p.period_type} {p.period_number}</option>)}
+                                        {(periods as BudgetPeriodLite[]).map((p) => <option key={p.id} value={p.id}>FY{p.fiscal_year} – {p.period_type} {p.period_number}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -292,14 +316,14 @@ const AccrualDeferralForm = () => {
                                     <label style={lbl}>{dForm.deferral_type === 'prepaid_expense' ? 'Prepaid Asset Account (Cr on recognition)' : 'Deferred Revenue Account (Dr on recognition)'}</label>
                                     <select style={sel} value={dForm.account} onChange={e => setDForm(p => ({ ...p, account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
-                                        {(accounts as any[]).map((a: any) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
+                                        {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label style={lbl}>{dForm.deferral_type === 'prepaid_expense' ? 'Expense Account (Dr on recognition)' : 'Revenue Account (Cr on recognition)'}</label>
                                     <select style={sel} value={dForm.counterpart_account} onChange={e => setDForm(p => ({ ...p, counterpart_account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
-                                        {(accounts as any[]).map((a: any) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
+                                        {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                             </div>

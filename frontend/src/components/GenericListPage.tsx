@@ -81,6 +81,14 @@ interface GenericListPageProps {
      * with the array of selected row records.
      */
     bulkActions?: BulkAction[];
+    /**
+     * Optional ReactNode rendered horizontally just below the page
+     * header and above the search/action bar. Intended for tab strips
+     * that swap the ``endpoint`` (e.g. Pending / Active / Expired on
+     * the Warrants list). Kept generic so any list page can add a
+     * filter bar without forking ``GenericListPage``.
+     */
+    tabs?: React.ReactNode;
 }
 
 const fmtNGN = (val: number | string): string => {
@@ -94,6 +102,10 @@ const statusColor = (status: string): string => {
     if (s === 'ACTIVE' || s === 'POSTED' || s === 'PAID' || s === 'RELEASED' || s === 'APPROVED') return '#22c55e';
     if (s === 'DRAFT' || s === 'PENDING') return '#f59e0b';
     if (s === 'CANCELLED' || s === 'REVERSED' || s === 'FAILED' || s === 'REJECTED') return '#ef4444';
+    // EXPIRED: terminal-by-time (date passed). Distinct rust tone so
+    // operators don't mistake it for the green RELEASED state.
+    if (s === 'EXPIRED' || s === 'SUSPENDED') return '#b45309';
+    if (s === 'EXHAUSTED') return '#64748b';
     return '#64748b';
 };
 
@@ -101,12 +113,19 @@ const formatCell = (value: unknown, format?: string): string => {
     if (value === null || value === undefined) return '\u2014';
     if (format === 'currency') return fmtNGN(value as number);
     if (format === 'percent') return `${Number(value).toFixed(1)}%`;
-    if (format === 'date' && typeof value === 'string') return value.split('T')[0];
+    if (format === 'date' && typeof value === 'string') {
+        // Nigerian convention is DD/MM/YYYY — keep en-GB locale formatting
+        // for consistency with the rest of the UI. Invalid date strings
+        // fall back to the raw ISO so the operator can still see the
+        // value rather than the literal "Invalid Date".
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? value.split('T')[0] : d.toLocaleDateString('en-GB');
+    }
     if (format === 'number') return Number(value).toLocaleString('en-NG');
     return String(value);
 };
 
-const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowClick, rowActions, bulkActions }: GenericListPageProps) => {
+const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowClick, rowActions, bulkActions, tabs }: GenericListPageProps) => {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
     const pageSize = 25;
@@ -137,6 +156,14 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
     useEffect(() => {
         setSelectedIds(new Set());
     }, [page, endpoint]);
+
+    // Reset page to 1 when the endpoint changes (tab swap). Otherwise a
+    // user on page 5 of "Pending" who switches to "Active" would request
+    // page 5 of an entirely different result set — confusing at best,
+    // an empty list at worst when the new set has fewer pages.
+    useEffect(() => {
+        setPage(1);
+    }, [endpoint]);
 
     const toggleRow = (id: string) => {
         setSelectedIds(prev => {
@@ -174,6 +201,12 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <PageHeader title={title} subtitle={subtitle} />
 
+                {tabs && (
+                    <div style={{ marginBottom: '1rem' }}>
+                        {tabs}
+                    </div>
+                )}
+
                 {/* Action buttons + Search bar */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', gap: '1rem' }}>
                     <div style={{ position: 'relative', maxWidth: '400px', flex: 1 }}>
@@ -183,6 +216,7 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                         }} />
                         <input
                             type="text"
+                            aria-label="Search list"
                             placeholder={`Search ${title.toLowerCase()}...`}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
@@ -198,9 +232,9 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                     </div>
                     {actions && actions.length > 0 && (
                         <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-                            {actions.map((action, i) => (
+                            {actions.map((action) => (
                                 <button
-                                    key={i}
+                                    key={action.label}
                                     onClick={action.onClick}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '0.375rem',
@@ -256,9 +290,9 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                             </button>
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            {bulkActions!.map((act, i) => (
+                            {bulkActions!.map((act) => (
                                 <button
-                                    key={i}
+                                    key={act.label}
                                     onClick={() => runBulkAction(act, filtered)}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
@@ -344,11 +378,16 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((item: Record<string, unknown>, idx: number) => {
+                                {filtered.map((item: Record<string, unknown>) => {
+                                    // Use the row's own id as React key — using
+                                    // the map index meant React reconciled the
+                                    // wrong DOM nodes after a delete/reorder,
+                                    // visible as focus/edit state attaching to
+                                    // the wrong row in any paginated list.
                                     const rowId = String(item.id);
                                     const checked = bulkEnabled && selectedIds.has(rowId);
                                     return (
-                                    <tr key={idx} style={{
+                                    <tr key={rowId} style={{
                                         borderBottom: '1px solid var(--color-border, #f1f5f9)',
                                         transition: 'all var(--transition-fast, 150ms)',
                                         cursor: onRowClick ? 'pointer' : 'default',

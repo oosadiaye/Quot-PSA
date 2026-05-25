@@ -302,8 +302,7 @@ export default function OverrideAuditPage() {
                 }}>
                     Quot PSE IFMIS — Authorisation Override Audit
                 </div>
-            </main>
-        </div>
+        </ListPageShell>
     );
 }
 
@@ -360,6 +359,7 @@ function SummaryCard({ label, value, accent, icon }: SummaryCardProps) {
                 }}>
                     {value}
                 </div>
-        </ListPageShell>
+            </div>
+        </div>
     );
 }

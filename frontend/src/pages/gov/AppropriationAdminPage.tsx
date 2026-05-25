@@ -39,7 +39,21 @@ interface Appropriation {
     amount_approved: string;
     appropriation_type: string;
     status: string;
+    /**
+     * PO commitments only (legacy field — preserved for backwards compat
+     * with budget-check rules and virement service that read this value).
+     */
     total_committed: string;
+    /**
+     * Contract commitments — sum of ContractYearPlan rows pointing at this
+     * appropriation. New with the multi-year contract feature.
+     */
+    total_contract_committed?: string;
+    /**
+     * Combined PO + Contract commitments. This is what the dashboard
+     * "Committed" column renders.
+     */
+    total_all_committed?: string;
     total_expended: string;
     available_balance: string;
     execution_rate: number;
@@ -229,7 +243,60 @@ export default function AppropriationAdminPage() {
                                                 textAlign: 'right', fontFamily: 'monospace',
                                                 color: '#d97706',
                                             }}>
-                                                {fmtNGN(r.total_committed)}
+                                                {/*
+                                                  Show the COMBINED PO + Contract committed total
+                                                  (``total_all_committed``). Older API responses that
+                                                  predate the multi-year contract feature only have
+                                                  ``total_committed`` (PO-only) — fall back to that
+                                                  so the column never renders empty.
+
+                                                  Subtitle splits PO vs Contract when both are
+                                                  non-zero so operators can audit which obligation
+                                                  source is consuming the appropriation.
+                                                */}
+                                                {fmtNGN(r.total_all_committed ?? r.total_committed)}
+                                                {(() => {
+                                                    const po = parseFloat(r.total_committed || '0');
+                                                    const contract = parseFloat(r.total_contract_committed || '0');
+                                                    if (po > 0 && contract > 0) {
+                                                        return (
+                                                            <div style={{
+                                                                fontSize: 9,
+                                                                color: '#94a3b8',
+                                                                marginTop: 2,
+                                                                fontWeight: 500,
+                                                                lineHeight: 1.3,
+                                                            }}>
+                                                                PO {fmtNGN(po)} + Contract {fmtNGN(contract)}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (contract > 0 && po === 0) {
+                                                        return (
+                                                            <div style={{
+                                                                fontSize: 9,
+                                                                color: '#94a3b8',
+                                                                marginTop: 2,
+                                                                fontWeight: 500,
+                                                            }}>
+                                                                Contract-only
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (po > 0 && contract === 0) {
+                                                        return (
+                                                            <div style={{
+                                                                fontSize: 9,
+                                                                color: '#94a3b8',
+                                                                marginTop: 2,
+                                                                fontWeight: 500,
+                                                            }}>
+                                                                PO-only
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                             </td>
                                             <td style={{
                                                 padding: '10px 12px', fontSize: 13,
@@ -268,8 +335,7 @@ export default function AppropriationAdminPage() {
                         }}
                     />
                 )}
-            </main>
-        </div>
+        </ListPageShell>
     );
 }
 
@@ -521,7 +587,8 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                         </button>
                     </div>
                 </div>
-        </ListPageShell>
+            </div>
+        </div>
     );
 }
 

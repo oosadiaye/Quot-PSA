@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -242,9 +242,17 @@ class VendorRenewalInvoice(AuditBaseModel):
 
 
 class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
-    """Initial request for purchase."""
+    """Initial request for purchase.
+
+    Status machine — Draft → Pending is mandatory before Approved
+    (audit fix #8). The previous machine allowed Draft → Approved
+    directly, which let a creator with the ``IsApprover`` permission
+    bypass the workflow approval engine entirely (no
+    ``auto_route_approval`` step, no SoD enforcement). The view-layer
+    ``approve`` action now also rejects Draft + creator-equals-approver.
+    """
     ALLOWED_TRANSITIONS = {
-        'Draft': ['Pending', 'Approved'],
+        'Draft': ['Pending'],
         'Pending': ['Approved', 'Rejected'],
         'Approved': [],
         'Rejected': ['Draft'],
@@ -341,31 +349,54 @@ class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
         super().save(*args, **kwargs)
 
     def validate_budget(self):
-        """Checks if budget exists for the lines in this PR."""
+        """Checks if budget exists for the lines in this PR.
+
+        Audit fix #3: previously this used the legacy
+        ``check_budget_availability`` engine which returned ``allowed=True``
+        for any tenant with no rows in the legacy ``Budget`` table —
+        modern tenants on ``Appropriation`` had a no-op gate at
+        ``save()`` time even though the view-level ``approve`` action
+        was correctly using ``check_policy``. Two engines, two
+        verdicts. Now both call sites go through the centralised
+        ``check_policy`` resolver against the Appropriation register
+        so the result is consistent regardless of where the gate fires.
+        """
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
         budget_totals = {}
         for line in self.lines.all():
-            key = (line.account, self.mda, self.fund, self.function, self.program, self.geo)
+            if not line.account_id:
+                continue
+            # Match the view-layer approve gate: budget control is on
+            # MDA + Account (Economic) + Fund only. Function / Programme
+            # / Geo are reporting dimensions, not budget gates.
+            key = (line.account, self.mda, self.fund)
             amount = line.estimated_unit_price * line.quantity
             budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
 
-        for (account, mda, fund, function, program, geo), total_amount in budget_totals.items():
-            allowed, message = check_budget_availability(
-                dimensions={
-                    'mda': mda,
-                    'fund': fund,
-                    'function': function,
-                    'program': program,
-                    'geo': geo
-                },
-                account=account,
-                amount=total_amount,
-                date=self.requested_date or date.today(),
-                transaction_type='PR',
-                transaction_id=self.pk or 0
+        fiscal_year = (self.requested_date or date.today()).year
+        block_messages: list[str] = []
+        for (account, mda, fund), total_amount in budget_totals.items():
+            appropriation = find_matching_appropriation(
+                mda=mda, fund=fund, account=account,
+                fiscal_year=fiscal_year,
             )
+            result = check_policy(
+                account_code=account.code if account else '',
+                appropriation=appropriation,
+                requested_amount=total_amount,
+                transaction_label='purchase requisition',
+                account_name=getattr(account, 'name', '') if account else '',
+            )
+            if result.blocked:
+                acct_code = account.code if account else 'N/A'
+                block_messages.append(f"{acct_code}: {result.reason}")
 
-            if not allowed:
-                raise ValidationError(f"Budget Check Failed for {account.code}: {message}")
+        if block_messages:
+            raise ValidationError(
+                "Budget Check Failed: " + "; ".join(block_messages)
+            )
 
     class Meta:
         indexes = [
@@ -688,6 +719,22 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         import logging as _logging
         _log = _logging.getLogger('dtsg')
 
+        # Audit fix #7: take a SELECT FOR UPDATE on every candidate
+        # ``Appropriation`` row BEFORE ``check_policy`` reads
+        # ``cached_total_committed``. Without this lock,
+        # ``process_budget_encumbrance`` and the subsequent
+        # ``create_commitment_for_po`` (also called in PO save) take
+        # their own independent locks — two concurrent PO approvals
+        # against a near-zero-balance Appropriation could both pass
+        # ``check_policy`` against the same stale cached value before
+        # either commits its commitment row. Locking up-front makes the
+        # downstream lock in ``create_commitment_for_po`` a re-entrant
+        # no-op (Postgres permits nested SELECT FOR UPDATE on the same
+        # row inside one transaction) and serialises the whole
+        # encumbrance pipeline behind a single row lock per
+        # appropriation.
+        from budget.models import Appropriation as _Appropriation
+
         budget_totals: dict = {}
         for line in self.lines.all():
             key = (line.account, self.mda, self.fund, self.function, self.program, self.geo)
@@ -732,6 +779,16 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                 mda=mda, fund=fund, account=account,
                 fiscal_year=fiscal_year,
             )
+            # Lock the row before the policy read so the
+            # ``cached_total_committed`` value seen by ``check_policy``
+            # is the same value that downstream commitment writers will
+            # see when they re-lock under their own atomic block.
+            if appropriation is not None:
+                appropriation = (
+                    _Appropriation.objects
+                    .select_for_update()
+                    .get(pk=appropriation.pk)
+                )
             result = check_policy(
                 account_code=account.code if account else '',
                 appropriation=appropriation,

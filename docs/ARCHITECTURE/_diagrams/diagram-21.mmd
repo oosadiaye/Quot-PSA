@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> Draft : auto_route_approval(doc)<br/>resolves ApprovalTemplate<br/>creates Approval + Steps
+    Draft --> Pending : first step assigned
+    Pending --> Pending : intermediate step approved<br/>+ next step assigned
+    Pending --> Approved : final step approved<br/>signal: document_approval_completed
+    Pending --> Rejected : any step rejected<br/>signal: document_approval_completed
+    Approved --> [*]
+    Rejected --> [*]
+
+    note right of Approved
+      sync_document_status_on_approval
+      writes back to doc.status
+      respecting ALLOWED_TRANSITIONS
+    end note

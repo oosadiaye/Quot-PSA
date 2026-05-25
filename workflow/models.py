@@ -198,6 +198,15 @@ class Approval(AuditBaseModel):
     # Template used
     template = models.ForeignKey(ApprovalTemplate, on_delete=models.SET_NULL, null=True, blank=True)
 
+    # MDA isolation: scopes the approval to a specific Organization (MDA).
+    # Populated from ``requested_by.profile.organization`` (or the request's
+    # active org) on save; back-filled by data migration for legacy rows.
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='approvals',
+        help_text='MDA owning this approval; used by MDA-isolation queries.',
+    )
+
     class Meta:
         ordering = ['-created_at']
         indexes = [

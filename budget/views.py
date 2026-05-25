@@ -1,5 +1,5 @@
 from decimal import Decimal
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -369,6 +369,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             .annotate(
                 appropriation_count=Count('id'),
                 amount_approved=Coalesce(Sum('amount_approved'), zero),
+                # PO-driven commitment total for the MDA-FY rollup. Sums
+                # the denormalised cache so this stays cheap for tenants
+                # with thousands of appropriations.
+                total_committed=Coalesce(Sum('cached_total_committed'), zero),
                 total_expended=Coalesce(Sum('cached_total_expended'), zero),
                 # Smallest appropriation id under this (MDA, FY) — used by the
                 # frontend to deep-link from the rollup row to the existing
@@ -412,6 +416,39 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             if st in ('APPROVED', 'SUBMITTED'):
                 activatable_ids_map.setdefault(key, []).append(row['id'])
 
+        # Contract-side commitments aggregated per (MDA, FY). Sums every
+        # ContractYearPlan whose appropriation falls in the rollup's
+        # filter set, grouped by the same (administrative, fiscal_year)
+        # tuple as the main rollup. Merged into the payload alongside
+        # the PO-side ``total_committed`` so the frontend renders a
+        # combined "Committed" column. One follow-up query — same
+        # cardinality as ``status_qs`` above; perf is fine.
+        contract_committed_map: dict[tuple[int, int], Decimal] = {}
+        try:
+            from contracts.models import ContractYearPlan
+            cyp_qs = (
+                ContractYearPlan.objects
+                .filter(appropriation__in=qs.values('id'))
+                .values(
+                    'appropriation__administrative_id',
+                    'appropriation__fiscal_year_id',
+                )
+                .annotate(
+                    cc=Coalesce(
+                        Sum(F('planned_amount') + F('carried_forward_from_prior_year')),
+                        zero,
+                    ),
+                )
+            )
+            for c in cyp_qs:
+                key = (
+                    c['appropriation__administrative_id'],
+                    c['appropriation__fiscal_year_id'],
+                )
+                contract_committed_map[key] = c['cc'] or Decimal('0')
+        except ImportError:  # pragma: no cover — contracts always installed
+            pass
+
         def _enrich(row):
             approved = row['amount_approved']
             expended = row['total_expended']
@@ -420,6 +457,12 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             fy_id_ = row['fiscal_year_id']
             key = (mda_id_, fy_id_)
             counts = status_map.get(key, {})
+            # Combined committed = PO commitments (already aggregated in
+            # the main query as ``total_committed``) + Contract
+            # commitments (looked up from the follow-up query above).
+            po_committed = row.get('total_committed') or Decimal('0')
+            contract_committed = contract_committed_map.get(key, Decimal('0'))
+            all_committed = po_committed + contract_committed
             draft_ids = draft_ids_map.get(key, [])
             approvable_ids = approvable_ids_map.get(key, [])
             activatable_ids = activatable_ids_map.get(key, [])
@@ -456,6 +499,13 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'fiscal_year_year': row['fiscal_year__year'] or '',
                 'appropriation_count': row['appropriation_count'],
                 'amount_approved': str(row['amount_approved']),
+                # Three commit fields mirror AppropriationSerializer:
+                #   total_committed         — PO-only (legacy meaning)
+                #   total_contract_committed — sums ContractYearPlan
+                #   total_all_committed     — what the dashboard shows
+                'total_committed': str(po_committed),
+                'total_contract_committed': str(contract_committed),
+                'total_all_committed': str(all_committed),
                 'total_expended': str(row['total_expended']),
                 'available_balance': str(row['available_balance']),
                 'execution_rate': round(rate, 2),
@@ -1256,6 +1306,15 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only DRAFT appropriations can be submitted. Current: "{appro.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Rule-driven SoD gate. Reads SoDRule rows scoped to
+        # same_document; with zero matching rules this is a no-op
+        # (safe-additive). SoDViolation → 403 via
+        # core.drf_exception_handler. The seeded permission catalogue
+        # already defines 'budget.appropriation.submit' so a tenant
+        # can configure "creator cannot submit" by adding one rule
+        # with no Python change.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'budget.appropriation.submit', appro)
         appro.status = 'SUBMITTED'
         appro.save(update_fields=['status', 'updated_at'])
         return Response(AppropriationSerializer(appro).data)
@@ -1269,6 +1328,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only SUBMITTED appropriations can be approved. Current: "{appro.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # SoD gate — see submit() for full rationale.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'budget.appropriation.approve', appro)
         appro.status = 'APPROVED'
         appro.save(update_fields=['status', 'updated_at'])
         return Response(AppropriationSerializer(appro).data)
@@ -1308,6 +1370,13 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     {'error': f'Only APPROVED appropriations can be enacted. Current: "{appro.status}"'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # SoD gate — see submit() for full rationale. ``enact`` is
+            # the cash-impact transition (after this, expenditure can
+            # flow against the appropriation) so the SoD rule is the
+            # most consequential of the three appropriation
+            # transitions to configure.
+            from core.services.sod_evaluator import enforce_action
+            enforce_action(request.user, 'budget.appropriation.approve', appro)
             update_fields = ['status', 'enactment_date', 'updated_at']
             appro.status = 'ACTIVE'
             appro.enactment_date = appro.enactment_date or timezone.now().date()
@@ -1578,6 +1647,108 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         super().perform_destroy(instance)
         self._refresh_appropriation_totals(appropriation)
 
+    # ── Bulk create: one warrant per appropriation line in a single ──
+    # ── transaction. Used by the multi-line warrant create form so a ─
+    # ── quarterly cash release across N MDA appropriations either   ──
+    # ── lands as N rows or none at all. The schema invariant         ─
+    # ── ``unique_together = (appropriation, quarter)`` is preserved  ─
+    # ── because each line still maps 1:1 to a Warrant row.           ─
+    @action(detail=False, methods=['post'], url_path='bulk_create')
+    def bulk_create(self, request):
+        """Create N warrants atomically — all-or-nothing.
+
+        Body shape::
+
+            {
+              "lines": [
+                {"appropriation": <id>, "amount_released": "<dec>",
+                 "authority_reference": "<str>", "notes": "<str?>"},
+                ...
+              ],
+              "effective_from": "YYYY-MM-DD",
+              "effective_to":   "YYYY-MM-DD",
+              "release_date":   "YYYY-MM-DD"
+            }
+
+        ``effective_from`` / ``effective_to`` and ``release_date`` are
+        shared across all lines (the date range is the warrant's
+        validity window; release_date is when the AG signed the AIE
+        letter). Per-line ``authority_reference`` and ``notes`` may
+        differ. Validation is delegated to ``WarrantSerializer`` (so
+        the range-overlap and budget-ceiling checks from
+        ``Warrant.clean()`` run unchanged) and the whole batch rolls
+        back if any line fails.
+
+        For backward compat the endpoint also accepts a ``quarter``
+        field; if supplied without explicit dates we leave the dates
+        unset and let ``Warrant.save()`` derive the quarter as before.
+        """
+        lines = request.data.get('lines') or []
+        if not isinstance(lines, list) or not lines:
+            return Response(
+                {'error': 'Provide a non-empty "lines" array.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        effective_from = request.data.get('effective_from')
+        effective_to = request.data.get('effective_to')
+        release_date = request.data.get('release_date')
+        # Legacy quarter — only honoured when explicit dates are absent.
+        quarter = request.data.get('quarter')
+
+        if not release_date:
+            return Response(
+                {'error': '"release_date" is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not (effective_from and effective_to) and not quarter:
+            return Response(
+                {'error': 'Provide "effective_from" and "effective_to" '
+                          '(or legacy "quarter") to define the warrant\'s '
+                          'effective window.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.db import transaction
+        created = []
+        errors = []
+
+        try:
+            with transaction.atomic():
+                for idx, line in enumerate(lines):
+                    payload = {
+                        'appropriation': line.get('appropriation'),
+                        'release_date': release_date,
+                        'amount_released': line.get('amount_released'),
+                        'authority_reference': line.get('authority_reference', ''),
+                        'notes': line.get('notes', ''),
+                        'status': 'PENDING',
+                    }
+                    if effective_from:
+                        payload['effective_from'] = effective_from
+                    if effective_to:
+                        payload['effective_to'] = effective_to
+                    if quarter:
+                        payload['quarter'] = quarter
+                    serializer = self.get_serializer(data=payload)
+                    if not serializer.is_valid():
+                        errors.append({'line': idx, 'errors': serializer.errors})
+                        # Trip the rollback by raising; the partial work
+                        # already done in this loop is discarded.
+                        raise serializers.ValidationError(errors)
+                    warrant = serializer.save()
+                    self._refresh_appropriation_totals(warrant.appropriation)
+                    created.append(serializer.data)
+        except serializers.ValidationError:
+            return Response(
+                {'error': 'Validation failed for one or more lines — none were created.',
+                 'lines': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({'created': created, 'count': len(created)},
+                        status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'])
     def release(self, request, pk=None):
         """Release a pending warrant (AIE) and notify MDA accountant + AG."""
@@ -1587,6 +1758,14 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only PENDING warrants can be released. Current: "{warrant.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # SoD gate — warrant release is the cash-authorisation moment;
+        # the canonical rule is "warrant drafter cannot release". The
+        # permission code 'budget.warrant.release' is already in the
+        # seeded catalogue (core/management/commands/seed_permission_catalog.py:59).
+        # Safe-additive: no rules → no behaviour change.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'budget.warrant.release', warrant)
+
         warrant.status = 'RELEASED'
         warrant.save(update_fields=['status', 'updated_at'])
 
@@ -1606,6 +1785,10 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only RELEASED warrants can be suspended. Current: "{warrant.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # SoD gate — see release() for rationale.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'budget.warrant.suspend', warrant)
+
         warrant.status = 'SUSPENDED'
         warrant.save(update_fields=['status', 'updated_at'])
         self._refresh_appropriation_totals(warrant.appropriation)
@@ -1617,14 +1800,24 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         mda = warrant.appropriation.administrative
         amount = warrant.amount_released
-        quarter = warrant.quarter
         fy = warrant.appropriation.fiscal_year
 
-        title = f"Warrant Released — Q{quarter} {fy}"
+        # Period label prefers the explicit date range when present;
+        # falls back to "Q{quarter}" for legacy rows so notifications
+        # don't read awkwardly during the cut-over.
+        if warrant.effective_from and warrant.effective_to:
+            period = (
+                f"{warrant.effective_from.isoformat()} → "
+                f"{warrant.effective_to.isoformat()}"
+            )
+        else:
+            period = f"Q{warrant.quarter}" if warrant.quarter else 'this period'
+
+        title = f"Warrant Released — {period} {fy}"
         message = (
             f"AIE (Authority to Incur Expenditure) released for "
             f"{mda.name}.\n\n"
-            f"Quarter: Q{quarter}\n"
+            f"Effective: {period}\n"
             f"Amount: NGN {amount:,.2f}\n"
             f"Appropriation: {warrant.appropriation.economic.name}\n"
             f"Released by: {released_by.get_full_name() or released_by.username}"
@@ -2262,6 +2455,15 @@ class AppropriationVirementViewSet(viewsets.ModelViewSet):
             approve_and_apply_virement, VirementError,
         )
         virement = self.get_object()
+        # SoD gate. Virement is the only mid-year way to move money
+        # between appropriations — the canonical SoD rule is "the
+        # operator who initiated the virement cannot also approve
+        # it". The permission code 'budget.virement.approve' is
+        # already in the seeded catalogue
+        # (core/management/commands/seed_permission_catalog.py:56).
+        # Safe-additive: no rules → no behaviour change.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'budget.virement.approve', virement)
         try:
             approve_and_apply_virement(virement, user=request.user)
         except VirementError as e:
@@ -2283,3 +2485,73 @@ class AppropriationVirementViewSet(viewsets.ModelViewSet):
         except VirementError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(virement).data)
+
+
+# ─── Warrant Printout Settings ──────────────────────────────────────
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from .models import WarrantPrintoutSettings
+from .serializers import WarrantPrintoutSettingsSerializer
+
+
+class WarrantPrintoutSettingsViewSet(viewsets.GenericViewSet):
+    """Singleton settings for the warrant (AIE) printout.
+
+    One row per tenant, accessed via the well-known endpoints:
+      • GET    /api/v1/budget/warrant-printout-settings/current/
+      • PATCH  /api/v1/budget/warrant-printout-settings/current/
+        — multipart/form-data for image uploads.
+
+    There is intentionally no ``list``, ``create``, or ``destroy`` —
+    a tenant has exactly one settings row, auto-created on first read
+    via ``WarrantPrintoutSettings.get_singleton()``. This avoids the
+    "which row do I update?" question that plagues
+    ``ModelViewSet``-on-singleton patterns.
+
+    Authorisation: any authenticated user can READ (so the warrant
+    printout view can compose with letterhead + signatures); only
+    staff/superuser can WRITE — uploading the Accountant-General's
+    signature is a high-trust operation that should be gated to the
+    platform admin team. See ``permission_classes_by_action`` below.
+    """
+    serializer_class = WarrantPrintoutSettingsSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        # Singleton: queryset always contains the one row (creating if
+        # needed). Used by DRF's GenericViewSet machinery.
+        WarrantPrintoutSettings.get_singleton()
+        return WarrantPrintoutSettings.objects.all()
+
+    @action(detail=False, methods=['get', 'patch', 'put'], url_path='current')
+    def current(self, request):
+        """Read or update the current tenant's warrant-printout settings.
+
+        GET   — returns the row (creating with defaults on first call).
+        PATCH — partial update (uploads + text edits coexist).
+        PUT   — full replace; rarely needed in practice. Same gating.
+        """
+        obj = WarrantPrintoutSettings.get_singleton()
+
+        if request.method == 'GET':
+            return Response(self.get_serializer(obj).data)
+
+        # Write path: gate behind staff/superuser. We do this here
+        # rather than via permission_classes so GET stays open for any
+        # logged-in user (the printout preview reads the settings).
+        user = request.user
+        if not (user.is_staff or user.is_superuser):
+            return Response(
+                {'detail': (
+                    'Only staff or superusers can update warrant-printout '
+                    'settings. Signature uploads are high-trust operations '
+                    'and must be performed by platform administrators.'
+                )},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        partial = request.method == 'PATCH'
+        serializer = self.get_serializer(obj, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=user)
+        return Response(serializer.data)

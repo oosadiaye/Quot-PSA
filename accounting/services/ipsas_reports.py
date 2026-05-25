@@ -33,10 +33,13 @@ NCoA classification (Nigerian Chart of Accounts):
   42xx — Non-current liabilities (long-term debt)
   43xx — Net assets / Accumulated Fund
 """
+import logging
 from decimal import Decimal
 from django.db.models import Sum, Q
 from accounting.models.balances import GLBalance
 from accounting.models.ncoa import EconomicSegment
+
+logger = logging.getLogger(__name__)
 
 
 # Tolerance for balance checks on Decimal aggregates — absorbs legitimate
@@ -505,6 +508,14 @@ class IPSASReportService:
         # estimated as both (a supplementary revenue amendment, if ever
         # added, would show up as a modified estimated_amount — the
         # "original" column simply mirrors it until that feature exists).
+        # Narrow the exception list to the cases that are actually
+        # benign on a fresh tenant: missing table (pre-migration) and
+        # missing field (older schema). Everything else — DB connection
+        # drops, malformed data, ORM bugs — propagates so operators see
+        # the real failure instead of a silently zeroed Revenue Budget
+        # section.
+        from django.db.utils import ProgrammingError, OperationalError
+        from django.core.exceptions import FieldError
         try:
             rev_qs = (
                 RevenueBudget.objects
@@ -526,10 +537,21 @@ class IPSASReportService:
                 })
                 per['original'] += estimated
                 per['final']    += estimated
-        except Exception:
-            # RevenueBudget may not yet be populated in a fresh tenant —
-            # don't let its absence break the expenditure-only variant.
-            pass
+        except (ProgrammingError, FieldError) as exc:
+            # RevenueBudget table missing or schema drift — log and
+            # continue with the expenditure-only variant.
+            logger.warning(
+                'RevenueBudget skipped in IPSAS budget-performance '
+                'aggregation: %s', exc,
+            )
+        except OperationalError:
+            # DB connection issue — log and re-raise so the caller knows
+            # the report is incomplete.
+            logger.error(
+                'OperationalError reading RevenueBudget; report aborted',
+                exc_info=True,
+            )
+            raise
 
         return buckets
 
@@ -1020,7 +1042,13 @@ class IPSASReportService:
         final = appro.amount_approved or _zero()
         amendments_sum = _zero()
 
-        # Try canonical amendment reverse-relations.
+        # Try canonical amendment reverse-relations. We catch only the
+        # *expected* "this relation/field doesn't exist on this schema"
+        # cases (AttributeError, FieldError) so report-killing errors
+        # like OperationalError or ProgrammingError still surface — the
+        # Statement of Comparison of Budget needs every amendment row
+        # or its variance figures are wrong.
+        from django.core.exceptions import FieldError
         for rel_name in ('amendments', 'budget_amendments', 'unifiedbudgetamendment_set'):
             rel = getattr(appro, rel_name, None)
             if rel is None:
@@ -1035,7 +1063,13 @@ class IPSASReportService:
                     or _zero()
                 )
                 break
-            except Exception:
+            except (AttributeError, FieldError) as exc:
+                # This relation doesn't have an `amount` / `amendment_amount`
+                # field on this schema — try the next one. Log so a future
+                # schema drift doesn't silently zero amendments.
+                logger.debug(
+                    'Amendment relation %s skipped: %s', rel_name, exc,
+                )
                 continue
 
         return final - amendments_sum

@@ -266,6 +266,26 @@ export const useCreatePR = () => {
     });
 };
 
+/**
+ * Submit a Draft PR for approval — routes it through ``auto_route_approval``
+ * and transitions Draft → Pending. Required step before ``useApprovePR``
+ * can be called: the audit-fix #8 from session 2026-05-08 tightened the
+ * approve endpoint to reject Draft (creator was previously able to
+ * self-approve in one click, bypassing SoD).
+ */
+export const useSubmitPR = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(`/procurement/requests/${id}/submit_for_approval/`);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['purchase-requests'] });
+        },
+    });
+};
+
 export const useApprovePR = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -526,6 +546,86 @@ export const useGRN = (id: number | null) => {
         },
         staleTime: STALE_TIME,
         enabled: !!id,
+    });
+};
+
+/**
+ * Journal lines posted when a GRN is posted.
+ * Mirrors SAP's FB03 "FI Document Display" pattern — when a transaction
+ * document is opened, the GL entry it produced is shown alongside it.
+ *
+ * The endpoint returns 404 until the GRN is posted; the hook treats
+ * that as "no data" rather than an error so the UI just hides the
+ * panel for Draft / On Hold / Cancelled GRNs.
+ */
+/**
+ * One row of a GRN's posted GL journal.
+ *
+ * ``role`` / ``dr_cr`` are convenience hints the backend computes for us
+ * so the UI can label "Debit Expense" / "Credit GR-IR Clearing"
+ * without having to know about reconciliation_type or account_type
+ * client-side. Empty/unknown buckets fall through to `'other'`.
+ */
+export type GRNJournalLineRole =
+    | 'expense'
+    | 'inventory'
+    | 'fixed_asset'
+    | 'gr_ir'
+    | 'ap'
+    | 'liability'
+    | 'other';
+
+export interface GRNJournalLine {
+    id: number;
+    account_id: number | null;
+    account_code: string | null;
+    account_name: string | null;
+    account_type: string | null;
+    debit: string;
+    credit: string;
+    memo: string;
+    role: GRNJournalLineRole;
+    dr_cr: 'DR' | 'CR';
+}
+
+export interface GRNJournal {
+    journal_id: number;
+    reference_number: string;
+    document_number: string | null;
+    posting_date: string;
+    description: string;
+    status: string;
+    source_module: string | null;
+    source_document_id: number | null;
+    total_debit: string;
+    total_credit: string;
+    is_balanced: boolean;
+    lines: GRNJournalLine[];
+    entry_pattern: string;
+}
+
+export const useGRNJournal = (id: number | null, enabled: boolean) => {
+    return useQuery<GRNJournal | null>({
+        queryKey: ['grn-journal', id],
+        queryFn: async () => {
+            try {
+                const { data } = await apiClient.get<GRNJournal>(
+                    `/procurement/grns/${id}/journal/`,
+                );
+                return data;
+            } catch (err: unknown) {
+                // 404 = journal not yet posted; surface as null so the
+                // consumer simply hides the panel rather than showing
+                // an error banner.
+                const e = err as { response?: { status?: number } };
+                if (e?.response?.status === 404) return null;
+                throw err;
+            }
+        },
+        // Journal only exists after Post; ``enabled`` lets the caller
+        // skip the request entirely while the GRN is Draft.
+        enabled: !!id && enabled,
+        staleTime: STALE_TIME,
     });
 };
 

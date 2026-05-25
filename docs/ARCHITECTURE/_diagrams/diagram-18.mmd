@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Active : Reservation created
+    Active --> Fulfilled : stock issued against it
+    Active --> Cancelled : released manually
+    Fulfilled --> [*]
+    Cancelled --> [*]
+
+    note right of Active
+      sync_reserved_quantity
+      keeps ItemStock.reserved
+      in sync via signal
+    end note

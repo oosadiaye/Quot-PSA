@@ -27,7 +27,7 @@ const VariationList = () => {
     const columns: Column<VariationSummary>[] = [
         {
             key: 'variation_number',
-            header: 'Variation #',
+            header: 'Write-up #',
             mobilePrimary: true,
             render: (r) => (
                 <button
@@ -79,8 +79,8 @@ const VariationList = () => {
     return (
         <ListPageShell>
             <PageHeader
-                title="Variations"
-                subtitle="Change orders by approval tier"
+                title="Write-ups"
+                subtitle="Upward revaluation of contract amount, by approval tier"
                 icon={<TrendingUp size={22} style={{ color: 'rgba(255,255,255,0.85)' }} />}
                 backButton={false}
             />
@@ -102,7 +102,7 @@ const VariationList = () => {
                             />
                             <input
                                 type="search"
-                                placeholder="Search variation number"
+                                placeholder="Search write-up number"
                                 value={searchInput}
                                 onChange={(e) => setSearchInput(e.target.value)}
                                 onKeyDown={(e) => {
@@ -162,14 +162,14 @@ const VariationList = () => {
 
                 {isLoading ? (
                     <div style={{ padding: 48, textAlign: 'center', color: '#64748b' }}>
-                        Loading variations…
+                        Loading write-ups…
                     </div>
                 ) : (
                     <ResponsiveTable
                         data={rows}
                         columns={columns}
                         keyField="id"
-                        emptyState="No variations match the current filters."
+                        emptyState="No write-ups match the current filters."
                     />
                 )}
 
@@ -183,7 +183,7 @@ const VariationList = () => {
                         }}
                     >
                         Showing <strong style={{ color: '#0b1320' }}>{rows.length}</strong> of{' '}
-                        <strong style={{ color: '#0b1320' }}>{data.count}</strong> variations
+                        <strong style={{ color: '#0b1320' }}>{data.count}</strong> write-ups
                     </div>
                 )}
             </SectionCard>

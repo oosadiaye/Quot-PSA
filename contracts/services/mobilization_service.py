@@ -26,6 +26,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from contracts.services.exceptions import ConcurrencyError
+from contracts.services.sod import actor_can_bypass_sod
 
 from contracts.models import (
     Contract,
@@ -83,6 +84,31 @@ class MobilizationService:
                 },
             )
 
+        # ── SoD: contract creator cannot issue mobilisation ─────────
+        # Mobilisation is the single largest upfront cash outflow on
+        # most contracts (typically 10-25% of contract value paid
+        # before any work starts). The canonical SoD invariant is
+        # "the user who drafted the contract cannot also issue the
+        # advance". Bypass paths (superuser, tenant admin, explicit
+        # contracts.bypass_sod permission) preserved via the existing
+        # ``actor_can_bypass_sod`` helper used elsewhere in this
+        # module's sibling services.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also issue its mobilisation advance. Have a "
+                "different officer perform this action.",
+                context={
+                    "contract_id":   contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id":      getattr(actor, 'pk', None),
+                },
+            )
+
         # ── Strict budget appropriation check ─────────────────────────
         # Mobilization is a real cash outflow that hits the same
         # appropriation line as the contract itself. Before reserving
@@ -125,8 +151,18 @@ class MobilizationService:
                 context={"contract_id": contract.pk},
             )
 
+        # Lock the matching appropriation row so two concurrent
+        # mobilisation issuances against the same line can't both
+        # pass the balance check. ``issue_advance`` is already
+        # @transaction.atomic so this lock is held for the duration
+        # of the create-MobilizationPayment write that follows.
+        # Without the lock, two operators clicking "Issue Advance"
+        # on different mobilisation-eligible contracts that share
+        # an appropriation could both pass with the same
+        # ``available_balance`` snapshot.
         appr = (
             Appropriation.objects
+            .select_for_update()
             .filter(
                 administrative_id=ncoa.administrative_id,
                 economic_id=ncoa.economic_id,
@@ -341,7 +377,11 @@ class MobilizationService:
         except MobilizationPayment.DoesNotExist:
             return
 
-        balance = ContractBalance.objects.get(pk=contract.pk)
+        # SELECT FOR UPDATE — caller (IPCService.mark_paid) is already
+        # inside @transaction.atomic, so the row lock is held until the
+        # outer commit. Prevents two concurrent paid-IPC reconciliations
+        # from racing on the same contract's mobilization status.
+        balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
         if balance.mobilization_paid <= ZERO:
             return
 

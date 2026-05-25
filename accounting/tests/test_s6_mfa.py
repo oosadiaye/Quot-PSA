@@ -18,12 +18,26 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
 from django.utils import timezone
 
 
 # =============================================================================
 # RequiresMFA permission class
 # =============================================================================
+
+@pytest.fixture(autouse=True)
+def _enforce_mfa(settings):
+    """Force MFA enforcement on for the whole module.
+
+    ``MFA_ENFORCED`` defaults to False in DEBUG (see settings.py:428),
+    which would short-circuit ``RequiresMFA.has_permission`` and let
+    every authenticated user through. This pytest-django ``settings``
+    fixture flips the flag on so the enrollment and session-freshness
+    branches actually execute.
+    """
+    settings.MFA_ENFORCED = True
+
 
 class TestRequiresMFA:
 

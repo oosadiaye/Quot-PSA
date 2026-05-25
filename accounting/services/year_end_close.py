@@ -20,10 +20,15 @@ standard code for accumulated surplus.
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
+
+logger = logging.getLogger(__name__)
 from django.utils import timezone
+
+from accounting.services.gl_posting import update_gl_from_journal
 
 
 class YearEndCloseError(Exception):
@@ -199,16 +204,36 @@ class YearEndCloseService:
                     f'DR {total_dr} vs CR {total_cr}. Aborted.'
                 )
 
-            # Flip status to Posted — this triggers the GLBalance update
-            # on the new fiscal year the same way a normal journal post
-            # would.
-            header.status = 'Posted'
-            header.posted_at = timezone.now()
-            header.save(update_fields=['status', 'posted_at'])
+            # Period-gate (CRITICAL-4 from the comprehensive review):
+            # Refuse to post a closing journal into a fiscal year that
+            # is already Closed. The original bug was that
+            # ``header.status = 'Posted'`` was assigned directly with no
+            # gate at all, letting a re-run of the close double-post
+            # into an already-locked year and corrupt the audit trail.
+            # The check below is intentionally narrow: it does NOT call
+            # the full ``PeriodControlService.check_period_status``
+            # (which would refuse the legitimate first-time close
+            # because the *current* period must still be open at the
+            # moment of close). Re-locking the period happens after
+            # ``update_gl_from_journal`` returns successfully below.
+            if fiscal_year.status == 'Closed':
+                raise YearEndCloseError(
+                    f'Fiscal year {fiscal_year} is already closed. '
+                    f'Re-running close would double-post the closing '
+                    f'journal and corrupt the GL audit trail.'
+                )
 
-            # Update GLBalance so the P&L accounts show zero for the
-            # year going forward.
-            from accounting.services.gl_posting import update_gl_from_journal
+            # Direct GL update via the legacy posting path. We keep this
+            # path (rather than routing through
+            # ``IPSASJournalService.post_journal``) because the closing
+            # journal's GLBalance lookup keys differ from the standard
+            # posting pipeline; routing through ``post_journal`` here
+            # surfaces a separate GLBalance MultipleObjectsReturned
+            # issue tracked as a follow-up.
+            header.status = 'Posted'
+            header.posted_by = user if user and user.is_authenticated else None
+            header.posted_date = timezone.now()
+            header.save()
             update_gl_from_journal(header)
 
             # Lock the fiscal year + periods.
@@ -230,15 +255,28 @@ class YearEndCloseService:
 
     @staticmethod
     def _resolve_accumulated_fund_code() -> str:
-        """Read the accumulated-fund account code from tenant settings."""
+        """Read the accumulated-fund account code from tenant settings.
+
+        Falls back to ``DEFAULT_ACCUMULATED_FUND_CODE`` when the tenant
+        hasn't configured a value, OR when the AccountingSettings table
+        is genuinely missing (pre-migration deploy window). All other
+        exceptions propagate — previously they were swallowed and the
+        downstream "account missing" error gave a misleading root cause.
+        """
+        from django.db.utils import ProgrammingError, OperationalError
+        from accounting.models import AccountingSettings
         try:
-            from accounting.models import AccountingSettings
             s = AccountingSettings.objects.first()
             code = getattr(s, 'accumulated_fund_account_code', None) if s else None
             if code:
                 return code
-        except Exception:
-            pass
+        except (ProgrammingError, OperationalError) as exc:
+            # Table missing / DB unreachable — log so the operator sees
+            # the real cause if the downstream lookup also fails.
+            logger.warning(
+                'AccountingSettings unavailable during year-end close — '
+                'falling back to default accumulated fund code: %s', exc,
+            )
         return DEFAULT_ACCUMULATED_FUND_CODE
 
     @staticmethod

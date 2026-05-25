@@ -71,6 +71,12 @@ interface PaymentFormData {
     payment_method: string;
     bank_account?: number;
     reference_number?: string;
+    // Optional PV link (required by some tenants — backend enforces).
+    payment_voucher?: number;
+    // Advance-payment classification — set by AdvanceFormModal /
+    // ProcessDownPayment. Default flow leaves these undefined.
+    is_advance?: boolean;
+    advance_type?: 'Vendor Advance' | 'Vendor Deposit';
 }
 
 interface CustomerInvoiceFormData {
@@ -522,6 +528,33 @@ export const useCreatePayment = () => {
     });
 };
 
+/**
+ * PATCH an existing Payment draft (vendor, amount, bank account, method,
+ * reference, PV linkage, etc.). Used by the Outgoing Payments page's
+ * "Post" affordance, which now opens the New Payment modal prefilled
+ * with the draft's data so the user can pick / confirm a bank before
+ * posting to GL. The PaymentSerializer's PV-required ``validate``
+ * gate only fires on CREATE (``self.instance is None``), so PATCHing
+ * an existing draft to add the bank account doesn't re-trigger it.
+ */
+export const useUpdatePayment = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (
+            { id, ...patch }: { id: number; [k: string]: unknown },
+        ) => {
+            const { data } = await apiClient.patch(
+                `/accounting/payments/${id}/`,
+                patch,
+            );
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+        },
+    });
+};
+
 export const usePostPayment = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -959,14 +992,19 @@ export const useDeleteAssetCategory = () => {
 // TAX CODE HOOKS
 // ============================================================================
 
+// Shared query-key root for tax-code queries. Centralising it means
+// any future reshape of the key (e.g. dropping the 'v2' cache-bust
+// suffix, switching to a structured array form) only touches one
+// constant — mutation invalidations stay aligned automatically.
+// Previously each `invalidateQueries({ queryKey: ['tax-codes'] })`
+// relied on TanStack Query's prefix-match to hit the actual
+// `['tax-codes', 'v2', filters]` key, which is correct today but
+// silently breaks if someone changes the key shape.
+const TAX_CODES_QUERY_ROOT = ['tax-codes', 'v2'] as const;
+
 export const useTaxCodes = (filters: Record<string, unknown> = {}) => {
     return useQuery({
-        // 'v2' suffix busts any TanStack Query cache that was populated
-        // before the response-shape hardening below — without it,
-        // browsers that already loaded the page would keep serving the
-        // (empty) prior result for up to staleTime regardless of the
-        // new queryFn behaviour.
-        queryKey: ['tax-codes', 'v2', filters],
+        queryKey: [...TAX_CODES_QUERY_ROOT, filters],
         queryFn: async () => {
             // Explicit page_size defeats DRF's PAGE_SIZE=20 default;
             // tolerant unwrapper handles both paginated and array shapes
@@ -993,7 +1031,7 @@ export const useCreateTaxCode = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['tax-codes'] });
+            queryClient.invalidateQueries({ queryKey: TAX_CODES_QUERY_ROOT });
         },
     });
 };
@@ -1006,7 +1044,7 @@ export const useUpdateTaxCode = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['tax-codes'] });
+            queryClient.invalidateQueries({ queryKey: TAX_CODES_QUERY_ROOT });
         },
     });
 };
@@ -1018,7 +1056,7 @@ export const useDeleteTaxCode = () => {
             await apiClient.delete(`/accounting/tax-codes/${id}/`);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['tax-codes'] });
+            queryClient.invalidateQueries({ queryKey: TAX_CODES_QUERY_ROOT });
         },
     });
 };
@@ -1027,12 +1065,13 @@ export const useDeleteTaxCode = () => {
 // WITHHOLDING TAX HOOKS
 // ============================================================================
 
+// Shared query-key root for withholding-tax queries. See the comment
+// on TAX_CODES_QUERY_ROOT above for the reasoning.
+const WITHHOLDING_TAXES_QUERY_ROOT = ['withholding-taxes', 'v2'] as const;
+
 export const useWithholdingTaxes = (filters: Record<string, unknown> = {}) => {
     return useQuery({
-        // 'v2' suffix forces a refetch through the hardened code path
-        // for clients that have stale empty results cached from prior
-        // staleTime windows.
-        queryKey: ['withholding-taxes', 'v2', filters],
+        queryKey: [...WITHHOLDING_TAXES_QUERY_ROOT, filters],
         queryFn: async () => {
             const { data } = await apiClient.get('/accounting/withholding-taxes/', {
                 params: { page_size: 10000, ...filters },
@@ -1053,7 +1092,7 @@ export const useCreateWithholdingTax = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['withholding-taxes'] });
+            queryClient.invalidateQueries({ queryKey: WITHHOLDING_TAXES_QUERY_ROOT });
         },
     });
 };
@@ -1066,7 +1105,7 @@ export const useUpdateWithholdingTax = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['withholding-taxes'] });
+            queryClient.invalidateQueries({ queryKey: WITHHOLDING_TAXES_QUERY_ROOT });
         },
     });
 };
@@ -1078,7 +1117,7 @@ export const useDeleteWithholdingTax = () => {
             await apiClient.delete(`/accounting/withholding-taxes/${id}/`);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['withholding-taxes'] });
+            queryClient.invalidateQueries({ queryKey: WITHHOLDING_TAXES_QUERY_ROOT });
         },
     });
 };

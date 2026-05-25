@@ -69,6 +69,41 @@ class EmployeeSerializer(serializers.ModelSerializer):
             return obj.supervisor.user.get_full_name()
         return None
 
+    # PII fields that must be masked unless the requester has
+    # ``hrm.view_employee_pii`` permission or is a superuser.
+    # TODO: at-rest encryption pending — see SECURITY.md
+    _PII_FIELDS = (
+        'national_id_number', 'tax_identification_number',
+        'social_security_number', 'bank_account', 'base_salary', 'hourly_rate',
+    )
+
+    def _can_view_pii(self):
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        user = getattr(request, 'user', None) if request else None
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_perm('hrm.view_employee_pii')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if self._can_view_pii():
+            return data
+        # Mask: keep only last-4 of NIN/bank_account; redact salary/TIN/SSN.
+        for field in ('national_id_number', 'bank_account', 'social_security_number'):
+            value = data.get(field)
+            if value:
+                value = str(value)
+                data[field] = f"****{value[-4:]}" if len(value) >= 4 else "****"
+        for field in ('tax_identification_number',):
+            if data.get(field):
+                data[field] = "***REDACTED***"
+        for field in ('base_salary', 'hourly_rate'):
+            if field in data and data.get(field) is not None:
+                data[field] = None
+        return data
+
     def validate(self, data):
         if data.get('contract_end_date') and data.get('contract_start_date'):
             if data['contract_end_date'] < data['contract_start_date']:

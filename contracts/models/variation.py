@@ -208,6 +208,27 @@ class ContractVariation(AuditBaseModel):
 
     def clean(self) -> None:
         super().clean()
+
+        # Write-up semantic: amount MUST be strictly positive.
+        # The product term in the UI is "Write-up" — by accounting
+        # convention (mirroring IPSAS / IFRS write-up vs write-down),
+        # this means an UPWARD revaluation of the contract amount only.
+        # A zero or negative amount would be a downward variation /
+        # write-down, which is a different document and not handled
+        # by this workflow. Reject at validation so the API and admin
+        # both refuse it before any tier / approval logic runs.
+        if self.amount is not None and self.amount <= ZERO:
+            raise ValidationError(
+                {
+                    "amount": (
+                        "Write-up amount must be greater than zero. A write-up "
+                        "is an upward revaluation of the contract amount; "
+                        "downward revaluations require a separate write-down "
+                        "workflow and cannot be raised here."
+                    )
+                }
+            )
+
         if (
             self.status == VariationStatus.APPROVED
             and self.approval_tier == VariationApprovalTier.BPP_REQUIRED
@@ -216,7 +237,7 @@ class ContractVariation(AuditBaseModel):
             raise ValidationError(
                 {
                     "bpp_approval_ref": (
-                        "BPP approval reference is mandatory for variations "
+                        "BPP approval reference is mandatory for write-ups "
                         "exceeding 25% of the original contract sum."
                     )
                 }

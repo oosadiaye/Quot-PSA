@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from core.permissions import IsApprover
 from django.db.models import Sum, DecimalField
 from django.db.models.functions import Coalesce
-from django.db import transaction
+from django.db import transaction, connection
 from django.core.exceptions import ValidationError
 from decimal import Decimal
 import pandas as pd
@@ -30,7 +30,37 @@ from ..serializers import (
 class AccountViewSet(viewsets.ModelViewSet):
     queryset = Account.objects.all()
     serializer_class = AccountSerializer
-    filterset_fields = ['account_type', 'is_active', 'is_reconciliation', 'reconciliation_type']
+
+    def get_queryset(self):
+        """Tenant-isolation guard for the chart of accounts.
+
+        Account has no per-row tenant FK in this codebase — isolation
+        is enforced by django-tenants schema routing. That means *any*
+        bug or misconfiguration that lands a request on the ``public``
+        schema would leak every tenant's CoA through this endpoint.
+        We refuse to serve from the public schema and log loudly so the
+        regression is caught in dev/staging instead of in a customer
+        deployment.
+        """
+        qs = super().get_queryset()
+        schema = getattr(connection, 'schema_name', None)
+        if schema == 'public':
+            logger.error(
+                'AccountViewSet.get_queryset invoked on the public schema. '
+                'Chart-of-accounts requests must run inside a tenant schema; '
+                'refusing to serve cross-tenant data.'
+            )
+            return qs.none()
+        return qs
+    # ``is_postable`` is queryable so the journal-line / AP-invoice
+    # account pickers can ask for posting accounts only and hide group
+    # / header accounts. The CoA management page omits the filter and
+    # gets the full hierarchy. ``parent`` is queryable so the tree
+    # view can lazy-load children one level at a time.
+    filterset_fields = [
+        'account_type', 'is_active', 'is_reconciliation',
+        'reconciliation_type', 'is_postable', 'parent',
+    ]
     search_fields = ['code', 'name']
     pagination_class = AccountingPagination
 
@@ -647,9 +677,15 @@ class JournalViewSet(viewsets.ModelViewSet):
                     memo=line_data.get('memo', '')
                 )
 
-            # Auto-post if status is Posted
-            if journal.status == 'Posted':
-                self._post_to_gl(journal, request.user)
+            # NOTE: removed the legacy "auto-post if status is Posted"
+            # branch. It used to fire when the request body included
+            # ``status: 'Posted'``, which bypassed the IsApprover('post')
+            # permission gate enforced on the dedicated ``post_journal``
+            # action. ``status`` is now read-only in the serializer so
+            # every new/edited journal stays at its current persisted
+            # status; posting goes through
+            # ``POST /journals/{id}/post_journal/`` where the permission
+            # check runs.
 
         headers_serializer = JournalHeaderSerializer(journal)
         return Response(headers_serializer.data, status=status.HTTP_201_CREATED)
@@ -695,9 +731,15 @@ class JournalViewSet(viewsets.ModelViewSet):
 
             journal = serializer.save()
 
-            # Auto-post if status is Posted
-            if journal.status == 'Posted':
-                self._post_to_gl(journal, request.user)
+            # NOTE: removed the legacy "auto-post if status is Posted"
+            # branch. It used to fire when the request body included
+            # ``status: 'Posted'``, which bypassed the IsApprover('post')
+            # permission gate enforced on the dedicated ``post_journal``
+            # action. ``status`` is now read-only in the serializer so
+            # every new/edited journal stays at its current persisted
+            # status; posting goes through
+            # ``POST /journals/{id}/post_journal/`` where the permission
+            # check runs.
 
         headers_serializer = JournalHeaderSerializer(journal)
         return Response(headers_serializer.data)
@@ -1005,6 +1047,16 @@ class JournalViewSet(viewsets.ModelViewSet):
     def post_journal(self, request, pk=None):
         """Post journal entry to GL balances in real-time."""
         journal = self.get_object()
+
+        # Rule-driven SoD gate. Reads ``SoDRule`` rows scoped to
+        # ``same_document`` naming ``accounting.journal.post``. The
+        # canonical case it blocks: the user who created or approved
+        # the journal cannot also post it. Safe-additive — no rule,
+        # no behaviour change. ``SoDViolation`` is translated to a
+        # structured 403 by ``core.drf_exception_handler``.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'accounting.journal.post', journal)
+
         try:
             payload = self._perform_post(journal, request.user)
             return Response({'status': 'Journal posted successfully.', **payload})
@@ -1021,6 +1073,7 @@ class JournalViewSet(viewsets.ModelViewSet):
     def unpost_journal(self, request, pk=None):
         """Unpost journal entry and reverse GL balances."""
         from ..models import JournalReversal
+        from accounting.services.period_control import PeriodControlService
 
         journal = self.get_object()
 
@@ -1029,6 +1082,26 @@ class JournalViewSet(viewsets.ModelViewSet):
                 {"error": "Only posted journals can be unposted."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # Period gate — without this, an operator could re-open balances
+        # in a CLOSED/LOCKED period by unposting. The post side already
+        # validates the period (see IPSASJournalService.post_journal);
+        # mirror that here so the *reverse* direction is equally locked
+        # down. Auditors expect a closed period to stay closed in BOTH
+        # directions.
+        if journal.posting_date:
+            period_status = PeriodControlService.check_period_status(
+                journal.posting_date, document_type='journal',
+            )
+            if not period_status.can_post:
+                return Response(
+                    {"error": (
+                        f"Cannot unpost into the period for "
+                        f"{journal.posting_date}: "
+                        + "; ".join(period_status.messages)
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         reason = request.data.get('reason', 'Manual unpost')
         reversal_type = request.data.get('reversal_type', 'Unpost')

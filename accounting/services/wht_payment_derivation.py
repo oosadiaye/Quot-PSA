@@ -101,11 +101,20 @@ def derive_wht_for_invoice(
     # 3-way match form. Honour it BEFORE looking for any WHT codes so
     # the exemption isn't overridden by line-level WHT FKs that may
     # have been left in place from defaults.
+    #
+    # Don't swallow exceptions here: silently treating a query failure as
+    # "not exempt" caused real-money over-deductions — a DB hiccup or a
+    # missing reverse relation would let WHT be deducted from a vendor
+    # the operator had explicitly marked exempt. Only the ORM's expected
+    # "no matching row" outcome (a falsy first()) falls through.
     try:
         exempt_matching = invoice.invoice_matchings.filter(
             wht_exempt=True,
         ).first()
-    except Exception:
+    except AttributeError:
+        # invoice has no `invoice_matchings` reverse relation — legacy
+        # rows that pre-date the 3-way match table. Treat as not exempt
+        # (matches historical behaviour).
         exempt_matching = None
     if exempt_matching is not None:
         return DerivedWht(

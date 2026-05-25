@@ -227,6 +227,17 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
         balance_info has: warrants_released, already_consumed,
         available_warrant — useful for surfacing exact numbers in the
         error toast.
+
+    REQUIRES: caller is already inside ``transaction.atomic()``.
+
+    The previous implementation opened its own inner ``transaction.atomic()``
+    block here, which released the ``select_for_update`` row lock the
+    moment this function returned. That defeated the entire purpose of
+    pessimistic locking — the caller's subsequent mutation ran outside
+    the lock, leaving the classic check-then-act race wide open. The
+    inner atomic has been removed; the row lock is now held by the
+    caller's outer atomic until the caller commits. Callers MUST be
+    inside ``transaction.atomic()`` for the lock to be meaningful.
     """
     from budget.models import Appropriation
     from accounting.models.ncoa import (
@@ -255,15 +266,35 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
         candidates.append(cursor)
         cursor = cursor.parent
 
-    appro = Appropriation.objects.filter(
+    # ``select_for_update`` so concurrent payment/commitment posts on
+    # the same appropriation serialise on this row. When the caller
+    # wraps this check + their subsequent mutation in a single
+    # ``transaction.atomic()``, the lock is held until the caller's
+    # commit — which is the only way to prevent the classic check-then-
+    # act race where two threads both read identical cached totals,
+    # both pass the ceiling, and both decrement the balance.
+    #
+    # If the caller is NOT already in an atomic block, Django still
+    # wraps this query in an implicit transaction; the lock releases
+    # at function exit, which serialises multiple concurrent *checks*
+    # but doesn't bridge to the caller's downstream write. That's why
+    # all the financial mutation viewsets that call this function
+    # should themselves be inside ``transaction.atomic()``.
+    # REQUIRES: caller is already inside transaction.atomic()
+    # The select_for_update row lock acquired below is released only
+    # when the caller's outer atomic commits. Calling this without an
+    # outer atomic still works for read-only checks but provides no
+    # cross-mutation race protection.
+    appro = Appropriation.objects.select_for_update().filter(
         administrative=admin_seg,
         economic__in=candidates,
         fund=fund_seg,
         status__iexact='ACTIVE',
     ).first()
     if not appro:
-        # No matching appropriation — let check_budget_availability handle the
-        # "no budget" message. Warrant check has nothing to validate against.
+        # No matching appropriation — let check_budget_availability
+        # handle the "no budget" message. Warrant check has nothing
+        # to validate against.
         return True, "Warrant check skipped (no matching appropriation).", {}
 
     warrants_released = appro.total_warrants_released or Decimal('0')

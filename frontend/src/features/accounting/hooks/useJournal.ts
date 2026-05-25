@@ -252,7 +252,22 @@ export const useDimensions = () => {
                 apiClient.get('/accounting/geos/',      { params: { page_size: 10000 } }),
                 // Server-side sort by code as a hint; client-side
                 // localeCompare below is the safety net.
-                apiClient.get('/accounting/accounts/',  { params: { page_size: 10000, ordering: 'code' } }),
+                //
+                // ``is_postable=true`` excludes header / group accounts
+                // (SAP-style "Block for Posting" flag) — those exist
+                // only to aggregate child balances and the backend
+                // rejects journal lines that target them. Filtering at
+                // the picker keeps the dropdown short and prevents the
+                // form from offering choices that will fail server-side
+                // validation a few seconds later.
+                apiClient.get('/accounting/accounts/',  {
+                    params: {
+                        page_size: 10000,
+                        ordering: 'code',
+                        is_postable: true,
+                        is_active: true,
+                    },
+                }),
             ]);
 
             const pickValue = (r: PromiseSettledResult<unknown>): unknown =>

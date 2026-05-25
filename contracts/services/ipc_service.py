@@ -72,6 +72,7 @@ if TYPE_CHECKING:
 
 User = get_user_model()
 ZERO = Decimal("0.00")
+HUNDRED = Decimal("100")
 COHERENCE_TOLERANCE = Decimal("0.01")  # 1-kobo tolerance for rounding
 
 
@@ -152,6 +153,103 @@ class IPCService:
             name__iregex=r'mobili.+advance|advance.+contractor',
         ).first()
 
+    # ── Modern appropriation gate (audit fix #1) ─────────────────────
+
+    @classmethod
+    def _enforce_appropriation_gate(cls, ipc: 'InterimPaymentCertificate') -> None:
+        """Run ``check_policy`` against the IPSAS Appropriation register.
+
+        Called from ``approve()`` immediately before the accrual journal
+        is created. This is the C2P equivalent of the gate that PR / PO
+        / JV postings already run — it ensures contract spending can't
+        exceed the year's appropriated amount even when the contract's
+        own ``ContractBalance`` ceiling still has room.
+
+        Resolution order for the appropriation:
+          1. ``ContractYearPlan`` for this IPC's posting fiscal year
+             (matches the year_plan's FY; FK is to ``budget.Appropriation``).
+             This is the canonical path for multi-year contracts.
+          2. ``find_matching_appropriation`` against the contract's
+             MDA / fund / economic account + IPC's posting year. Catches
+             legacy contracts that pre-date year_plans.
+
+        Raises ``BudgetExceededError`` (a ``ValidationError`` subclass)
+        on STRICT block, which propagates up through the surrounding
+        ``@transaction.atomic`` and rolls back the IPC approval.
+        Tenants on POLICY level WARNING / NONE proceed without an
+        error — same UX contract as PR/PO/JV gates.
+        """
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
+        from budget.models import Appropriation
+        from budget.services import BudgetExceededError
+
+        contract = ipc.contract
+        # Year_plans use ``fiscal_year`` (a FK to FiscalYear); IPCs use
+        # ``posting_date``. Match by year.
+        posting_year = ipc.posting_date.year if ipc.posting_date else None
+
+        appropriation = None
+        # Path 1 — multi-year-aware year plan.
+        if posting_year is not None:
+            year_plan = contract.year_plans.filter(
+                fiscal_year__year=posting_year,
+                appropriation__isnull=False,
+            ).select_related('appropriation').first()
+            if year_plan and year_plan.appropriation:
+                appropriation = (
+                    Appropriation.objects
+                    .select_for_update()
+                    .get(pk=year_plan.appropriation_id)
+                )
+
+        # Path 2 — derive from contract's NCoA + MDA, lookup against register.
+        if appropriation is None:
+            ncoa = contract.ncoa_code
+            mda = (
+                getattr(contract, 'mda', None)
+                or getattr(getattr(ncoa, 'administrative', None), 'legacy_mda', None)
+            )
+            fund = getattr(getattr(ncoa, 'fund', None), 'legacy_fund', None)
+            account = (
+                getattr(getattr(ncoa, 'economic', None), 'legacy_account', None)
+            )
+            if mda and fund and account:
+                derived = find_matching_appropriation(
+                    mda=mda, fund=fund, account=account,
+                    fiscal_year=posting_year,
+                )
+                if derived is not None:
+                    appropriation = (
+                        Appropriation.objects
+                        .select_for_update()
+                        .get(pk=derived.pk)
+                    )
+
+        # Run the policy check against whatever we resolved (may be
+        # None — the resolver still applies STRICT rules to "no
+        # appropriation found" cases).
+        ncoa = contract.ncoa_code
+        account = getattr(getattr(ncoa, 'economic', None), 'legacy_account', None)
+        account_code = (
+            getattr(account, 'code', '')
+            or getattr(getattr(ncoa, 'economic', None), 'code', '')
+            or ''
+        )
+        result = check_policy(
+            account_code=account_code,
+            appropriation=appropriation,
+            requested_amount=Decimal(str(ipc.this_certificate_gross or 0)),
+            transaction_label=f'IPC {ipc.ipc_number or ipc.pk}',
+            account_name=getattr(account, 'name', '') or '',
+        )
+        if result.blocked:
+            raise BudgetExceededError(
+                f"IPC {ipc.ipc_number or ipc.pk} blocked by budget policy: "
+                f"{result.reason}"
+            )
+
     # ── Accrual journal posting (called from approve) ─────────────────
 
     @classmethod
@@ -227,9 +325,16 @@ class IPCService:
             )
 
         # Build the journal.
+        # ``document_number`` mirrors ``reference_number`` so the Journal
+        # Entries list shows a populated DOC NO column for IPC accruals
+        # — without it, the column rendered "—" for every contract
+        # journal even though the reference was set. Same convention
+        # the vendor-registration posting now uses.
+        ipc_ref = ipc.ipc_number or f"IPC-{ipc.pk}"
         journal = JournalHeader.objects.create(
             posting_date=ipc.posting_date,
-            reference_number=ipc.ipc_number or f"IPC-{ipc.pk}",
+            reference_number=ipc_ref,
+            document_number=ipc_ref,
             description=(
                 f"IPC accrual — {ipc.ipc_number} / "
                 f"{contract.contract_number}"
@@ -240,7 +345,16 @@ class IPCService:
             program=getattr(ncoa.programme, 'legacy_program', None),
             geo=getattr(ncoa.geographic, 'legacy_geo', None),
             status='Draft',
-            source_module='contracts',
+            # Distinct ``source_module`` per contracts-app document type
+            # to honour the partial unique constraint on
+            # (source_module, source_document_id) for Posted journals
+            # (accounting/migrations/0067). The retention release path
+            # uses 'contract_retention_release'; this is the IPC accrual
+            # journal. Previously both used 'contracts' — if an IPC.pk
+            # and a Retention.pk happened to collide (small but real
+            # chance per tenant), the second Posted write would raise
+            # IntegrityError mid-payment.
+            source_module='contract_ipc',
             source_document_id=ipc.pk,
             posted_by=actor,
         )
@@ -394,16 +508,46 @@ class IPCService:
                 context={"contract_id": contract.pk, "status": contract.status},
             )
 
-        # ── Control 8: Fiscal-year boundary ────────────────────────────
-        fy = contract.fiscal_year
-        if not (fy.start_date <= posting_date <= fy.end_date):
+        # ── Control 8: Fiscal-year boundary (multi-year aware) ─────────
+        # The IPC's posting_date must fall inside a fiscal year covered
+        # by one of the contract's ContractYearPlan rows. Single-year
+        # contracts have exactly one plan (auto-created at activation
+        # for legacy rows; explicitly set otherwise) so this control is
+        # behaviour-preserving for them. Multi-year contracts now
+        # accept IPCs in any year their year_plans cover, with each
+        # IPC routed to the matching year for IPSAS 24 reporting.
+        matching_plan = (
+            contract.year_plans
+            .select_related("fiscal_year", "appropriation")
+            .filter(
+                fiscal_year__start_date__lte=posting_date,
+                fiscal_year__end_date__gte=posting_date,
+            )
+            .first()
+        )
+        if matching_plan is None:
+            covered_years = list(
+                contract.year_plans
+                .select_related("fiscal_year")
+                .order_by("sequence")
+                .values_list(
+                    "fiscal_year__start_date",
+                    "fiscal_year__end_date",
+                    "sequence",
+                )
+            )
             raise FiscalYearBoundaryError(
-                f"IPC posting_date {posting_date} falls outside contract fiscal year "
-                f"{fy.start_date}…{fy.end_date}.",
+                f"IPC posting_date {posting_date} falls outside every year plan "
+                f"on contract {contract.contract_number}. "
+                f"Contract covers: "
+                + ", ".join(
+                    f"Year {seq} ({s}…{e})" for s, e, seq in covered_years
+                )
+                + ".",
                 context={
                     "posting_date": str(posting_date),
-                    "fy_start": str(fy.start_date),
-                    "fy_end": str(fy.end_date),
+                    "contract_id": contract.pk,
+                    "year_plan_count": len(covered_years),
                 },
             )
 
@@ -612,7 +756,29 @@ class IPCService:
 
         contract = milestone.contract
         # Lock the balance to read previous_certified consistently.
-        balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
+        # Guard against the "contract not yet activated" case — without
+        # this, ``.get()`` raises a bare ``ContractBalance.DoesNotExist``
+        # (an unmapped 500). The activation workflow
+        # (``ContractActivationService.activate``) creates the balance
+        # row alongside the status flip, so a missing balance always
+        # means the contract is still in DRAFT / AWAITING_ACTIVATION /
+        # AWAITING_BPP. Surface that as a domain error the
+        # ``translate_service_errors`` view-layer wrapper converts to
+        # a clean HTTP 400 with the same shape as every other
+        # state-machine refusal.
+        try:
+            balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
+        except ContractBalance.DoesNotExist as exc:
+            raise InvalidTransitionError(
+                f"Contract {contract.contract_number} has no ContractBalance — "
+                f"it must be ACTIVATED before milestones can be converted to "
+                f"IPCs. Current contract status: {contract.status}.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_status": contract.status,
+                    "milestone_id": milestone.pk,
+                },
+            ) from exc
         previous_certified = balance.cumulative_gross_certified
         cumulative = quantize_currency(
             previous_certified + (milestone.scheduled_value or ZERO)
@@ -811,6 +977,27 @@ class IPCService:
 
         ipc.updated_by = actor
 
+        # ── Modern Appropriation budget gate (audit fix #1) ─────────────
+        # Before posting the accrual journal, run the central
+        # ``check_policy`` engine against the IPSAS Appropriation
+        # register. The contract's own ``ContractBalance`` ceiling is
+        # already enforced (and re-checked above), but that's a
+        # contract-side cap — it does NOT see the appropriation's
+        # remaining balance. Without this gate, an IPC could post even
+        # when the year's appropriation has been exhausted by other
+        # spending (POs, JVs, prior IPCs against unrelated contracts).
+        #
+        # Lookup ladder for the appropriation:
+        #   1. ContractYearPlan for this IPC's posting year
+        #      (the modern, multi-year-aware path; FK is correct)
+        #   2. Falls back to ``find_matching_appropriation`` against
+        #      contract.mda + (NCoA fund) + (NCoA economic/legacy_account)
+        #      so legacy contracts without year-plans still gate.
+        #
+        # The result is fail-closed: STRICT policy → BudgetExceededError
+        # rolls back the entire @transaction.atomic.
+        cls._enforce_appropriation_gate(ipc)
+
         # ── Post accrual journal ─────────────────────────────────────
         # IPSAS accrual recognition: at approval the expense + payable
         # are booked even though cash hasn't moved yet. Retention and
@@ -860,10 +1047,40 @@ class IPCService:
         net_payable (within tolerance).  SoD: voucher raiser must not
         be drafter, certifier, or approver.
         """
+        # Lock the IPC row under the surrounding @transaction.atomic
+        # so a concurrent raise_voucher call on the same IPC blocks
+        # rather than racing past the status check. Without this,
+        # two near-simultaneous calls can both observe status=APPROVED
+        # before either commits — both pass the gate, both write a
+        # payment_voucher_id, and the IPC ends up linked to the
+        # second (overwriting the first) while the first PV exists
+        # as an orphan. Note: ``ipc`` parameter is the in-memory
+        # snapshot the caller passed; the lock + reload here is the
+        # authoritative state.
+        ipc = (
+            InterimPaymentCertificate.objects
+            .select_for_update()
+            .get(pk=ipc.pk)
+        )
         if ipc.status != IPCStatus.APPROVED:
             raise InvalidTransitionError(
                 f"IPC must be APPROVED to raise a voucher (is {ipc.status}).",
                 context={"ipc_id": ipc.pk, "status": ipc.status},
+            )
+
+        # Defence-in-depth: refuse if a payment_voucher_id is already
+        # set on the (now-locked) row. The status check above catches
+        # most cases but doesn't protect against an external API
+        # caller that linked the PV directly.
+        if ipc.payment_voucher_id is not None:
+            raise InvalidTransitionError(
+                f"IPC already has a payment voucher linked "
+                f"(PV id={ipc.payment_voucher_id}). Cannot raise a "
+                f"second voucher.",
+                context={
+                    "ipc_id": ipc.pk,
+                    "existing_pv_id": ipc.payment_voucher_id,
+                },
             )
 
         cls._check_sod(ipc, actor, role="voucher_raiser")
@@ -922,8 +1139,41 @@ class IPCService:
         contract = ipc.contract
         vendor = contract.vendor
 
-        # Pick the first active TSA — operator can change it on the PV.
-        tsa = TreasuryAccount.objects.filter(is_active=True).first()
+        # ── TSA selection (audit fix #9) ────────────────────────────────
+        # Pick a TSA that actually belongs to the contract's MDA so
+        # multi-MDA tenants don't have every contract default to the
+        # same arbitrary first row. Lookup ladder:
+        #
+        #   1. ZERO_BALANCE / SUB_ACCOUNT for the contract's MDA
+        #      (MDA-owned operating account — the right pay-from)
+        #   2. Any active SUB_ACCOUNT for the MDA
+        #   3. Any active TSA for the MDA
+        #   4. Global MAIN_TSA (mda is null) — the consolidated account
+        #   5. Fallback: any active TSA (legacy single-MDA tenants)
+        #
+        # The operator can still change the TSA on the draft PV before
+        # checking it; this just supplies a sensible default that
+        # doesn't require manual correction in the common case.
+        contract_mda = getattr(contract, 'mda', None) or getattr(
+            getattr(contract.ncoa_code, 'administrative', None),
+            'legacy_mda', None,
+        )
+        tsa = None
+        if contract_mda is not None:
+            tsa = TreasuryAccount.objects.filter(
+                is_active=True, mda=contract_mda,
+                account_type__in=('ZERO_BALANCE', 'SUB_ACCOUNT'),
+            ).order_by('account_type', 'pk').first()
+            if tsa is None:
+                tsa = TreasuryAccount.objects.filter(
+                    is_active=True, mda=contract_mda,
+                ).order_by('pk').first()
+        if tsa is None:
+            tsa = TreasuryAccount.objects.filter(
+                is_active=True, mda__isnull=True, account_type='MAIN_TSA',
+            ).order_by('pk').first()
+        if tsa is None:
+            tsa = TreasuryAccount.objects.filter(is_active=True).order_by('pk').first()
         if tsa is None:
             raise InvalidTransitionError(
                 "No active Treasury Account configured. Configure a TSA "

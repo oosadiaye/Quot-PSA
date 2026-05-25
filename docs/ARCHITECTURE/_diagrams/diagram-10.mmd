@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> DRAFT : created from IPC / VendorInvoice / Payroll
+    DRAFT --> CHECKED : voucher checker
+    CHECKED --> AUDITED : internal audit
+    AUDITED --> APPROVED : AG / authoriser
+    APPROVED --> SCHEDULED : queued for bank file
+    SCHEDULED --> PAID : PaymentInstruction processed<br/>TSABalanceService.process_payment()
+    APPROVED --> CANCELLED : pre-payment cancel
+    PAID --> REVERSED : exceptional reversal

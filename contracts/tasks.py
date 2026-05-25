@@ -36,7 +36,34 @@ import logging
 from datetime import datetime
 from typing import Iterable
 
-from celery import shared_task
+# Celery is an optional runtime dependency in this project — the task
+# *definitions* live here so they're discoverable, but a deployment
+# without celery (e.g. small-tenant installs that lean on the daily
+# Windows Task Scheduler sweep instead) shouldn't fail on import. The
+# fallback ``shared_task`` is a no-op decorator that simply returns
+# the wrapped function, which keeps unit tests that import this
+# module green even when celery isn't installed.
+try:
+    from celery import shared_task  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover — exercised only on celery-less envs
+    def shared_task(*dargs, **dkwargs):  # type: ignore[no-redef]
+        """No-op fallback when celery isn't installed.
+
+        Supports both ``@shared_task`` and ``@shared_task(bind=True, ...)``
+        usages. The wrapped callable is returned unchanged so direct
+        invocation still works in tests; the ``.delay()`` /
+        ``.apply_async()`` methods are intentionally absent because the
+        only sensible behaviour without a broker is to fail loudly if
+        someone tries to enqueue at runtime.
+        """
+        if dargs and callable(dargs[0]) and not dkwargs:
+            return dargs[0]
+
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -108,55 +135,68 @@ def escalate_stale_variations() -> dict[str, int]:
 
     for schema in _iter_tenant_schemas():
         escalated = 0
-        with _schema_context(schema):
-            for status, sla_key in _ESCALATABLE_VARIATION_STATUSES.items():
-                cutoff = now - sla_delta(sla_key)
-                qs = (
-                    ContractVariation.objects
-                    .filter(status=status, updated_at__lt=cutoff)
-                    .select_related("contract", "updated_by")
-                )
-                for variation in qs:
-                    with transaction.atomic():
-                        # Idempotency: don't double-escalate the same (object,
-                        # status, day) bucket. A single ESCALATE step per UTC
-                        # day per object is enough to drive the dashboard.
-                        already = (
-                            ContractApprovalStep.objects
-                            .filter(
+        # Per-tenant try/except so one bad schema (missing table, stale
+        # migration, locked row) doesn't abort the SLA escalation job
+        # for every other tenant. The previous loop bubbled the first
+        # exception, silently skipping every remaining tenant's
+        # contracts.
+        try:
+            with _schema_context(schema):
+                for status, sla_key in _ESCALATABLE_VARIATION_STATUSES.items():
+                    cutoff = now - sla_delta(sla_key)
+                    qs = (
+                        ContractVariation.objects
+                        .filter(status=status, updated_at__lt=cutoff)
+                        .select_related("contract", "updated_by")
+                    )
+                    for variation in qs:
+                        with transaction.atomic():
+                            # Idempotency: don't double-escalate the same (object,
+                            # status, day) bucket. A single ESCALATE step per UTC
+                            # day per object is enough to drive the dashboard.
+                            already = (
+                                ContractApprovalStep.objects
+                                .filter(
+                                    object_type=ApprovalObjectType.VARIATION,
+                                    object_id=variation.pk,
+                                    action=ApprovalAction.ESCALATE,
+                                    action_at__date=now.date(),
+                                )
+                                .exists()
+                            )
+                            if already:
+                                continue
+
+                            ContractApprovalStep.objects.create(
                                 object_type=ApprovalObjectType.VARIATION,
                                 object_id=variation.pk,
+                                contract=variation.contract,
+                                step_number=999,
+                                role_required="contracts.escalate_variation",
                                 action=ApprovalAction.ESCALATE,
-                                action_at__date=now.date(),
+                                action_by=variation.updated_by,
+                                notes=(
+                                    f"Auto-escalated after SLA breach at "
+                                    f"{status} status (SLA key {sla_key})."
+                                ),
                             )
-                            .exists()
-                        )
-                        if already:
-                            continue
-
-                        ContractApprovalStep.objects.create(
-                            object_type=ApprovalObjectType.VARIATION,
-                            object_id=variation.pk,
-                            contract=variation.contract,
-                            step_number=999,
-                            role_required="contracts.escalate_variation",
-                            action=ApprovalAction.ESCALATE,
-                            action_by=variation.updated_by,
-                            notes=(
-                                f"Auto-escalated after SLA breach at "
-                                f"{status} status (SLA key {sla_key})."
-                            ),
-                        )
-                        _notify(
-                            "variation_escalated",
-                            schema=schema,
-                            variation_id=variation.pk,
-                            contract_id=variation.contract_id,
-                            status=status,
-                            tier=variation.approval_tier,
-                            age_hours=_age_hours(variation.updated_at, now),
-                        )
-                        escalated += 1
+                            _notify(
+                                "variation_escalated",
+                                schema=schema,
+                                variation_id=variation.pk,
+                                contract_id=variation.contract_id,
+                                status=status,
+                                tier=variation.approval_tier,
+                                age_hours=_age_hours(variation.updated_at, now),
+                            )
+                            escalated += 1
+        except Exception:
+            logger.exception(
+                "contracts.sla escalate_stale_variations failed for schema=%s; "
+                "continuing with other tenants", schema,
+            )
+            totals[schema] = -1  # sentinel: failure, not zero
+            continue
         totals[schema] = escalated
         if escalated:
             logger.warning(
@@ -191,51 +231,60 @@ def escalate_stale_ipcs() -> dict[str, int]:
 
     for schema in _iter_tenant_schemas():
         escalated = 0
-        with _schema_context(schema):
-            for status, sla_key in _ESCALATABLE_IPC_STATUSES.items():
-                cutoff = now - sla_delta(sla_key)
-                qs = (
-                    InterimPaymentCertificate.objects
-                    .filter(status=status, updated_at__lt=cutoff)
-                    .select_related("contract", "updated_by")
-                )
-                for ipc in qs:
-                    with transaction.atomic():
-                        already = (
-                            ContractApprovalStep.objects
-                            .filter(
+        # Same per-tenant containment as escalate_stale_variations.
+        try:
+            with _schema_context(schema):
+                for status, sla_key in _ESCALATABLE_IPC_STATUSES.items():
+                    cutoff = now - sla_delta(sla_key)
+                    qs = (
+                        InterimPaymentCertificate.objects
+                        .filter(status=status, updated_at__lt=cutoff)
+                        .select_related("contract", "updated_by")
+                    )
+                    for ipc in qs:
+                        with transaction.atomic():
+                            already = (
+                                ContractApprovalStep.objects
+                                .filter(
+                                    object_type=ApprovalObjectType.IPC,
+                                    object_id=ipc.pk,
+                                    action=ApprovalAction.ESCALATE,
+                                    action_at__date=now.date(),
+                                )
+                                .exists()
+                            )
+                            if already:
+                                continue
+
+                            ContractApprovalStep.objects.create(
                                 object_type=ApprovalObjectType.IPC,
                                 object_id=ipc.pk,
+                                contract=ipc.contract,
+                                step_number=999,
+                                role_required="contracts.escalate_ipc",
                                 action=ApprovalAction.ESCALATE,
-                                action_at__date=now.date(),
+                                action_by=ipc.updated_by,
+                                notes=(
+                                    f"Auto-escalated after SLA breach at "
+                                    f"{status} status (SLA key {sla_key})."
+                                ),
                             )
-                            .exists()
-                        )
-                        if already:
-                            continue
-
-                        ContractApprovalStep.objects.create(
-                            object_type=ApprovalObjectType.IPC,
-                            object_id=ipc.pk,
-                            contract=ipc.contract,
-                            step_number=999,
-                            role_required="contracts.escalate_ipc",
-                            action=ApprovalAction.ESCALATE,
-                            action_by=ipc.updated_by,
-                            notes=(
-                                f"Auto-escalated after SLA breach at "
-                                f"{status} status (SLA key {sla_key})."
-                            ),
-                        )
-                        _notify(
-                            "ipc_escalated",
-                            schema=schema,
-                            ipc_id=ipc.pk,
-                            contract_id=ipc.contract_id,
-                            status=status,
-                            age_hours=_age_hours(ipc.updated_at, now),
-                        )
-                        escalated += 1
+                            _notify(
+                                "ipc_escalated",
+                                schema=schema,
+                                ipc_id=ipc.pk,
+                                contract_id=ipc.contract_id,
+                                status=status,
+                                age_hours=_age_hours(ipc.updated_at, now),
+                            )
+                            escalated += 1
+        except Exception:
+            logger.exception(
+                "contracts.sla escalate_stale_ipcs failed for schema=%s; "
+                "continuing with other tenants", schema,
+            )
+            totals[schema] = -1
+            continue
         totals[schema] = escalated
         if escalated:
             logger.warning(
@@ -272,23 +321,33 @@ def send_pending_approval_reminders() -> dict[str, int]:
 
     for schema in _iter_tenant_schemas():
         reminded = 0
-        with _schema_context(schema):
-            reminded += _remind(
-                ContractVariation,
-                ApprovalObjectType.VARIATION,
-                _ESCALATABLE_VARIATION_STATUSES,
-                sla_delta, lead, now,
-                ApprovalAction, ContractApprovalStep,
-                schema, "variation_reminder",
+        # Same per-tenant containment — one tenant's failure must not
+        # block reminders for the rest.
+        try:
+            with _schema_context(schema):
+                reminded += _remind(
+                    ContractVariation,
+                    ApprovalObjectType.VARIATION,
+                    _ESCALATABLE_VARIATION_STATUSES,
+                    sla_delta, lead, now,
+                    ApprovalAction, ContractApprovalStep,
+                    schema, "variation_reminder",
+                )
+                reminded += _remind(
+                    InterimPaymentCertificate,
+                    ApprovalObjectType.IPC,
+                    _ESCALATABLE_IPC_STATUSES,
+                    sla_delta, lead, now,
+                    ApprovalAction, ContractApprovalStep,
+                    schema, "ipc_reminder",
+                )
+        except Exception:
+            logger.exception(
+                "contracts.sla send_pending_approval_reminders failed for "
+                "schema=%s; continuing with other tenants", schema,
             )
-            reminded += _remind(
-                InterimPaymentCertificate,
-                ApprovalObjectType.IPC,
-                _ESCALATABLE_IPC_STATUSES,
-                sla_delta, lead, now,
-                ApprovalAction, ContractApprovalStep,
-                schema, "ipc_reminder",
-            )
+            totals[schema] = -1
+            continue
         totals[schema] = reminded
     return totals
 
@@ -367,26 +426,35 @@ def reconcile_contract_balances() -> dict[str, int]:
     totals: dict[str, int] = {}
     for schema in _iter_tenant_schemas():
         drift = 0
-        with _schema_context(schema):
-            for balance in ContractBalance.objects.select_related("contract"):
-                certified_from_ipcs = (
-                    InterimPaymentCertificate.objects
-                    .filter(
-                        contract=balance.contract,
-                        status__in=("APPROVED", "VOUCHER_RAISED", "PAID"),
+        # Same per-tenant containment as the SLA tasks above.
+        try:
+            with _schema_context(schema):
+                for balance in ContractBalance.objects.select_related("contract"):
+                    certified_from_ipcs = (
+                        InterimPaymentCertificate.objects
+                        .filter(
+                            contract=balance.contract,
+                            status__in=("APPROVED", "VOUCHER_RAISED", "PAID"),
+                        )
+                        .aggregate(s=Sum("this_certificate_gross"))
+                        ["s"] or Decimal("0.00")
                     )
-                    .aggregate(s=Sum("this_certificate_gross"))
-                    ["s"] or Decimal("0.00")
-                )
-                if certified_from_ipcs != balance.cumulative_gross_certified:
-                    logger.error(
-                        "contracts.balance_drift schema=%s contract=%s "
-                        "ipc_sum=%s balance=%s",
-                        schema, balance.contract_id,
-                        certified_from_ipcs,
-                        balance.cumulative_gross_certified,
-                    )
-                    drift += 1
+                    if certified_from_ipcs != balance.cumulative_gross_certified:
+                        logger.error(
+                            "contracts.balance_drift schema=%s contract=%s "
+                            "ipc_sum=%s balance=%s",
+                            schema, balance.contract_id,
+                            certified_from_ipcs,
+                            balance.cumulative_gross_certified,
+                        )
+                        drift += 1
+        except Exception:
+            logger.exception(
+                "contracts.sla reconcile_contract_balances failed for "
+                "schema=%s; continuing with other tenants", schema,
+            )
+            totals[schema] = -1
+            continue
         totals[schema] = drift
     return totals
 

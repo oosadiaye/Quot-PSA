@@ -1,0 +1,30 @@
+flowchart TD
+    Start([Capital project awarded]) --> CDraft[Contract<br/>DRAFT]
+    CDraft --> CAct[ContractActivationService<br/>.activate]
+    CAct --> CYP[ContractYearPlan rows<br/>created — multi-year split]
+    CAct --> CB[ContractBalance row<br/>created]
+    CAct --> CActive[Contract<br/>ACTIVATED]
+
+    CActive --> Mob[MobilizationPayment<br/>up-front advance<br/>spawns PaymentVoucher]
+    CActive --> MS[MilestoneSchedule<br/>defined]
+
+    MS --> Work([Contractor delivers work])
+    Work --> MB[MeasurementBook<br/>posted on-site qty]
+    MB --> IPCDraft[IPC Draft<br/>compute net_payable]
+
+    IPCDraft --> IPCSub[IPCService.submit_ipc<br/>Controls 1, 3, 7, 8<br/>SELECT FOR UPDATE ContractBalance]
+    IPCSub --> IPCCert[Certifier review<br/>Control 9: 3-way w/ MB]
+    IPCCert --> IPCApp[Approver review<br/>Controls 1, 2 re-check<br/>_enforce_appropriation_gate<br/>= check_policy + Appropriation]
+
+    IPCApp --> Accrual[_post_accrual_journal<br/>DR Expense<br/>CR Mob Advance<br/>CR Retention Held<br/>CR AP<br/>document_number set]
+
+    Accrual --> Voucher[create_draft_voucher<br/>TSA routed by MDA<br/>spawns PaymentVoucherGov]
+    Voucher --> PVFlow[PV: DRAFT → CHECKED →<br/>AUDITED → APPROVED →<br/>SCHEDULED → PAID]
+    PVFlow --> Cash[VAT / WHT recognised<br/>at cash time<br/>cumulative_gross_paid += net]
+    Cash --> Repeat{more milestones?}
+    Repeat -- yes --> Work
+    Repeat -- no --> Final[Final IPC<br/>+ RetentionRelease<br/>+ Contract → CLOSED]
+    Final --> Done([Contract complete])
+
+    classDef gate fill:#fef3c7,stroke:#92400e
+    class IPCApp,PVFlow gate

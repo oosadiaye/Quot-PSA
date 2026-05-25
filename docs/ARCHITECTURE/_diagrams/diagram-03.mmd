@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> Provisioned : Client.objects.create()
+    Provisioned --> SchemaMigrated : migrate_schemas --tenant
+    SchemaMigrated --> ModulesActivated : TenantModule.is_enabled = True
+    ModulesActivated --> Subscribed : TenantSubscription created
+    Subscribed --> Active
+    Active --> Suspended : payment overdue
+    Suspended --> Active : payment received
+    Active --> Cancelled : tenant offboarded
+    Cancelled --> [*]

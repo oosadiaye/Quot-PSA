@@ -615,7 +615,7 @@ const ContractForm = () => {
                     label="Original Sum"
                     name="original_sum"
                     rules={[{ required: true, message: 'Original sum required' }]}
-                    tooltip="Award value. Ceiling = original_sum + approved variations."
+                    tooltip="Award value. Ceiling = original_sum + approved write-ups."
                   >
                     <InputNumber
                       min={0.01}

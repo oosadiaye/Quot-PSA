@@ -65,11 +65,68 @@ def _get_user_tenants(user):
 
 
 def _get_client_ip(request):
-    """Extract client IP from request, respecting X-Forwarded-For."""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        return x_forwarded_for.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', 'unknown')
+    """Extract client IP from request, respecting X-Forwarded-For only when
+    the request actually arrived via a trusted proxy."""
+    from core.security.client_ip import get_trusted_client_ip
+    return get_trusted_client_ip(request)
+
+
+# ─── httpOnly auth-cookie helpers ────────────────────────────────────
+#
+# Single source of truth for "set/clear the auth token as a browser
+# cookie". Login mints the token then calls ``_set_auth_cookie``;
+# logout calls ``_clear_auth_cookie``. Both no-op when
+# ``AUTH_COOKIE_ENABLED`` is False so the change ships dormant.
+#
+# Why the cookie value is the same token string we return in JSON: it
+# keeps the back-end stateless. ``ExpiringTokenAuthentication`` reads
+# from EITHER header OR cookie and routes both into the same
+# ``authenticate_credentials`` validation path. The JSON response is
+# preserved for legacy callers (mobile apps, integration scripts)
+# that still expect the token in the body — those callers ignore the
+# cookie. Browsers that prefer the cookie path can simply discard
+# the JSON token without ever touching localStorage.
+
+
+def _set_auth_cookie(response, token_key: str) -> None:
+    """Attach the auth token as an httpOnly cookie when enabled.
+
+    All cookie attributes (name, secure, samesite, domain, path) are
+    settings-driven so a deployment can override them without
+    editing code — see the ``AUTH_COOKIE_*`` block in settings.py.
+    The cookie's ``max_age`` matches ``TOKEN_EXPIRATION_HOURS`` so the
+    browser drops it at the same moment the server-side token would
+    be rejected; this avoids "I'm still logged in" UX confusion.
+    """
+    if not getattr(settings, 'AUTH_COOKIE_ENABLED', False):
+        return
+    response.set_cookie(
+        key=getattr(settings, 'AUTH_COOKIE_NAME', 'auth_token'),
+        value=token_key,
+        max_age=int(getattr(settings, 'TOKEN_EXPIRATION_HOURS', 24)) * 3600,
+        secure=getattr(settings, 'AUTH_COOKIE_SECURE', True),
+        httponly=True,
+        samesite=getattr(settings, 'AUTH_COOKIE_SAMESITE', 'Lax'),
+        domain=getattr(settings, 'AUTH_COOKIE_DOMAIN', None),
+        path=getattr(settings, 'AUTH_COOKIE_PATH', '/'),
+    )
+
+
+def _clear_auth_cookie(response) -> None:
+    """Delete the auth cookie. Always safe to call — when the cookie
+    isn't set (or wasn't issued in the first place) ``delete_cookie``
+    just emits an expired Set-Cookie that the browser drops.
+
+    We always emit this on logout regardless of ``AUTH_COOKIE_ENABLED``
+    so flipping the flag off mid-session still cleans up stale
+    cookies issued under the old flag value.
+    """
+    response.delete_cookie(
+        key=getattr(settings, 'AUTH_COOKIE_NAME', 'auth_token'),
+        path=getattr(settings, 'AUTH_COOKIE_PATH', '/'),
+        domain=getattr(settings, 'AUTH_COOKIE_DOMAIN', None),
+        samesite=getattr(settings, 'AUTH_COOKIE_SAMESITE', 'Lax'),
+    )
 
 
 @api_view(['POST'])
@@ -192,12 +249,18 @@ def login_view(request):
             getattr(user, 'pk', '?'), exc,
         )
 
-    return Response({
+    response = Response({
         'user': UserSerializer(user).data,
         'token': token.key,
         'tenants': tenants,
         'email_verified': email_verified,
     })
+    # Cookie path: no-op when AUTH_COOKIE_ENABLED is False (default).
+    # When enabled, the SAME token is also returned as an httpOnly
+    # cookie so the browser never has to surface it to JavaScript.
+    # Legacy callers reading the JSON body continue to work.
+    _set_auth_cookie(response, token.key)
+    return response
 
 
 @api_view(['POST'])
@@ -319,7 +382,14 @@ def logout_view(request):
             except Token.DoesNotExist:
                 pass
         logout(request)
-    return Response({'status': 'logged out successfully'})
+    response = Response({'status': 'logged out successfully'})
+    # Always emit a clearing Set-Cookie even when the cookie path
+    # isn't currently enabled — covers the case where AUTH_COOKIE_ENABLED
+    # was True earlier in the user's session but has since been
+    # toggled off. Without this an orphan cookie would linger in the
+    # browser until its max_age expired.
+    _clear_auth_cookie(response)
+    return response
 
 
 # Keep old name as alias for backward compatibility (urls.py uses logout_view)
@@ -536,6 +606,7 @@ def forgot_password(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @authentication_classes([])
+@throttle_classes([PasswordResetRateThrottle])
 def reset_password_confirm(request):
     """Validate token and set a new password."""
     uid = request.data.get('uid', '')

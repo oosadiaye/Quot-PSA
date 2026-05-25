@@ -11,6 +11,7 @@ from ..serializers import (
     FiscalPeriodSerializer, FiscalYearSerializer, PeriodAccessSerializer, PeriodCloseCheckSerializer,
 )
 from core.utils import api_response
+from core.security.client_ip import get_trusted_client_ip as _audit_client_ip
 
 
 class FiscalPeriodViewSet(viewsets.ModelViewSet):
@@ -144,10 +145,7 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
                 transaction_id=period.pk,
                 action='REOPEN',
                 user=user,
-                ip_address=(
-                    request.META.get('HTTP_X_FORWARDED_FOR') or
-                    request.META.get('REMOTE_ADDR')
-                ),
+                ip_address=_audit_client_ip(request),
                 old_values=prior_state,
                 new_values={
                     'is_closed': False,

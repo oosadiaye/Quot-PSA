@@ -52,7 +52,7 @@ const VariationForm = () => {
         ...values,
         contract: Number(contractId),
       });
-      message.success('Variation created');
+      message.success('Write-up created');
       navigate(`/contracts/variations/${created.id}`);
     } catch (e) {
       message.error(formatServiceError(e, 'Create failed'));
@@ -62,8 +62,8 @@ const VariationForm = () => {
   return (
     <ListPageShell>
         <PageHeader
-          title="New Variation"
-          subtitle={`Contract #${contractId} — change order`}
+          title="New Write-up"
+          subtitle={`Contract #${contractId} — upward revaluation of contract amount`}
         />
         <Card>
           {tier && (
@@ -77,18 +77,35 @@ const VariationForm = () => {
           )}
           {ceiling > 0 && (
             <div style={{ marginBottom: '1rem', fontSize: '0.9rem', opacity: 0.75 }}>
-              Current ceiling {formatCurrency(ceiling)} — existing cumulative variation{' '}
+              Current ceiling {formatCurrency(ceiling)} — existing cumulative write-ups{' '}
               {formatCurrency(existingCumulative)}
             </div>
           )}
           <Form form={form} layout="vertical" onFinish={onFinish}>
             <Form.Item
-              label="Delta Amount"
+              label="Write-up Amount"
               name="delta_amount"
-              rules={[{ required: true, message: 'Delta required' }]}
-              extra="Positive for scope-up; negative for scope-down."
+              rules={[
+                { required: true, message: 'Amount required' },
+                {
+                  // Write-ups are upward revaluations only — server-side
+                  // validation in ContractVariation.clean() rejects
+                  // amount<=0 with a clear error, but the client guard
+                  // gives faster feedback.
+                  validator: (_, v) =>
+                    v == null || Number(v) > 0
+                      ? Promise.resolve()
+                      : Promise.reject(
+                          new Error(
+                            'Write-up amount must be greater than zero — downward revaluations are not handled here.',
+                          ),
+                        ),
+                },
+              ]}
+              extra="Increase to the contract amount. Must be greater than zero — write-ups revalue the contract upward only."
             >
               <InputNumber
+                min={0.01}
                 step={1000}
                 style={{ width: '100%' }}
                 onChange={(v) => setDelta(Number(v || 0))}
@@ -107,7 +124,7 @@ const VariationForm = () => {
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <Button onClick={() => navigate(-1)}>Cancel</Button>
               <Button type="primary" htmlType="submit" loading={createMut.isPending}>
-                Submit Variation
+                Submit Write-up
               </Button>
             </div>
           </Form>

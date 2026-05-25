@@ -328,8 +328,7 @@ export default function RolesAndPermissionsPage() {
                 }}>
                     Quot PSE IFMIS — Role & Permission Management
                 </div>
-            </main>
-        </div>
+        </ListPageShell>
     );
 }
 
@@ -412,6 +411,6 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
                         )}
                     </div>
                 ))}
-        </ListPageShell>
+        </div>
     );
 }

@@ -159,6 +159,30 @@ def django_db_setup(request, django_db_setup, django_db_blocker):  # noqa: F811
                 )
 
             if not schema_exists(PYTEST_SCHEMA_NAME):
+                # Materialise the schema first so we can patch the legacy
+                # ``django_content_type.name`` NOT NULL column BEFORE any
+                # migration in the run inserts ContentType rows. See
+                # ``tenants/tasks.py::provision_tenant_schema`` for the
+                # full rationale — django-tenants applies
+                # ``contenttypes.0001_initial`` (legacy NOT NULL ``name``
+                # column) without auto-running
+                # ``0002_remove_content_type_name`` when contenttypes
+                # lives in both SHARED_APPS and TENANT_APPS.
+                client = Client.objects.get(schema_name=PYTEST_SCHEMA_NAME)
+                client.create_schema(check_if_exists=True, verbosity=0)
+                with connection.cursor() as cur:
+                    try:
+                        cur.execute(
+                            f'ALTER TABLE "{PYTEST_SCHEMA_NAME}".django_content_type '
+                            f"ALTER COLUMN name DROP NOT NULL"
+                        )
+                        cur.execute(
+                            f'ALTER TABLE "{PYTEST_SCHEMA_NAME}".django_content_type '
+                            f"ALTER COLUMN name SET DEFAULT ''"
+                        )
+                    except Exception:
+                        connection.rollback()
+
                 from django.core.management import call_command
                 call_command(
                     "migrate_schemas",

@@ -113,13 +113,10 @@ DEFAULT_LANGUAGE = 'en'
 
 
 def get_client_ip(request) -> str:
-    """Extract client IP from request."""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0].strip()
-    else:
-        ip = request.META.get('REMOTE_ADDR', '')
-    return ip
+    """Extract client IP, only honoring X-Forwarded-For behind a trusted proxy."""
+    from core.security.client_ip import get_trusted_client_ip
+    ip = get_trusted_client_ip(request)
+    return '' if ip == 'unknown' else ip
 
 
 def is_local_ip(ip: str) -> bool:

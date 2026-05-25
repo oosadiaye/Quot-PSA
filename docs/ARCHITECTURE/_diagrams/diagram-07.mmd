@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> PENDING : Warrant created
+    PENDING --> RELEASED : AG signs
+    RELEASED --> EXHAUSTED : sum(payments) == amount_released
+    RELEASED --> EXPIRED : effective_to date passed<br/>(daily expire_warrants sweep)
+    RELEASED --> SUSPENDED : AG suspends
+    SUSPENDED --> RELEASED : reinstated
+
+    note right of EXPIRED
+      Marked by daily Task
+      Scheduler job:
+      expire_warrants_all_tenants
+    end note

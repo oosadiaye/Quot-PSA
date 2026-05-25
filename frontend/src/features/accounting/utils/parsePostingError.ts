@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 /**
  * Parses a backend API error response into a single human-readable string.
  *
@@ -38,11 +40,20 @@ const STRUCTURED_FIELDS = new Set([
 
 export function parsePostingError(err: unknown, fallback = 'Failed to save document.'): string {
     if (!err) return fallback;
-    const anyErr = err as { response?: { data?: unknown }; message?: string };
-    const data = anyErr.response?.data;
+
+    // Non-axios paths: bare strings or Error instances bubble straight
+    // through. axios narrowing below covers the structured response
+    // envelope cases.
+    if (typeof err === 'string') return err;
+    if (!axios.isAxiosError(err)) {
+        if (err instanceof Error) return err.message || fallback;
+        return fallback;
+    }
+
+    const data = err.response?.data;
 
     if (typeof data === 'string') return data;
-    if (!data || typeof data !== 'object') return anyErr.message || fallback;
+    if (!data || typeof data !== 'object') return err.message || fallback;
 
     const d = data as Record<string, unknown>;
 

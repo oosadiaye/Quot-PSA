@@ -1,0 +1,11 @@
+flowchart LR
+    A[Trigger:<br/>GRN posted /<br/>issue / transfer] --> B[StockMovement<br/>.objects.create]
+    B --> C{movement_type}
+    C -- IN --> D[update_stock_on_movement<br/>ItemStock.quantity += qty<br/>F-expression atomic]
+    C -- OUT --> E[update_stock_on_movement<br/>ItemStock.quantity -= qty<br/>+ decrement_batch_on_out]
+    C -- ADJ --> F[adjustment line<br/>+/- qty]
+    C -- TRF --> G[paired OUT + IN]
+    D --> H[InventoryPostingService<br/>JournalHeader<br/>DR Inventory / CR GR/IR]
+    E --> H
+    F --> H
+    G --> H

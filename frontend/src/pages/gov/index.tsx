@@ -816,6 +816,11 @@ export const AppropriationList = () => {
                                     <th style={thStyle}>MDA Name</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}># Lines</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Total Approved</th>
+                                    {/* Committed = sum of PO + Contract obligations across this
+                                        MDA's appropriations. Reads ``total_all_committed`` from the
+                                        roll-up payload (or falls back to ``total_committed`` when
+                                        the API response predates the contract-commitment feature). */}
+                                    <th style={{ ...thStyle, textAlign: 'right' }}>Committed</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Expended</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Available</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Exec %</th>
@@ -824,15 +829,18 @@ export const AppropriationList = () => {
                             </thead>
                             <tbody>
                                 {isLoading && (
-                                    <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>Loading…</td></tr>
+                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>Loading…</td></tr>
                                 )}
                                 {!isLoading && rollupRows.length === 0 && (
-                                    <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
                                         No appropriations found for the selected fiscal year.
                                     </td></tr>
                                 )}
                                 {rollupRows.map((r) => {
                                     const approved = Number(r.amount_approved ?? 0) || 0;
+                                    // Combined PO + Contract committed; falls back to PO-only when
+                                    // the rollup payload predates the contract-commitment feature.
+                                    const committed = Number(r.total_all_committed ?? r.total_committed ?? 0) || 0;
                                     const expended = Number(r.total_expended ?? 0) || 0;
                                     const available = Number(r.available_balance ?? approved - expended) || 0;
                                     const exec = Number(r.execution_rate ?? 0) || 0;
@@ -880,6 +888,9 @@ export const AppropriationList = () => {
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#0f172a', fontWeight: 600 }}>
                                                 {fmtNaira(approved)}
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: committed > 0 ? '#d97706' : '#94a3b8' }}>
+                                                {fmtNaira(committed)}
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: expended > 0 ? '#dc2626' : '#94a3b8' }}>
                                                 {fmtNaira(expended)}
@@ -1066,19 +1077,96 @@ export const RevenueBudgetList = () => {
 
 export const WarrantList = () => {
     const nav = useNavigate();
+    // Tab → backend status filter. Each tab swaps the endpoint's
+    // query string; ``GenericListPage`` keys its React-Query cache on
+    // the endpoint URL, so the table re-fetches and resets pagination
+    // for free. "All" keeps the unfiltered view available so nothing
+    // an operator could see before is hidden after this change.
+    type WarrantTab = 'all' | 'pending' | 'active' | 'expired' | 'cancelled';
+    // Pending is the default landing view — that's the queue an
+    // operator actually works (warrants awaiting approval/release).
+    // Other statuses (Active / Expired / Cancelled / All) are
+    // one click away.
+    const [tab, setTab] = useState<WarrantTab>('pending');
+    const endpointByTab: Record<WarrantTab, string> = {
+        all:       '/budget/warrants/',
+        pending:   '/budget/warrants/?status=PENDING',
+        // "Active" in operator language = released, in-use warrants
+        // that haven't expired yet. The persisted status='RELEASED'
+        // captures this; the daily expire sweep flips expired ones
+        // to EXPIRED so they fall out of this tab automatically.
+        active:    '/budget/warrants/?status=RELEASED',
+        expired:   '/budget/warrants/?status=EXPIRED',
+        cancelled: '/budget/warrants/?status=CANCELLED',
+    };
+    const TABS: { key: WarrantTab; label: string; tone: string }[] = [
+        { key: 'all',       label: 'All',       tone: '#64748b' },
+        { key: 'pending',   label: 'Pending',   tone: '#f59e0b' },
+        { key: 'active',    label: 'Active',    tone: '#22c55e' },
+        { key: 'expired',   label: 'Expired',   tone: '#b45309' },
+        { key: 'cancelled', label: 'Cancelled', tone: '#ef4444' },
+    ];
+
+    const tabStrip = (
+        <div style={{
+            display: 'flex', gap: 4,
+            borderBottom: '1px solid #e2e8f0',
+            background: '#fff',
+            borderRadius: '10px 10px 0 0',
+            padding: '0 4px',
+            overflowX: 'auto',
+            whiteSpace: 'nowrap',
+        }}>
+            {TABS.map(t => {
+                const active = tab === t.key;
+                return (
+                    <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setTab(t.key)}
+                        style={{
+                            padding: '10px 18px',
+                            border: 'none',
+                            borderBottom: active ? `2.5px solid ${t.tone}` : '2.5px solid transparent',
+                            background: 'transparent',
+                            color: active ? t.tone : '#64748b',
+                            fontSize: 13,
+                            fontWeight: active ? 700 : 500,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {t.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+
     return (
         <GenericListPage
             title="Warrants / AIE (Authority to Incur Expenditure)"
-            subtitle="Quarterly cash release authority — click a row to release or view details"
-            endpoint="/budget/warrants/"
+            subtitle="Cash release authority — click a row to release or view details"
+            endpoint={endpointByTab[tab]}
+            tabs={tabStrip}
             columns={[
                 { key: 'appropriation_mda', label: 'MDA' },
                 { key: 'appropriation_account', label: 'Economic Code' },
-                { key: 'quarter', label: 'Quarter', width: '80px' },
+                // Date-range columns replace the legacy quarter column.
+                // ``effective_from`` / ``effective_to`` are now the
+                // primary period; ``quarter`` is kept on the row for
+                // legacy reports but is nullable for annual warrants.
+                { key: 'effective_from', label: 'Effective From', format: 'date', width: '120px' },
+                { key: 'effective_to', label: 'Effective To', format: 'date', width: '120px' },
                 { key: 'amount_released', label: 'Amount Released', format: 'currency' },
-                { key: 'release_date', label: 'Release Date', format: 'date' },
                 { key: 'authority_reference', label: 'AIE Reference' },
-                { key: 'status', label: 'Status', format: 'status' },
+                // ``effective_status`` is the read-time overlay that
+                // returns EXPIRED for any warrant past effective_to even
+                // before the daily expire_warrants sweep runs — that's
+                // what we want operators to see, not the persisted
+                // ``status`` which lags by ≤24h.
+                { key: 'effective_status', label: 'Status', format: 'status' },
             ]}
             actions={[
                 { label: 'New AIE / Warrant', onClick: () => nav('/budget/warrants/new'), variant: 'primary', icon: icon(Plus) },

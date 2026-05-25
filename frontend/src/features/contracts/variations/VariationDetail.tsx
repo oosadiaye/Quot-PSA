@@ -57,7 +57,7 @@ const VariationDetail = () => {
     <ListPageShell>
         <PageHeader
           title={v.variation_number}
-          subtitle={`Variation — ${v.contract_reference ?? `contract #${v.contract}`}`}
+          subtitle={`Write-up — ${v.contract_reference ?? `contract #${v.contract}`}`}
           actions={
             <Space>
               {allowed.includes('review') && (

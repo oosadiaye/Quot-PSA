@@ -80,6 +80,25 @@ class ContractClosureService:
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
             )
+        # ── SoD: contract drafter cannot self-certify completion ────
+        # CompletionCertificate triggers the 50% retention release
+        # eligibility downstream. Self-certification by the drafter
+        # would let one operator drive contract → practical → retain
+        # released without any independent verification.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also issue its practical-completion certificate.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id": getattr(actor, 'pk', None),
+                },
+            )
         cls._assert_no_open_ipcs(contract)
 
         cert = CompletionCertificate.objects.create(
@@ -143,6 +162,21 @@ class ContractClosureService:
                 f"Contract must be in DEFECTS_LIABILITY to issue final "
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
+            )
+        # SoD — see issue_practical_completion for rationale.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also issue its final-completion certificate.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id": getattr(actor, 'pk', None),
+                },
             )
         cls._assert_no_open_ipcs(contract)
 

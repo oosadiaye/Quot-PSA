@@ -1,0 +1,114 @@
+[
+  {
+    "code": "10100000",
+    "name": "Cash and Cash Equivalents (Group)",
+    "account_type": "Asset",
+    "reconciliation_type": "bank_accounting",
+    "is_postable": false,
+    "is_active": true
+  },
+  {
+    "code": "31100100",
+    "name": "Treasury Single Account (TSA) — Default Cash GL",
+    "account_type": "Asset",
+    "reconciliation_type": "bank_accounting",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "10200000",
+    "name": "Accounts Receivable Control",
+    "account_type": "Asset",
+    "reconciliation_type": "accounts_receivable",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "10300000",
+    "name": "Inventory Control",
+    "account_type": "Asset",
+    "reconciliation_type": "inventory",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "10500000",
+    "name": "Fixed Assets Control",
+    "account_type": "Asset",
+    "reconciliation_type": "asset_accounting",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "20100000",
+    "name": "Accounts Payable Control",
+    "account_type": "Liability",
+    "reconciliation_type": "accounts_payable",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "20100100",
+    "name": "GR/IR Clearing — Goods Received / Invoice Received",
+    "account_type": "Liability",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "20500000",
+    "name": "Vendor Advances Control (Special GL)",
+    "account_type": "Asset",
+    "reconciliation_type": "vendor_advance",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "30100000",
+    "name": "Accumulated Surplus / Net Assets",
+    "account_type": "Equity",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "43100000",
+    "name": "General Reserve Fund",
+    "account_type": "Equity",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "40000000",
+    "name": "Revenue (Group)",
+    "account_type": "Income",
+    "is_postable": false,
+    "is_active": true
+  },
+  {
+    "code": "50000000",
+    "name": "Expenditure (Group)",
+    "account_type": "Expense",
+    "is_postable": false,
+    "is_active": true
+  },
+  {
+    "code": "21000000",
+    "name": "Personnel Costs",
+    "account_type": "Expense",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "22000000",
+    "name": "Overhead Costs",
+    "account_type": "Expense",
+    "is_postable": true,
+    "is_active": true
+  },
+  {
+    "code": "23000000",
+    "name": "Capital Expenditure",
+    "account_type": "Expense",
+    "is_postable": true,
+    "is_active": true
+  }
+]

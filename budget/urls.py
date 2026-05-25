@@ -6,6 +6,7 @@ from .views import (
     AppropriationViewSet, WarrantViewSet, BudgetExecutionView,
     CommitmentReportView, WarrantUtilizationReportView,
     RevenueBudgetViewSet, AppropriationVirementViewSet,
+    WarrantPrintoutSettingsViewSet,
 )
 
 router = DefaultRouter()
@@ -19,6 +20,15 @@ router.register(r'amendments', UnifiedBudgetAmendmentViewSet, basename='budget-a
 # Government Appropriation & Warrant (Quot PSE)
 router.register(r'appropriations', AppropriationViewSet, basename='appropriation')
 router.register(r'warrants', WarrantViewSet, basename='warrant')
+# Singleton: tenant-wide letterhead + signatures used to render the
+# warrant (AIE) printout. The action route is
+# ``/budget/warrant-printout-settings/current/`` — auto-creates on
+# first GET, so no list/create endpoints are needed.
+router.register(
+    r'warrant-printout-settings',
+    WarrantPrintoutSettingsViewSet,
+    basename='warrant-printout-settings',
+)
 router.register(r'revenue-budgets', RevenueBudgetViewSet, basename='revenue-budget')
 router.register(r'virements', AppropriationVirementViewSet, basename='virement')
 

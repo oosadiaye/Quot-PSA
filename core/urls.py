@@ -37,8 +37,18 @@ router.register(r'notifications', NotificationViewSet, basename='notifications')
 router.register(r'tenant-users', TenantUserViewSet, basename='tenant-users')
 
 # S23 — Role & Permission management.
-from .views.roles import RoleViewSet  # noqa: E402
+# Granular permission catalogue, role CRUD with M2M permission editing,
+# rule-driven SoD evaluator. See core/views/roles.py for the full
+# endpoint list. The legacy hardcoded SoD matrix is preserved as a
+# back-compat sub-action on the role viewset.
+from .views.roles import (  # noqa: E402
+    RoleViewSet,
+    PermissionDefinitionViewSet,
+    SoDRuleViewSet,
+)
 router.register(r'roles', RoleViewSet, basename='role')
+router.register(r'permissions', PermissionDefinitionViewSet, basename='permission')
+router.register(r'sod-rules', SoDRuleViewSet, basename='sod-rule')
 
 # S24 — User↔Role assignments with SOD pre-check.
 from .views.role_assignments import RoleAssignmentViewSet  # noqa: E402

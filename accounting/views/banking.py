@@ -28,6 +28,12 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'account_number', 'bank_name']
 
     def get_queryset(self):
+        # TSA → BankAccount mirrors are kept in lockstep by the
+        # ``post_save`` signal in ``accounting/signals/tsa_bank_mirror.py``.
+        # The previous in-line sync here ran on every list GET, which
+        # broke HTTP idempotency (writes from a read endpoint) and made
+        # the response slow on tenants with many TSAs. Existing tenants
+        # are already backfilled; new TSAs are mirrored on save.
         queryset = super().get_queryset()
         account_type = self.request.query_params.get('account_type')
         if account_type:

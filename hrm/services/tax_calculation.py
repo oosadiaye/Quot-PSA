@@ -1,22 +1,51 @@
 """
-HR-H1: Tax Calculation Service
-Automatic tax bracket calculation for payroll processing.
+HR-H1: Tax Calculation Service.
+
+DEPRECATED — superseded by :class:`hrm.services.payroll_computation.PAYECalculationService`,
+which uses the live ``NigeriaTaxBracket`` table with Finance Act 2020 fallback.
+This module remains only because some legacy code paths may import
+``TaxCalculationService`` via string lookup; importing it now emits a
+``DeprecationWarning`` and instance methods raise ``NotImplementedError``.
+
+Use ``PAYECalculationService`` for all new code.
 """
 import logging
+import warnings
 from decimal import Decimal
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
+warnings.warn(
+    "hrm.services.tax_calculation is deprecated; use "
+    "hrm.services.payroll_computation.PAYECalculationService instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 
 class TaxCalculationService:
-    """Service for calculating tax based on configured brackets."""
+    """DEPRECATED — use ``PAYECalculationService``.
+
+    Every method raises :class:`NotImplementedError` so any silent caller
+    fails loudly instead of computing payroll with stale logic.
+    """
+
+    _DEPRECATED_MSG = (
+        "TaxCalculationService is deprecated. "
+        "Use hrm.services.payroll_computation.PAYECalculationService instead."
+    )
+
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError(self._DEPRECATED_MSG)
 
     @staticmethod
     def get_active_brackets(tax_year=None):
-        """Get active tax brackets for the given year."""
-        from hrm.models import TaxBracket
-        
+        """DEPRECATED — use PAYECalculationService."""
+        raise NotImplementedError(TaxCalculationService._DEPRECATED_MSG)
+        # Legacy body retained for reference only — never executed.
+        from hrm.models import TaxBracket  # noqa: F401
+
         today = timezone.now().date()
         query = TaxBracket.objects.filter(
             is_active=True,
@@ -29,18 +58,9 @@ class TaxCalculationService:
 
     @classmethod
     def calculate_annual_tax(cls, annual_gross, tax_year=None, employee=None):
-        """
-        Calculate annual tax based on tax brackets.
-        
-        Args:
-            annual_gross: Total annual gross income
-            tax_year: Year for tax calculation
-            employee: Employee object for additional calculations
-            
-        Returns:
-            dict with breakdown of tax calculation
-        """
-        from django.db import models
+        """DEPRECATED — use PAYECalculationService.compute_monthly_paye."""
+        raise NotImplementedError(cls._DEPRECATED_MSG)
+        from django.db import models  # noqa: F401
         
         brackets = cls.get_active_brackets(tax_year)
         if not brackets.exists():
@@ -96,17 +116,8 @@ class TaxCalculationService:
 
     @classmethod
     def calculate_monthly_tax(cls, monthly_gross, tax_year=None, employee=None):
-        """
-        Calculate monthly tax based on annual brackets.
-        
-        Args:
-            monthly_gross: Monthly gross income
-            tax_year: Year for tax calculation
-            employee: Employee object
-            
-        Returns:
-            dict with monthly tax breakdown
-        """
+        """DEPRECATED — use PAYECalculationService.compute_monthly_paye."""
+        raise NotImplementedError(cls._DEPRECATED_MSG)
         annual_gross = monthly_gross * Decimal('12')
         annual_result = cls.calculate_annual_tax(annual_gross, tax_year, employee)
         
@@ -123,17 +134,9 @@ class TaxCalculationService:
 
     @staticmethod
     def calculate_pension(employee, gross_salary):
-        """
-        Calculate pension contribution.
-        
-        Args:
-            employee: Employee object
-            gross_salary: Gross salary for calculation
-            
-        Returns:
-            dict with pension breakdown
-        """
-        from django.utils import timezone
+        """DEPRECATED — use PensionCalculationService.compute_contributions."""
+        raise NotImplementedError(TaxCalculationService._DEPRECATED_MSG)
+        from django.utils import timezone  # noqa: F401
         
         today = timezone.now().date()
         config = None
@@ -169,17 +172,9 @@ class TaxCalculationService:
 
     @staticmethod
     def calculate_social_security(employee, gross_salary):
-        """
-        Calculate social security contribution.
-        
-        Args:
-            employee: Employee object
-            gross_salary: Gross salary for calculation
-            
-        Returns:
-            dict with social security breakdown
-        """
-        from django.utils import timezone
+        """DEPRECATED — use PensionCalculationService."""
+        raise NotImplementedError(TaxCalculationService._DEPRECATED_MSG)
+        from django.utils import timezone  # noqa: F401
         
         today = timezone.now().date()
         config = None
@@ -214,17 +209,8 @@ class TaxCalculationService:
 
     @classmethod
     def calculate_full_payroll_tax(cls, employee, gross_salary, tax_year=None):
-        """
-        Calculate all tax-related deductions for payroll.
-        
-        Args:
-            employee: Employee object
-            gross_salary: Gross monthly salary
-            tax_year: Tax year for calculation
-            
-        Returns:
-            dict with all tax calculations
-        """
+        """DEPRECATED — use the deterministic payroll pipeline in payroll_runner."""
+        raise NotImplementedError(cls._DEPRECATED_MSG)
         tax_result = cls.calculate_monthly_tax(gross_salary, tax_year, employee)
         pension_result = cls.calculate_pension(employee, gross_salary)
         ss_result = cls.calculate_social_security(employee, gross_salary)

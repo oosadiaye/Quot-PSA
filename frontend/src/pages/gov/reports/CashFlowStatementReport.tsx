@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 import Sidebar from '../../../components/Sidebar';
+import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 import apiClient from '../../../api/client';
 import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
@@ -160,9 +161,21 @@ export default function CashFlowStatementReport() {
 
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+            <style>{`
+                @media print {
+                    aside, nav, .no-print { display: none !important; }
+                    .print-only { display: block !important; }
+                    main.ipsas-report { margin-left: 0 !important; padding: 16mm !important; }
+                    body { background: white !important; }
+                }
+                .print-only { display: none; }
+            `}</style>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
-                <div style={{
+                <div className="print-only" style={{ marginBottom: 16 }}>
+                    <BrandedPrintHeader subtitle="Cash Flow Statement · IPSAS 2" />
+                </div>
+                <div className="no-print" style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: '24px',
                 }}>
