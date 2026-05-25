@@ -125,22 +125,35 @@ class Employee(AuditBaseModel):
     hourly_rate = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     
     bank_name = models.CharField(max_length=100, blank=True)
-    bank_account = models.CharField(max_length=50, blank=True)
-    bank_routing = models.CharField(max_length=20, blank=True)
-    
+    # NOTE: bank_account, bank_routing, tax_identification_number,
+    # social_security_number, and national_id_number are widened to
+    # max_length=255 in migration 0018 to fit Fernet ciphertext at rest.
+    # Use the ``set_<field>()`` / ``get_<field>()`` accessors below — direct
+    # assignment is not encrypted and breaks the dual-state flag invariant.
+    bank_account = models.CharField(max_length=255, blank=True)
+    bank_routing = models.CharField(max_length=255, blank=True)
+    bank_account_encrypted = models.BooleanField(default=False)
+    bank_routing_encrypted = models.BooleanField(default=False)
+    bank_account_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+
     # HR-M5: Statutory ID Fields
     tax_identification_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="Tax ID / TIN"
     )
+    tax_identification_number_encrypted = models.BooleanField(default=False)
+    tax_identification_number_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     social_security_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="SSN / Social Security Number"
     )
+    social_security_number_encrypted = models.BooleanField(default=False)
     national_id_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="National ID Card Number"
     )
+    national_id_number_encrypted = models.BooleanField(default=False)
+    national_id_number_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     passport_number = models.CharField(
         max_length=50, blank=True,
         help_text="Passport Number"
@@ -164,6 +177,105 @@ class Employee(AuditBaseModel):
 
     def __str__(self):
         return f"{self.employee_number} - {self.user.get_full_name()}"
+
+    # ── PII at-rest encryption accessors ──────────────────────────────
+    # Five fields are encrypted with Fernet (see core.security.pii_crypto).
+    # Three of those also carry an HMAC hash column for exact-match search.
+    # Always use these helpers in application code; direct assignment
+    # bypasses encryption and breaks the dual-state ``<field>_encrypted``
+    # flag invariant.
+    _ENCRYPTED_PII_FIELDS = (
+        'national_id_number',
+        'tax_identification_number',
+        'social_security_number',
+        'bank_account',
+        'bank_routing',
+    )
+    _SEARCHABLE_PII_FIELDS = frozenset({
+        'national_id_number',
+        'tax_identification_number',
+        'bank_account',
+    })
+
+    def _get_encrypted_pii(self, field_name: str) -> str:
+        from core.security.pii_crypto import decrypt_pii, InvalidToken
+        raw = getattr(self, field_name, '') or ''
+        if not raw:
+            return ''
+        if getattr(self, f'{field_name}_encrypted', False):
+            try:
+                return decrypt_pii(raw)
+            except InvalidToken:
+                # Defensive: flag says encrypted but ciphertext is invalid.
+                # Returning empty is safer than leaking ciphertext to a UI.
+                return ''
+        return raw
+
+    def _set_encrypted_pii(self, field_name: str, value) -> None:
+        from core.security.pii_crypto import encrypt_pii, pii_hash
+        if value is None:
+            value = ''
+        if not isinstance(value, str):
+            value = str(value)
+        if value == '':
+            setattr(self, field_name, '')
+            setattr(self, f'{field_name}_encrypted', False)
+            if field_name in self._SEARCHABLE_PII_FIELDS:
+                setattr(self, f'{field_name}_hash', '')
+            return
+        setattr(self, field_name, encrypt_pii(value))
+        setattr(self, f'{field_name}_encrypted', True)
+        if field_name in self._SEARCHABLE_PII_FIELDS:
+            setattr(self, f'{field_name}_hash', pii_hash(value))
+
+    def get_national_id_number(self) -> str:
+        return self._get_encrypted_pii('national_id_number')
+
+    def set_national_id_number(self, value) -> None:
+        self._set_encrypted_pii('national_id_number', value)
+
+    def get_tax_identification_number(self) -> str:
+        return self._get_encrypted_pii('tax_identification_number')
+
+    def set_tax_identification_number(self, value) -> None:
+        self._set_encrypted_pii('tax_identification_number', value)
+
+    def get_social_security_number(self) -> str:
+        return self._get_encrypted_pii('social_security_number')
+
+    def set_social_security_number(self, value) -> None:
+        self._set_encrypted_pii('social_security_number', value)
+
+    def get_bank_account(self) -> str:
+        return self._get_encrypted_pii('bank_account')
+
+    def set_bank_account(self, value) -> None:
+        self._set_encrypted_pii('bank_account', value)
+
+    def get_bank_routing(self) -> str:
+        return self._get_encrypted_pii('bank_routing')
+
+    def set_bank_routing(self, value) -> None:
+        self._set_encrypted_pii('bank_routing', value)
+
+    @classmethod
+    def find_by_pii_hash(cls, field_name: str, plaintext_value: str):
+        """Return a queryset of employees whose ``<field_name>`` matches.
+
+        Accepts only the three searchable PII fields. Hashes the
+        plaintext via :func:`core.security.pii_crypto.pii_hash` and
+        filters the indexed ``<field_name>_hash`` column.
+        """
+        from core.security.pii_crypto import pii_hash
+        if field_name not in cls._SEARCHABLE_PII_FIELDS:
+            raise ValueError(
+                f"{field_name!r} is not a hash-searchable PII field; "
+                f"choose one of {sorted(cls._SEARCHABLE_PII_FIELDS)}."
+            )
+        hashed = pii_hash(plaintext_value)
+        if not hashed:
+            return cls.objects.none()
+        return cls.objects.filter(**{f'{field_name}_hash': hashed})
 
 
 # =============================================================================
