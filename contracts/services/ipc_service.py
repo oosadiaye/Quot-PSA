@@ -1046,6 +1046,20 @@ class IPCService:
         Control 9 (three-way match): voucher_gross must equal IPC
         net_payable (within tolerance).  SoD: voucher raiser must not
         be drafter, certifier, or approver.
+
+        IMPORTANT — return value contract:
+            This method re-loads the IPC under ``SELECT FOR UPDATE``
+            and mutates that locked copy, NOT the ``ipc`` instance
+            passed by the caller. The caller's reference is left in
+            its pre-call state. Callers MUST consume the returned
+            instance to observe the post-transition state, e.g.:
+
+                ipc = IPCService.raise_voucher(ipc=ipc, ...)
+
+            Alternatively, call ``ipc.refresh_from_db()`` after the
+            call. Reading ``ipc.status`` / ``ipc.payment_voucher_id``
+            on the original reference without one of these will
+            silently return stale data.
         """
         # Lock the IPC row under the surrounding @transaction.atomic
         # so a concurrent raise_voucher call on the same IPC blocks

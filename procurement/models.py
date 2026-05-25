@@ -639,6 +639,16 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                         "Cancel commitment failed for PO %s: %s", self.po_number, exc,
                     )
 
+            # ImmutableModelMixin.save enforces a blanket "no Posted
+            # mutation" rule unless ``_allow_status_change`` is passed.
+            # ``validate_status_transition`` above has already vetted
+            # any Posted→X transition against ALLOWED_TRANSITIONS
+            # (only Posted→Closed is permitted, plus same-state
+            # Posted→Posted re-saves for commitment refresh), so we
+            # explicitly opt-in here when the prior persisted state
+            # was Posted.
+            if old_status == 'Posted':
+                kwargs['_allow_status_change'] = True
             super().save(*args, **kwargs)
 
     def _check_warrant_ceiling(self):

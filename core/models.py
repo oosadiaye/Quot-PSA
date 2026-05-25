@@ -64,6 +64,17 @@ class ImmutableModelMixin(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
 
     def save(self, *args, **kwargs):
+        """Block mutation of Posted rows.
+
+        Opt-in escape hatch: subclasses that maintain their own
+        per-field whitelist (e.g. ``JournalHeader.POST_POSTING_MUTABLE_FIELDS``)
+        or that allow specific Posted→X status transitions
+        (e.g. ``PurchaseOrder`` Posted→Closed) MUST pass
+        ``_allow_status_change=True`` to ``super().save(...)`` AFTER
+        running their own approval check. Without it this blanket
+        gate raises ``ValidationError`` and the subclass's mutation
+        is silently rejected.
+        """
         allow = kwargs.pop('_allow_status_change', False)
         if self.pk:
             try:

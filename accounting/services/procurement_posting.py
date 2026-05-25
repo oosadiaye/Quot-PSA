@@ -809,7 +809,11 @@ class ProcurementPostingService(BasePostingService):
         )
 
         payment.journal_entry = journal
-        payment.save()
+        # Posted Payments hit ImmutableModelMixin.save's blanket gate;
+        # this write is the legitimate "stamp the GL journal back onto
+        # the payment after posting" step, so we opt in. Mirrors line
+        # 738 for invoice.save() above.
+        payment.save(_allow_status_change=True)
 
         # Update vendor balance (atomic F()-based)
         if hasattr(payment, 'vendor') and payment.vendor:
