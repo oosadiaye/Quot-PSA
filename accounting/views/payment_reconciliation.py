@@ -19,6 +19,7 @@ permission UI; defaults to deny.
 """
 from __future__ import annotations
 
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -47,25 +48,28 @@ class PaymentCascadeFailureViewSet(viewsets.ReadOnlyModelViewSet):
         """Mark a failure resolved with an auditable note.
 
         Required body field: ``resolution_note`` (≥10 chars).
+
+        V14 — race-condition fix. Two concurrent POST /resolve/ calls
+        previously both passed the ``if failure.resolved`` check and
+        double-resolved the same row (overwriting ``resolved_by`` /
+        ``resolution_note`` non-deterministically). Wrap the check +
+        write in an atomic with ``select_for_update`` so only one
+        request can pass the gate; the second gets a 409.
         """
-        failure = self.get_object()
         user = request.user
 
         # Permission: only specific role can resolve. Superusers always.
+        # V3 — use the dedicated ``resolve_paymentcascadefailure`` perm
+        # (not the auto-generated ``change_paymentcascadefailure`` which
+        # would grant the action to any user who can edit the row).
         if not (
             user.is_superuser
-            or user.has_perm('accounting.change_paymentcascadefailure')
+            or user.has_perm('accounting.resolve_paymentcascadefailure')
         ):
             return Response(
                 {'error': 'Only users with resolve permission may close '
                           'cascade-failure rows.'},
                 status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if failure.resolved:
-            return Response(
-                {'error': 'This failure is already resolved.'},
-                status=status.HTTP_409_CONFLICT,
             )
 
         note = (request.data.get('resolution_note') or '').strip()
@@ -76,7 +80,24 @@ class PaymentCascadeFailureViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        failure.mark_resolved(user=user, note=note)
+        with transaction.atomic():
+            try:
+                failure = (
+                    PaymentCascadeFailure.objects.select_for_update()
+                    .get(pk=self.kwargs['pk'])
+                )
+            except PaymentCascadeFailure.DoesNotExist:
+                return Response(
+                    {'error': 'Not found.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if failure.resolved:
+                return Response(
+                    {'error': 'This failure is already resolved.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            failure.mark_resolved(user=user, note=note)
+
         return Response(self.get_serializer(failure).data)
 
     @action(detail=False, methods=['get'])

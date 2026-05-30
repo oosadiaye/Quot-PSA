@@ -1,8 +1,12 @@
+import logging
 from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from core.models import AuditBaseModel
+
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -174,6 +178,12 @@ class Employee(AuditBaseModel):
 
     class Meta:
         ordering = ['employee_number']
+        # V5 — searching employees by hashed PII is an existence oracle
+        # and must be tightly scoped. Without this permission only
+        # superusers may invoke :meth:`find_by_pii_hash`.
+        permissions = (
+            ('search_employee_pii', 'Can search employees by PII hash'),
+        )
 
     def __str__(self):
         return f"{self.employee_number} - {self.user.get_full_name()}"
@@ -258,20 +268,79 @@ class Employee(AuditBaseModel):
     def set_bank_routing(self, value) -> None:
         self._set_encrypted_pii('bank_routing', value)
 
+    # V5 — per-user rate limit for PII hash search. Keys are namespaced
+    # by actor primary key; window is 60s; max 20 calls.
+    _PII_SEARCH_RATE_LIMIT = 20
+    _PII_SEARCH_RATE_WINDOW_SECONDS = 60
+
     @classmethod
-    def find_by_pii_hash(cls, field_name: str, plaintext_value: str):
+    def find_by_pii_hash(cls, field_name: str, plaintext_value: str, *, actor=None):
         """Return a queryset of employees whose ``<field_name>`` matches.
 
         Accepts only the three searchable PII fields. Hashes the
         plaintext via :func:`core.security.pii_crypto.pii_hash` and
         filters the indexed ``<field_name>_hash`` column.
+
+        V5 hardening:
+
+        * ``actor`` is mandatory. It must be the user invoking the
+          search and must hold either ``is_superuser`` or the
+          ``hrm.search_employee_pii`` permission. Anonymous / missing
+          actors raise ``PermissionDenied``.
+        * Every call is logged at INFO level with actor pk, field name,
+          and a timestamp. The plaintext value is **never** logged.
+        * Per-user rate limit of 20 calls per 60s; exceeding it raises
+          ``PermissionDenied`` to short-circuit brute-force enumeration.
         """
+        from django.core.exceptions import PermissionDenied
+        from django.core.cache import cache
         from core.security.pii_crypto import pii_hash
+
+        # ── 1. Mandatory caller ───────────────────────────────────
+        if actor is None or not getattr(actor, 'is_authenticated', False):
+            raise PermissionDenied(
+                'find_by_pii_hash requires an authenticated actor.'
+            )
+
+        # ── 2. Permission check ───────────────────────────────────
+        if not (
+            getattr(actor, 'is_superuser', False)
+            or actor.has_perm('hrm.search_employee_pii')
+        ):
+            raise PermissionDenied(
+                'You do not have permission to search employees by PII hash.'
+            )
+
+        # ── 3. Field validation ───────────────────────────────────
         if field_name not in cls._SEARCHABLE_PII_FIELDS:
             raise ValueError(
                 f"{field_name!r} is not a hash-searchable PII field; "
                 f"choose one of {sorted(cls._SEARCHABLE_PII_FIELDS)}."
             )
+
+        # ── 4. Per-actor rate limit ───────────────────────────────
+        actor_pk = getattr(actor, 'pk', None)
+        if actor_pk is not None:
+            cache_key = f'pii_search:{actor_pk}'
+            try:
+                current = cache.incr(cache_key)
+            except ValueError:
+                # Key does not exist yet — initialise with TTL.
+                cache.set(cache_key, 1, timeout=cls._PII_SEARCH_RATE_WINDOW_SECONDS)
+                current = 1
+            if current > cls._PII_SEARCH_RATE_LIMIT:
+                logger.warning(
+                    'pii_search_rate_limit_exceeded actor_pk=%s field=%s ts=%s',
+                    actor_pk, field_name, timezone.now().isoformat(),
+                )
+                raise PermissionDenied('Rate limit exceeded')
+
+        # ── 5. Audit log (never logs plaintext) ───────────────────
+        logger.info(
+            'pii_search actor_pk=%s field=%s ts=%s',
+            actor_pk, field_name, timezone.now().isoformat(),
+        )
+
         hashed = pii_hash(plaintext_value)
         if not hashed:
             return cls.objects.none()

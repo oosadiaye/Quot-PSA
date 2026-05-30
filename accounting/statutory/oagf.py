@@ -67,32 +67,93 @@ def export_oagf_mfr(
     Pulls from the IPSAS services in ``accounting.services.ipsas_reports``
     to keep computation consistent with the statutory financial
     statements the Auditor-General will review.
+
+    V8 — partial-result pattern. The previous behaviour was to ``raise``
+    ``StatutoryReturnError`` on any per-section mapping failure, which
+    took down the ENTIRE return endpoint for a single corrupted row
+    (DoS surface — one bad mapping breaks every operator's filing).
+    Each section is now wrapped in a per-section try/except that
+    accumulates per-row failures into ``partial_failures`` and surfaces
+    them as ``_warnings`` in the result. The endpoint returns 200 with
+    the partial payload — only an all-sections-failed condition would
+    propagate (handled at the view layer).
     """
     from accounting.services.ipsas_reports import IPSASReportService
 
     period_label = f'{year:04d}-{month:02d}'
 
+    # Accumulators for partial-result reporting.
+    partial_failures: list[dict] = []
+    warnings: list[str] = []
+    sections_attempted = 0
+    sections_failed = 0
+
     # ── Section 1/2/3: Performance (revenue + expenditure + surplus) ──
     # IPSAS 1 SoFPerformance already groups revenue by tax/non-tax/
     # grants/other and expenditure by personnel/overhead/capital/debt/
     # transfers — exactly the OAGF classification.
-    perf = IPSASReportService.statement_of_financial_performance(
-        fiscal_year=year, period=month, comparative=False,
-    )
-
-    revenue_section = _flatten_performance_section(perf.get('revenue', {}))
-    expenditure_section = _flatten_performance_section(perf.get('expenditure', {}))
-    surplus_deficit = perf.get('surplus_deficit', Decimal('0'))
+    revenue_section: list[dict] = []
+    expenditure_section: list[dict] = []
+    surplus_deficit: Decimal = Decimal('0')
+    perf: dict = {}
+    sections_attempted += 1
+    try:
+        perf = IPSASReportService.statement_of_financial_performance(
+            fiscal_year=year, period=month, comparative=False,
+        )
+        revenue_section = _flatten_performance_section(perf.get('revenue', {}))
+        expenditure_section = _flatten_performance_section(perf.get('expenditure', {}))
+        surplus_deficit = perf.get('surplus_deficit', Decimal('0'))
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Performance section (revenue/expenditure/surplus): {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'performance', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
 
     # ── Section 4: Budget execution (IPSAS 24) ──────────────────────────
     # IPSAS 24 needs a fiscal_year_id; we try to resolve it from the
     # year value via the FiscalYear lookup. If unavailable we skip
     # with a note.
-    budget_rows = _build_budget_execution_section(year)
+    budget_rows: list[dict] = []
+    sections_attempted += 1
+    try:
+        budget_rows = _build_budget_execution_section(year)
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Budget execution section: {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'budget_execution', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
 
     # ── Section 5: Fund position (TSA cash) ─────────────────────────────
-    tsa = IPSASReportService.tsa_cash_position()
-    fund_position_rows = _build_fund_position_section(tsa)
+    fund_position_rows: list[dict] = []
+    tsa: dict = {}
+    sections_attempted += 1
+    try:
+        tsa = IPSASReportService.tsa_cash_position()
+        fund_position_rows = _build_fund_position_section(tsa)
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Fund position (TSA cash) section: {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'fund_position', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
+
+    # All-fail is the only condition we re-raise — gives the view layer
+    # the option to surface a 500 if every section is broken (rather
+    # than serving an empty filing).
+    if sections_attempted > 0 and sections_failed == sections_attempted:
+        raise StatutoryReturnError(
+            'OAGF MFR: every section failed. '
+            f'Errors: {"; ".join(w for w in warnings)}'
+        )
 
     # ── Assemble CSV (long format) ──────────────────────────────────────
     csv_rows: list[dict] = []
@@ -152,6 +213,8 @@ def export_oagf_mfr(
             'surplus_deficit':   surplus_deficit,
             'tsa_cash_balance':  total_tsa,
         },
+        warnings=warnings,
+        partial_failures=partial_failures,
     )
 
 

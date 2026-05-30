@@ -270,6 +270,24 @@ def login_view(request):
     }
     if not getattr(settings, 'AUTH_COOKIE_ONLY', False):
         body['token'] = token.key
+        # V12 — visibility for an unsafe transition-window config:
+        # the body still carries the token (legacy callers) AND we're
+        # serving over HTTP. If the operator INTENDS HTTPS (i.e. they
+        # left AUTH_COOKIE_SECURE=True so the cookie itself is
+        # Secure-only) but the request actually arrived on http://, the
+        # body token is sniffable in transit. Emit a structured WARNING
+        # so monitoring can alert without changing live behaviour.
+        if (
+            request.scheme != 'https'
+            and getattr(settings, 'AUTH_COOKIE_SECURE', True)
+        ):
+            security_logger.warning(
+                'Login over HTTP with AUTH_COOKIE_ONLY=False — body token is '
+                'sniffable. Either enforce HTTPS at the edge, or flip '
+                'AUTH_COOKIE_ONLY=True. user_id=%s',
+                getattr(user, 'pk', None),
+                extra={'event': 'auth.insecure_body_token'},
+            )
     response = Response(body)
     # Cookie path: no-op when AUTH_COOKIE_ENABLED is False (default).
     # When enabled, the SAME token is also returned as an httpOnly

@@ -271,12 +271,14 @@ Expected:
 - `national_id_number_encrypted` is `true` (boolean).
 - `nin_hash_prefix` is a hex string (HMAC).
 
-Search by hash should work:
+Search by hash should work (the `actor=` kwarg is now mandatory — V5):
 ```bash
 # In Django shell
 python manage.py shell
 >>> from hrm.models import Employee
->>> emp = Employee.find_by_pii_hash('national_id_number', 'A12345678901')
+>>> from django.contrib.auth.models import User
+>>> me = User.objects.get(username='admin')  # must hold hrm.search_employee_pii or be superuser
+>>> emp = Employee.find_by_pii_hash('national_id_number', 'A12345678901', actor=me).first()
 >>> emp.get_national_id_number()
 'A12345678901'
 ```

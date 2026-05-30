@@ -372,8 +372,14 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         }
 
         # Surface the M3 GL-reconciliation signal if the service
-        # detected sub-ledger ↔ GL drift.
-        if result.gl_reconciliation_warning:
+        # detected sub-ledger ↔ GL drift. V15 — gate on the dedicated
+        # ``accounting.view_gl_reconciliation_diff`` permission so that
+        # ordinary aging-report viewers don't see internal control-
+        # account balances. Superusers always bypass.
+        if result.gl_reconciliation_warning and (
+            request.user.is_superuser
+            or request.user.has_perm('accounting.view_gl_reconciliation_diff')
+        ):
             payload['_warnings'] = [result.gl_reconciliation_warning]
             payload['gl_receivables_balance'] = float(result.gl_receivables_balance)
             payload['gl_reconciliation_diff'] = float(result.gl_reconciliation_diff)

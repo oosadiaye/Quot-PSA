@@ -102,6 +102,15 @@ class PaymentCascadeFailure(models.Model):
                 name='pcf_ipc_resolved_idx',
             ),
         ]
+        # V3 — resolving a cascade failure has real financial impact
+        # (it asserts the sub-ledger / GL divergence has been hand-
+        # reconciled). The auto-generated ``change_paymentcascadefailure``
+        # is too broad — any user who can edit the row would qualify.
+        # The dedicated ``resolve_paymentcascadefailure`` perm narrows
+        # this to operators with explicit grant.
+        permissions = (
+            ('resolve_paymentcascadefailure', 'Can resolve payment cascade failures'),
+        )
 
     def __str__(self) -> str:
         state = 'resolved' if self.resolved else 'pending'

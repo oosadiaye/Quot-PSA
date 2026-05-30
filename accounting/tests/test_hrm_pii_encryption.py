@@ -23,7 +23,7 @@ def test_encrypt_then_decrypt_roundtrip():
     plaintext = 'A12345678901'
     token = encrypt_pii(plaintext)
     assert token != plaintext
-    assert token.startswith('gAAAA')  # Fernet ciphertext prefix
+    assert token.startswith('v2:')  # HKDF v2 envelope prefix
     assert decrypt_pii(token) == plaintext
 
 
@@ -64,6 +64,12 @@ def employee(db):
     )
 
 
+@pytest.fixture
+def pii_search_actor(db):
+    """A superuser actor used to invoke the gated PII hash search."""
+    return User.objects.create_superuser(username='pii_searcher', password='x', email='ps@example.com')
+
+
 def test_set_then_get_roundtrip(employee):
     employee.set_national_id_number('A12345678901')
     employee.save()
@@ -72,25 +78,31 @@ def test_set_then_get_roundtrip(employee):
     assert employee.national_id_number_encrypted is True
 
 
-def test_find_by_pii_hash(employee):
+def test_find_by_pii_hash(employee, pii_search_actor):
     employee.set_national_id_number('A12345678901')
     employee.save()
-    qs = Employee.find_by_pii_hash('national_id_number', 'A12345678901')
+    qs = Employee.find_by_pii_hash(
+        'national_id_number', 'A12345678901', actor=pii_search_actor,
+    )
     assert qs.count() == 1
     assert qs.first().pk == employee.pk
 
 
-def test_find_by_pii_hash_normalised(employee):
+def test_find_by_pii_hash_normalised(employee, pii_search_actor):
     """Hash lookup should respect the same lower/strip/alphanum normalisation."""
     employee.set_national_id_number('A12345678901')
     employee.save()
-    qs = Employee.find_by_pii_hash('national_id_number', 'a-1234-5678-901')
+    qs = Employee.find_by_pii_hash(
+        'national_id_number', 'a-1234-5678-901', actor=pii_search_actor,
+    )
     assert qs.count() == 1
 
 
-def test_find_by_pii_hash_rejects_non_searchable(employee):
+def test_find_by_pii_hash_rejects_non_searchable(employee, pii_search_actor):
     with pytest.raises(ValueError):
-        Employee.find_by_pii_hash('social_security_number', '123')
+        Employee.find_by_pii_hash(
+            'social_security_number', '123', actor=pii_search_actor,
+        )
 
 
 def test_ciphertext_at_rest(employee):
@@ -98,7 +110,7 @@ def test_ciphertext_at_rest(employee):
     employee.save()
     employee.refresh_from_db()
     raw = employee.national_id_number
-    assert raw.startswith('gAAAA'), f'expected Fernet ciphertext, got {raw!r}'
+    assert raw.startswith('v2:'), f'expected v2 envelope, got {raw!r}'
     assert 'A12345678901' not in raw
 
 
@@ -142,5 +154,5 @@ def test_all_five_fields_roundtrip(employee):
     for field, value in samples.items():
         assert getattr(employee, f'get_{field}')() == value
         assert getattr(employee, f'{field}_encrypted') is True
-        # Raw column is ciphertext, not plaintext.
-        assert getattr(employee, field).startswith('gAAAA')
+        # Raw column is v2-envelope ciphertext, not plaintext.
+        assert getattr(employee, field).startswith('v2:')

@@ -2127,11 +2127,73 @@ class PaymentCascadeFailureSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_is_resolvable(self, obj) -> bool:
-        """True if the calling user can resolve this row."""
+        """True if the calling user can resolve this row.
+
+        V3 — mirrors the dedicated ``resolve_paymentcascadefailure``
+        permission used by the viewset ``resolve`` action so the
+        frontend button state matches the server-side gate.
+        """
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
             return False
         return (
             request.user.is_superuser
-            or request.user.has_perm('accounting.change_paymentcascadefailure')
+            or request.user.has_perm('accounting.resolve_paymentcascadefailure')
         )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # V13 — defense-in-depth: strip < and > from string fields so any
+        # future migration to dangerouslySetInnerHTML cannot be a stored
+        # XSS vector. The render path today (React string child) is safe;
+        # this is belt-and-suspenders. error_message is operator-visible
+        # text from arbitrary exception classes (.message, .__str__()),
+        # error_context is a free-form dict populated at except-time —
+        # both are potentially attacker-influenced via crafted vendor /
+        # IPC inputs that bubbled into the exception string.
+        if isinstance(data.get('error_message'), str):
+            data['error_message'] = (
+                data['error_message'].replace('<', '&lt;').replace('>', '&gt;')
+            )
+        ctx = data.get('error_context') or {}
+        if isinstance(ctx, dict):
+            for k, v in list(ctx.items()):
+                if isinstance(v, str):
+                    ctx[k] = v.replace('<', '&lt;').replace('>', '&gt;')
+            data['error_context'] = ctx
+        return data
+
+
+# ---------------------------------------------------------------------------
+# V7 — Fiscal period reopen two-actor approval
+# ---------------------------------------------------------------------------
+
+from .models import FiscalPeriodReopenApproval  # noqa: E402  (intentional bottom-of-file import)
+
+
+class FiscalPeriodReopenApprovalSerializer(serializers.ModelSerializer):
+    """Read-only serializer for the two-actor reopen approval queue.
+
+    State transitions happen via ``FiscalPeriodReopenApprovalViewSet``
+    actions (``approve`` / ``reject``); the API does NOT permit direct
+    PUT/PATCH on these rows.
+    """
+
+    requested_by_username = serializers.CharField(
+        source='requested_by.username', read_only=True,
+    )
+    approved_by_username = serializers.CharField(
+        source='approved_by.username', read_only=True, allow_null=True,
+    )
+
+    class Meta:
+        model = FiscalPeriodReopenApproval
+        fields = [
+            'id', 'fiscal_period',
+            'requested_by', 'requested_by_username',
+            'requested_at', 'reason',
+            'approved_by', 'approved_by_username',
+            'approved_at', 'rejection_reason',
+            'status', 'executed_at',
+        ]
+        read_only_fields = fields

@@ -225,6 +225,13 @@ class Account(models.Model):
 
     class Meta:
         ordering = ['code']
+        # V15 — the GL ↔ sub-ledger reconciliation diff exposes Account-
+        # level balances and may signal control-account drift. Anyone who
+        # can view the AR / AP aging report should NOT automatically see
+        # those internal balances; gate them behind a dedicated perm.
+        permissions = (
+            ('view_gl_reconciliation_diff', 'Can view GL reconciliation diff and warnings on aging reports'),
+        )
 
     def clean(self):
         from django.core.exceptions import ValidationError

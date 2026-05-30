@@ -145,6 +145,46 @@ class Command(BaseCommand):
                 )
                 continue
 
+            # V11 — re-verify the actor's authorization at retry time.
+            # The original requester (``failure.payment.created_by``) may
+            # have been transferred, deactivated, or stripped of the
+            # ``contracts.mark_ipc_paid`` permission between the failed
+            # cascade and this retry. Running ``mark_paid`` on their
+            # behalf in that state would silently bypass the
+            # Segregation-of-Duties enforcement the live API enforces.
+            # We refuse and record a structured failure so an operator
+            # can re-assign the cascade to a currently-authorized actor.
+            actor = failure.resolved_by or failure.payment.created_by
+            actor_inactive = not (actor and actor.is_active)
+            # ``contracts.mark_ipc_paid`` is the permission live API
+            # callers must hold to invoke IPCService.mark_paid. Superusers
+            # bypass via has_perm()'s standard short-circuit.
+            actor_missing_perm = bool(
+                actor and not actor.has_perm('contracts.mark_ipc_paid')
+            )
+            if actor_inactive or actor_missing_perm:
+                ctx = dict(failure.error_context) if isinstance(
+                    failure.error_context, dict
+                ) else {}
+                ctx['retry_count'] = attempt + 1
+                ctx['last_retry_at'] = timezone.now().isoformat()
+                ctx['last_retry_error'] = (
+                    f'user {getattr(actor, "pk", None)} no longer authorized: '
+                    f'inactive or missing perm'
+                )
+                failure.error_context = ctx
+                failure.save(update_fields=['error_context'])
+                retried_still_failing += 1
+                logger.warning(
+                    'Retry skipped for cascade failure %s — actor %s '
+                    'inactive=%s missing_perm=%s',
+                    failure.pk,
+                    getattr(actor, 'pk', None),
+                    actor_inactive,
+                    actor_missing_perm,
+                )
+                continue
+
             # Each retry runs in its own atomic block so a fresh
             # failure of one row does not roll back the resolution of
             # another row processed earlier in the same command.
@@ -153,7 +193,7 @@ class Command(BaseCommand):
                     IPCService.mark_paid(
                         ipc=failure.ipc,
                         payment_voucher=failure.payment.payment_voucher,
-                        user=failure.resolved_by or failure.payment.created_by,
+                        user=actor,
                     )
 
                 # Retry succeeded — close the row.

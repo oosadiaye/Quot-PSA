@@ -1761,6 +1761,18 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             # be downgraded automatically (the invoice may still be
             # created downstream). Flag as best-effort and exit.
             return
+        # V9 — heuristic association is intentionally STRICT. The
+        # previous rule (``item_name in desc_lower``) accepted any
+        # substring match, so a vendor could file a "Maintenance of
+        # Generator Set 100KVA" line against a PO for "Generator Set
+        # 100KVA" — same substring, completely different commercial
+        # fact. We tighten to: exact match OR prefix-with-space
+        # boundary. This still tolerates the standard auto-create
+        # pattern "<item.name> × <qty>" because that emits "Generator
+        # Set 100KVA × 5" which starts with the item name + space.
+        # NOTE: even a successful heuristic match cannot promote a
+        # match_type to 'Full' below — see ceiling-on-Full guard.
+        heuristic_matched_any = False
         for inv_line in vendor_invoice.lines.all():
             desc_lower = (inv_line.description or '').strip().lower()
             placed = False
@@ -1769,9 +1781,21 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
                     (po_line.item.name if po_line.item_id else po_line.item_description)
                     or ''
                 ).strip().lower()
-                if item_name and item_name in desc_lower:
+                if not item_name:
+                    continue
+                # Strict boundary: exact OR prefix-with-space-or-multiplier.
+                # ``×`` is the auto-create separator from
+                # ``GoodsReceivedNote.save()`` — accept that explicitly
+                # without falling back to loose substring.
+                if (
+                    desc_lower == item_name
+                    or desc_lower.startswith(item_name + ' ')
+                    or desc_lower.startswith(item_name + ' ×')
+                    or desc_lower.startswith(item_name + ' x ')
+                ):
                     invoice_lines_by_name.setdefault(po_line.pk, []).append(inv_line)
                     placed = True
+                    heuristic_matched_any = True
                     break
             if not placed:
                 invoice_lines_unindexed.append(inv_line)
@@ -1885,6 +1909,31 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             # banner regardless of whether status flipped.
             self.gl_post_error = (
                 f'Per-line variance detected: {line_notes}'
+            )[:5000]
+
+        # V9 — heuristic-match ceiling on Full. The association above
+        # was a string heuristic (no FK on ``VendorInvoiceLine`` back
+        # to ``PurchaseOrderLine``). A clean per-line heuristic pass
+        # is NOT strong enough evidence to promote a match to 'Full' —
+        # only an explicit FK would justify Full. Cap at 'Partial' to
+        # force a human review for anything that wasn't otherwise
+        # downgraded. This is intentionally conservative: a vendor who
+        # crafted a line description to satisfy our tightened substring
+        # rule (item-name prefix) would still pass the heuristic, but
+        # the resulting 'Partial' status keeps payment_hold off the
+        # critical-path and surfaces the row to AP for explicit review.
+        if heuristic_matched_any and self.match_type == 'Full':
+            self.match_type = 'Partial'
+            existing_err = (self.gl_post_error or '').strip()
+            ceiling_note = (
+                'Per-line three-way match associated via string '
+                'heuristic only (VendorInvoiceLine has no FK to '
+                'PurchaseOrderLine); match_type ceilinged at Partial '
+                'pending operator confirmation.'
+            )
+            self.gl_post_error = (
+                (existing_err + '\n' + ceiling_note) if existing_err
+                else ceiling_note
             )[:5000]
 
     def save(self, *args, **kwargs):

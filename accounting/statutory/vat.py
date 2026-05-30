@@ -71,9 +71,26 @@ def export_vat_return(
     total_output_taxable = Decimal('0')
     total_input_taxable = Decimal('0')
 
+    # V8 — partial-result accumulators. A single corrupt invoice line
+    # must NOT take down the whole VAT filing endpoint.
+    partial_failures: list[dict] = []
+    warnings: list[str] = []
+    total_rows_attempted = 0
+
     for tx in output:
-        taxable = _to_decimal(tx.get('taxable_amount'))
-        vat = _to_decimal(tx.get('vat_amount'))
+        total_rows_attempted += 1
+        try:
+            taxable = _to_decimal(tx.get('taxable_amount'))
+            vat = _to_decimal(tx.get('vat_amount'))
+        except StatutoryReturnError as exc:
+            doc = tx.get('document_number', '<unknown>')
+            warnings.append(f"Output VAT row '{doc}': {exc}")
+            partial_failures.append({
+                'section': 'output_vat', 'document_number': doc,
+                'error': str(exc),
+            })
+            logger.warning('FIRS VAT partial-failure (output): %s — %s', doc, exc)
+            continue
         rows.append({
             'Section':              'Output VAT',
             'Document Type':        tx.get('document_type', 'CI'),
@@ -88,8 +105,19 @@ def export_vat_return(
         total_output_vat += vat
 
     for tx in input_:
-        taxable = _to_decimal(tx.get('taxable_amount'))
-        vat = _to_decimal(tx.get('vat_amount'))
+        total_rows_attempted += 1
+        try:
+            taxable = _to_decimal(tx.get('taxable_amount'))
+            vat = _to_decimal(tx.get('vat_amount'))
+        except StatutoryReturnError as exc:
+            doc = tx.get('document_number', '<unknown>')
+            warnings.append(f"Input VAT row '{doc}': {exc}")
+            partial_failures.append({
+                'section': 'input_vat', 'document_number': doc,
+                'error': str(exc),
+            })
+            logger.warning('FIRS VAT partial-failure (input): %s — %s', doc, exc)
+            continue
         rows.append({
             'Section':              'Input VAT',
             'Document Type':        tx.get('document_type', 'VI'),
@@ -102,6 +130,15 @@ def export_vat_return(
         })
         total_input_taxable += taxable
         total_input_vat += vat
+
+    # All-fail re-raise: if every row failed and at least one was
+    # attempted, the filing carries no real data — escalate to a hard
+    # block at the view layer rather than return an empty CSV.
+    if total_rows_attempted > 0 and len(rows) == 0 and partial_failures:
+        raise StatutoryReturnError(
+            'FIRS VAT return: every Output/Input row failed to coerce. '
+            f'Errors: {"; ".join(w for w in warnings[:5])}'
+        )
 
     net_vat_payable = total_output_vat - total_input_vat
 
@@ -122,6 +159,8 @@ def export_vat_return(
             'net_vat_payable':      net_vat_payable,
             'line_count':           Decimal(len(rows)),
         },
+        warnings=warnings,
+        partial_failures=partial_failures,
     )
 
 

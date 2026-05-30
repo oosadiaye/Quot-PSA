@@ -326,10 +326,30 @@ class AuditLog(models.Model):
     # and NIN per Nigeria NDPR / IFMIS audit-trail requirements.
     SENSITIVE_FIELDS_BY_MODEL = {
         'Employee': {
+            # Plaintext / encryption-window names
             'social_security_number', 'national_id_number',
             'tax_identification_number', 'bank_account', 'bank_routing',
             'base_salary', 'bvn', 'nin',
+            # Post-encryption column names (the encrypted ciphertext
+            # itself shouldn't leak into audit logs either — redact for
+            # belt-and-suspenders, and the hash columns identify-uniquely
+            # so redaction prevents existence-correlation via audit dump)
+            'social_security_number_encrypted',
+            'national_id_number_encrypted',
+            'tax_identification_number_encrypted',
+            'bank_account_encrypted', 'bank_routing_encrypted',
+            'national_id_number_hash',
+            'tax_identification_number_hash',
+            'bank_account_hash',
+            'passport_number',
         },
+        # V18 — additional models surfaced by core.W001 system check
+        'PayrollLine': {'bank_account'},
+        'PensionFundAdministrator': {'bank_account'},
+        'Vendor': {'bank_account_number'},
+        'AccountingSettings': {'account_number_series'},
+        'BankAccount': {'account_number'},
+        'TreasuryAccount': {'account_number'},
     }
     REDACTED_PLACEHOLDER = '[REDACTED]'
 

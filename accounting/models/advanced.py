@@ -1,4 +1,5 @@
 from datetime import date
+from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 from core.models import AuditBaseModel
@@ -120,8 +121,21 @@ class FiscalPeriod(models.Model):
         # S1-14 — custom permission for the reopen flow. Standard admins
         # don't get this by default; it must be explicitly granted to
         # Accountant-General / Senior Treasury roles.
+        # V2 — force-close of fiscal periods (i.e. closing while pending
+        # journals or other pre-flight blockers exist) is a separately
+        # gated, high-risk action. Without this permission the
+        # ``close_periods`` action refuses ``force=True`` even from
+        # otherwise-MFA'd users.
         permissions = [
             ('reopen_fiscal_period', 'Can reopen a closed fiscal period'),
+            ('force_close_periods', 'Can force-close fiscal periods with pending journals'),
+            # V7 — Two-actor approval is the default for reopen. This
+            # additional perm is the "single-actor emergency" escape
+            # hatch. Default migration grants it ONLY to superusers.
+            (
+                'reopen_fiscal_period_single_actor',
+                'Can reopen a closed fiscal period without a second-actor approval (emergency escape hatch)',
+            ),
         ]
 
     def __str__(self):
@@ -1467,3 +1481,79 @@ class CashFlowEntry(models.Model):
 
     def __str__(self):
         return f"{self.cash_flow_type} - {self.account_code}"
+
+
+class FiscalPeriodReopenApproval(models.Model):
+    r"""V7 — Two-actor approval row for fiscal period reopen.
+
+    Reopening a closed period permits retroactive rewriting of the
+    historical financial statements. A single user with the
+    ``accounting.reopen_fiscal_period`` permission therefore had the
+    ability to silently rewrite the books. This model records a
+    request/approve workflow so the action requires a SECOND, distinct,
+    privileged actor before the period is actually mutated.
+
+    Lifecycle::
+
+        PENDING --(approve)--> APPROVED --(execute)--> EXECUTED
+                \--(reject)--> REJECTED
+                \--(timeout)--> EXPIRED
+
+    The ``approved_by`` user MUST differ from the ``requested_by``
+    user — that check is enforced in the view layer.
+    """
+
+    STATUS_PENDING = 'PENDING'
+    STATUS_APPROVED = 'APPROVED'
+    STATUS_EXECUTED = 'EXECUTED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_EXPIRED = 'EXPIRED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_EXECUTED, 'Executed'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_EXPIRED, 'Expired'),
+    ]
+
+    fiscal_period = models.ForeignKey(
+        'FiscalPeriod',
+        on_delete=models.PROTECT,
+        related_name='reopen_approvals',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='reopen_requests',
+    )
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    reason = models.TextField()
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='reopen_approvals_given',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True, default='')
+    status = models.CharField(
+        max_length=12,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    executed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = 'accounting'
+        ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['fiscal_period', 'status']),
+        ]
+
+    def __str__(self):
+        return (
+            f"ReopenApproval#{self.pk} period={self.fiscal_period_id} "
+            f"status={self.status}"
+        )

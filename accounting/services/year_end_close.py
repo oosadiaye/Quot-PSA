@@ -316,6 +316,29 @@ class YearEndCloseService:
         )
         from datetime import date as _date
 
+        # V4 — idempotency guard. ``post_opening_journal`` is a public
+        # classmethod called from ``close_fiscal_year`` AND potentially
+        # re-invoked by operators after a network-blip retry. Without
+        # this guard a second call would post a duplicate BBF journal
+        # into FY+1 and double-state every Balance Sheet account.
+        # Check BEFORE any DB writes so a retry is cheap and observable.
+        existing = JournalHeader.objects.filter(
+            source_module='year_end_close.opening',
+            source_document_id=fiscal_year_closing.pk,
+            status='Posted',
+        ).first()
+        if existing:
+            logger.info(
+                'BBF opening journal already posted for fiscal_year=%s as '
+                'journal_id=%s; skipping double-post.',
+                fiscal_year_closing.pk, existing.pk,
+            )
+            return {
+                'journal_id': existing.pk,
+                'lines_posted': existing.lines.count(),
+                'skipped_idempotent': True,
+            }
+
         closing_year = fiscal_year_closing.year
         next_year_int = closing_year + 1
         next_fy = FiscalYear.objects.filter(year=next_year_int).first()

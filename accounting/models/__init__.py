@@ -151,6 +151,7 @@ __all__ = [
     'AccountingDocument',
     'DocumentSignature',
     'FiscalPeriod',
+    'FiscalPeriodReopenApproval',
     'FiscalYear',
     'PeriodAccess',
     'PeriodCloseCheck',

@@ -311,9 +311,23 @@ class ContractClosureService:
         # reconciliation.
         try:
             from accounting.models import PaymentCascadeFailure
-        except Exception:  # noqa: BLE001
-            # Older deploys that haven't migrated 0104 yet — fall
-            # through; the new gate kicks in once the migration runs.
+        except ImportError:
+            # V10 — narrowed from bare ``except Exception``. ImportError
+            # is the legitimate pre-migrate-window case (model not yet
+            # loaded into the registry). Every other exception class
+            # (ProgrammingError on missing table, AttributeError on a
+            # mistyped attribute, OperationalError on DB outage) MUST
+            # propagate so the cascade-failure gate stays loud and a
+            # contract cannot be closed over an unobserved cascade
+            # failure. Bare except here would silently fail-open and
+            # let an operator close a contract whose IPCs still have
+            # unresolved divergence between cash leg + sub-ledger.
+            import logging
+            logging.getLogger(__name__).warning(
+                'PaymentCascadeFailure import failed (likely '
+                'pre-migrate-window); cascade-failure gate skipped '
+                'for contract %s', contract.pk,
+            )
             return
 
         ipc_ids = list(
