@@ -1098,10 +1098,22 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             )
 
         except Exception as e:
+            # H10 fix: re-raise after logging. The atomic block on the
+            # approval action then rolls back the status transition and
+            # the user sees the actual error rather than a false
+            # "Approved" while a downstream signal receiver silently
+            # failed. SoD-critical signal failures (e.g. the
+            # procurement auto-post to GL receiver) must be loud — the
+            # previous silent-log behaviour was the root cause of
+            # "approved but unposted" InvoiceMatching ghost rows. If a
+            # subset of receivers ever needs non-blocking behaviour,
+            # switch to ``signal.send_robust`` and inspect the response
+            # list explicitly here.
             import logging
             logging.getLogger('dtsg').error(
                 f"_trigger_document_action failed for approval {approval.pk} ({action}): {e}"
             )
+            raise
 class ApprovalStepViewSet(viewsets.ModelViewSet):
     queryset = ApprovalStep.objects.all().select_related('approval', 'approver_group', 'approver')
     serializer_class = ApprovalStepSerializer

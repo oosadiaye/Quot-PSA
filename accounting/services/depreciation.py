@@ -25,10 +25,13 @@ Returns a structured dict the view and management command both emit.
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from datetime import date
 
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 
 def run_monthly_depreciation(
@@ -75,8 +78,8 @@ def run_monthly_depreciation(
     total_amount = Decimal('0.00')
     skipped = 0
 
-    def _build_result(asset, *, amount, status_str, journal_id, message):
-        return {
+    def _build_result(asset, *, amount, status_str, journal_id, message, phase=None):
+        result = {
             'asset_id':            asset.id,
             'asset_number':        asset.asset_number,
             'asset_name':          asset.name,
@@ -90,6 +93,9 @@ def run_monthly_depreciation(
             'journal_id':          journal_id,
             'message':             message,
         }
+        if phase is not None:
+            result['phase'] = phase
+        return result
 
     if simulate:
         # ── Dry-run preview — no DB writes ──────────────────────
@@ -131,7 +137,15 @@ def run_monthly_depreciation(
             'results': results,
         }
 
-    # ── Live run — post journals inside a single atomic tx ──────
+    # ── Live run — per-asset savepoint so one bad asset doesn't
+    # roll back the whole batch. The outer atomic block keeps run-level
+    # state (and gives us a single connection for the savepoint scope);
+    # each asset's posting runs inside ``atomic(savepoint=True)`` so a
+    # failure only rolls back that asset's journal + GL update + schedule
+    # mutation. Successful peers commit cleanly. The previous behaviour
+    # (single outer atomic) meant the caller could be told "posted: 499"
+    # while the DB had zero rows because the 500th asset raised.
+    failed = 0
     with transaction.atomic():
         for asset in assets_qs:
             if not asset.depreciation_expense_account or not asset.accumulated_depreciation_account:
@@ -143,81 +157,140 @@ def run_monthly_depreciation(
                 skipped += 1
                 continue
 
-            schedule, _ = DepreciationSchedule.objects.get_or_create(
-                asset=asset, period_date=period_date,
-                defaults={
-                    'depreciation_amount': (
-                        asset.calculate_annual_depreciation() / 12
-                    ).quantize(Decimal('0.01')),
-                },
-            )
-            if schedule.is_posted:
-                results.append(_build_result(
-                    asset, amount=Decimal('0.00'),
-                    status_str='already_posted',
-                    journal_id=schedule.journal_entry_id,
-                    message='Already posted for this period',
-                ))
-                skipped += 1
+            try:
+                with transaction.atomic(savepoint=True):
+                    # ── calculation phase ────────────────────────────
+                    try:
+                        schedule, _ = DepreciationSchedule.objects.get_or_create(
+                            asset=asset, period_date=period_date,
+                            defaults={
+                                'depreciation_amount': (
+                                    asset.calculate_annual_depreciation() / 12
+                                ).quantize(Decimal('0.01')),
+                            },
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "Depreciation calculation failed for asset %s (%s) on %s: %s",
+                            asset.asset_number, asset.pk, period_date, exc,
+                        )
+                        results.append(_build_result(
+                            asset, amount=Decimal('0.00'),
+                            status_str='failed', journal_id=None,
+                            message=f'{type(exc).__name__}: {exc}',
+                            phase='calculation',
+                        ))
+                        failed += 1
+                        # raise so the savepoint rolls back this asset's
+                        # half-written schedule (if any) but the outer
+                        # atomic and other assets stay committed.
+                        raise
+
+                    if schedule.is_posted:
+                        results.append(_build_result(
+                            asset, amount=Decimal('0.00'),
+                            status_str='already_posted',
+                            journal_id=schedule.journal_entry_id,
+                            message='Already posted for this period',
+                        ))
+                        skipped += 1
+                        continue
+
+                    amt = schedule.depreciation_amount
+
+                    # ── journal_create phase ─────────────────────────
+                    try:
+                        journal = JournalHeader.objects.create(
+                            reference_number=(
+                                f"DEP-{asset.asset_number}-{period_date.strftime('%Y%m')}"
+                            ),
+                            description=(
+                                f"Depreciation: {asset.name} ({period_date.strftime('%b %Y')})"
+                            ),
+                            posting_date=period_date,
+                            mda=asset.mda,
+                            fund=asset.fund,
+                            function=asset.function,
+                            program=asset.program,
+                            geo=asset.geo,
+                            status='Posted',
+                            source_module='depreciation',
+                            source_document_id=asset.pk,
+                        )
+                        # Mark as already-enforced so the JV pre-save signal
+                        # doesn't try to re-evaluate the budget for a
+                        # depreciation entry (non-cash, doesn't draw
+                        # appropriation).
+                        journal._budget_checked = True
+
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=asset.depreciation_expense_account,
+                            debit=amt, credit=Decimal('0.00'),
+                            memo=f"Depreciation: {asset.name}",
+                            asset=asset,
+                        )
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=asset.accumulated_depreciation_account,
+                            debit=Decimal('0.00'), credit=amt,
+                            memo=f"Accumulated depreciation: {asset.name}",
+                            asset=asset,
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "Depreciation journal_create failed for asset %s (%s) on %s: %s",
+                            asset.asset_number, asset.pk, period_date, exc,
+                        )
+                        results.append(_build_result(
+                            asset, amount=amt,
+                            status_str='failed', journal_id=None,
+                            message=f'{type(exc).__name__}: {exc}',
+                            phase='journal_create',
+                        ))
+                        failed += 1
+                        raise
+
+                    # ── gl_update phase ──────────────────────────────
+                    try:
+                        from accounting.services import update_gl_from_journal
+                        update_gl_from_journal(
+                            journal, fund=asset.fund, function=asset.function,
+                            program=asset.program, geo=asset.geo,
+                        )
+
+                        asset.accumulated_depreciation += amt
+                        asset.save()
+
+                        schedule.journal_entry = journal
+                        schedule.is_posted = True
+                        schedule.save()
+                    except Exception as exc:
+                        logger.exception(
+                            "Depreciation gl_update failed for asset %s (%s) on %s: %s",
+                            asset.asset_number, asset.pk, period_date, exc,
+                        )
+                        results.append(_build_result(
+                            asset, amount=amt,
+                            status_str='failed', journal_id=journal.id,
+                            message=f'{type(exc).__name__}: {exc}',
+                            phase='gl_update',
+                        ))
+                        failed += 1
+                        raise
+
+                    results.append(_build_result(
+                        asset, amount=amt, status_str='success',
+                        journal_id=journal.id, message='',
+                    ))
+                    total_amount += amt
+            except Exception:
+                # The savepoint has already rolled back this asset's
+                # writes; the failure result has already been recorded.
+                # Swallow here so the loop continues to the next asset.
                 continue
 
-            amt = schedule.depreciation_amount
-            journal = JournalHeader.objects.create(
-                reference_number=(
-                    f"DEP-{asset.asset_number}-{period_date.strftime('%Y%m')}"
-                ),
-                description=(
-                    f"Depreciation: {asset.name} ({period_date.strftime('%b %Y')})"
-                ),
-                posting_date=period_date,
-                mda=asset.mda,
-                fund=asset.fund,
-                function=asset.function,
-                program=asset.program,
-                geo=asset.geo,
-                status='Posted',
-                source_module='depreciation',
-                source_document_id=asset.pk,
-            )
-            # Mark as already-enforced so the JV pre-save signal
-            # doesn't try to re-evaluate the budget for a depreciation
-            # entry (non-cash, doesn't draw appropriation).
-            journal._budget_checked = True
-
-            JournalLine.objects.create(
-                header=journal,
-                account=asset.depreciation_expense_account,
-                debit=amt, credit=Decimal('0.00'),
-                memo=f"Depreciation: {asset.name}",
-                asset=asset,
-            )
-            JournalLine.objects.create(
-                header=journal,
-                account=asset.accumulated_depreciation_account,
-                debit=Decimal('0.00'), credit=amt,
-                memo=f"Accumulated depreciation: {asset.name}",
-                asset=asset,
-            )
-
-            from accounting.services import update_gl_from_journal
-            update_gl_from_journal(
-                journal, fund=asset.fund, function=asset.function,
-                program=asset.program, geo=asset.geo,
-            )
-
-            asset.accumulated_depreciation += amt
-            asset.save()
-
-            schedule.journal_entry = journal
-            schedule.is_posted = True
-            schedule.save()
-
-            results.append(_build_result(
-                asset, amount=amt, status_str='success',
-                journal_id=journal.id, message='',
-            ))
-            total_amount += amt
-
+    posted_count = sum(1 for r in results if r['status'] == 'success')
     return {
         'mode':        'posted',
         'period_date': str(period_date),
@@ -225,7 +298,10 @@ def run_monthly_depreciation(
             'total_assets': len(results),
             'total_amount': str(total_amount),
             'skipped':      skipped,
-            'posted':       sum(1 for r in results if r['status'] == 'success'),
+            'posted':       posted_count,
+            'failed':       failed,
         },
+        'posted':  posted_count,
+        'failed':  failed,
         'results': results,
     }

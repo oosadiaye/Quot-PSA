@@ -33,3 +33,9 @@ class AccountingConfig(AppConfig):
 
         from accounting.signals import ncoa_to_legacy  # noqa: F401 — attaches receivers
         ncoa_to_legacy._connect_signals()
+
+        # Register Django system checks. Importing the module registers
+        # the @register-decorated functions with Django's check framework
+        # so ``manage.py check`` (and runserver / migrate) surface
+        # data-integrity drift early. See ``accounting/checks.py``.
+        from accounting import checks  # noqa: F401 — registers checks via decorators

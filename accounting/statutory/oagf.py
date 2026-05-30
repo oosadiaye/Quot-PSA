@@ -45,10 +45,13 @@ the portal accepts for the generic MFR intake template.
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
-from . import ExportResult, format_csv
+from . import ExportResult, StatutoryReturnError, format_csv
+
+logger = logging.getLogger(__name__)
 
 
 OAGF_CSV_COLUMNS = ['Section', 'Code', 'Label', 'Amount (NGN)']
@@ -210,25 +213,58 @@ def _build_budget_execution_section(fiscal_year_year: int) -> list[dict]:
     try:
         from accounting.models.advanced import FiscalYear
         fy = FiscalYear.objects.filter(year=fiscal_year_year).first()
-    except Exception:
-        fy = None
+    except Exception as exc:
+        # H8 fix: a DB error resolving the FiscalYear must not silently
+        # file a zero budget-execution section. The operator needs the
+        # filing to fail loudly so the misconfiguration is fixed before
+        # the OAGF return is transmitted.
+        logger.error(
+            'OAGF MFR: FiscalYear lookup failed for year=%s: %s',
+            fiscal_year_year, exc, exc_info=True,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: FiscalYear "
+            f"lookup for {fiscal_year_year} failed ({exc}); refusing to "
+            f"file a zero return. Resolve the database error before "
+            f"retrying."
+        ) from exc
 
     if not fy:
-        return [{
-            'code':   '',
-            'label':  f'Budget-vs-Actual unavailable: no FiscalYear record for {fiscal_year_year}',
-            'amount': Decimal('0'),
-        }]
+        # Reachable DB, but the FY itself isn't configured — surface
+        # this rather than swallow it. OAGF MFRs reference budget
+        # execution against the as-enacted appropriation; if there's no
+        # FY record there's no appropriation framework to report
+        # against, and a zero section is misleading.
+        logger.error(
+            'OAGF MFR: no FiscalYear record for year=%s; cannot build '
+            'budget execution section.', fiscal_year_year,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: no "
+            f"FiscalYear record for {fiscal_year_year}; refusing to "
+            f"file a zero return. Create FY{fiscal_year_year} under "
+            f"Accounting → Fiscal Years and re-run."
+        )
 
     from accounting.services.ipsas_reports import IPSASReportService
     try:
         data = IPSASReportService.budget_vs_actual(fiscal_year_id=fy.pk)
     except Exception as exc:
-        return [{
-            'code':   '',
-            'label':  f'Budget-vs-Actual service error: {exc}',
-            'amount': Decimal('0'),
-        }]
+        # The IPSAS service computes the budget-vs-actual aggregation
+        # that backs the OAGF Section 4 numbers. A service-level failure
+        # here means the operator is about to file an MFR with zero
+        # execution numbers — exactly the silent-zero compliance breach
+        # H8 closes. Re-raise as a hard block.
+        logger.error(
+            'OAGF MFR: IPSAS budget-vs-actual service failed for FY%s '
+            '(id=%s): %s', fiscal_year_year, fy.pk, exc, exc_info=True,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: "
+            f"IPSASReportService.budget_vs_actual failed ({exc}); "
+            f"refusing to file a zero return. Investigate the service "
+            f"error before retrying."
+        ) from exc
 
     rows: list[dict] = []
     for item in data.get('items', []) or []:
@@ -312,14 +348,27 @@ def _humanise_account_type(code: str) -> str:
 
 def _to_decimal(value: Any) -> Decimal:
     """Coerce miscellaneous numeric inputs (Decimal, int, float, str)
-    into a ``Decimal``. Falls back to ``Decimal('0')`` on unparseable
-    input — defensive for IPSAS service outputs that occasionally
-    return floats or stringified decimals."""
+    into a ``Decimal``.
+
+    H8 fix: an unparseable numeric input from the IPSAS service is now
+    treated as a statutory-return failure rather than silently zeroed.
+    The previous fallback to ``Decimal('0')`` meant a single corrupt
+    cell would file a zero line on the OAGF return — exactly the
+    silent-zero compliance breach we are closing. ``None`` and empty
+    string are still legitimate "no data" markers and map to zero.
+    """
     if isinstance(value, Decimal):
         return value
     if value is None or value == '':
         return Decimal('0')
     try:
         return Decimal(str(value))
-    except Exception:
-        return Decimal('0')
+    except Exception as exc:
+        logger.error(
+            'OAGF MFR: cannot coerce numeric value %r to Decimal: %s',
+            value, exc,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF return line: value {value!r} is not a "
+            f"valid number ({exc}); refusing to file a zero return."
+        ) from exc

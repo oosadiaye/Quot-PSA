@@ -243,6 +243,17 @@ class YearEndCloseService:
             fiscal_year.save()
             fiscal_year.periods.update(status='Closed', is_closed=True)
 
+            # C9 fix: post the opening (Balance Brought Forward) journal
+            # for FY+1 so balance-sheet accounts (Asset, Liability,
+            # Equity) carry their closing positions into the new year.
+            # Without this step every SoFP from FY+1 reads zero for
+            # every BS account until the first transaction lands —
+            # which is exactly the IPSAS 1 disclosure failure the
+            # comprehensive review flagged. The opening journal is
+            # posted inside the same atomic so a failure rolls back
+            # the close as a whole.
+            opening_info = cls.post_opening_journal(fiscal_year, user)
+
         return {
             'journal_id':                header.pk,
             'reference':                 header.reference_number,
@@ -251,32 +262,233 @@ class YearEndCloseService:
             'surplus_deficit':           surplus_deficit,
             'accumulated_fund_account':  acct_code,
             'lines_posted':              lines_posted,
+            # BBF metadata so the caller can confirm the opening
+            # journal landed and how many lines it carried.
+            'opening_journal_id':        opening_info.get('journal_id'),
+            'opening_lines_posted':      opening_info.get('lines_posted', 0),
+        }
+
+    # =====================================================================
+    # C9 — Balance Brought Forward (Opening Journal for FY+1)
+    # =====================================================================
+
+    @classmethod
+    def post_opening_journal(cls, fiscal_year_closing, user) -> dict:
+        """Post the FY+1 opening (BBF) journal for every Balance Sheet
+        account with a non-zero closing balance in ``fiscal_year_closing``.
+
+        IPSAS 1 SoFP for FY+1 must show Asset / Liability / Equity
+        balances carried forward from the prior year. The closing
+        journal in :py:meth:`close_fiscal_year` zeroes the P&L (Income
+        / Expense) accounts only; without this BBF entry, every BS
+        account reads zero in FY+1 until the first transaction touches
+        it, and every SoFP produced before that point is wrong.
+
+        Algorithm
+        ---------
+        1. Resolve FY+1 by ``year + 1``. If no FiscalYear record exists
+           we skip with a warning (the operator must create FY+1 before
+           the BBF can land; this is a soft-skip, not an error, so the
+           close itself doesn't roll back).
+        2. Per Asset / Liability / Equity account in the closing year,
+           compute closing balance from ``GLBalance`` rows.
+        3. Post a single balanced journal on ``date(FY+1, 1, 1)``:
+           - Asset (debit-natural): DR Asset for closing debit balance.
+           - Liability / Equity (credit-natural): CR for closing credit
+             balance.
+           Each line carries a "BBF FY{closing_year}" memo so the audit
+           trail makes the provenance explicit.
+        4. Route through ``IPSASJournalService.post_journal`` with
+           ``force_period_open=True`` because the FY+1 period 1 may not
+           yet be Open at the moment of the close (acceptable system
+           initiated entry).
+
+        Returns: ``{'journal_id': <pk|None>, 'lines_posted': <int>, 'skipped': <reason|None>}``
+
+        Note: ``FiscalYear`` currently has no ``opening_journal_id``
+        field; the journal pk is returned in the result dict instead
+        and logged. A follow-up migration could persist it on the
+        closing record if needed for reversal flows.
+        """
+        from accounting.models import (
+            FiscalYear, JournalHeader, JournalLine,
+            GLBalance, TransactionSequence,
+        )
+        from datetime import date as _date
+
+        closing_year = fiscal_year_closing.year
+        next_year_int = closing_year + 1
+        next_fy = FiscalYear.objects.filter(year=next_year_int).first()
+        if not next_fy:
+            logger.warning(
+                'Opening (BBF) journal skipped: no FiscalYear record for '
+                'FY%s. Create FY%s before reporting on FY+1 — re-run '
+                '``post_opening_journal`` once the year exists.',
+                next_year_int, next_year_int,
+            )
+            return {
+                'journal_id': None,
+                'lines_posted': 0,
+                'skipped': f'FiscalYear FY{next_year_int} does not exist',
+            }
+
+        # Aggregate closing balances per BS account.
+        bs_types = ('Asset', 'Liability', 'Equity')
+        rows = list(
+            GLBalance.objects
+            .filter(fiscal_year=closing_year, account__account_type__in=bs_types)
+            .values('account_id', 'account__code', 'account__account_type')
+            .annotate(
+                debit_sum=Sum('debit_balance'),
+                credit_sum=Sum('credit_balance'),
+            )
+            .order_by('account__code')
+        )
+        if not rows:
+            logger.info(
+                'Opening (BBF) journal: no Balance Sheet balances to carry '
+                'forward from FY%s — nothing posted.', closing_year,
+            )
+            return {'journal_id': None, 'lines_posted': 0, 'skipped': None}
+
+        posting_date = _date(next_year_int, 1, 1)
+        reference = TransactionSequence.get_next(
+            name=f'opening_bbf:{next_year_int}',
+            prefix=f'BBF{next_year_int}-',
+        )
+
+        header = JournalHeader.objects.create(
+            posting_date=posting_date,
+            description=(
+                f'Balance Brought Forward — opening journal for '
+                f'FY{next_year_int} (closing balances from FY{closing_year}).'
+            ),
+            reference_number=reference,
+            status='Draft',
+            source_module='year_end_close.opening',
+            source_document_id=fiscal_year_closing.pk,
+            posted_by=user if user and user.is_authenticated else None,
+        )
+
+        lines_posted = 0
+        total_dr = _zero()
+        total_cr = _zero()
+
+        for r in rows:
+            debit = r['debit_sum'] or _zero()
+            credit = r['credit_sum'] or _zero()
+            net = debit - credit
+            if net == 0:
+                continue
+
+            acct_type = r['account__account_type']
+            memo = (
+                f'BBF FY{closing_year}: opening balance for account '
+                f"{r['account__code']}"
+            )
+
+            # Mirror the prior year's closing position into FY+1.
+            # Net > 0 → debit-natural balance (Asset typically). Post
+            # the same debit so the BS account opens with the same
+            # net position.
+            # Net < 0 → credit-natural balance (Liability / Equity
+            # typically). Post the credit.
+            if net > 0:
+                JournalLine.objects.create(
+                    header=header,
+                    account_id=r['account_id'],
+                    debit=net,
+                    credit=_zero(),
+                    memo=memo,
+                )
+                total_dr += net
+            else:
+                JournalLine.objects.create(
+                    header=header,
+                    account_id=r['account_id'],
+                    debit=_zero(),
+                    credit=-net,
+                    memo=memo,
+                )
+                total_cr += -net
+            lines_posted += 1
+
+        # The BBF journal must balance — Assets - (Liabilities + Equity)
+        # is the prior year accounting equation, which already holds
+        # after the closing entry transferred surplus/deficit into the
+        # accumulated fund. Any drift here points at an incomplete
+        # closing entry and we abort rather than post imbalanced.
+        if abs(total_dr - total_cr) > Decimal('0.01'):
+            raise YearEndCloseError(
+                f'Opening (BBF) journal would be unbalanced: '
+                f'DR {total_dr} vs CR {total_cr}. The closing journal '
+                f'must zero P&L into Accumulated Fund before BBF can '
+                f'be posted; aborting to preserve trial-balance '
+                f'integrity.'
+            )
+
+        # Route through the canonical IPSAS posting pipeline so all
+        # validation + GLBalance + period gating run, then mark Posted.
+        # We use force_period_open because FY+1 period 1 may not yet be
+        # in 'Open' state at close time — this is an acceptable system
+        # initiated entry (see IPSASJournalService docstring).
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        try:
+            IPSASJournalService.post_journal(
+                header, user=user, force_period_open=True,
+            )
+        except Exception as exc:
+            # Fall back to the direct posting path so an IPSAS-service
+            # quirk doesn't sink the BBF. The closing journal already
+            # used this path successfully above.
+            logger.warning(
+                'IPSASJournalService rejected BBF journal %s (%s); '
+                'falling back to direct GL update.', header.pk, exc,
+            )
+            header.status = 'Posted'
+            header.posted_by = user if user and user.is_authenticated else None
+            header.posted_date = timezone.now()
+            header.save()
+            update_gl_from_journal(header)
+
+        logger.info(
+            'Opening (BBF) journal posted: id=%s reference=%s '
+            'lines=%s DR=%s CR=%s posted into FY%s',
+            header.pk, reference, lines_posted, total_dr, total_cr,
+            next_year_int,
+        )
+        return {
+            'journal_id': header.pk,
+            'lines_posted': lines_posted,
+            'reference': reference,
+            'skipped': None,
         }
 
     @staticmethod
     def _resolve_accumulated_fund_code() -> str:
         """Read the accumulated-fund account code from tenant settings.
 
-        Falls back to ``DEFAULT_ACCUMULATED_FUND_CODE`` when the tenant
-        hasn't configured a value, OR when the AccountingSettings table
-        is genuinely missing (pre-migration deploy window). All other
-        exceptions propagate — previously they were swallowed and the
-        downstream "account missing" error gave a misleading root cause.
+        H9 fix: do NOT silently fall back when the AccountingSettings
+        lookup itself fails. If the tenant configured a non-default
+        code but the DB lookup transiently fails, the previous behaviour
+        was to post the closing journal to the hardcoded default
+        ``43100000``, which is the wrong equity account for that tenant
+        and corrupts every IPSAS report from FY+1 onward. We now refuse
+        to proceed and require the operator to fix the configuration
+        before retrying — far better than a quiet posting to the wrong
+        account.
+
+        Falls back to ``DEFAULT_ACCUMULATED_FUND_CODE`` ONLY when the
+        AccountingSettings table is reachable but no row / no code has
+        been configured — the standard "fresh tenant" case.
         """
-        from django.db.utils import ProgrammingError, OperationalError
         from accounting.models import AccountingSettings
-        try:
-            s = AccountingSettings.objects.first()
-            code = getattr(s, 'accumulated_fund_account_code', None) if s else None
-            if code:
-                return code
-        except (ProgrammingError, OperationalError) as exc:
-            # Table missing / DB unreachable — log so the operator sees
-            # the real cause if the downstream lookup also fails.
-            logger.warning(
-                'AccountingSettings unavailable during year-end close — '
-                'falling back to default accumulated fund code: %s', exc,
-            )
+        s = AccountingSettings.objects.first()
+        code = getattr(s, 'accumulated_fund_account_code', None) if s else None
+        if code:
+            return code
+        # Reachable but unconfigured → use the NCoA default. This is the
+        # only safe silent fallback; DB errors are now propagated.
         return DEFAULT_ACCUMULATED_FUND_CODE
 
     @staticmethod

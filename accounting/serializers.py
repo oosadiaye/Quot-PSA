@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import serializers
 from .models import (
     Account, Fund, Function, Program, Geo, Currency, GLBalance,
@@ -25,8 +27,18 @@ from .models import (
 )
 
 
+_logger = logging.getLogger(__name__)
+
+
 def is_dimensions_enabled(context):
-    """Check if dimensions module is enabled based on request context."""
+    """Check if dimensions module is enabled based on request context.
+
+    H7 fix: fail CLOSED on tenant-lookup errors. Returning ``True`` on
+    exception silently disabled dimension-based budget enforcement
+    every time a tenant lookup misfired (DB hiccup, schema drift,
+    misconfigured tenant table). The control surface should stay
+    engaged; surface the misconfiguration in logs and return ``False``.
+    """
     if not context:
         return True
     request = context.get('request')
@@ -35,8 +47,14 @@ def is_dimensions_enabled(context):
     from tenants.models import is_dimensions_enabled as check_dimensions
     try:
         return check_dimensions(request.tenant)
-    except Exception:
-        return True
+    except Exception as exc:
+        # Tenant lookup failures silently disable dimension-based budget
+        # enforcement; fail closed and surface the misconfiguration.
+        _logger.warning(
+            'is_dimensions_enabled failed closed for tenant=%r: %s',
+            getattr(request, 'tenant', None), exc,
+        )
+        return False
 
 
 class FundSerializer(serializers.ModelSerializer):

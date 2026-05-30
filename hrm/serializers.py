@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
@@ -11,6 +13,8 @@ from .models import (
     ExitRequest, ExitInterview, ExitClearance, FinalSettlement, ExperienceCertificate, AssetReturn,
     StatutoryDeductionTemplate, StatutoryDeduction
 )
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -97,7 +101,20 @@ class EmployeeSerializer(serializers.ModelSerializer):
     )
 
     def _decrypt_pii_into(self, data, instance):
-        """Replace ciphertext in *data* with each field's decrypted value."""
+        """Replace ciphertext in *data* with each field's decrypted value.
+
+        On accessor failure (e.g. fernet token decryption error after a
+        key rotation, or corrupted ciphertext) we:
+          * log a WARNING with full context so the operator can detect
+            silent data-quality regressions instead of finding empty
+            strings on the frontend with no audit trail; and
+          * record the field on the response payload via
+            ``_pii_decryption_errors`` so the UI can surface a yellow
+            banner asking the user to contact the security team.
+        Returning ``''`` is preserved as the on-the-wire value so we
+        never leak ciphertext into the API.
+        """
+        errors: list[str] = []
         for field in self._ENCRYPTED_PII_ACCESSORS:
             if field not in data:
                 continue
@@ -106,9 +123,17 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 continue
             try:
                 data[field] = accessor()
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "PII decryption failed for Employee %s field %s: %s",
+                    getattr(instance, 'pk', '?'), field, exc,
+                    exc_info=True,
+                )
+                errors.append(field)
                 # Defensive: never leak ciphertext into the API.
                 data[field] = ''
+        if errors:
+            data['_pii_decryption_errors'] = errors
         return data
 
     def to_representation(self, instance):

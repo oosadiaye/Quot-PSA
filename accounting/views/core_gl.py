@@ -979,17 +979,29 @@ class JournalViewSet(viewsets.ModelViewSet):
         ``bulk_post``. Validates period, balance, line presence; writes
         GL balances; runs asset auto-capitalisation; flips status.
 
+        WS-6 G-A C1/C2/H6: now also consults FiscalPeriod (via
+        PeriodControlService) and delegates balance/postable-account
+        validation to IPSASJournalService.validate_journal so the
+        manual-JE path enforces the same gates as every other posting
+        surface. Source attribution is stamped (``gl.manual_je``,
+        self-referential ``source_document_id``) so the
+        ``uniq_journalheader_source_doc_posted`` constraint makes
+        re-posts idempotent at the DB layer.
+
         Returns a success-payload dict on completion. Raises on failure
         — the caller is responsible for catching and shaping the
         response (per-row returns a 400 Response, bulk returns a per-row
         ``failed`` entry and continues).
         """
         from accounting.models import BudgetPeriod
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+        from accounting.services.period_control import PeriodControlService
 
         if journal.status == 'Posted':
             raise ValueError('Journal is already posted.')
 
-        # Validate period is open for posting
+        # Validate period is open for posting (BudgetPeriod — the budget
+        # cycle gate).
         period = BudgetPeriod.get_period_for_date(journal.posting_date)
         if period and not period.can_post():
             raise ValueError(
@@ -997,17 +1009,55 @@ class JournalViewSet(viewsets.ModelViewSet):
                 f"Period status is: {period.get_status_display()}"
             )
 
-        # Validate balance
-        total_debit = journal.lines.aggregate(total=Sum('debit'))['total'] or 0
-        total_credit = journal.lines.aggregate(total=Sum('credit'))['total'] or 0
-        if total_debit != total_credit:
+        # Fiscal period gate — the accounting calendar (FiscalPeriod via
+        # PeriodControlService) must also be open. BudgetPeriod ≠
+        # FiscalPeriod: a budget cycle can be Open while the fiscal
+        # period is Closed (year-end window), or vice versa. Both have
+        # to clear before we touch the GL.
+        if journal.posting_date:
+            period_status = PeriodControlService.check_period_status(
+                journal.posting_date, document_type='journal',
+            )
+            if not period_status.can_post:
+                raise ValueError(
+                    f"Cannot post to fiscal period for {journal.posting_date}: "
+                    + "; ".join(period_status.messages)
+                )
+
+        # Balance + postable-account validation — delegated to the
+        # canonical IPSAS validator so manual JEs can't bypass the
+        # postable/header-account rules other surfaces enforce.
+        errors = IPSASJournalService.validate_journal(journal)
+        if errors:
             raise ValueError(
-                f"Cannot post unbalanced journal. Debits: {total_debit}, Credits: {total_credit}"
+                "Journal validation failed:\n"
+                + "\n".join(f"  - {e}" for e in errors)
             )
 
-        # Validate has lines
+        # validate_journal already enforces lines >= 2; keep the
+        # legacy zero-line guard as a defensive belt for the rare case
+        # validate_journal short-circuits before counting.
         if not journal.lines.exists():
             raise ValueError('Cannot post journal with no lines.')
+
+        # Stamp source attribution so the idempotency constraint
+        # (uniq_journalheader_source_doc_posted) makes re-posts a
+        # DB-level duplicate. Self-referential id is fine — only
+        # uniqueness matters.
+        source_updates = []
+        if not journal.source_module:
+            journal.source_module = 'gl.manual_je'
+            source_updates.append('source_module')
+        if not journal.source_document_id:
+            journal.source_document_id = journal.pk
+            source_updates.append('source_document_id')
+        if source_updates:
+            journal.save(update_fields=source_updates, _allow_status_change=True)
+
+        # Compute totals once for the response payload (validation
+        # above already proved they match).
+        total_debit = journal.lines.aggregate(total=Sum('debit'))['total'] or 0
+        total_credit = journal.lines.aggregate(total=Sum('credit'))['total'] or 0
 
         # Post to GL — this writes GLBalance rows AND, for any line whose
         # account has auto_create_asset=True, auto-creates a FixedAsset and
@@ -1138,11 +1188,18 @@ class JournalViewSet(viewsets.ModelViewSet):
                         old_debit = gl_balance.debit_balance
                         old_credit = gl_balance.credit_balance
 
-                        if line.debit > 0:
-                            gl_balance.debit_balance -= line.debit
-                        if line.credit > 0:
-                            gl_balance.credit_balance -= line.credit
-                        gl_balance.save()
+                        # H3 fix (WS6 review): use atomic F()-update mirroring
+                        # the forward path in ``gl_posting.update_gl_from_journal``.
+                        # Prior read-mutate-save would silently overwrite a
+                        # concurrent forward post's F()-update.
+                        from django.db.models import F as _F
+                        GLBalance.objects.filter(pk=gl_balance.pk).update(
+                            debit_balance=_F('debit_balance') - line.debit,
+                            credit_balance=_F('credit_balance') - line.credit,
+                        )
+                        gl_balance.refresh_from_db(
+                            fields=['debit_balance', 'credit_balance'],
+                        )
 
                         reversed_balances.append({
                             'account': str(line.account),

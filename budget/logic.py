@@ -1,16 +1,37 @@
+import logging
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+logger = logging.getLogger(__name__)
+
 
 def is_dimensions_enabled(tenant):
-    """Check if dimensions module is enabled for the tenant."""
+    """Check if dimensions module is enabled for the tenant.
+
+    H7 fix: fail CLOSED on any unexpected error. Previously this caught
+    every exception and returned ``True``, which silently disabled
+    dimension-based budget enforcement whenever a tenant lookup
+    misfired (DB hiccup, schema drift, misconfigured tenant table).
+    Returning ``True`` on error meant the budget check was effectively
+    skipped — exactly the wrong default for a control surface. We now
+    log the misconfiguration and return ``False`` so the dimension
+    check stays engaged, the budget gate evaluates as usual, and the
+    operator sees the misconfiguration in logs.
+    """
     if not tenant:
         return True
     from tenants.models import is_dimensions_enabled as check_dimensions
     try:
         return check_dimensions(tenant)
-    except Exception:
-        return True
+    except Exception as exc:
+        # Tenant lookup failures silently disable dimension-based budget
+        # enforcement; fail closed and surface the misconfiguration.
+        logger.warning(
+            'is_dimensions_enabled failed closed for tenant=%r: %s',
+            tenant, exc,
+        )
+        return False
 
 
 def check_budget_availability(dimensions, account, amount, date, transaction_type='GENERAL', transaction_id=0, user=None, tenant=None):

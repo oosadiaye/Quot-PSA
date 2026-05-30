@@ -80,13 +80,27 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_note(self, request, pk=None):
-        """Post credit note to GL — Dr Revenue / Cr AR."""
-        cn = self.get_object()
-        if cn.status not in ('APPROVED',):
-            return Response({"error": "Credit note must be approved first."}, status=status.HTTP_400_BAD_REQUEST)
+        """Post credit note to GL — Dr Revenue / Cr AR.
+
+        WS-6 G-A C1/C2/C8/H6/H14/H18: routed through IPSASJournalService
+        so the period gate, postable-account check, balance check,
+        idempotency constraint, and audit log all apply uniformly.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                # Lock the source row so a double-click can't slip a
+                # second journal past the idempotency constraint.
+                cn = CreditNote.objects.select_for_update().get(pk=pk)
+                if cn.status not in ('APPROVED',):
+                    return Response(
+                        {"error": "Credit note must be approved first."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 ar_account = get_gl_account('ACCOUNTS_RECEIVABLE', 'Asset', 'Receivable')
                 rev_account = get_gl_account('SALES_REVENUE', 'Income', 'Revenue')
                 if not ar_account or not rev_account:
@@ -96,24 +110,28 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
                     reference_number=f"CN-{cn.credit_note_number}",
                     description=f"Credit Note {cn.credit_note_number}",
                     posting_date=cn.credit_note_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.credit_note',
+                    source_document_id=cn.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 amount = cn.total_amount
                 JournalLine.objects.create(
                     header=journal, account=rev_account,
                     debit=amount, credit=Decimal('0.00'),
-                    memo=f"Credit Note {cn.credit_note_number}", document_number=journal.document_number,
+                    memo=f"Credit Note {cn.credit_note_number}",
+                    document_number=journal.document_number,
                 )
                 JournalLine.objects.create(
                     header=journal, account=ar_account,
                     debit=Decimal('0.00'), credit=amount,
-                    memo=f"AR adjustment {cn.credit_note_number}", document_number=journal.document_number,
+                    memo=f"AR adjustment {cn.credit_note_number}",
+                    document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                # Canonical post — period gate + balance + audit + GL.
+                IPSASJournalService.post_journal(journal, user=request.user)
+
                 cn.journal_id = journal.id
                 cn.status = 'APPLIED'
                 cn.applied_amount = amount
@@ -121,7 +139,9 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
 
                 _log_audit('CI', cn.id, 'POST', request.user, request)
 
-            return Response({"status": "Credit note posted.", "journal_id": journal.id})
+            return Response({"status": "Credit note posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -143,13 +163,23 @@ class DebitNoteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_note(self, request, pk=None):
-        """Post debit note to GL — Dr AP / Cr Expense."""
-        dn = self.get_object()
-        if dn.status not in ('APPROVED',):
-            return Response({"error": "Debit note must be approved first."}, status=status.HTTP_400_BAD_REQUEST)
+        """Post debit note to GL — Dr AP / Cr Expense.
+
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                dn = DebitNote.objects.select_for_update().get(pk=pk)
+                if dn.status not in ('APPROVED',):
+                    return Response(
+                        {"error": "Debit note must be approved first."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
                 exp_account = get_gl_account('PURCHASE_EXPENSE', 'Expense', 'Purchase')
                 if not ap_account or not exp_account:
@@ -159,30 +189,35 @@ class DebitNoteViewSet(viewsets.ModelViewSet):
                     reference_number=f"DN-{dn.debit_note_number}",
                     description=f"Debit Note {dn.debit_note_number}",
                     posting_date=dn.debit_note_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.debit_note',
+                    source_document_id=dn.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 amount = dn.total_amount
                 JournalLine.objects.create(
                     header=journal, account=ap_account,
                     debit=amount, credit=Decimal('0.00'),
-                    memo=f"Debit Note {dn.debit_note_number}", document_number=journal.document_number,
+                    memo=f"Debit Note {dn.debit_note_number}",
+                    document_number=journal.document_number,
                 )
                 JournalLine.objects.create(
                     header=journal, account=exp_account,
                     debit=Decimal('0.00'), credit=amount,
-                    memo=f"Expense reversal {dn.debit_note_number}", document_number=journal.document_number,
+                    memo=f"Expense reversal {dn.debit_note_number}",
+                    document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                IPSASJournalService.post_journal(journal, user=request.user)
+
                 dn.journal_id = journal.id
                 dn.status = 'APPLIED'
                 dn.applied_amount = amount
                 dn.save()
 
-            return Response({"status": "Debit note posted.", "journal_id": journal.id})
+            return Response({"status": "Debit note posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -197,13 +232,20 @@ class BadDebtProvisionViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_provision(self, request, pk=None):
-        """Post bad debt provision — Dr Bad Debt Expense / Cr Allowance for Doubtful Accounts."""
-        provision = self.get_object()
-        if provision.status == 'POSTED':
-            return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+        """Post bad debt provision — Dr Bad Debt Expense / Cr Allowance for Doubtful Accounts.
+
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                provision = BadDebtProvision.objects.select_for_update().get(pk=pk)
+                if provision.status == 'POSTED':
+                    return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
                 expense_account = Account.objects.filter(
                     name__icontains='Bad Debt', account_type='Expense',
                 ).first()
@@ -222,28 +264,33 @@ class BadDebtProvisionViewSet(viewsets.ModelViewSet):
                     reference_number=f"BDP-{provision.fiscal_year}-{provision.period}",
                     description=f"Bad Debt Provision {provision.fiscal_year} P{provision.period}",
                     posting_date=provision.provision_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.bad_debt_provision',
+                    source_document_id=provision.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 JournalLine.objects.create(
                     header=journal, account=expense_account,
                     debit=amount, credit=Decimal('0.00'),
-                    memo="Bad debt provision", document_number=journal.document_number,
+                    memo="Bad debt provision",
+                    document_number=journal.document_number,
                 )
                 JournalLine.objects.create(
                     header=journal, account=allowance_account,
                     debit=Decimal('0.00'), credit=amount,
-                    memo="Allowance for doubtful accounts", document_number=journal.document_number,
+                    memo="Allowance for doubtful accounts",
+                    document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                IPSASJournalService.post_journal(journal, user=request.user)
+
                 provision.journal_id = journal.id
                 provision.status = 'POSTED'
                 provision.save()
 
-            return Response({"status": "Provision posted.", "journal_id": journal.id})
+            return Response({"status": "Provision posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -256,13 +303,20 @@ class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_writeoff(self, request, pk=None):
-        """Post write-off — Dr Allowance / Cr AR."""
-        wo = self.get_object()
-        if wo.status == 'POSTED':
-            return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+        """Post write-off — Dr Allowance / Cr AR.
+
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                wo = BadDebtWriteOff.objects.select_for_update().get(pk=pk)
+                if wo.status == 'POSTED':
+                    return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
                 ar_account = get_gl_account('ACCOUNTS_RECEIVABLE', 'Asset', 'Receivable')
                 allowance_account = Account.objects.filter(
                     name__icontains='Allowance', account_type='Asset',
@@ -275,29 +329,34 @@ class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
                     reference_number=f"BDWO-{wo.write_off_number}",
                     description=f"Bad Debt Write-Off {wo.write_off_number}",
                     posting_date=wo.write_off_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.bad_debt_writeoff',
+                    source_document_id=wo.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 amount = wo.amount_written_off
                 JournalLine.objects.create(
                     header=journal, account=allowance_account,
                     debit=amount, credit=Decimal('0.00'),
-                    memo=f"Write-off {wo.write_off_number}", document_number=journal.document_number,
+                    memo=f"Write-off {wo.write_off_number}",
+                    document_number=journal.document_number,
                 )
                 JournalLine.objects.create(
                     header=journal, account=ar_account,
                     debit=Decimal('0.00'), credit=amount,
-                    memo=f"AR write-off {wo.write_off_number}", document_number=journal.document_number,
+                    memo=f"AR write-off {wo.write_off_number}",
+                    document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                IPSASJournalService.post_journal(journal, user=request.user)
+
                 wo.journal_id = journal.id
                 wo.status = 'POSTED'
                 wo.save()
 
-            return Response({"status": "Write-off posted.", "journal_id": journal.id})
+            return Response({"status": "Write-off posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -387,13 +446,23 @@ class PettyCashVoucherViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def pay(self, request, pk=None):
-        """Pay voucher and post to GL — Dr Expense / Cr Petty Cash."""
-        voucher = self.get_object()
-        if voucher.approval_status != 'APPROVED':
-            return Response({"error": "Voucher must be approved first."}, status=status.HTTP_400_BAD_REQUEST)
+        """Pay voucher and post to GL — Dr Expense / Cr Petty Cash.
+
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                voucher = PettyCashVoucher.objects.select_for_update().get(pk=pk)
+                if voucher.approval_status != 'APPROVED':
+                    return Response(
+                        {"error": "Voucher must be approved first."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 expense_account = voucher.account
                 if not expense_account:
                     return Response({"error": "No expense account on voucher."}, status=status.HTTP_400_BAD_REQUEST)
@@ -409,10 +478,10 @@ class PettyCashVoucherViewSet(viewsets.ModelViewSet):
                     reference_number=f"PCV-{voucher.voucher_number}",
                     description=f"Petty Cash Voucher {voucher.voucher_number}",
                     posting_date=voucher.voucher_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.petty_cash_voucher',
+                    source_document_id=voucher.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 JournalLine.objects.create(
                     header=journal, account=expense_account,
@@ -427,7 +496,7 @@ class PettyCashVoucherViewSet(viewsets.ModelViewSet):
                     document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                IPSASJournalService.post_journal(journal, user=request.user)
 
                 voucher.journal_id = journal.id
                 voucher.approval_status = 'PAID'
@@ -438,7 +507,9 @@ class PettyCashVoucherViewSet(viewsets.ModelViewSet):
                 fund.current_balance -= voucher.amount
                 fund.save(update_fields=['current_balance'])
 
-            return Response({"status": "Voucher paid and posted.", "journal_id": journal.id})
+            return Response({"status": "Voucher paid and posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -451,13 +522,20 @@ class PettyCashReplenishmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_replenishment(self, request, pk=None):
-        """Post replenishment — Dr Petty Cash / Cr Bank."""
-        replen = self.get_object()
-        if replen.status == 'POSTED':
-            return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+        """Post replenishment — Dr Petty Cash / Cr Bank.
+
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             with transaction.atomic():
+                replen = PettyCashReplenishment.objects.select_for_update().get(pk=pk)
+                if replen.status == 'POSTED':
+                    return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
                 pc_gl = replen.petty_cash_fund.bank_account.gl_account if replen.petty_cash_fund.bank_account else None
                 bank_gl = replen.bank_account.gl_account if replen.bank_account else None
                 if not pc_gl:
@@ -471,24 +549,27 @@ class PettyCashReplenishmentViewSet(viewsets.ModelViewSet):
                     reference_number=f"PCR-{replen.replenishment_number}",
                     description=f"Petty Cash Replenishment {replen.replenishment_number}",
                     posting_date=replen.replenishment_date,
-                    status='Posted',
+                    status='Draft',
+                    source_module='workflow.petty_cash_replenishment',
+                    source_document_id=replen.pk,
                 )
-                journal.document_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-                journal.save(update_fields=['document_number'], _allow_status_change=True)
 
                 amount = replen.reimbursement_amount
                 JournalLine.objects.create(
                     header=journal, account=pc_gl,
                     debit=amount, credit=Decimal('0.00'),
-                    memo=f"Replenishment {replen.replenishment_number}", document_number=journal.document_number,
+                    memo=f"Replenishment {replen.replenishment_number}",
+                    document_number=journal.document_number,
                 )
                 JournalLine.objects.create(
                     header=journal, account=bank_gl,
                     debit=Decimal('0.00'), credit=amount,
-                    memo=f"Bank payment {replen.replenishment_number}", document_number=journal.document_number,
+                    memo=f"Bank payment {replen.replenishment_number}",
+                    document_number=journal.document_number,
                 )
 
-                _update_gl_from_journal(journal)
+                IPSASJournalService.post_journal(journal, user=request.user)
+
                 replen.journal_id = journal.id
                 replen.status = 'POSTED'
                 replen.save()
@@ -498,7 +579,9 @@ class PettyCashReplenishmentViewSet(viewsets.ModelViewSet):
                 fund.current_balance += amount
                 fund.save(update_fields=['current_balance'])
 
-            return Response({"status": "Replenishment posted.", "journal_id": journal.id})
+            return Response({"status": "Replenishment posted.", "journal_id": journal.pk})
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

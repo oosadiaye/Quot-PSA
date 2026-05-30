@@ -36,6 +36,22 @@ from decimal import Decimal
 from typing import Any
 
 
+class StatutoryReturnError(Exception):
+    """Raised when a statutory return cannot be computed safely.
+
+    H8 fix: every aggregation failure in the OAGF / FIRS / PAYE
+    exporters used to be swallowed and substituted with zero. That
+    silently filed a ZERO return to the regulator — a material
+    compliance breach because the operator believed the filing
+    succeeded. Misconfigured statutory mappings (missing NCoA bridge,
+    schema drift on a service input, etc.) must be a hard block on
+    the filing, surfaced to the operator as a 500/409, NOT a quiet
+    zero. The view layer translates this exception into an HTTP
+    response so the misconfiguration is fixed before any return is
+    actually transmitted to the regulator's portal.
+    """
+
+
 @dataclass(frozen=True)
 class ExportResult:
     """Return shape for every statutory exporter.

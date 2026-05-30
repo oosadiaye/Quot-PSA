@@ -24,9 +24,12 @@ Output columns
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
-from . import ExportResult, format_csv
+from . import ExportResult, StatutoryReturnError, format_csv
+
+logger = logging.getLogger(__name__)
 
 
 VAT_COLUMNS = [
@@ -123,12 +126,27 @@ def export_vat_return(
 
 
 def _to_decimal(value) -> Decimal:
-    """Coerce to Decimal, defaulting to 0."""
+    """Coerce to Decimal.
+
+    H8 fix: unparseable numeric input is now a hard error rather than a
+    silent zero. A corrupt VAT amount returned by the VATReturnService
+    would otherwise file a zero VAT line to FIRS — a material
+    compliance breach because the operator believed the return
+    succeeded. ``None`` and empty string remain legitimate "no data"
+    markers and map to zero.
+    """
     if isinstance(value, Decimal):
         return value
     if value is None or value == '':
         return Decimal('0')
     try:
         return Decimal(str(value))
-    except Exception:
-        return Decimal('0')
+    except Exception as exc:
+        logger.error(
+            'FIRS VAT return: cannot coerce numeric value %r to Decimal: %s',
+            value, exc,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute FIRS VAT return line: value {value!r} is "
+            f"not a valid number ({exc}); refusing to file a zero return."
+        ) from exc

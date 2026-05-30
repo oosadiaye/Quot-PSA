@@ -37,6 +37,46 @@ def _get_doc_amount(obj):
             return val
     return None
 
+
+def recalc_quantity_received_for_po(po_id):
+    """Recompute every PO line's ``quantity_received`` from posted GRN lines.
+
+    H17 fix: ``PurchaseOrderLine.quantity_received`` is mutated by GRN
+    cancel (procurement/views.py cancel_grn / bulk_cancel) via a direct
+    write, so a stale or out-of-band cancel can leave the field out of
+    sync with the canonical "Σ posted GRN line quantities". The
+    invoice-verification partial-receipt gate (``verify_and_post``)
+    reads this field, so poisoning it can hide a partial receipt from
+    the verifier and let an invoice post against unreceived goods.
+
+    This helper is idempotent: it recomputes the canonical value from
+    GoodsReceivedNoteLine rows whose parent GRN is Posted (other
+    statuses are pre-receipt or cancelled and must not count). Safe to
+    call inside a parent atomic block — uses ``F``-free direct writes
+    locked under ``select_for_update``.
+    """
+    from django.db import transaction as _txn
+    from django.db.models import Sum
+    from decimal import Decimal as _Decimal
+    from .models import PurchaseOrderLine, GoodsReceivedNoteLine
+
+    with _txn.atomic():
+        lines = list(
+            PurchaseOrderLine.objects
+            .select_for_update()
+            .filter(po_id=po_id)
+        )
+        for line in lines:
+            agg = GoodsReceivedNoteLine.objects.filter(
+                po_line_id=line.pk,
+                grn__status='Posted',
+            ).aggregate(total=Sum('quantity_received'))
+            canonical = agg['total'] or _Decimal('0')
+            if line.quantity_received != canonical:
+                PurchaseOrderLine.objects.filter(pk=line.pk).update(
+                    quantity_received=canonical,
+                )
+
 class VendorCategoryViewSet(viewsets.ModelViewSet):
     queryset = VendorCategory.objects.all().select_related('reconciliation_account')
     serializer_class = VendorCategorySerializer
@@ -2738,6 +2778,15 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                     "cross_mda": True,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        # H17 fix: recompute ``quantity_received`` from posted GRN line
+        # quantities BEFORE evaluating the partial-receipt gate. GRN
+        # cancellation paths (``cancel_grn`` / ``bulk_cancel``) mutate
+        # this field directly, so a stale value could mask a partial
+        # receipt and let the verifier post an invoice against unreceived
+        # goods. The helper is idempotent and atomic.
+        recalc_quantity_received_for_po(po.pk)
+        po.refresh_from_db()
+
         # Detect partial receipt (any PO line not fully received)
         partial = False
         if po.lines.exists():
@@ -2926,6 +2975,24 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                 vi.save()
 
                 matching.vendor_invoice = vi
+                # C4 fix: run per-line three-way verification now that
+                # the VendorInvoice exists. We call ``match_lines``
+                # directly (NOT ``calculate_match``) so the header-level
+                # status flip to 'Approved' above is preserved unless
+                # the per-line scan ACTUALLY finds something out of
+                # tolerance — in which case ``match_lines`` downgrades
+                # status to 'Variance', sets ``payment_hold=True``, and
+                # the subsequent ``save()`` persists the new state.
+                # On the verify_and_post path the rolled-up
+                # single-VendorInvoiceLine created downstream may not
+                # carry per-line item names, so the unmatchable-lines
+                # branch will flag this clearly via ``gl_post_error``.
+                from decimal import Decimal as _Dec
+                from django.conf import settings as _s
+                _vt = _Dec(str(getattr(_s, 'PROCUREMENT_SETTINGS', {}).get(
+                    'INVOICE_VARIANCE_THRESHOLD', 5,
+                )))
+                matching.match_lines(variance_threshold=_vt)
                 matching.save()
 
                 # ── Close the budget commitment ─────────────────────
@@ -3662,58 +3729,62 @@ class PurchaseReturnViewSet(viewsets.ModelViewSet):
                 ret.save()
 
                 # Step 5 — Post GL reversal
-                journal_ref = None
-                try:
-                    journal = TransactionPostingService.post_purchase_return(ret)
-                    journal_ref = journal.reference_number
-                    logger.info(f"Purchase return {ret.return_number} GL posted: {journal_ref}")
-                except Exception as e:
-                    logger.error(f"GL posting failed for purchase return {ret.return_number}: {e}")
-                    # Non-fatal: complete the return but log the GL failure for manual correction
+                # C5 fix: the previous try/except swallowed GL failures,
+                # leaving stock decremented + status='Completed' with no
+                # GL reversal posted (an unbalanced "credit GR/IR but no
+                # cash/payable debit" pattern). Move the GL post inside
+                # the atomic block AND let exceptions propagate. The
+                # outer ``transaction.atomic()`` rolls back the stock
+                # decrement, the status flip, AND the auto-Credit-Note
+                # creation below — all of them must commit atomically
+                # or none must commit.
+                journal = TransactionPostingService.post_purchase_return(ret)
+                journal_ref = journal.reference_number
+                logger.info(f"Purchase return {ret.return_number} GL posted: {journal_ref}")
 
                 # Step 6 — Auto-create VendorCreditNote if none linked
+                # NOTE: this runs inside the same atomic block as Steps
+                # 3-5, so a CN-creation failure rolls back the stock
+                # decrement, status flip, and GL reversal together.
                 credit_note_number = None
                 if not ret.credit_note_id and ret.total_amount > 0:
-                    try:
-                        import datetime
-                        year = datetime.date.today().year
-                        cn_prefix = f'CN-{year}-'
-                        # Race-safe: lock last CN row and derive next seq from its number
-                        last_cn = (
-                            VendorCreditNote.objects
-                            .select_for_update()
-                            .filter(credit_note_number__startswith=cn_prefix)
-                            .order_by('-credit_note_number')
-                            .first()
-                        )
-                        if last_cn and last_cn.credit_note_number:
-                            try:
-                                cn_seq = int(last_cn.credit_note_number.split('-')[-1]) + 1
-                            except (ValueError, IndexError):
-                                cn_seq = VendorCreditNote.objects.filter(
-                                    credit_note_number__startswith=cn_prefix
-                                ).count() + 1
-                        else:
-                            cn_seq = 1
-                        credit_note_number = f'{cn_prefix}{cn_seq:05d}'
+                    import datetime
+                    year = datetime.date.today().year
+                    cn_prefix = f'CN-{year}-'
+                    # Race-safe: lock last CN row and derive next seq from its number
+                    last_cn = (
+                        VendorCreditNote.objects
+                        .select_for_update()
+                        .filter(credit_note_number__startswith=cn_prefix)
+                        .order_by('-credit_note_number')
+                        .first()
+                    )
+                    if last_cn and last_cn.credit_note_number:
+                        try:
+                            cn_seq = int(last_cn.credit_note_number.split('-')[-1]) + 1
+                        except (ValueError, IndexError):
+                            cn_seq = VendorCreditNote.objects.filter(
+                                credit_note_number__startswith=cn_prefix
+                            ).count() + 1
+                    else:
+                        cn_seq = 1
+                    credit_note_number = f'{cn_prefix}{cn_seq:05d}'
 
-                        credit_note = VendorCreditNote.objects.create(
-                            credit_note_number=credit_note_number,
-                            vendor=ret.vendor,
-                            purchase_order=ret.purchase_order,
-                            goods_received_note=ret.goods_received_note,
-                            credit_note_date=ret.return_date,
-                            reason=f"Purchase Return {ret.return_number}: {ret.reason[:200]}",
-                            amount=ret.total_amount,
-                            tax_amount=Decimal('0'),
-                            # total_amount is required (no DB default); equals amount + tax_amount
-                            total_amount=ret.total_amount,
-                            status='Draft',
-                        )
-                        ret.credit_note = credit_note
-                        PurchaseReturn.objects.filter(pk=ret.pk).update(credit_note=credit_note)
-                    except Exception as e:
-                        logger.error(f"Credit note auto-creation failed for {ret.return_number}: {e}")
+                    credit_note = VendorCreditNote.objects.create(
+                        credit_note_number=credit_note_number,
+                        vendor=ret.vendor,
+                        purchase_order=ret.purchase_order,
+                        goods_received_note=ret.goods_received_note,
+                        credit_note_date=ret.return_date,
+                        reason=f"Purchase Return {ret.return_number}: {ret.reason[:200]}",
+                        amount=ret.total_amount,
+                        tax_amount=Decimal('0'),
+                        # total_amount is required (no DB default); equals amount + tax_amount
+                        total_amount=ret.total_amount,
+                        status='Draft',
+                    )
+                    ret.credit_note = credit_note
+                    PurchaseReturn.objects.filter(pk=ret.pk).update(credit_note=credit_note)
 
             return Response({
                 "status": "Purchase return completed.",

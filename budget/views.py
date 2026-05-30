@@ -574,11 +574,14 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         fy_year = getattr(fy, 'year', None)
 
         transactions: list[dict] = []
-        # Each source-of-truth scan is wrapped in its own try/except so a
-        # single broken FK or stale model field never sinks the whole
-        # drill-down. Worst case: some sources are silently skipped and
-        # the user still sees the appropriation summary plus whatever
-        # transactions DID resolve. Errors are logged at warning.
+        # M9 fix: accumulate per-source failures so the response can
+        # surface "this report is partial because X source(s) failed"
+        # rather than silently hiding entire transaction classes. Each
+        # source-of-truth scan is still wrapped in its own try/except
+        # so one broken FK doesn't sink the whole drill-down, but the
+        # caller now sees a structured warning when something went
+        # wrong.
+        partial_sources_failed: list[dict] = []
         import logging
         _logger = logging.getLogger(__name__)
 
@@ -625,6 +628,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 })
         except Exception as exc:
             _logger.warning('appr %s: PO commitment source failed: %s', appr.pk, exc)
+            partial_sources_failed.append({
+                'source': 'PO_COMMITMENT',
+                'error': str(exc),
+            })
 
         # 2. Direct AP Vendor Invoices (no PO upstream)
         try:
@@ -668,6 +675,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     })
         except Exception as exc:
             _logger.warning('appr %s: VendorInvoice source failed: %s', appr.pk, exc)
+            partial_sources_failed.append({
+                'source': 'AP_INVOICE',
+                'error': str(exc),
+            })
 
         # 3. Direct Payment Vouchers
         # ``PaymentVoucherGov`` doesn't carry a dedicated payment_date
@@ -695,6 +706,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 })
         except Exception as exc:
             _logger.warning('appr %s: PaymentVoucher source failed: %s', appr.pk, exc)
+            partial_sources_failed.append({
+                'source': 'PV',
+                'error': str(exc),
+            })
 
         # 4. Direct Journal Entries (manual JVs)
         try:
@@ -734,6 +749,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     })
         except Exception as exc:
             _logger.warning('appr %s: JournalLine source failed: %s', appr.pk, exc)
+            partial_sources_failed.append({
+                'source': 'JE',
+                'error': str(exc),
+            })
 
         transactions.sort(key=lambda t: t['date'] or '', reverse=True)
 
@@ -746,7 +765,15 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             Decimal('0'),
         )
 
-        return Response({
+        # M9 fix: surface partial-source failures in the response so
+        # the frontend can show "this drill-down is incomplete — N
+        # source(s) failed" instead of silently presenting a degraded
+        # result. The error strings are kept in
+        # ``partial_sources_failed`` for diagnosis; the top-level
+        # ``_warnings`` list is what the GenericListPage banner picks
+        # up. When every source ran cleanly, ``_warnings`` is omitted
+        # so callers don't have to special-case the success path.
+        payload = {
             'appropriation': AppropriationSerializer(appr).data,
             'transactions':  transactions,
             'summary': {
@@ -755,7 +782,15 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'expended_count':  sum(1 for t in transactions if t['kind'] == 'expended'),
                 'expended_total':  str(expended_total),
             },
-        })
+            'partial_sources_failed': partial_sources_failed,
+        }
+        if partial_sources_failed:
+            payload['_warnings'] = [
+                f'Result is partial; {len(partial_sources_failed)} '
+                f'source(s) unavailable: '
+                f'{", ".join(s["source"] for s in partial_sources_failed)}.'
+            ]
+        return Response(payload)
 
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):

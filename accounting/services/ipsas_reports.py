@@ -2283,12 +2283,29 @@ class IPSASReportService:
         back them (NCoA 312xx Trade Receivables + 314xx Other
         Receivables). The two should reconcile at period-close.
         """
-        aging: dict | None = None
-        try:
-            from accounting.services.aging_reports import AgingReportsService
-            aging = AgingReportsService.customer_aging_report()
-        except Exception:
-            aging = None
+        # H11 fix: correct class + method names, drop the silent
+        # except-None that buried real failures. The real class is
+        # ``AgingReportService`` (singular) and the AR method is
+        # ``generate_ar_aging_report``; the prior wrong names always
+        # raised AttributeError, which the bare except swallowed,
+        # rendering the Note 3 aging block as ``None`` on every IPSAS
+        # report. Exceptions now propagate so reporting failures
+        # surface to the operator instead of silently degrading the
+        # disclosure.
+        from accounting.services.aging_reports import AgingReportService
+        ar_report = AgingReportService.generate_ar_aging_report(
+            fiscal_year=fiscal_year,
+        )
+        # Reshape the dataclass into the dict shape the templates
+        # consume so prior callers keep working.
+        aging: dict | None = {
+            'as_of_date':         ar_report.as_of_date.isoformat(),
+            'total_receivables':  ar_report.total_receivables,
+            'bucket_summary':     ar_report.bucket_summary,
+            'customer_count':     ar_report.customer_count,
+            'overdue_count':      ar_report.overdue_count,
+            'customers':          ar_report.customers,
+        }
 
         gl_section = cls._gl_balances_for_note(
             fiscal_year, code_prefixes=['312', '313', '314'],
@@ -2317,12 +2334,22 @@ class IPSASReportService:
         back them (NCoA 411xx Accounts Payable + 412xx Salary /
         statutory payables).
         """
-        aging: dict | None = None
-        try:
-            from accounting.services.aging_reports import AgingReportsService
-            aging = AgingReportsService.vendor_aging_report()
-        except Exception:
-            aging = None
+        # H11 fix: correct class + method names. The vendor aging API
+        # is ``AgingReportService.generate_ap_aging_report``. The
+        # previous silent except-None hid the AttributeError raised by
+        # the wrong names and degraded the disclosure to ``None``.
+        from accounting.services.aging_reports import AgingReportService
+        ap_report = AgingReportService.generate_ap_aging_report(
+            fiscal_year=fiscal_year,
+        )
+        # Reshape into the dict shape templates expect.
+        aging: dict | None = {
+            'as_of_date':         ap_report.as_of_date.isoformat(),
+            'total_payables':     ap_report.total_receivables,  # field reused for AP totals
+            'bucket_summary':     ap_report.bucket_summary,
+            'vendor_count':       ap_report.customer_count,
+            'vendors':            ap_report.customers,
+        }
 
         gl_section = cls._gl_balances_for_note(
             fiscal_year, code_prefixes=['411', '412', '413'],

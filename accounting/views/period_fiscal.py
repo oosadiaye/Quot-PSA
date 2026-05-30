@@ -41,12 +41,36 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def close_periods(self, request):
+        """Bulk-close fiscal periods (H15 — audit + pre-flight gate).
+
+        The bulk close action is high-leverage; previously it required
+        only MFA. We now additionally:
+
+          * Require a non-empty ``reason`` (mirrors the per-period
+            ``close`` and ``reopen`` actions; minimum 10 chars).
+          * Run the pre-flight checklist for every targeted period and
+            refuse if any reports unposted journals, unreconciled
+            payments, or other "not clear to close" signals — unless the
+            caller passes ``force=True`` AND a reason explaining why.
+          * Write one ``TransactionAuditLog`` entry per closed period
+            so reconstruction works post-hoc. Failure to write an audit
+            row aborts the whole bulk close (mirrors per-period reopen
+            behaviour).
+        """
+        from accounting.models import TransactionAuditLog
+
         close_type = request.data.get('close_type')  # 'daily', 'monthly', 'yearly'
         target_date = request.data.get('target_date')
         close_all_upto = request.data.get('close_all_upto', True)
-        reason = request.data.get('reason', '')
+        reason = (request.data.get('reason') or '').strip()
+        force = bool(request.data.get('force', False))
 
-        periods_to_close = []
+        if len(reason) < 10:
+            return Response(
+                {'error': 'A reason of at least 10 characters is required to close periods.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if close_type == 'daily':
             periods = self.queryset.filter(start_date__lte=target_date, status__in=['Open', 'Locked'])
             if close_all_upto:
@@ -64,18 +88,80 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': 'Invalid close_type'}, status=status.HTTP_400_BAD_REQUEST)
 
-        for period in periods:
-            period.is_closed = True
-            period.status = 'Closed'
-            period.closed_by = request.user
-            period.closed_date = timezone.now()
-            period.closed_reason = reason
-            period.save()
-            periods_to_close.append(period.id)
+        target_periods = list(periods)
+
+        # Pre-flight: refuse if any period has unposted journals or
+        # other blockers unless force=True.
+        if not force:
+            from accounting.models import JournalHeader
+            blockers = []
+            for p in target_periods:
+                pending_count = JournalHeader.objects.filter(
+                    posting_date__gte=p.start_date,
+                    posting_date__lte=p.end_date,
+                    status__in=('Draft', 'Pending', 'Approved'),
+                ).count()
+                if pending_count:
+                    blockers.append({
+                        'period_id': p.pk,
+                        'period_name': str(p),
+                        'pending_journals': pending_count,
+                    })
+            if blockers:
+                return Response(
+                    {
+                        'error': (
+                            'Pre-flight failed: one or more periods have '
+                            'pending journals. Post or reject them first, or '
+                            'pass force=true with a reason explaining why.'
+                        ),
+                        'blockers': blockers,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+        periods_to_close = []
+        with transaction.atomic():
+            for period in target_periods:
+                prior_state = {
+                    'is_closed': period.is_closed,
+                    'status': period.status,
+                }
+
+                # Write audit row BEFORE the mutation. If audit write
+                # fails, the whole bulk close rolls back.
+                try:
+                    TransactionAuditLog.objects.create(
+                        transaction_type='fiscalperiod',
+                        transaction_id=period.pk,
+                        action='CLOSE',
+                        user=request.user,
+                        ip_address=_audit_client_ip(request),
+                        old_values=prior_state,
+                        new_values={
+                            'is_closed': True,
+                            'status': 'Closed',
+                            'reason': reason,
+                            'forced': force,
+                            'closed_by_id': request.user.id,
+                            'closed_at': timezone.now().isoformat(),
+                        },
+                    )
+                except Exception as exc:
+                    raise  # rollback the atomic block; surface to client
+
+                period.is_closed = True
+                period.status = 'Closed'
+                period.closed_by = request.user
+                period.closed_date = timezone.now()
+                period.closed_reason = reason
+                period.save()
+                periods_to_close.append(period.id)
 
         return Response({
             'message': f'Closed {len(periods_to_close)} periods',
-            'periods': periods_to_close
+            'periods': periods_to_close,
+            'forced': force,
         })
 
     @action(detail=True, methods=['post'])
@@ -518,6 +604,16 @@ class PeriodCloseChecklistView(viewsets.ViewSet):
             je_qs = je_qs.filter(posting_date__gte=start_date, posting_date__lte=end_date)
         unposted_journals = je_qs.count()
 
+        # Track subquery failures so we don't false-green is_clear_to_close.
+        # Previously the bare ``except Exception: open_grns = 0`` collapsed
+        # any DB / model-import error into a "0 open" reading, making the
+        # checklist report Clear-to-Close while the operator was blind to
+        # whatever broke. The flag below surfaces the failure to the UI and
+        # forces is_clear_to_close=False so close cannot be requested until
+        # the underlying error is fixed.
+        checklist_error = False
+        checklist_error_details: list = []
+
         # 2. Open GRNs without a matched vendor invoice
         try:
             from procurement.models import GoodsReceivedNote
@@ -528,8 +624,13 @@ class PeriodCloseChecklistView(viewsets.ViewSet):
             open_grns = grn_qs.filter(
                 purchase_order__vendor_invoices__isnull=True
             ).distinct().count()
-        except Exception:
+        except Exception as exc:
             open_grns = 0
+            checklist_error = True
+            checklist_error_details.append({
+                'check': 'open_grn_without_invoice',
+                'error': str(exc),
+            })
 
         # 3. Unreconciled payments
         try:
@@ -543,9 +644,14 @@ class PeriodCloseChecklistView(viewsets.ViewSet):
             if start_date and end_date:
                 rec_qs = rec_qs.filter(receipt_date__gte=start_date, receipt_date__lte=end_date)
             unreconciled_receipts = rec_qs.count()
-        except Exception:
+        except Exception as exc:
             unreconciled_payments = 0
             unreconciled_receipts = 0
+            checklist_error = True
+            checklist_error_details.append({
+                'check': 'unreconciled_payments_receipts',
+                'error': str(exc),
+            })
 
         # 4. Pending approval workflows (journals in 'Pending' state)
         pending_approvals = JournalHeader.objects.filter(status='Pending').count()
@@ -560,12 +666,15 @@ class PeriodCloseChecklistView(viewsets.ViewSet):
             'fiscal_period': fiscal_period_id,
             'period_name': str(period_obj) if period_obj else None,
             'is_clear_to_close': (
-                unposted_journals == 0
+                not checklist_error
+                and unposted_journals == 0
                 and open_grns == 0
                 and unreconciled_payments == 0
                 and unreconciled_receipts == 0
                 and pending_approvals == 0
             ),
+            'checklist_error': checklist_error,
+            'checklist_error_details': checklist_error_details,
             'items': {
                 'unposted_journals': unposted_journals,
                 'open_grn_without_invoice': open_grns,

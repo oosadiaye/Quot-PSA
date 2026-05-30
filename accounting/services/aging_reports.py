@@ -1,6 +1,21 @@
 """Aging Reports Service
 
 Generates AR/AP aging reports for collection planning and credit management.
+
+Canonical implementation
+------------------------
+``AgingReportService.generate_ar_aging_report`` and
+``generate_ap_aging_report`` are the canonical AR/AP aging entry points
+across the platform. Use these from any new caller (reporting,
+IPSAS notes, dashboard widgets).
+
+H12 follow-up: ``accounting/views/receivables.py::aging_report`` and
+``accounting/views/payables.py::aging_report`` still ship inline
+aging logic that diverges from this service in bucket boundaries and
+status filtering. Those view-level implementations are scheduled for
+migration to call the canonical service in a follow-up. Until then,
+any new aging surface should pull from this service to avoid further
+divergence.
 """
 from datetime import date
 from decimal import Decimal
@@ -36,7 +51,17 @@ class AgingCustomerDetail:
 
 @dataclass
 class AgingReportResult:
-    """Complete aging report."""
+    """Complete aging report.
+
+    M3 (WS6 review) — adds GL reconciliation fields. Aging is computed
+    from the AR sub-ledger (``CustomerInvoice``/``VendorInvoice``). If
+    a Receipt's GL post fails after the sub-ledger ``received_amount``
+    was already incremented (or vice-versa), the sub-ledger drifts
+    from GL silently. ``gl_receivables_balance`` reads the live GL
+    receivables control account balance and ``gl_reconciliation_diff``
+    surfaces any divergence. A non-zero diff is a real-time signal
+    that a reconciliation pass is owed.
+    """
     report_date: date
     as_of_date: date
     fiscal_year: int
@@ -56,6 +81,11 @@ class AgingReportResult:
 
     bucket_summary: Dict[str, Decimal]
 
+    # M3 (WS6 review) — real-time GL reconciliation surface.
+    gl_receivables_balance: Decimal = Decimal('0')
+    gl_reconciliation_diff: Decimal = Decimal('0')
+    gl_reconciliation_warning: str = ''
+
 
 class AgingReportService:
     """Service for AR/AP aging reports."""
@@ -67,6 +97,82 @@ class AgingReportService:
         {'name': '91-120 Days', 'min': 91, 'max': 120},
         {'name': 'Over 120 Days', 'min': 121, 'max': 9999},
     ]
+
+    # M3 (WS6 review) — NCoA codes for AR/AP control accounts.
+    # Reads tenant settings if available; falls back to the Nigerian
+    # NCoA standards.
+    DEFAULT_AR_CONTROL_CODE = '12010101'   # Trade Receivables — Public
+    DEFAULT_AP_CONTROL_CODE = '41010001'   # Trade Payables — Vendor
+
+    @classmethod
+    def _compute_gl_reconciliation(
+        cls,
+        control_code: str,
+        subledger_total: Decimal,
+        fiscal_year: int = None,
+        period: int = None,
+    ) -> tuple:
+        """Compute GL ↔ sub-ledger reconciliation surface for an aging
+        report (M3 — WS6 review).
+
+        Reads the live GL balance for the AR/AP control account and
+        returns ``(gl_balance, diff, warning)``. Diff is positive when
+        GL > sub-ledger (over-stated GL) and negative when GL <
+        sub-ledger (under-stated GL). Warning is empty when |diff| is
+        within rounding tolerance (1 kobo); otherwise contains a one-
+        line description suitable for surfacing in the report banner.
+        """
+        try:
+            from accounting.models import Account, GLBalance
+            from django.db.models import Sum, F as _F
+
+            acct = Account.objects.filter(code=control_code).first()
+            if not acct:
+                return (
+                    Decimal('0'),
+                    Decimal('0'),
+                    f'GL control account {control_code} not found; '
+                    f'reconciliation skipped.',
+                )
+
+            qs = GLBalance.objects.filter(account=acct)
+            if fiscal_year:
+                qs = qs.filter(fiscal_year=fiscal_year)
+            if period:
+                qs = qs.filter(period__lte=period)
+
+            agg = qs.aggregate(
+                d=Sum('debit_balance'), c=Sum('credit_balance'),
+            )
+            # AR is debit-normal; AP is credit-normal. Caller picks
+            # the sign by passing the right control_code, so we just
+            # return (debit - credit) — positive = AR-style balance.
+            gl_balance = (agg['d'] or Decimal('0')) - (agg['c'] or Decimal('0'))
+            diff = gl_balance - subledger_total
+
+            warning = ''
+            if abs(diff) > Decimal('0.01'):
+                warning = (
+                    f'GL receivables control account {control_code} '
+                    f'balance ({gl_balance}) differs from sub-ledger '
+                    f'open-invoice total ({subledger_total}) by {diff}. '
+                    f'Reconciliation pass owed.'
+                )
+            return gl_balance, diff, warning
+
+        except Exception as exc:
+            # Don't blow up the aging report when reconciliation lookup
+            # fails — but DO surface the failure in the warning field.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                'GL reconciliation lookup failed for control %s: %s',
+                control_code, exc, exc_info=True,
+            )
+            return (
+                Decimal('0'),
+                Decimal('0'),
+                f'GL reconciliation lookup failed: {exc}',
+            )
 
     @classmethod
     def get_days_overdue(cls, due_date: date, as_of_date: date) -> int:
@@ -311,6 +417,14 @@ class AgingReportService:
 
         customer_details.sort(key=lambda x: x['current_balance'], reverse=True)
 
+        # M3 (WS6 review) — surface GL ↔ sub-ledger drift.
+        gl_balance, gl_diff, gl_warning = cls._compute_gl_reconciliation(
+            control_code=cls.DEFAULT_AR_CONTROL_CODE,
+            subledger_total=total_receivables,
+            fiscal_year=fiscal_year,
+            period=period,
+        )
+
         return AgingReportResult(
             report_date=date.today(),
             as_of_date=as_of_date,
@@ -332,6 +446,9 @@ class AgingReportService:
                 '91-120 Days': total_90,
                 'Over 120 Days': total_over_120,
             },
+            gl_receivables_balance=gl_balance,
+            gl_reconciliation_diff=gl_diff,
+            gl_reconciliation_warning=gl_warning,
         )
 
     @classmethod
@@ -446,6 +563,27 @@ class AgingReportService:
 
         vendor_details.sort(key=lambda x: x['current_balance'], reverse=True)
 
+        # M3 (WS6 review) — surface GL ↔ sub-ledger drift on AP side.
+        # AP control account is credit-normal, so we negate the diff
+        # so a positive value still means "GL over-states the balance"
+        # relative to the sub-ledger total.
+        gl_balance_raw, _, _ = cls._compute_gl_reconciliation(
+            control_code=cls.DEFAULT_AP_CONTROL_CODE,
+            subledger_total=total_payables,
+            fiscal_year=fiscal_year,
+            period=period,
+        )
+        ap_gl_balance = -gl_balance_raw   # flip sign for credit-normal AP
+        ap_gl_diff = ap_gl_balance - total_payables
+        ap_gl_warning = ''
+        if abs(ap_gl_diff) > Decimal('0.01'):
+            ap_gl_warning = (
+                f'GL payables control account {cls.DEFAULT_AP_CONTROL_CODE} '
+                f'balance ({ap_gl_balance}) differs from sub-ledger '
+                f'open-invoice total ({total_payables}) by {ap_gl_diff}. '
+                f'Reconciliation pass owed.'
+            )
+
         return AgingReportResult(
             report_date=date.today(),
             as_of_date=as_of_date,
@@ -467,6 +605,9 @@ class AgingReportService:
                 '91-120 Days': total_90,
                 'Over 120 Days': total_over_120,
             },
+            gl_receivables_balance=ap_gl_balance,
+            gl_reconciliation_diff=ap_gl_diff,
+            gl_reconciliation_warning=ap_gl_warning,
         )
 
     @classmethod
@@ -512,10 +653,18 @@ class AgingReportService:
 
             snapshots.append(aging)
 
-        # All-or-nothing snapshot: a partial snapshot is misleading and
-        # downstream comparison reports treat it as authoritative. Wrap
-        # in a transaction and use bulk_create for a single round-trip.
+        # H13 fix: delete any prior snapshot for the same as_of_date
+        # before re-creating, so re-running the report doesn't
+        # accumulate duplicate rows. Without this purge the customer's
+        # total balance for ``as_of_date`` would multiply across
+        # re-runs and the aging dashboard would show N× the real
+        # value. Wrapped in the same atomic block as the bulk_create
+        # so a partial failure leaves the snapshot exactly as it was.
+        # VendorAging is not currently modelled in this codebase (AR
+        # uses CustomerAging; AP aging is computed on-demand from
+        # VendorInvoice), so only CustomerAging needs purging here.
         with transaction.atomic():
+            CustomerAging.objects.filter(as_of_date=as_of_date).delete()
             CustomerAging.objects.bulk_create(snapshots)
 
         return snapshots

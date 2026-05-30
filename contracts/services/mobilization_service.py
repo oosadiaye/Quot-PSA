@@ -87,27 +87,80 @@ class MobilizationService:
         # ── SoD: contract creator cannot issue mobilisation ─────────
         # Mobilisation is the single largest upfront cash outflow on
         # most contracts (typically 10-25% of contract value paid
-        # before any work starts). The canonical SoD invariant is
-        # "the user who drafted the contract cannot also issue the
-        # advance". Bypass paths (superuser, tenant admin, explicit
+        # before any work starts).
+        #
+        # H16 fix: the previous check only blocked the contract
+        # drafter. A vendor-registration officer or any prior contract
+        # approver could still issue mobilisation through a different
+        # route, defeating the SoD intent. The expanded check now
+        # blocks:
+        #   1. The user who drafted the contract.
+        #   2. The user who registered the vendor (vendor.created_by).
+        #   3. Any user who acted on a previous ContractApprovalStep
+        #      for this contract.
+        #
+        # Bypass paths (superuser, tenant admin, explicit
         # contracts.bypass_sod permission) preserved via the existing
-        # ``actor_can_bypass_sod`` helper used elsewhere in this
-        # module's sibling services.
-        if (
-            contract.created_by_id
-            and contract.created_by_id == getattr(actor, 'pk', None)
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise InvalidTransitionError(
-                "Segregation of duties: the user who drafted the contract "
-                "cannot also issue its mobilisation advance. Have a "
-                "different officer perform this action.",
-                context={
-                    "contract_id":   contract.pk,
-                    "contract_drafter_id": contract.created_by_id,
-                    "actor_id":      getattr(actor, 'pk', None),
-                },
+        # ``actor_can_bypass_sod`` helper.
+        actor_pk = getattr(actor, 'pk', None)
+        if actor_pk and not actor_can_bypass_sod(actor):
+            # 1. Contract drafter
+            if contract.created_by_id and contract.created_by_id == actor_pk:
+                raise InvalidTransitionError(
+                    "Segregation of duties: the user who drafted the contract "
+                    "cannot also issue its mobilisation advance. Have a "
+                    "different officer perform this action.",
+                    context={
+                        "contract_id":   contract.pk,
+                        "conflict":      "contract_drafter",
+                        "contract_drafter_id": contract.created_by_id,
+                        "actor_id":      actor_pk,
+                    },
+                )
+
+            # 2. Vendor registrar — the officer who created the Vendor
+            # master record cannot also disburse advance funds to that
+            # vendor (classic vendor-master / payments SoD split).
+            vendor = getattr(contract, 'vendor', None)
+            vendor_creator_id = getattr(vendor, 'created_by_id', None) if vendor else None
+            if vendor_creator_id and vendor_creator_id == actor_pk:
+                raise InvalidTransitionError(
+                    "Segregation of duties: the user who registered this "
+                    "vendor cannot also issue mobilisation advances to "
+                    "that vendor. Have a different officer perform this "
+                    "action.",
+                    context={
+                        "contract_id":  contract.pk,
+                        "conflict":     "vendor_registrar",
+                        "vendor_id":    getattr(vendor, 'pk', None),
+                        "vendor_registrar_id": vendor_creator_id,
+                        "actor_id":     actor_pk,
+                    },
+                )
+
+            # 3. Prior contract approver — anyone who has signed an
+            # approval step on this contract cannot also disburse the
+            # advance. Catches the case where the same officer
+            # approves the contract and then immediately issues
+            # mobilisation through a different route.
+            from contracts.models.audit import ContractApprovalStep
+            prior_approver_ids = set(
+                ContractApprovalStep.objects
+                .filter(contract=contract)
+                .values_list('action_by_id', flat=True)
             )
+            if actor_pk in prior_approver_ids:
+                raise InvalidTransitionError(
+                    "Segregation of duties: a user who has already "
+                    "approved this contract cannot also issue its "
+                    "mobilisation advance. Have a different officer "
+                    "perform this action.",
+                    context={
+                        "contract_id":  contract.pk,
+                        "conflict":     "prior_contract_approver",
+                        "actor_id":     actor_pk,
+                    },
+                )
 
         # ── Strict budget appropriation check ─────────────────────────
         # Mobilization is a real cash outflow that hits the same
@@ -314,13 +367,27 @@ class MobilizationService:
         """
         Compute how much mobilization to recover on the current IPC.
 
-        recovery = mobilization_rate% × this_certificate_gross
+        Canonical FIDIC / Delta State WORKS rule:
 
-        But also capped so that cumulative mobilization_recovered never
-        exceeds mobilization_paid.  Returns a non-negative Decimal.
+            recovery_this_ipc = mobilization_paid
+                              × this_certificate_gross
+                              / original_sum
+
+        Capped so cumulative mobilization_recovered never exceeds
+        mobilization_paid.  Returns a non-negative Decimal.
+
+        M2 fix: the previous implementation used
+        ``this_certificate_gross × mobilization_rate / 100`` which is
+        equivalent to the canonical formula ONLY when
+        ``MobilizationPayment.amount == original_sum × mobilization_rate
+        / 100``. If a procurement officer manually adjusts the
+        ``amount`` on the MobilizationPayment (legitimate path — e.g.
+        partial-advance scenarios), the rate-based recovery diverges
+        and the contractor recovers either too much or too little. The
+        canonical FIDIC formula uses the actual advance disbursed
+        (``balance.mobilization_paid``), keeping recovery proportional
+        to what was actually paid.
         """
-        if contract.mobilization_rate <= ZERO:
-            return ZERO
         if balance.mobilization_paid <= ZERO:
             return ZERO
 
@@ -328,7 +395,13 @@ class MobilizationService:
         if outstanding <= ZERO:
             return ZERO
 
-        raw_recovery = this_certificate_gross * contract.mobilization_rate / Decimal("100")
+        original_sum = Decimal(str(getattr(contract, 'original_sum', 0) or 0))
+        if original_sum <= ZERO:
+            return ZERO
+
+        raw_recovery = (
+            balance.mobilization_paid * this_certificate_gross / original_sum
+        )
         return quantize_currency(min(raw_recovery, outstanding))
 
     # ── Apply recovery to balance (called from IPCService) ─────────────
