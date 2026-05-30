@@ -135,6 +135,11 @@ const menuItems: MenuItem[] = [
             { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            // H2 follow-up (WS6) — operator surface for cascade failures.
+            // Sits next to Outgoing Payments because the failures come
+            // from posted-payment cascades; this is the same operator
+            // mental cluster.
+            { name: 'Payment Reconciliation Queue', path: '/accounting/payment-reconciliation-queue', icon: AlertTriangle },
             { name: 'Payment Instructions', path: '/accounting/payment-instructions', icon: CreditCard },
             { name: 'Bank Reconciliation', path: '/accounting/bank-reconciliation', icon: Scale },
             { name: 'Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Activity },
