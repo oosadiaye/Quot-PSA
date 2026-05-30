@@ -2027,6 +2027,44 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                                     payment._cascade_critical_failures = []
                                 payment._cascade_critical_failures.append(failure_record)
 
+                                # H2 follow-up (WS6): persist the failure
+                                # so ContractClosureService can hard-block
+                                # contract close until reconciled, and an
+                                # operator can see the pending queue. The
+                                # in-memory ``_cascade_critical_failures``
+                                # carries the 207 Multi-Status payload to
+                                # the immediate caller; this row outlives
+                                # the request.
+                                try:
+                                    from accounting.models import (
+                                        PaymentCascadeFailure,
+                                    )
+                                    PaymentCascadeFailure.objects.create(
+                                        payment=payment,
+                                        ipc=ipc,
+                                        error_class=type(exc).__name__,
+                                        error_message=str(exc),
+                                        error_context={
+                                            'pv_id': pv.pk,
+                                            'ipc_id': ipc.pk,
+                                            'ipc_status': ipc.status,
+                                            'action_required': failure_record['action_required'],
+                                            'actor_id': getattr(request.user, 'pk', None),
+                                        },
+                                    )
+                                except Exception as persist_exc:  # noqa: BLE001
+                                    # Persistence failure itself must not
+                                    # bury the cascade failure that just
+                                    # happened. Log loudly; the in-memory
+                                    # surface (207 + cascade_warnings)
+                                    # still goes to the caller.
+                                    _log.error(
+                                        "Failed to persist PaymentCascadeFailure "
+                                        "for payment=%s ipc=%s: %s",
+                                        payment.pk, ipc.pk, persist_exc,
+                                        exc_info=True,
+                                    )
+
                         # M7 fix: liquidate the contract commitment for
                         # PV-driven payments. The encumbrance-liquidation
                         # block below only fires for payments linked to

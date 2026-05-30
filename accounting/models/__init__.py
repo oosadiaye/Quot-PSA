@@ -34,6 +34,9 @@ from accounting.models.social_benefit import (  # noqa: F401
     SocialBenefitScheme, SocialBenefitClaim,
 )
 from accounting.models.budget_check_rules import BudgetCheckRule  # noqa: F401
+from accounting.models.payment_reconciliation import (  # noqa: F401
+    PaymentCascadeFailure,
+)
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -230,4 +233,7 @@ __all__ = [
     # social_benefit.py — S14-02 — IPSAS 42
     'SocialBenefitScheme',
     'SocialBenefitClaim',
+
+    # payment_reconciliation.py — H2 follow-up (WS6)
+    'PaymentCascadeFailure',
 ]

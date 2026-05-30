@@ -301,6 +301,47 @@ class ContractClosureService:
                 context={"contract_id": contract.pk},
             )
 
+        # H2 follow-up (WS6) — hard-block contract closure when any
+        # PaymentCascadeFailure rows are unresolved for this contract's
+        # IPCs. A cascade failure means the cash leg of a payment
+        # committed but the IPC mark_paid step did not — so the GL
+        # says paid, the sub-ledger says not paid, and the contract
+        # balance is divergent. Closing the contract over that
+        # divergence would erase the audit trail of the owed
+        # reconciliation.
+        try:
+            from accounting.models import PaymentCascadeFailure
+        except Exception:  # noqa: BLE001
+            # Older deploys that haven't migrated 0104 yet — fall
+            # through; the new gate kicks in once the migration runs.
+            return
+
+        ipc_ids = list(
+            contract.ipcs.values_list('pk', flat=True),
+        )
+        if not ipc_ids:
+            return
+        pending = PaymentCascadeFailure.objects.filter(
+            ipc_id__in=ipc_ids,
+            resolved=False,
+        )
+        pending_count = pending.count()
+        if pending_count:
+            sample = list(
+                pending.values_list('pk', 'ipc_id', 'created_at')[:5]
+            )
+            raise InvalidTransitionError(
+                f"Contract has {pending_count} unresolved payment "
+                f"cascade failure(s). Resolve them via the payment "
+                f"reconciliation queue before closing the contract.",
+                context={
+                    "contract_id": contract.pk,
+                    "pending_cascade_failures": pending_count,
+                    "sample_failure_ids": [s[0] for s in sample],
+                    "affected_ipc_ids": list({s[1] for s in sample}),
+                },
+            )
+
     @staticmethod
     def _record_step(
         contract: Contract,
