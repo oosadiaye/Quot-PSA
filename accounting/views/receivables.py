@@ -303,8 +303,23 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
-        """Get accounts receivable aging report"""
+        """Accounts-Receivable aging report (H12 — WS6 review).
+
+        Delegates to the canonical
+        ``accounting.services.aging_reports.AgingReportService`` so the
+        UI report and IPSAS Note 3 always agree. Prior in-view loop
+        used different bucket boundaries ('days_1_30' vs '31-60 Days')
+        and different status filter ('Sent'/'Partially Paid'/'Overdue'
+        vs 'POSTED'/'APPROVED') so the two surfaces disagreed for the
+        same as-of date.
+
+        The response keys are preserved for backwards compatibility
+        with the existing frontend client; the values are now sourced
+        from the canonical service, including the new GL-reconciliation
+        warning field surfaced by M3.
+        """
         from django.utils import timezone
+        from accounting.services.aging_reports import AgingReportService
 
         as_of_date = request.query_params.get('as_of_date')
         if as_of_date:
@@ -313,60 +328,57 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         else:
             as_of_date = timezone.now().date()
 
-        invoices = CustomerInvoice.objects.filter(
-            status__in=['Sent', 'Partially Paid', 'Overdue'],
-            invoice_date__lte=as_of_date
+        result = AgingReportService.generate_ar_aging_report(
+            as_of_date=as_of_date,
+            fiscal_year=as_of_date.year,
+            period=as_of_date.month,
         )
 
-        aging_data = {}
-        for invoice in invoices:
-            customer_id = invoice.customer_name or f'inv-{invoice.id}'
-            if customer_id not in aging_data:
-                aging_data[customer_id] = {
-                    'customer_id': customer_id,
-                    'customer_name': invoice.customer_name or 'Unknown',
-                    'current': Decimal('0'),
-                    'days_1_30': Decimal('0'),
-                    'days_31_60': Decimal('0'),
-                    'days_61_90': Decimal('0'),
-                    'days_91_plus': Decimal('0'),
-                    'total_due': Decimal('0')
-                }
+        # Map canonical bucket totals onto the legacy response keys
+        # the frontend expects. The canonical service uses 'Current',
+        # '31-60 Days', '61-90 Days', '91-120 Days', 'Over 120 Days';
+        # the legacy keys roll 91-120 + Over 120 into a single
+        # 'days_91_plus' bucket so we sum here to preserve the shape.
+        bs = result.bucket_summary
+        days_91_plus = bs.get('91-120 Days', Decimal('0')) + bs.get('Over 120 Days', Decimal('0'))
 
-            balance = invoice.balance_due
-            days_overdue = (as_of_date - invoice.due_date).days
+        # Reshape per-customer rows into the legacy key set, again
+        # collapsing 91-120 + Over 120 → days_91_plus.
+        customers = []
+        for c in result.customers:
+            cb = {b['name']: b['total'] for b in c.get('buckets', [])}
+            customers.append({
+                'customer_id': c['customer_id'],
+                'customer_name': c['customer_name'],
+                'current': cb.get('Current', Decimal('0')),
+                'days_1_30': cb.get('31-60 Days', Decimal('0')),
+                'days_31_60': cb.get('61-90 Days', Decimal('0')),
+                'days_61_90': cb.get('91-120 Days', Decimal('0')),
+                'days_91_plus': cb.get('Over 120 Days', Decimal('0')),
+                'total_due': c.get('current_balance', Decimal('0')),
+            })
 
-            if days_overdue <= 0:
-                aging_data[customer_id]['current'] += balance
-            elif days_overdue <= 30:
-                aging_data[customer_id]['days_1_30'] += balance
-            elif days_overdue <= 60:
-                aging_data[customer_id]['days_31_60'] += balance
-            elif days_overdue <= 90:
-                aging_data[customer_id]['days_61_90'] += balance
-            else:
-                aging_data[customer_id]['days_91_plus'] += balance
-
-            aging_data[customer_id]['total_due'] += balance
-
-        total_current = sum(d['current'] for d in aging_data.values())
-        total_1_30 = sum(d['days_1_30'] for d in aging_data.values())
-        total_31_60 = sum(d['days_31_60'] for d in aging_data.values())
-        total_61_90 = sum(d['days_61_90'] for d in aging_data.values())
-        total_91_plus = sum(d['days_91_plus'] for d in aging_data.values())
-
-        return Response({
+        payload = {
             'as_of_date': as_of_date,
-            'customers': list(aging_data.values()),
+            'customers': customers,
             'summary': {
-                'current': float(total_current),
-                'days_1_30': float(total_1_30),
-                'days_31_60': float(total_31_60),
-                'days_61_90': float(total_61_90),
-                'days_91_plus': float(total_91_plus),
-                'total_due': float(total_current + total_1_30 + total_31_60 + total_61_90 + total_91_plus)
-            }
-        })
+                'current': float(bs.get('Current', Decimal('0'))),
+                'days_1_30': float(bs.get('31-60 Days', Decimal('0'))),
+                'days_31_60': float(bs.get('61-90 Days', Decimal('0'))),
+                'days_61_90': float(bs.get('91-120 Days', Decimal('0'))),
+                'days_91_plus': float(days_91_plus),
+                'total_due': float(result.total_receivables),
+            },
+        }
+
+        # Surface the M3 GL-reconciliation signal if the service
+        # detected sub-ledger ↔ GL drift.
+        if result.gl_reconciliation_warning:
+            payload['_warnings'] = [result.gl_reconciliation_warning]
+            payload['gl_receivables_balance'] = float(result.gl_receivables_balance)
+            payload['gl_reconciliation_diff'] = float(result.gl_reconciliation_diff)
+
+        return Response(payload)
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):
