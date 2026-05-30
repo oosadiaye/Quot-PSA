@@ -46,6 +46,7 @@ const APManagement = lazy(() => import('./features/accounting/ap/APManagement'))
 const ARManagement = lazy(() => import('./features/accounting/ar/ARManagement'));
 const IncomingPaymentsPage = lazy(() => import('./features/accounting/ar/IncomingPaymentsPage'));
 const OutgoingPaymentsPage = lazy(() => import('./features/accounting/ap/OutgoingPaymentsPage'));
+const PaymentReconciliationQueue = lazy(() => import('./features/accounting/ap/PaymentReconciliationQueue'));
 const FixedAssets = lazy(() => import('./features/accounting/assets/FixedAssets'));
 const FixedAssetForm = lazy(() => import('./features/accounting/assets/FixedAssetForm'));
 const AssetCategoriesPage = lazy(() => import('./features/accounting/assets/AssetCategories'));
@@ -446,6 +447,9 @@ function App() {
                         } />
                         <Route path="/accounting/outgoing-payments" element={
                           <ProtectedRoute><OutgoingPaymentsPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-reconciliation-queue" element={
+                          <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>
