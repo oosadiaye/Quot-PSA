@@ -2084,3 +2084,54 @@ class BudgetCheckRuleSerializer(serializers.ModelSerializer):
         if level in ('NONE', 'STRICT') and thr is None:
             attrs['warning_threshold_pct'] = 80
         return attrs
+
+
+# ─────────────────────────────────────────────────────────────────
+# PaymentCascadeFailure — H2 follow-up reconciliation queue (WS6)
+# ─────────────────────────────────────────────────────────────────
+from accounting.models import PaymentCascadeFailure
+
+
+class PaymentCascadeFailureSerializer(serializers.ModelSerializer):
+    """Read-mostly serializer for the cascade-failure reconciliation queue.
+
+    The model is written by ``post_payment`` automatically (never via
+    this serializer), so create/update are not exposed. The only
+    write path is the ``resolve`` viewset action which uses
+    ``mark_resolved`` directly. All fields are read-only here.
+    """
+
+    payment_number = serializers.CharField(
+        source='payment.payment_number', read_only=True,
+    )
+    ipc_reference = serializers.CharField(
+        source='ipc.reference_number', read_only=True, allow_null=True,
+    )
+    resolved_by_username = serializers.CharField(
+        source='resolved_by.username', read_only=True, allow_null=True,
+    )
+    is_resolvable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentCascadeFailure
+        fields = [
+            'id',
+            'payment', 'payment_number',
+            'ipc', 'ipc_reference',
+            'error_class', 'error_message', 'error_context',
+            'created_at',
+            'resolved', 'resolved_at', 'resolved_by', 'resolved_by_username',
+            'resolution_note',
+            'is_resolvable',
+        ]
+        read_only_fields = fields
+
+    def get_is_resolvable(self, obj) -> bool:
+        """True if the calling user can resolve this row."""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        return (
+            request.user.is_superuser
+            or request.user.has_perm('accounting.change_paymentcascadefailure')
+        )

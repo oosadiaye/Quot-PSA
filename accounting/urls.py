@@ -260,6 +260,14 @@ router.register(r'dual-control-overrides', DualControlOverrideViewSet, basename=
 from .views.budget_check_rules import BudgetCheckRuleViewSet
 router.register(r'budget-check-rules', BudgetCheckRuleViewSet, basename='budget-check-rule')
 
+# H2 follow-up (WS6) — payment-cascade reconciliation queue.
+from .views.payment_reconciliation import PaymentCascadeFailureViewSet
+router.register(
+    r'payment-cascade-failures',
+    PaymentCascadeFailureViewSet,
+    basename='payment-cascade-failure',
+)
+
 urlpatterns = [
     path('', include(router.urls)),
     path('settings/', accounting_settings_api, name='accounting-settings'),
