@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from django.core.checks import ERROR
 from django.test import override_settings
 
 from snapshots.checks import check_snapshot_kek
@@ -44,4 +45,4 @@ def test_kek_missing_is_warning_in_debug():
     with override_settings(DEBUG=True, SNAPSHOTS_KEK_HEX=None):
         errors = check_snapshot_kek(app_configs=None)
         # Either no error, or only Warning-level entries.
-        assert all(e.level < 40 for e in errors)  # 40 = ERROR
+        assert all(e.level < ERROR for e in errors)

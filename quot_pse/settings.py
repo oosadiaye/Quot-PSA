@@ -426,7 +426,7 @@ REST_FRAMEWORK = {
         # treasury day (or the test suite) can raise the ceiling.
         'reports':      os.getenv('REPORTS_THROTTLE_RATE', '600/hour'),
         'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
-        'snapshot_create': os.getenv('SNAPSHOTS_CREATE_THROTTLE', '5/hour'),
+        'snapshot_create': f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',
