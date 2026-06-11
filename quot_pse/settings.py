@@ -71,6 +71,7 @@ SHARED_APPS = [
 
     'core',
     'superadmin',
+    'snapshots',
 ]
 
 # Phase 2: Add django-celery-beat when installed (pip install django-celery-beat)
@@ -262,6 +263,18 @@ STATICFILES_FINDERS = [
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# ── In-app snapshots (Phase 1) ─────────────────────────────────────
+SNAPSHOTS_BACKUP_DIR           = os.getenv(
+    'SNAPSHOTS_BACKUP_DIR', str(BASE_DIR / 'snapshots_storage'))
+SNAPSHOTS_RETENTION_DAYS       = int(os.getenv('SNAPSHOTS_RETENTION_DAYS', '14'))
+SNAPSHOTS_MAX_PER_TENANT       = int(os.getenv('SNAPSHOTS_MAX_PER_TENANT', '5'))
+SNAPSHOTS_KEK_HEX              = os.getenv('SNAPSHOTS_KEK_HEX')
+SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
+SNAPSHOTS_CREATE_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
+SNAPSHOTS_PG_DUMP_BIN          = os.getenv('SNAPSHOTS_PG_DUMP_BIN', 'pg_dump')
+SNAPSHOTS_SOFT_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_SOFT_TIME_LIMIT_SEC', '3000'))
+SNAPSHOTS_HARD_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_HARD_TIME_LIMIT_SEC', '3600'))
+
 # For production with Redis, use:
 # CACHES = {
 #     'default': {
@@ -406,6 +419,14 @@ REST_FRAMEWORK = {
         'bulk_import':  '10/hour',
         # Approval actions — prevent approval-click spam.
         'approve':      '120/hour',
+        # G-A4 — heavy READ endpoints. IPSAS/statutory reports and file
+        # exports each fan out several aggregates; these scopes stop one
+        # user monopolising report/export capacity under load without
+        # touching normal CRUD. Generous + env-overridable so a busy
+        # treasury day (or the test suite) can raise the ceiling.
+        'reports':      os.getenv('REPORTS_THROTTLE_RATE', '600/hour'),
+        'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
+        'snapshot_create': os.getenv('SNAPSHOTS_CREATE_THROTTLE', '5/hour'),
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',
