@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import BinaryIO, Protocol, runtime_checkable
+from typing import IO, Protocol, runtime_checkable
 
 
 @runtime_checkable
 class Storage(Protocol):
     """Minimal interface a snapshot storage backend must satisfy."""
-    def open_write(self, relative_path: str) -> BinaryIO: ...
-    def open_read(self, relative_path: str) -> BinaryIO: ...
+    def open_write(self, relative_path: str) -> IO[bytes]: ...
+    def open_read(self, relative_path: str) -> IO[bytes]: ...
     def delete(self, relative_path: str) -> None: ...
     def size(self, relative_path: str) -> int: ...
     def exists(self, relative_path: str) -> bool: ...
@@ -29,11 +29,13 @@ def _validate_relative(relative_path: str) -> None:
     where Path('/etc/passwd').is_absolute() returns False because there is no
     drive letter, yet the path still escapes the storage root.
     """
-    if not relative_path:
-        raise ValueError('relative_path must not be empty')
+    if not relative_path or relative_path in ('.', './'):
+        raise ValueError('relative_path must not be empty or a dot path')
     if os.path.isabs(relative_path):
         raise ValueError(f'relative_path must be relative: {relative_path!r}')
     p = Path(relative_path)
+    if p.drive:
+        raise ValueError(f'drive-relative paths not allowed: {relative_path!r}')
     if '..' in p.parts:
         raise ValueError(f'path traversal not allowed: {relative_path!r}')
 
@@ -57,14 +59,30 @@ class LocalFilesystemStorage:
 
     def _absolute(self, relative_path: str) -> Path:
         _validate_relative(relative_path)
-        return self.root / relative_path
+        target = self.root / relative_path
+        # Resolve the parent (which exists after mkdir) and ensure containment.
+        # We resolve the parent rather than the target so that not-yet-created
+        # files (open_write) work; the parent path's resolution exposes any
+        # symlink-escape inside intermediate directories.
+        try:
+            resolved_parent = target.parent.resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(
+                f'cannot resolve path: {relative_path!r}: {exc}'
+            ) from exc
+        resolved_root = self.root.resolve(strict=False)
+        if resolved_parent != resolved_root and resolved_root not in resolved_parent.parents:
+            raise ValueError(
+                f'path resolves outside storage root: {relative_path!r}'
+            )
+        return resolved_parent / target.name
 
-    def open_write(self, relative_path: str) -> BinaryIO:
+    def open_write(self, relative_path: str) -> IO[bytes]:
         target = self._absolute(relative_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         return target.open('wb')
 
-    def open_read(self, relative_path: str) -> BinaryIO:
+    def open_read(self, relative_path: str) -> IO[bytes]:
         return self._absolute(relative_path).open('rb')
 
     def delete(self, relative_path: str) -> None:

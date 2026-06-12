@@ -15,14 +15,9 @@ def storage(tmp_path):
 
 
 @pytest.mark.unit
-def test_protocol_conformance():
-    """Static check: LocalFilesystemStorage satisfies Storage Protocol."""
-    s: Storage = LocalFilesystemStorage(root=Path('/tmp'))
-    assert hasattr(s, 'open_write')
-    assert hasattr(s, 'open_read')
-    assert hasattr(s, 'delete')
-    assert hasattr(s, 'size')
-    assert hasattr(s, 'exists')
+def test_protocol_conformance(storage):
+    """Runtime check: LocalFilesystemStorage satisfies Storage Protocol."""
+    assert isinstance(storage, Storage)
 
 
 @pytest.mark.unit
@@ -76,3 +71,31 @@ def test_rejects_parent_dir_traversal(storage):
     with pytest.raises(ValueError, match='traversal'):
         with storage.open_write('../escape.bin') as fh:
             fh.write(b'x')
+
+
+@pytest.mark.unit
+def test_rejects_symlink_escape(storage, tmp_path):
+    """A symlink inside the storage root pointing outside must NOT be writable through."""
+    # storage.root IS tmp_path, so 'outside' must be a sibling of tmp_path,
+    # not a child — otherwise it would still be inside the storage root.
+    outside = tmp_path.parent / 'outside_escape_target'
+    outside.mkdir(exist_ok=True)
+    link = Path(storage.root) / 'escape_link'
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        pytest.skip('symlinks not supported on this platform/user')
+    with pytest.raises(ValueError, match='outside storage root'):
+        storage.open_write('escape_link/payload.bin')
+
+
+@pytest.mark.unit
+def test_open_read_missing_raises(storage):
+    with pytest.raises(FileNotFoundError):
+        storage.open_read('does/not/exist.bin')
+
+
+@pytest.mark.unit
+def test_size_missing_raises(storage):
+    with pytest.raises(FileNotFoundError):
+        storage.size('does/not/exist.bin')
