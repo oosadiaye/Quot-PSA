@@ -24,7 +24,6 @@ cleanly.
 from __future__ import annotations
 
 import os
-import struct
 from dataclasses import dataclass
 from typing import BinaryIO
 
@@ -38,6 +37,8 @@ CHUNK = 64 * 1024
 GCM_TAG_LEN = 16
 GCM_IV_LEN = 12
 DEK_LEN = 32
+
+_HEADER_BUF_LENGTHS = (GCM_IV_LEN, GCM_TAG_LEN, GCM_IV_LEN, GCM_TAG_LEN, DEK_LEN)
 
 
 class SnapshotDecryptionError(Exception):
@@ -63,7 +64,10 @@ def encrypt_stream(
 ) -> EnvelopeHeader:
     """Encrypt ``plain_in`` into ``cipher_out`` and return the envelope header.
 
-    Streams in fixed-size chunks; never holds more than ~64KB in memory.
+    Note: AESGCM in ``cryptography`` is one-shot; the full plaintext is read
+    into memory before encrypting. For snapshot-scale payloads (<10 GB
+    compressed) this is acceptable. For truly large payloads, use the low-level
+    ``Cipher`` API with GCM mode instead.
     """
     if len(kek) != DEK_LEN:
         raise ValueError(f'KEK must be exactly {DEK_LEN} bytes, got {len(kek)}')
@@ -130,16 +134,20 @@ def decrypt_stream(
         if not kek_id_len_b:
             raise SnapshotDecryptionError('Truncated header (kek_id length)')
         kek_id_len = kek_id_len_b[0]
-        kek_id = cipher_in.read(kek_id_len).decode('ascii')
+        kek_id_raw = cipher_in.read(kek_id_len)
+        if len(kek_id_raw) < kek_id_len:
+            raise SnapshotDecryptionError('Truncated header (kek_id field)')
+        try:
+            kek_id = kek_id_raw.decode('ascii')
+        except UnicodeDecodeError as exc:
+            raise SnapshotDecryptionError('Invalid kek_id encoding') from exc
         iv = cipher_in.read(GCM_IV_LEN)
         tag = cipher_in.read(GCM_TAG_LEN)
         iv2 = cipher_in.read(GCM_IV_LEN)
         tag2 = cipher_in.read(GCM_TAG_LEN)
         wrapped_dek = cipher_in.read(DEK_LEN)
-        for buf in (iv, tag, iv2, tag2, wrapped_dek):
-            if len(buf) < (GCM_IV_LEN if buf is iv or buf is iv2
-                           else GCM_TAG_LEN if buf is tag or buf is tag2
-                           else DEK_LEN):
+        for buf, expected in zip((iv, tag, iv2, tag2, wrapped_dek), _HEADER_BUF_LENGTHS):
+            if len(buf) < expected:
                 raise SnapshotDecryptionError('Truncated header (envelope)')
 
         # Unwrap DEK with KEK.
