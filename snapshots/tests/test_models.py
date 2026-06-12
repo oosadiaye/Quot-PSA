@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import DataError, IntegrityError
+from django.db import DataError, IntegrityError, transaction
 
 from snapshots.models import SnapshotJob
 
@@ -27,25 +27,38 @@ def test_can_create_queued_job(actor):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_schema_name_regex_rejected_at_db_level(actor):
     # Capital letters not allowed by the CheckConstraint.
     with pytest.raises(IntegrityError):
-        SnapshotJob.objects.create(schema_name='Delta_State', triggered_by=actor)
+        with transaction.atomic():
+            SnapshotJob.objects.create(schema_name='Delta_State', triggered_by=actor)
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_schema_name_starts_with_digit_rejected(actor):
     with pytest.raises(IntegrityError):
-        SnapshotJob.objects.create(schema_name='1state', triggered_by=actor)
+        with transaction.atomic():
+            SnapshotJob.objects.create(schema_name='1state', triggered_by=actor)
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_schema_name_too_long_rejected(actor):
     # 64-char string exceeds the VARCHAR(63) column — Postgres raises
     # DataError (StringDataRightTruncation), not IntegrityError.
     too_long = 'a' + 'b' * 63
     with pytest.raises((IntegrityError, DataError)):
-        SnapshotJob.objects.create(schema_name=too_long, triggered_by=actor)
+        with transaction.atomic():
+            SnapshotJob.objects.create(schema_name=too_long, triggered_by=actor)
+
+
+@pytest.mark.integration
+def test_schema_name_63_chars_accepted(actor):
+    name = 'a' + 'b' * 62   # exactly 63 chars
+    job = SnapshotJob.objects.create(schema_name=name, triggered_by=actor)
+    assert job.pk is not None
 
 
 @pytest.mark.integration
