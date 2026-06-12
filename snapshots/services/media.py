@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterator
 
@@ -36,29 +37,59 @@ def _is_unsafe_rel_path(rel_path: str) -> bool:
     return False
 
 
+@lru_cache(maxsize=1)
+def _tenant_app_labels() -> frozenset[str]:
+    """Return the set of app_labels that live in TENANT_APPS only.
+
+    Computed once per process. We compare against ``model._meta.app_label``
+    rather than dotted names to handle both 'core' and 'apps.core' shapes.
+    """
+    tenant_labels: set[str] = set()
+    for dotted in getattr(settings, 'TENANT_APPS', []):
+        try:
+            tenant_labels.add(apps.get_app_config(dotted.split('.')[-1]).label)
+        except LookupError:
+            pass
+    return frozenset(tenant_labels)
+
+
 def _iter_file_fields() -> Iterator[tuple[type, FileField]]:
-    """Yield (model_class, field) for every FileField on every concrete model."""
+    """Yield (model_class, field) for every FileField on every concrete TENANT model.
+
+    SHARED-app models are excluded: their rows are visible inside schema_context
+    but contain cross-tenant data that doesn't belong in a single-tenant snapshot.
+    """
+    tenant_labels = _tenant_app_labels()
     for model in apps.get_models():
         if model._meta.abstract or model._meta.proxy:
+            continue
+        if model._meta.app_label not in tenant_labels:
             continue
         for field in model._meta.get_fields():
             if isinstance(field, FileField):
                 yield model, field
 
 
-def _copy_one(rel_path: str, media_root: Path, destination: Path) -> bool:
+def _copy_one(
+    rel_path: str,
+    media_root: Path,
+    destination: Path,
+    *,
+    media_root_resolved: Path | None = None,
+    destination_resolved: Path | None = None,
+) -> bool:
     """Copy ``media_root/rel_path`` to ``destination/rel_path``.
 
     Returns True on success, False if the source did not exist or the path
-    fails traversal validation.
+    fails traversal validation. Optional pre-resolved roots avoid recomputing
+    resolve() on every call when batching from collect_referenced_media.
     """
     if _is_unsafe_rel_path(rel_path):
         logger.warning('snapshots.media: refusing unsafe rel_path %r', rel_path)
         return False
 
-    # Resolve and verify both src and dst stay inside their respective roots.
-    media_root_resolved = media_root.resolve()
-    destination_resolved = destination.resolve()
+    media_root_resolved = media_root_resolved or media_root.resolve()
+    destination_resolved = destination_resolved or destination.resolve()
     src = (media_root / rel_path).resolve()
     dst_intended = (destination / rel_path).resolve()
 
@@ -91,10 +122,17 @@ def collect_referenced_media(
     media_root = media_root or Path(settings.MEDIA_ROOT)
     if not media_root.exists():
         return []
-    destination.mkdir(parents=True, exist_ok=True)
+
+    # Don't pre-create the destination; do it inside the schema block so that
+    # on schema_context error no orphan directory is left behind.
     copied: list[str] = []
+    media_root_resolved = media_root.resolve()
+    seen: set[str] = set()
 
     with schema_context(schema_name):
+        destination.mkdir(parents=True, exist_ok=True)
+        destination_resolved = destination.resolve()
+
         for model, field in _iter_file_fields():
             field_name = field.name
             queryset = model._default_manager.exclude(
@@ -104,7 +142,14 @@ def collect_referenced_media(
                 file_value = getattr(instance, field_name, None)
                 if not file_value:
                     continue
-                rel = str(file_value).lstrip('/')
-                if _copy_one(rel, media_root, destination):
+                rel = str(file_value).lstrip('/\\')
+                if rel in seen:
+                    continue
+                if _copy_one(
+                    rel, media_root, destination,
+                    media_root_resolved=media_root_resolved,
+                    destination_resolved=destination_resolved,
+                ):
                     copied.append(rel)
+                    seen.add(rel)
     return copied

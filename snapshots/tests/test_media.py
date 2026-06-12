@@ -124,3 +124,60 @@ def test_rejects_symlink_escape_via_resolve(tmp_path):
     )
     assert result is False
     assert list(out_dir.rglob('*')) == []
+
+
+@pytest.mark.unit
+def test_collect_referenced_media_dedupes_and_returns_copied_paths(
+    tmp_path, monkeypatch,
+):
+    """Two model rows reference the same file — must be copied once,
+    return list contains the path once."""
+    from snapshots.services import media
+
+    media_root = tmp_path / 'media'
+    media_root.mkdir()
+    (media_root / 'uploads').mkdir()
+    (media_root / 'uploads' / 'shared.png').write_bytes(b'PNG')
+
+    out_dir = tmp_path / 'out'
+
+    # Synthesize two model instances referencing the same FileField path.
+    class FakeFile:
+        def __init__(self, name): self._name = name
+        def __str__(self): return self._name
+        def __bool__(self): return True
+
+    class FakeField:
+        name = 'attachment'
+
+    class FakeManager:
+        def exclude(self, **kwargs): return self
+        def only(self, *args): return self
+        def iterator(self, chunk_size=500):
+            yield type('Inst', (), {'attachment': FakeFile('uploads/shared.png')})()
+            yield type('Inst', (), {'attachment': FakeFile('uploads/shared.png')})()
+
+    class FakeModel:
+        _default_manager = FakeManager()
+
+    monkeypatch.setattr(
+        'snapshots.services.media._iter_file_fields',
+        lambda: iter([(FakeModel, FakeField())]),
+    )
+
+    # Bypass real schema_context — we don't want DB.
+    import contextlib
+    monkeypatch.setattr(
+        'snapshots.services.media.schema_context',
+        lambda schema: contextlib.nullcontext(),
+    )
+
+    result = media.collect_referenced_media(
+        schema_name='delta_state',
+        destination=out_dir,
+        media_root=media_root,
+    )
+
+    # File copied exactly once.
+    assert result == ['uploads/shared.png']
+    assert (out_dir / 'uploads' / 'shared.png').read_bytes() == b'PNG'
