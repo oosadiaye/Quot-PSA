@@ -109,3 +109,18 @@ def test_manifest_serializes_to_json(tmp_path):
     # Must round-trip via JSON without raising.
     encoded = json.dumps(m)
     assert json.loads(encoded) == m
+
+
+@pytest.mark.unit
+def test_manifest_code_version_is_string(tmp_path):
+    """code_version should be either '<branch>@<sha>' or the 'unknown' sentinel,
+    but always a string for forensic tooling."""
+    db_file = tmp_path / 'db.sql'
+    db_file.write_bytes(b'x')
+    m = build_manifest(
+        job_id=1, label='', schema_name='public',
+        triggered_by_user_id=1, triggered_by_username='u',
+        database_sql_path=db_file, media_root=None, kek_id='kek-v1',
+    )
+    assert isinstance(m['source']['code_version'], str)
+    assert len(m['source']['code_version']) > 0

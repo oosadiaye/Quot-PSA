@@ -7,13 +7,15 @@ the SQL dump. P4 restore reads this; P1 just writes it.
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from django.conf import settings
-from django.db.migrations.loader import MigrationLoader
+
+logger = logging.getLogger(__name__)
 
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -30,28 +32,37 @@ def sha256_of_file(path: Path) -> str:
 
 
 def _git_revision() -> str:
-    """Return ``<branch>@<short-sha>`` or 'unknown' if git is unavailable."""
+    """Return ``<branch>@<short-sha>`` or 'unknown' if git is unavailable.
+
+    Uses a single git invocation pinned to the project's BASE_DIR with
+    --no-optional-locks to avoid contention with parallel git processes.
+    """
     try:
-        branch = subprocess.run(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            check=True, capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        sha = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            check=True, capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
+        base = Path(getattr(settings, 'BASE_DIR', Path.cwd()))
+        # git log -1 --format=%D@%h emits "HEAD -> branch, origin/branch@abc1234"
+        # Parse to keep only the local branch name + sha.
+        result = subprocess.run(
+            ['git', '--no-optional-locks', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            check=True, capture_output=True, text=True, timeout=5, cwd=base,
+        )
+        branch = result.stdout.strip()
+        result = subprocess.run(
+            ['git', '--no-optional-locks', 'rev-parse', '--short', 'HEAD'],
+            check=True, capture_output=True, text=True, timeout=5, cwd=base,
+        )
+        sha = result.stdout.strip()
+        logger.debug('manifest: git revision %s@%s', branch, sha)
         return f'{branch}@{sha}'
-    except Exception:
+    except Exception as exc:
+        logger.warning('manifest: could not read git revision: %s', exc)
         return 'unknown'
 
 
 def _migration_heads() -> dict[str, list[str]]:
-    """Return latest migration per app for shared and tenant apps.
-
-    Returns empty lists on any error (e.g. no DB connection in unit tests).
-    """
+    """Return latest migration per app for shared and tenant apps."""
     try:
         from django.db import connection
+        from django.db.migrations.loader import MigrationLoader
         loader = MigrationLoader(connection)
         shared: list[str] = []
         tenant: list[str] = []
@@ -63,7 +74,8 @@ def _migration_heads() -> dict[str, list[str]]:
             else:
                 tenant.append(entry)
         return {'shared': sorted(shared), 'tenant': sorted(tenant)}
-    except Exception:
+    except Exception as exc:
+        logger.warning('manifest: could not read migration heads: %s', exc)
         return {'shared': [], 'tenant': []}
 
 
@@ -76,17 +88,22 @@ def _pii_key_fingerprint() -> str:
     secret = getattr(settings, 'SECRET_KEY', '') or ''
     if not secret:
         return 'unknown'
-    h = hashlib.sha256(secret.encode('utf-8')).hexdigest()
+    # Domain separation prefix so this fingerprint can't be confused with a
+    # SHA256 of SECRET_KEY computed for any other purpose elsewhere.
+    h = hashlib.sha256(b'quot-pse-manifest-pii-v1\x00' + secret.encode('utf-8')).hexdigest()
     return f'sk-{h[:12]}'
 
 
 def _postgres_version() -> str:
     try:
         from django.db import connection
+        if connection.vendor != 'postgresql':
+            return 'n/a'
         with connection.cursor() as cur:
             cur.execute('SHOW server_version')
             return cur.fetchone()[0]
-    except Exception:
+    except Exception as exc:
+        logger.warning('manifest: could not read postgres version: %s', exc)
         return 'unknown'
 
 
@@ -99,8 +116,8 @@ def _django_tenants_version() -> str:
     """
     try:
         import django_tenants
-        return getattr(django_tenants, '__version__',
-                       _pkg_version('django-tenants'))
+        version = getattr(django_tenants, '__version__', None)
+        return version if version is not None else _pkg_version('django-tenants')
     except Exception:
         return 'unknown'
 
@@ -119,7 +136,9 @@ def _scan_media(media_root: Path | None) -> tuple[int, int]:
     count = 0
     total = 0
     for p in media_root.rglob('*'):
-        if p.is_file():
+        # Skip symlinked files: snapshot tarball is built from a controlled temp
+        # copy in Task 9, so symlinks here would indicate something unexpected.
+        if p.is_file() and not p.is_symlink():
             count += 1
             total += p.stat().st_size
     return count, total
