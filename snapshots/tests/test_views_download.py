@@ -211,6 +211,21 @@ def test_download_cache_control_no_store(
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_download_oversized_snapshot_returns_404(superuser, api_client):
+    """Snapshots above the size guard return 404 instead of OOMing."""
+    job = SnapshotJob.objects.create(
+        schema_name='delta', triggered_by=superuser,
+        status=SnapshotJob.Status.SUCCEEDED,
+        artifact_path='delta/big.tar.gz.enc',
+        size_bytes=10 * 1024 ** 3,  # 10 GiB — above 4 GiB guard
+    )
+    api_client.force_authenticate(user=superuser)
+    resp = api_client.get(f'/api/snapshots/{job.pk}/download/')
+    assert resp.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_download_filename_includes_schema_and_timestamp(
     succeeded_job_with_artifact, superuser, api_client,
 ):

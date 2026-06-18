@@ -198,3 +198,14 @@ def test_label_max_length_enforced(actor):
     })
     assert not serializer.is_valid()
     assert 'label' in serializer.errors
+
+
+@pytest.mark.integration
+def test_create_validation_rejects_public_schema():
+    """The public schema must not be snapshotted via the API."""
+    serializer = SnapshotJobSerializer(data={
+        'schema_name': 'public',
+        'label': 'should not work',
+    })
+    assert not serializer.is_valid()
+    assert 'schema_name' in serializer.errors

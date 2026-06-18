@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -95,6 +96,22 @@ def test_orphan_file_does_not_raise(actor, tmp_path):
 
         old.refresh_from_db()
         assert old.status == SnapshotJob.Status.EXPIRED
+
+
+@pytest.mark.integration
+@override_settings(SNAPSHOTS_RETENTION_DAYS=1, SNAPSHOTS_MAX_PER_TENANT=99)
+def test_expire_emits_audit_record_expired_for_each_victim(actor, tmp_path):
+    """_expire must call audit.record_expired once per expired job."""
+    old1 = _make_job(actor, 'delta_state', age_days=10)
+    old2 = _make_job(actor, 'delta_state', age_days=15)
+    storage = _FakeStorage(tmp_path)
+    storage.touch(old1.artifact_path)
+    storage.touch(old2.artifact_path)
+
+    with patch('snapshots.services.retention.audit') as mock_audit:
+        RetentionService(storage=storage).enforce_for_schema('delta_state')
+
+    assert mock_audit.record_expired.call_count == 2
 
 
 class _FakeStorage:

@@ -24,6 +24,7 @@ from django.db import transaction
 from django.utils import timezone as django_timezone
 from django_tenants.utils import get_public_schema_name
 
+from snapshots import audit
 from snapshots.models import SnapshotJob
 from snapshots.services.crypto import EnvelopeHeader, encrypt_stream
 from snapshots.services.dump import run_pg_dump
@@ -126,6 +127,7 @@ class SnapshotService:
             raise RuntimeError(
                 f'snapshot job {self.job.pk} is in status {self.job.status}; '
                 f'refusing to transition to RUNNING.')
+        audit.record_started(self.job)
 
     def _dump_database(self, target: Path) -> None:
         run_pg_dump(
@@ -216,6 +218,7 @@ class SnapshotService:
                 manifest=manifest,
             )
         self.job.refresh_from_db()
+        audit.record_succeeded(self.job)
 
     def _mark_failed(self, exc: Exception) -> None:
         msg = str(exc)[:4096]
@@ -227,6 +230,7 @@ class SnapshotService:
                     error_class=exc.__class__.__name__,
                     error_message=msg,
                 )
+            audit.record_failed(self.job, exc.__class__.__name__, msg)
         except Exception:
             logger.exception('snapshots: failed to record FAILED state for job %s',
                               self.job.pk)

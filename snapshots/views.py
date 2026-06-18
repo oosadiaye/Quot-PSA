@@ -35,6 +35,8 @@ from snapshots.tasks import run_snapshot_job
 
 logger = logging.getLogger(__name__)
 
+_MAX_DOWNLOAD_BYTES = 4 * 1024**3  # 4 GiB — guard against OOM on huge decrypts
+
 
 class SnapshotJobViewSet(viewsets.ModelViewSet):
     """Snapshot management endpoints.
@@ -114,6 +116,9 @@ class SnapshotJobViewSet(viewsets.ModelViewSet):
             raise NotFound('Snapshot is not available for download.')
         if not job.artifact_path:
             raise NotFound('Snapshot artifact has been removed.')
+        if job.size_bytes and job.size_bytes > _MAX_DOWNLOAD_BYTES:
+            raise NotFound(
+                'Snapshot too large for in-browser download. Use the CLI restore tool.')
 
         # Resolve settings eagerly so override_settings in tests captures them
         # before the generator is consumed.

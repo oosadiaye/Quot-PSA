@@ -125,3 +125,51 @@ def test_manifest_records_encryption_envelope(
     assert enc.get('iv_b64'), 'iv_b64 must be filled after _encrypt_and_store'
     assert enc.get('tag_b64'), 'tag_b64 must be filled'
     assert enc.get('wrapped_dek_b64'), 'wrapped_dek_b64 must be filled'
+
+
+@pytest.mark.integration
+def test_execute_emits_audit_started_and_succeeded(
+    queued_job, configured_settings,
+):
+    """Successful run must call audit.record_started and audit.record_succeeded."""
+    def fake_run_pg_dump(*, schema, dsn, target, pg_dump_bin, timeout_sec=None):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b'-- fake\n')
+
+    with patch('snapshots.services.snapshot_service.run_pg_dump',
+               side_effect=fake_run_pg_dump):
+        with patch('snapshots.services.snapshot_service.collect_referenced_media',
+                   return_value=[]):
+            with patch('snapshots.services.snapshot_service.audit') as mock_audit:
+                svc = SnapshotService(queued_job)
+                svc.execute()
+
+    mock_audit.record_started.assert_called_once()
+    mock_audit.record_succeeded.assert_called_once()
+    mock_audit.record_failed.assert_not_called()
+
+
+@pytest.mark.integration
+def test_execute_emits_audit_failed_on_pg_dump_error(
+    queued_job, configured_settings,
+):
+    """A pg_dump failure must emit audit.record_failed with the error class."""
+    from snapshots.services.dump import PgDumpError
+
+    def fake_run_pg_dump(*, schema, dsn, target, pg_dump_bin, timeout_sec=None):
+        raise PgDumpError('fatal: bad role')
+
+    with patch('snapshots.services.snapshot_service.run_pg_dump',
+               side_effect=fake_run_pg_dump):
+        with patch('snapshots.services.snapshot_service.audit') as mock_audit:
+            svc = SnapshotService(queued_job)
+            with pytest.raises(PgDumpError):
+                svc.execute()
+
+    mock_audit.record_started.assert_called_once()
+    mock_audit.record_failed.assert_called_once()
+    call_kwargs = mock_audit.record_failed.call_args
+    # record_failed(job, error_class, error_message) — positional args
+    assert call_kwargs.args[1] == 'PgDumpError'
+    assert 'fatal: bad role' in call_kwargs.args[2]
+    mock_audit.record_succeeded.assert_not_called()

@@ -75,6 +75,10 @@ class SnapshotJobSerializer(serializers.ModelSerializer):
         }
 
     def validate_schema_name(self, value: str) -> str:
+        from django_tenants.utils import get_public_schema_name
+        if value == get_public_schema_name():
+            raise serializers.ValidationError(
+                'Cannot snapshot the public schema via the API.')
         if not SCHEMA_NAME_RE.fullmatch(value):
             raise serializers.ValidationError(
                 'schema_name must be lowercase, start with a letter, '

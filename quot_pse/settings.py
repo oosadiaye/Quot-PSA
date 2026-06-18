@@ -273,6 +273,7 @@ SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
 SNAPSHOTS_CREATE_RATE_PER_HOUR   = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
 SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR', '10'))
 SNAPSHOTS_PG_DUMP_BIN          = os.getenv('SNAPSHOTS_PG_DUMP_BIN', 'pg_dump')
+SNAPSHOTS_MAX_BUFFER_GB        = int(os.getenv('SNAPSHOTS_MAX_BUFFER_GB', '8'))
 SNAPSHOTS_SOFT_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_SOFT_TIME_LIMIT_SEC', '3000'))
 SNAPSHOTS_HARD_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_HARD_TIME_LIMIT_SEC', '3600'))
 SNAPSHOTS_REAPER_BUFFER_SEC    = int(os.getenv('SNAPSHOTS_REAPER_BUFFER_SEC', '300'))
@@ -911,6 +912,15 @@ CELERY_BEAT_SCHEDULE = {
     'hrm-non-compliant-report': {
         'task': 'hrm.non_compliant_report',
         'schedule': 604800,  # Weekly
+    },
+    # Snapshots — retention enforcement + stale-job reaper
+    'snapshots-enforce-retention': {
+        'task': 'snapshots.enforce_retention_all',
+        'schedule': 86400,  # Daily
+    },
+    'snapshots-reap-stale-jobs': {
+        'task': 'snapshots.reap_stale_jobs',
+        'schedule': 3600,   # Hourly
     },
 }
 

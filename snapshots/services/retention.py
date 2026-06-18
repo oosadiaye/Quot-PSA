@@ -17,6 +17,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from snapshots import audit
 from snapshots.models import SnapshotJob
 
 
@@ -71,7 +72,14 @@ class RetentionService:
                 status=SnapshotJob.Status.EXPIRED,
                 artifact_path='',
             )
-        for _pk, artifact in victims:
+        for pk, artifact in victims:
+            # Audit FIRST so the event is recorded even if file delete fails.
+            try:
+                job_stub = SnapshotJob.objects.get(pk=pk)
+                audit.record_expired(job_stub)
+            except Exception:
+                logger.exception(
+                    'snapshots.retention: audit failed for pk=%s', pk)
             if not artifact:
                 continue
             try:
