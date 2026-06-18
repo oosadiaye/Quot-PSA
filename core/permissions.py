@@ -58,6 +58,28 @@ def _get_tenant_permissions(user, tenant):
 def invalidate_permission_cache(user_id, tenant_id):
     """Call this when a user's role or groups change."""
     cache.delete(f"utr:{user_id}:{tenant_id}")
+
+
+def _user_has_all_access(user) -> bool:
+    """True iff user holds an active assignment to the canonical 'all_access' Role.
+
+    Tenant-scoped: must be called inside ``schema_context`` for the tenant in
+    question, because ``core.RoleAssignment`` lives in TENANT_APPS. Returns
+    False on any error so callers default to deny.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    try:
+        from core.models import RoleAssignment
+        return RoleAssignment.objects.filter(
+            user_id=user.pk,
+            role__code='all_access',
+            role__is_active=True,
+            is_active=True,
+        ).exists()
+    except Exception:
+        logger.exception('core.permissions: _user_has_all_access lookup failed')
+        return False
     cache.delete(f"tenant_perms:{user_id}:{tenant_id}")
 
 
