@@ -160,6 +160,72 @@ def test_download_returns_correct_content_disposition_header(
             resp = api_client.get(f'/api/snapshots/{job.pk}/download/')
 
     assert 'Content-Disposition' in resp.headers
-    assert 'attachment' in resp.headers['Content-Disposition']
-    assert f'{job.id}.tar.gz' in resp.headers['Content-Disposition']
+    cd = resp.headers['Content-Disposition']
+    assert 'attachment' in cd
+    assert f'{job.id}.tar.gz' in cd  # The id+.tar.gz suffix is still present
     assert resp.headers.get('X-Content-Type-Options') == 'nosniff'
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_download_decrypt_failure_returns_404_not_500(
+    succeeded_job_with_artifact, superuser, api_client,
+):
+    """Wrong KEK → 404 (no phantom audit, no 500 leak)."""
+    job, storage_root = succeeded_job_with_artifact
+    api_client.force_authenticate(user=superuser)
+
+    bad_kek = 'bb' * 32  # different from the KEK the artifact was encrypted with
+    from django.test import override_settings
+    with override_settings(
+        SNAPSHOTS_KEK_HEX=bad_kek,
+        SNAPSHOTS_BACKUP_DIR=storage_root,
+    ):
+        with patch('snapshots.views.audit.record_downloaded') as mock_audit:
+            resp = api_client.get(f'/api/snapshots/{job.pk}/download/')
+
+    assert resp.status_code == 404
+    # Phantom audit prevention: audit must NOT have been called
+    mock_audit.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_download_cache_control_no_store(
+    succeeded_job_with_artifact, superuser, api_client,
+):
+    """Sensitive financial data must not be cacheable."""
+    job, storage_root = succeeded_job_with_artifact
+    api_client.force_authenticate(user=superuser)
+
+    from django.test import override_settings
+    with override_settings(
+        SNAPSHOTS_KEK_HEX=KEK_HEX,
+        SNAPSHOTS_BACKUP_DIR=storage_root,
+    ):
+        with patch('snapshots.views.audit.record_downloaded'):
+            resp = api_client.get(f'/api/snapshots/{job.pk}/download/')
+
+    assert 'no-store' in resp.headers.get('Cache-Control', '')
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_download_filename_includes_schema_and_timestamp(
+    succeeded_job_with_artifact, superuser, api_client,
+):
+    """Filename should be operationally meaningful."""
+    job, storage_root = succeeded_job_with_artifact
+    api_client.force_authenticate(user=superuser)
+
+    from django.test import override_settings
+    with override_settings(
+        SNAPSHOTS_KEK_HEX=KEK_HEX,
+        SNAPSHOTS_BACKUP_DIR=storage_root,
+    ):
+        with patch('snapshots.views.audit.record_downloaded'):
+            resp = api_client.get(f'/api/snapshots/{job.pk}/download/')
+
+    cd = resp.headers.get('Content-Disposition', '')
+    assert 'delta_' in cd  # schema_name
+    assert str(job.id) in cd  # job id

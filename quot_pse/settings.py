@@ -270,7 +270,8 @@ SNAPSHOTS_RETENTION_DAYS       = int(os.getenv('SNAPSHOTS_RETENTION_DAYS', '14')
 SNAPSHOTS_MAX_PER_TENANT       = int(os.getenv('SNAPSHOTS_MAX_PER_TENANT', '5'))
 SNAPSHOTS_KEK_HEX              = os.getenv('SNAPSHOTS_KEK_HEX')
 SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
-SNAPSHOTS_CREATE_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
+SNAPSHOTS_CREATE_RATE_PER_HOUR   = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
+SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR', '10'))
 SNAPSHOTS_PG_DUMP_BIN          = os.getenv('SNAPSHOTS_PG_DUMP_BIN', 'pg_dump')
 SNAPSHOTS_SOFT_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_SOFT_TIME_LIMIT_SEC', '3000'))
 SNAPSHOTS_HARD_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_HARD_TIME_LIMIT_SEC', '3600'))
@@ -427,7 +428,8 @@ REST_FRAMEWORK = {
         # treasury day (or the test suite) can raise the ceiling.
         'reports':      os.getenv('REPORTS_THROTTLE_RATE', '600/hour'),
         'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
-        'snapshot_create': f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
+        'snapshot_create':    f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
+        'snapshot_download':  f'{SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR}/hour',
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',
