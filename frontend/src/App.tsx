@@ -74,6 +74,7 @@ const WarrantList = lazy(() => import('./pages/gov').then(m => ({ default: m.War
 const RevenueBudgetList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueBudgetList })));
 const TSAAccountList = lazy(() => import('./pages/gov').then(m => ({ default: m.TSAAccountList })));
 const PaymentVoucherList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentVoucherList })));
+const MobilizationPaymentList = lazy(() => import('./pages/gov').then(m => ({ default: m.MobilizationPaymentList })));
 const PaymentInstructionList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentInstructionList })));
 const RevenueHeadList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueHeadList })));
 const RevenueCollectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueCollectionList })));
@@ -247,6 +248,10 @@ const MyLeave     = lazy(() => import('./features/portal/pages/MyLeave'));
 const MyProfile   = lazy(() => import('./features/portal/pages/MyProfile'));
 const MyDocuments = lazy(() => import('./features/portal/pages/MyDocuments'));
 
+// ── Snapshots ─────────────────────────────────────────────────
+const SnapshotsPage = lazy(() => import('./features/admin/snapshots').then(m => ({ default: m.SnapshotsPage })));
+const TenantSnapshotsPage = lazy(() => import('./features/admin/snapshots').then(m => ({ default: m.TenantSnapshotsPage })));
+
 // ── Contracts & Milestone Payments ───────────────────────────
 const ContractsDashboard  = lazy(() => import('./features/contracts/ContractsDashboard'));
 const ContractsList       = lazy(() => import('./features/contracts/ContractsList'));
@@ -372,6 +377,9 @@ function App() {
                       <Route path="/superadmin" element={
                         <ProtectedRoute requiredPerm="is_superuser"><SuperAdminDashboard /></ProtectedRoute>
                       } />
+                      <Route path="/admin/snapshots" element={
+                        <ProtectedRoute requiredPerm="is_superuser"><SnapshotsPage /></ProtectedRoute>
+                      } />
 
                       {/* ── User Management (no module guard) ────────── */}
                       <Route path="/user-management" element={
@@ -408,6 +416,9 @@ function App() {
                       } />
                       <Route path="/settings/branding" element={
                         <ProtectedRoute requiredRole="admin"><BrandingSettings /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/backups" element={
+                        <ProtectedRoute requiredRole="admin"><TenantSnapshotsPage /></ProtectedRoute>
                       } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════
@@ -680,6 +691,7 @@ function App() {
                       <Route path="/budget/execution-report" element={<ProtectedRoute><ExecutionReport /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts" element={<ProtectedRoute><TSAAccountList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-vouchers" element={<ProtectedRoute><PaymentVoucherList /></ProtectedRoute>} />
+                      <Route path="/accounting/mobilization-advances" element={<ProtectedRoute><MobilizationPaymentList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-instructions" element={<ProtectedRoute><PaymentInstructionList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-heads" element={<ProtectedRoute><RevenueHeadList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections" element={<ProtectedRoute><RevenueCollectionList /></ProtectedRoute>} />

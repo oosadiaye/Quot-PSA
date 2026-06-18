@@ -68,6 +68,7 @@ import {
     Scale,
     Handshake,
     FileSignature,
+    Archive,
 } from 'lucide-react';
 import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
@@ -134,6 +135,10 @@ const menuItems: MenuItem[] = [
             // from the same mental cluster as account management.
             { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
+            // Mobilization advances live with payment vouchers because
+            // they're the *trigger* for a PV — operator scans this list
+            // to see "which advances are PENDING and need a PV raised".
+            { name: 'Mobilization Advances', path: '/accounting/mobilization-advances', icon: Banknote },
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
             // H2 follow-up (WS6) — operator surface for cascade failures.
             // Sits next to Outgoing Payments because the failures come
@@ -320,6 +325,7 @@ const menuItems: MenuItem[] = [
             // compose every AIE printout. Configure once at onboarding;
             // future signatory changes only need a new image upload.
             { name: 'Warrant Printout', path: '/settings/warrant-printout', icon: FileSignature },
+            { name: 'Backups', path: '/settings/backups', icon: Archive },
         ],
     },
     {
@@ -327,6 +333,7 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'is_superuser', module: null,
         subItems: [
             { name: 'Admin Dashboard', path: '/superadmin', icon: Settings },
+            { name: 'Snapshots', path: '/admin/snapshots', icon: Archive },
         ],
     },
 ];
@@ -630,12 +637,19 @@ const Sidebar = () => {
                     const ACTIVE_FG  = '#ffffff';
                     const HOVER_BG   = '#f1f5f9';        // slate-100
                     const HOVER_FG   = '#0f172a';        // slate-900
-                    const INACTIVE_FG       = '#475569'; // slate-600
-                    const INACTIVE_ICON     = '#94a3b8'; // slate-400
-                    const INACTIVE_LABEL_FG = '#1e293b'; // slate-800 — the
-                    //   parent label sits a touch darker than the icon so
-                    //   the text reads as the primary affordance.
-                    const INACTIVE_CHEVRON  = '#94a3b8';
+                    // Inactive sidebar text was previously slate-600 / slate-400
+                    // which read as washed-out grey ("ash") against the white
+                    // background. Bumped to near-black (slate-900) for the
+                    // primary text and slate-700 for the icon/chevron so the
+                    // visual rhythm of label > icon survives while every label
+                    // now meets AAA contrast against the white sidebar.
+                    // Active state (white on blue) and hover state untouched.
+                    const INACTIVE_FG       = '#0f172a'; // slate-900 (near-black)
+                    const INACTIVE_ICON     = '#334155'; // slate-700
+                    const INACTIVE_LABEL_FG = '#0f172a'; // slate-900 (unified
+                    //   with row FG — the label IS the affordance, no longer
+                    //   needs a separate "darker than the row" treatment).
+                    const INACTIVE_CHEVRON  = '#334155'; // slate-700
 
                     const parentActive = isParentActive(item);
 
