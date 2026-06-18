@@ -1,0 +1,37 @@
+flowchart LR
+    subgraph PUBLIC[Public schema]
+        TEN[tenants<br/>Client / Domain<br/>UserTenantRole]
+        SA[superadmin<br/>Subscriptions / Webhooks<br/>Email templates]
+    end
+
+    subgraph TENANT[Per-tenant schema]
+        CORE[core<br/>AuditBaseModel<br/>RBAC / AuditLog]
+        BUD[budget<br/>Appropriation / Warrant<br/>Virement]
+        ACC[accounting<br/>GL / NCoA / Treasury<br/>IPSAS journal engine]
+        PROC[procurement<br/>PR / PO / GRN<br/>3-way match]
+        CON[contracts<br/>Contract / IPC<br/>Mobilisation / Retention]
+        INV[inventory<br/>Items / Stock<br/>Warehouses]
+        HR[hrm<br/>Employees / Payroll<br/>Leave]
+        WF[workflow<br/>Approval engine<br/>SLA / Delegation]
+    end
+
+    TEN -.cache invalidation.-> CORE
+    TEN -.enforce_warrant flag.-> BUD
+
+    PROC --> ACC
+    PROC --> INV
+    PROC --> BUD
+    CON --> ACC
+    CON --> BUD
+    HR --> ACC
+    INV --> ACC
+    ACC --> BUD
+    WF -.signals.-> PROC
+    WF -.signals.-> CON
+    WF -.signals.-> HR
+    WF -.signals.-> BUD
+
+    classDef public fill:#fde68a,stroke:#92400e
+    classDef tenant fill:#dbeafe,stroke:#1e40af
+    class TEN,SA public
+    class CORE,BUD,ACC,PROC,CON,INV,HR,WF tenant

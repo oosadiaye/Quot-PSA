@@ -30,6 +30,12 @@ class PeriodStatusResult:
 class PeriodControlService:
     """Service for unified period control across all modules."""
 
+    # LOCKED_STATUSES already includes 'CLOSED' (and casing variants).
+    # There is no separate soft-close concept in this codebase — a
+    # search for ``soft_close`` / ``SOFT_CLOSED_STATUSES`` returns
+    # nothing — so 'CLOSED' and 'LOCKED' are both treated as hard
+    # blockers below. Do not add a separate elif branch for 'CLOSED';
+    # the membership test in LOCKED_STATUSES already catches it.
     LOCKED_STATUSES = ['CLOSED', 'LOCKED', 'Closed', 'Locked']
     OPEN_STATUSES = ['OPEN', 'ADJUSTMENT', 'Draft', 'Open', 'YearEnd']
     ADJUSTMENT_STATUSES = ['OPEN', 'ADJUSTMENT', 'YearEnd']
@@ -112,20 +118,32 @@ class PeriodControlService:
                 can_invoice = False
                 can_payment = False
                 messages.append(f"Budget period {budget_period} is locked")
-            elif budget_period.status == 'CLOSED':
-                can_post = False
-                can_adjust = False
-                messages.append(f"Budget period {budget_period} is closed")
 
-            # Defensive getattr: older tenants may hold rows whose model
-            # is missing these columns (migration drift). Default to
-            # True so a missing flag never silently blocks posting.
-            if not getattr(budget_period, 'allow_postings', True):
+            # Tenants whose migration didn't add the column should fail
+            # closed; surface the migration gap rather than silently
+            # allow posting. Using a sentinel so we can distinguish
+            # ``column missing`` (treat as False) from ``column is
+            # False`` (already correctly handled).
+            _missing = object()
+            _allow_postings = getattr(budget_period, 'allow_postings', _missing)
+            if _allow_postings is _missing or not _allow_postings:
                 can_post = False
-                messages.append("Budget period does not allow postings")
+                if _allow_postings is _missing:
+                    messages.append(
+                        "Budget period model is missing allow_postings "
+                        "column — fail closed; run migrations."
+                    )
+                else:
+                    messages.append("Budget period does not allow postings")
 
-            if not getattr(budget_period, 'allow_adjustments', True):
+            _allow_adjustments = getattr(budget_period, 'allow_adjustments', _missing)
+            if _allow_adjustments is _missing or not _allow_adjustments:
                 can_adjust = False
+                if _allow_adjustments is _missing:
+                    messages.append(
+                        "Budget period model is missing allow_adjustments "
+                        "column — fail closed; run migrations."
+                    )
 
         if fiscal_period:
             period_name = f"Fiscal: {fiscal_period}"

@@ -36,19 +36,29 @@ class TestYearEndClose:
     def seed_balances(
         self, db, revenue_account, expense_account, fiscal_year_2022,
     ):
-        """Seed GLBalance with 10M revenue and 7M expense for FY2022."""
+        """Seed GLBalance with 10M revenue and 7M expense for FY2022.
+
+        Uses ``update_or_create`` so the fixture is idempotent across
+        test-DB reuse: the WS5-A NULLS-NOT-DISTINCT unique constraint
+        on (account, fund, function, program, geo, mda, fiscal_year,
+        period) would otherwise reject a second seeding pass.
+        """
         from accounting.models import GLBalance
-        GLBalance.objects.create(
+        GLBalance.objects.update_or_create(
             account=revenue_account,
             fiscal_year=2022, period=12,
-            debit_balance=Decimal('0'),
-            credit_balance=Decimal('10000000'),
+            defaults={
+                'debit_balance': Decimal('0'),
+                'credit_balance': Decimal('10000000'),
+            },
         )
-        GLBalance.objects.create(
+        GLBalance.objects.update_or_create(
             account=expense_account,
             fiscal_year=2022, period=12,
-            debit_balance=Decimal('7000000'),
-            credit_balance=Decimal('0'),
+            defaults={
+                'debit_balance': Decimal('7000000'),
+                'credit_balance': Decimal('0'),
+            },
         )
         return True
 
@@ -112,7 +122,10 @@ class TestYearEndClose:
             YearEndCloseService, YearEndCloseError,
         )
         # Ensure the 43100000 account is NOT present in this test.
-        from accounting.models import Account
+        # Clear GLBalance rows referencing it first (FK is PROTECT, so
+        # the Account delete would otherwise raise ProtectedError).
+        from accounting.models import Account, GLBalance
+        GLBalance.objects.filter(account__code='43100000').delete()
         Account.objects.filter(code='43100000').delete()
 
         with pytest.raises(YearEndCloseError):

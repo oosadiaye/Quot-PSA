@@ -18,6 +18,7 @@ import { useToast } from '../../../context/ToastContext';
 import AccountingLayout from '../AccountingLayout';
 import BackButton from '../../../components/BackButton';
 import SearchableSelect from '../../../components/SearchableSelect';
+import AmountInput from '../../../components/AmountInput';
 import apiClient from '../../../api/client';
 import '../styles/glassmorphism.css';
 
@@ -37,6 +38,14 @@ interface InvoiceLine {
     tax_code: string;
     withholding_tax: string;
 }
+
+// Minimal shape interfaces for reference-data hooks. Defined for use
+// by future refactors and to document the expected payload contract;
+// existing call-sites that still spell ``(x: any)`` inline are left
+// as-is to keep this change-set minimal and reviewable.
+export interface RefTaxCode { id: number | string; code: string; rate?: number | string; }
+export interface RefWithholdingTax { id: number | string; code: string; rate?: number | string; }
+export interface RefAccount { id: number | string; account_code?: string; account_name?: string; account_type?: string; code?: string; name?: string; }
 
 interface Props {
     onCancel: () => void;
@@ -98,10 +107,17 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
         error: accError,
         refetch: refetchAccounts,
     } = useQuery({
-        queryKey: ['accounts', 'ap-form', 'all-active'],
+        queryKey: ['accounts', 'ap-form', 'postable-active'],
         queryFn: async () => {
+            // is_postable=true skips SAP-style header / group accounts
+            // (Account.is_postable=False). Vendor invoice lines post
+            // through the GL the same way journal lines do, so the
+            // same posting-target restriction applies.
             const { data } = await apiClient.get('/accounting/accounts/', {
-                params: { is_active: true, page_size: 10000, ordering: 'code' },
+                params: {
+                    is_active: true, is_postable: true,
+                    page_size: 10000, ordering: 'code',
+                },
             });
             return Array.isArray(data) ? data : (data?.results ?? []);
         },
@@ -926,10 +942,11 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
                                         fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)',
                                         fontWeight: 700, pointerEvents: 'none',
                                     }}>{currencySymbol}</span>
-                                    <input style={{ ...inp, paddingLeft: '1.75rem' }}
-                                        type="number" step="0.01" min="0" placeholder="0.00"
+                                    <AmountInput style={{ ...inp, paddingLeft: '1.75rem' }}
+                                        placeholder="0.00"
+                                        min={0}
                                         value={header.vendor_credit_amount}
-                                        onChange={e => setHeader(h => ({ ...h, vendor_credit_amount: e.target.value }))}
+                                        onChange={v => setHeader(h => ({ ...h, vendor_credit_amount: v }))}
                                         required />
                                 </div>
                                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
@@ -1275,10 +1292,10 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
                                                         position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)',
                                                         fontSize: '0.65rem', color: 'var(--color-text-muted)', fontWeight: 700, pointerEvents: 'none',
                                                     }}>{currencySymbol}</span>
-                                                    <input style={{ ...inp, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem 0.38rem 1.35rem' }}
-                                                        type="number" step="0.01" min="0"
+                                                    <AmountInput style={{ ...inp, fontSize: 'var(--text-xs)', padding: '0.38rem 0.55rem 0.38rem 1.35rem' }}
+                                                        min={0}
                                                         value={line.amount}
-                                                        onChange={e => updateLine(idx, 'amount', e.target.value)} required />
+                                                        onChange={v => updateLine(idx, 'amount', v)} required />
                                                 </div>
                                             </td>
                                             {/* Tax */}

@@ -26,7 +26,7 @@ class TestAuditLogWriteOnce:
     def _make_log(self, maker_user, **overrides):
         from accounting.models import TransactionAuditLog
         defaults = dict(
-            transaction_type='journal',
+            transaction_type='GL',
             transaction_id=1,
             action='CREATE',
             user=maker_user,
@@ -72,11 +72,11 @@ class TestAuditHashChain:
         """Each row's previous_checksum == the prior row's checksum."""
         from accounting.models import TransactionAuditLog
         log1 = TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=1, action='CREATE',
+            transaction_type='GL', transaction_id=1, action='CREATE',
             user=maker_user, username=maker_user.username,
         )
         log2 = TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=2, action='CREATE',
+            transaction_type='GL', transaction_id=2, action='CREATE',
             user=maker_user, username=maker_user.username,
         )
         assert log2.previous_checksum == log1.checksum
@@ -86,12 +86,12 @@ class TestAuditHashChain:
         different checksums — proves user_id is in the hash."""
         from accounting.models import TransactionAuditLog
         log1 = TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=99, action='UPDATE',
+            transaction_type='GL', transaction_id=99, action='UPDATE',
             user=maker_user, username=maker_user.username,
             new_values={'x': 1},
         )
         log2 = TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=99, action='UPDATE',
+            transaction_type='GL', transaction_id=99, action='UPDATE',
             user=checker_user, username=checker_user.username,
             new_values={'x': 1},
         )
@@ -102,7 +102,7 @@ class TestAuditHashChain:
         checksum on a saved row, the recomputed hash no longer matches."""
         from accounting.models import TransactionAuditLog
         log = TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=1, action='UPDATE',
+            transaction_type='GL', transaction_id=1, action='UPDATE',
             user=maker_user, username=maker_user.username,
             new_values={'amount': 100},
         )
@@ -123,7 +123,7 @@ class TestAuditRedaction:
     def test_password_redacted(self, maker_user):
         from accounting.models import TransactionAuditLog
         log = TransactionAuditLog.objects.create(
-            transaction_type='user', transaction_id=1, action='UPDATE',
+            transaction_type='GL', transaction_id=1, action='UPDATE',
             user=maker_user, username=maker_user.username,
             new_values={'username': 'alice', 'password': 'hunter2'},
         )
@@ -134,7 +134,7 @@ class TestAuditRedaction:
         """Redaction walks nested dicts."""
         from accounting.models import TransactionAuditLog
         log = TransactionAuditLog.objects.create(
-            transaction_type='integration', transaction_id=2, action='CREATE',
+            transaction_type='GL', transaction_id=2, action='CREATE',
             user=maker_user, username=maker_user.username,
             new_values={
                 'name': 'Remita',
@@ -156,17 +156,17 @@ class TestVerifyIntegrityReadOnly:
         from accounting.services.audit_trail import AuditTrailService
 
         TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=77, action='CREATE',
+            transaction_type='GL', transaction_id=77, action='CREATE',
             user=maker_user, username=maker_user.username,
         )
         TransactionAuditLog.objects.create(
-            transaction_type='journal', transaction_id=77, action='UPDATE',
+            transaction_type='GL', transaction_id=77, action='UPDATE',
             user=maker_user, username=maker_user.username,
         )
 
         rows_before = list(
             TransactionAuditLog.objects
-            .filter(transaction_type='journal', transaction_id=77)
+            .filter(transaction_type='GL', transaction_id=77)
             .values_list('pk', 'previous_checksum', 'checksum')
         )
 
@@ -174,7 +174,7 @@ class TestVerifyIntegrityReadOnly:
 
         rows_after = list(
             TransactionAuditLog.objects
-            .filter(transaction_type='journal', transaction_id=77)
+            .filter(transaction_type='GL', transaction_id=77)
             .values_list('pk', 'previous_checksum', 'checksum')
         )
         assert rows_before == rows_after  # read-only!

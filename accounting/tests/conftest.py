@@ -26,6 +26,40 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db.backends.postgresql.operations import (
+    DatabaseOperations as _PgDatabaseOperations,
+)
+
+
+# ---------------------------------------------------------------------------
+# Cross-schema flush bridge
+# ---------------------------------------------------------------------------
+#
+# pytest-django teardown for ``TransactionTestCase`` and the
+# ``transactional_db`` fixture calls Django's ``flush`` management
+# command. ``flush`` issues plain ``TRUNCATE table1, table2, ...`` —
+# but in django-tenants, tenant-schema tables (e.g.
+# ``accounting_journalheader``) carry foreign keys to public-schema
+# tables (``auth_user``). Postgres rejects a TRUNCATE on a referenced
+# table without CASCADE, so teardown explodes with
+# ``FeatureNotSupported: cannot truncate a table referenced in a
+# foreign key constraint``.
+#
+# Patch ``sql_flush`` to always emit ``CASCADE``. This is safe in a
+# test database (we're throwing the data away) and is a no-op against
+# tables without inbound FKs.
+_ORIGINAL_SQL_FLUSH = _PgDatabaseOperations.sql_flush
+
+
+def _sql_flush_cascade(self, style, tables, *, reset_sequences=False, allow_cascade=False):
+    return _ORIGINAL_SQL_FLUSH(
+        self, style, tables,
+        reset_sequences=reset_sequences,
+        allow_cascade=True,  # force CASCADE for cross-schema FKs
+    )
+
+
+_PgDatabaseOperations.sql_flush = _sql_flush_cascade
 
 
 # ---------------------------------------------------------------------------
@@ -69,14 +103,18 @@ def django_db_setup(request, django_db_setup, django_db_blocker):
 
         connection.set_schema_to_public()
 
-        if not Client.objects.filter(schema_name=PYTEST_SCHEMA_NAME).exists():
+        client = Client.objects.filter(schema_name=PYTEST_SCHEMA_NAME).first()
+        if client is None:
             client = Client(
                 schema_name=PYTEST_SCHEMA_NAME,
                 name='PyTest Tenant',
             )
-            # auto_create_schema=True on TenantMixin: this save() runs
-            # migrate_schemas for pytest_schema, materialising every
-            # TENANT_APPS table inside the new schema.
+            # Note: ``Client.auto_create_schema = False`` in this project,
+            # so ``client.save()`` only persists the row — it does NOT
+            # create the Postgres schema. The schema is materialised
+            # explicitly below via ``client.create_schema()`` so we have
+            # one canonical creation path that works whether the row is
+            # new or partially-recovered from a prior failed run.
             client.save()
 
             Domain.objects.get_or_create(
@@ -85,16 +123,57 @@ def django_db_setup(request, django_db_setup, django_db_blocker):
                 defaults={'is_primary': True},
             )
 
-        # Defensive: if the client existed but the schema didn't (can
-        # happen when a prior failed session half-completed), force a
-        # schema migration.
+        # Ensure the Postgres schema exists and is fully migrated.
+        #
+        # Why the manual sequence below (and not a plain
+        # ``client.create_schema()``):
+        #
+        # ``django-tenants``' ``create_schema()`` runs ``migrate_schemas``
+        # in a single shot. The first migration applied is
+        # ``contenttypes.0001_initial`` (which creates ``django_content_type``
+        # with the legacy ``name NOT NULL`` column). The very next
+        # migration that calls ``ContentType.objects.get_for_model()``
+        # from a ``RunPython`` seeder OR fires a ``post_save`` audit
+        # signal (e.g. ``accounting/migrations/0080_budgetcheckrule.py``
+        # → ``log_model_changes`` → ``AuditLog.log_create`` →
+        # ``ContentType.get_for_model``) tries to INSERT into
+        # ``django_content_type`` with ``name=None`` and trips the NOT
+        # NULL constraint — before ``contenttypes.0002`` ever runs.
+        #
+        # Fix: create an empty schema first, run the contenttypes
+        # migrations TO COMPLETION (0001 + 0002 → column dropped), then
+        # run the rest of the tenant migrations against an already-
+        # corrected ``django_content_type`` table.
+        from django.core.management import call_command
+        from django_tenants.utils import schema_context
+
         if not schema_exists(PYTEST_SCHEMA_NAME):
-            from django.core.management import call_command
-            call_command(
-                'migrate_schemas',
-                schema_name=PYTEST_SCHEMA_NAME,
-                verbosity=0,
-            )
+            # 1. Plain ``CREATE SCHEMA`` only — no migrations.
+            with connection.cursor() as cur:
+                cur.execute(f'CREATE SCHEMA "{PYTEST_SCHEMA_NAME}"')
+
+            # 2. Run contenttypes app migrations to completion against
+            #    the new schema. ``0001_initial`` creates the table,
+            #    ``0002_remove_content_type_name`` drops the bad column,
+            #    so by the time any other migration's seeder calls
+            #    ``ContentType.get_for_model()`` the schema is correct.
+            with schema_context(PYTEST_SCHEMA_NAME):
+                call_command(
+                    'migrate',
+                    'contenttypes',
+                    verbosity=0,
+                    interactive=False,
+                )
+
+        # 3. Run ALL tenant migrations. ``django_content_type`` is now in
+        #    its post-0002 shape (no ``name`` column), so any RunPython
+        #    seeder that creates audited rows succeeds. Already-applied
+        #    contenttypes migrations are no-ops.
+        call_command(
+            'migrate_schemas',
+            schema_name=PYTEST_SCHEMA_NAME,
+            verbosity=0,
+        )
 
         connection.set_schema_to_public()
 

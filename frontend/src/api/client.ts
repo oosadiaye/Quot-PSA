@@ -9,6 +9,21 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // ``withCredentials: true`` instructs the browser to attach cookies
+  // (and the matching ``Set-Cookie`` round-trip) on cross-origin
+  // requests. Required for the httpOnly auth-cookie path — the
+  // backend issues ``auth_token`` as an httpOnly cookie when
+  // ``AUTH_COOKIE_ENABLED`` is set, and without this flag the
+  // browser would silently drop it on the way out.
+  //
+  // Safe-additive: when the cookie path is OFF the backend doesn't
+  // emit a cookie, so this flag costs nothing. When ON, the cookie
+  // travels alongside the existing ``Authorization: Token`` header
+  // — the backend prefers the header (back-compat) and falls back
+  // to the cookie when no header is present.
+  //
+  // CORS_ALLOW_CREDENTIALS is already True server-side (settings.py).
+  withCredentials: true,
 });
 
 // Request interceptor — inject auth token & tenant header
@@ -18,9 +33,32 @@ apiClient.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/login') || config.url?.includes('/auth/register');
 
   if (!isAuthEndpoint) {
-    const token = localStorage.getItem('authToken') ?? sessionStorage.getItem('authToken');
-    if (token) {
-      config.headers['Authorization'] = `Token ${token}`;
+    // Authorization header path — still emitted for the migration
+    // window so users who logged in before AUTH_COOKIE_ENABLED was
+    // flipped on continue to authenticate. After the migration is
+    // complete the sessionStorage read can be deleted; the cookie
+    // travels via ``withCredentials: true`` above.
+    //
+    // ``VITE_AUTH_COOKIE_ONLY`` is the frontend twin of the backend
+    // ``AUTH_COOKIE_ONLY`` flag. When True the SPA stops reading from
+    // sessionStorage entirely — auth is cookie-only and the backend
+    // hydrates state via ``GET /api/v1/core/users/me/``. Defaults to
+    // false so existing builds keep working. When the cookie path is
+    // active and BOTH are present, the backend prefers the header
+    // (back-compat); the cookie kicks in for browsers that never
+    // received a body token (cookie-only mode).
+    const cookieOnly =
+      String(import.meta.env.VITE_AUTH_COOKIE_ONLY ?? 'false').toLowerCase() === 'true';
+    if (!cookieOnly) {
+      // Auth tokens are stored in sessionStorage only — localStorage is
+      // XSS-readable for the lifetime of the browser profile. sessionStorage
+      // is still XSS-readable while the tab is open but at least dies with
+      // the tab. (httpOnly cookie migration is the proper fix; tracked
+      // separately.)
+      const token = sessionStorage.getItem('authToken');
+      if (token) {
+        config.headers['Authorization'] = `Token ${token}`;
+      }
     }
 
     // Tenant resolution: hostname (subdomain) wins over localStorage so

@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from decimal import Decimal
 from accounting.services.base_posting import BasePostingService, get_gl_account
@@ -110,210 +110,29 @@ def update_gl_from_journal(journal, fund=None, function=None, program=None, geo=
         pass
 
 
-# InterCompanyPostingService and ConsolidationService — REMOVED for public sector
-# These classes are disabled but preserved for reference in case parastatals need them.
-class _DisabledInterCompanyPostingService:
-    """Service for handling inter-company posting operations"""
-
-    @staticmethod
-    @transaction.atomic
-    def post_ic_invoice(ic_invoice):
-        """Auto-create journal entries for IC invoice"""
-        from accounting.models import JournalHeader, JournalLine, InterCompanyConfig
-
-        BasePostingService._validate_fiscal_period(timezone.now().date())
-
-        if ic_invoice.auto_posted:
-            return {'success': False, 'message': 'Invoice already posted'}
-
-        config = InterCompanyConfig.objects.filter(
-            company=ic_invoice.from_company,
-            partner_company=ic_invoice.to_company,
-            auto_post=True
-        ).first()
-
-        if not config:
-            return {'success': False, 'message': 'No IC config found'}
-
-        if not config.ar_account or not config.revenue_account:
-            return {'success': False, 'message': 'AR or Revenue account not configured'}
-
-        journal = JournalHeader.objects.create(
-            description=f"IC Invoice {ic_invoice.invoice_number}",
-            posting_date=timezone.now().date(),
-            status='Posted',
-            source_module='intercompany',
-            source_document_id=ic_invoice.pk,
-            posted_at=timezone.now(),
-        )
-
-        JournalLine.objects.create(
-            header=journal,
-            account=config.ar_account,
-            debit=ic_invoice.total_amount,
-            credit=Decimal('0'),
-            description=f"IC Receivable from {ic_invoice.to_company.name}"
-        )
-
-        JournalLine.objects.create(
-            header=journal,
-            account=config.revenue_account,
-            debit=Decimal('0'),
-            credit=ic_invoice.total_amount,
-            description=f"IC Revenue from {ic_invoice.to_company.name}"
-        )
-
-        TransactionPostingService._validate_journal_balanced(journal)
-        update_gl_from_journal(journal)
-
-        ic_invoice.auto_posted = True
-        ic_invoice.status = 'Approved'
-        ic_invoice.linked_journal = journal
-        ic_invoice.save()
-
-        return {'success': True, 'message': 'IC invoice posted', 'journal_id': journal.id}
-
-    @staticmethod
-    @transaction.atomic
-    def post_ic_transfer(ic_transfer):
-        """Auto-post inventory transfer between companies"""
-        from accounting.models import JournalHeader, JournalLine, InterCompanyConfig
-
-        BasePostingService._validate_fiscal_period(ic_transfer.transfer_date)
-
-        if ic_transfer.auto_posted:
-            return {'success': False, 'message': 'Transfer already posted'}
-
-        config = InterCompanyConfig.objects.filter(
-            company=ic_transfer.from_company,
-            partner_company=ic_transfer.to_company,
-            auto_post=True
-        ).first()
-
-        if not config or not config.expense_account:
-            return {'success': False, 'message': 'No IC config found'}
-
-        journal = JournalHeader.objects.create(
-            description=f"IC Transfer {ic_transfer.transfer_number}",
-            posting_date=ic_transfer.transfer_date,
-            status='Posted',
-            source_module='intercompany',
-            source_document_id=ic_transfer.pk,
-            posted_at=timezone.now(),
-        )
-
-        JournalLine.objects.create(
-            header=journal,
-            account=config.expense_account,
-            debit=ic_transfer.total_value,
-            credit=Decimal('0'),
-            description=f"IC Transfer from {ic_transfer.from_company.name}"
-        )
-
-        # Credit inter-company payable (AP) to balance the journal.
-        # This records the liability to the source company until settlement.
-        ap_account = (
-            getattr(config, 'ap_account', None)
-            or get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
-        )
-        if not ap_account:
-            raise ValueError(
-                "Accounts Payable account not found for IC transfer credit leg. "
-                "Configure ACCOUNTS_PAYABLE in DEFAULT_GL_ACCOUNTS."
-            )
-        JournalLine.objects.create(
-            header=journal,
-            account=ap_account,
-            debit=Decimal('0'),
-            credit=ic_transfer.total_value,
-            description=f"IC Payable to {ic_transfer.from_company.name}"
-        )
-
-        TransactionPostingService._validate_journal_balanced(journal)
-        update_gl_from_journal(journal)
-
-        ic_transfer.auto_posted = True
-        ic_transfer.status = 'In Transit'
-        ic_transfer.save()
-
-        return {'success': True, 'message': 'IC transfer posted'}
-
-    @staticmethod
-    @transaction.atomic
-    def post_ic_cash_transfer(ic_cash):
-        """Auto-post cash transfer between companies"""
-        from accounting.models import JournalHeader, JournalLine, BankAccount
-
-        BasePostingService._validate_fiscal_period(ic_cash.transfer_date)
-
-        if ic_cash.auto_posted:
-            return {'success': False, 'message': 'Cash transfer already posted'}
-
-        journal = JournalHeader.objects.create(
-            description=f"IC Cash Transfer {ic_cash.transfer_number}",
-            posting_date=ic_cash.transfer_date,
-            status='Posted',
-            source_module='intercompany',
-            source_document_id=ic_cash.pk,
-            posted_at=timezone.now(),
-        )
-
-        # PF-17: Look up the actual cash/bank GL account instead of
-        # hardcoding account_id=1. Prefer the company's default bank
-        # account, then fall back to settings, then to any active bank account.
-        from django.conf import settings as django_settings
-        default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
-
-        cash_account = None
-        default_bank = BankAccount.objects.filter(is_default=True, is_active=True).first()
-        if default_bank and default_bank.gl_account:
-            cash_account = default_bank.gl_account
-        if not cash_account:
-            from accounting.models import Account
-            cash_code = default_gl.get('CASH_ACCOUNT', '10100000')
-            cash_account = Account.objects.filter(code=cash_code).first()
-        if not cash_account:
-            from accounting.models import Account
-            cash_account = Account.objects.filter(account_type='Asset', name__icontains='Cash').first()
-        if not cash_account:
-            from accounting.models import Account
-            cash_account = Account.objects.filter(account_type='Asset').first()
-            if not cash_account:
-                raise ValueError("GL posting failed: no cash/asset account found for inter-company transfer")
-
-        JournalLine.objects.create(
-            header=journal,
-            account=cash_account,
-            debit=ic_cash.amount,
-            credit=Decimal('0'),
-            description=f"Cash out to {ic_cash.to_company.name}"
-        )
-
-        JournalLine.objects.create(
-            header=journal,
-            account=cash_account,
-            debit=Decimal('0'),
-            credit=ic_cash.amount,
-            description=f"Cash in from {ic_cash.from_company.name}"
-        )
-
-        TransactionPostingService._validate_journal_balanced(journal)
-        update_gl_from_journal(journal)
-
-        ic_cash.auto_posted = True
-        ic_cash.status = 'Completed'
-        ic_cash.save()
-
-        return {'success': True, 'message': 'Cash transfer posted'}
+# InterCompanyPostingService has been removed — this is a public-sector
+# IFMIS, not a multi-company commercial ERP. Inter-company posting is
+# not a supported workflow. Parastatals that need cross-entity posting
+# should model it as inter-MDA transfers via the standard journal flow.
 
 
 class ConsolidationService:
     """Service for consolidation operations"""
 
     @staticmethod
-    @transaction.atomic
     def run_consolidation(group_id, period_id, user):
-        """Run consolidation for a group in a given period"""
+        """Run consolidation for a group in a given period.
+
+        Two-phase atomicity: the run row is created in its own
+        transaction so it persists regardless of whether the work
+        succeeds; the work itself runs in a savepoint so a failure
+        rolls back partial computation without poisoning the outer
+        transaction (which the prior single @transaction.atomic
+        decorator caused — a failure marked the transaction for
+        rollback and the ``run.status='Failed'; run.save()`` in the
+        except handler raised ``TransactionManagementError``, hiding
+        the real error from the operator).
+        """
         from accounting.models import ConsolidationRun, ConsolidationGroup, FiscalPeriod
         from django.db.models import Sum
         from accounting.models import JournalHeader, CustomerInvoice, VendorInvoice
@@ -324,68 +143,86 @@ class ConsolidationService:
         except (ConsolidationGroup.DoesNotExist, FiscalPeriod.DoesNotExist):
             return {'success': False, 'message': 'Group or period not found'}
 
-        run = ConsolidationRun.objects.create(
-            group=group,
-            period=period,
-            status='In Progress',
-            run_by=user
-        )
+        # Phase 1: create the run row in its own transaction. This row
+        # must survive any subsequent failure so operators can see the
+        # failed run in the audit log.
+        with transaction.atomic():
+            run = ConsolidationRun.objects.create(
+                group=group,
+                period=period,
+                status='In Progress',
+                run_by=user
+            )
 
+        # Phase 2: run the computation in a savepoint. On failure the
+        # savepoint rolls back cleanly and the outer ``run`` row update
+        # in the except handler executes against a healthy transaction.
         try:
-            companies = group.companies.all()
-            total_assets = Decimal('0')
-            total_liabilities = Decimal('0')
-            total_revenue = Decimal('0')
-            total_expenses = Decimal('0')
-            eliminations = []
+            with transaction.atomic():
+                # Materialise the companies list ONCE. The previous code
+                # iterated the queryset (1 query) and then called
+                # .count() on it again (a second query against the same
+                # rows) — and inside the loop ran 2 aggregate queries
+                # per company without actually filtering journals by
+                # company, producing identical totals N times. The new
+                # shape: list() once, single aggregate outside the loop.
+                companies = list(group.companies.all())
+                total_assets = Decimal('0')
+                total_liabilities = Decimal('0')
+                eliminations = []
 
-            for company in companies:
-                journals = JournalHeader.objects.filter(
+                # Single aggregate for revenue and expenses across the
+                # whole period. JournalHeader in this codebase has no
+                # ``company`` FK (consolidation is by MDA, not company),
+                # so per-company filtering is a no-op; running the
+                # aggregate once is both correct and N times cheaper.
+                period_journals = JournalHeader.objects.filter(
                     posting_date__gte=period.start_date,
                     posting_date__lte=period.end_date,
-                    status='Posted'
+                    status='Posted',
                 )
+                totals = period_journals.aggregate(
+                    revenue=Sum(
+                        'journalline__debit',
+                        filter=Q(journalline__account__account_type='Income'),
+                    ),
+                    expenses=Sum(
+                        'journalline__credit',
+                        filter=Q(journalline__account__account_type='Expense'),
+                    ),
+                )
+                total_revenue = totals['revenue'] or Decimal('0')
+                total_expenses = totals['expenses'] or Decimal('0')
 
-                company_revenue = journals.filter(journalline__account__account_type='Income').aggregate(
-                    total=Sum('journalline__debit')
-                )['total'] or Decimal('0')
+                ic_receivables = CustomerInvoice.objects.filter(
+                    status__in=['Partially Paid', 'Paid']
+                ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
 
-                company_expenses = journals.filter(journalline__account__account_type='Expense').aggregate(
-                    total=Sum('journalline__credit')
-                )['total'] or Decimal('0')
+                ic_payables = VendorInvoice.objects.filter(
+                    status__in=['Partially Paid', 'Paid']
+                ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
 
-                total_revenue += company_revenue
-                total_expenses += company_expenses
+                elimination_amount = min(ic_receivables, ic_payables)
+                eliminations.append({
+                    'type': 'IC Elimination',
+                    'amount': str(elimination_amount),
+                    'description': 'Inter-company receivables/payables elimination'
+                })
 
-            ic_receivables = CustomerInvoice.objects.filter(
-                status__in=['Partially Paid', 'Paid']
-            ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
+                total_equity = total_revenue - total_expenses
 
-            ic_payables = VendorInvoice.objects.filter(
-                status__in=['Partially Paid', 'Paid']
-            ).aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
-
-            elimination_amount = min(ic_receivables, ic_payables)
-            eliminations.append({
-                'type': 'IC Elimination',
-                'amount': str(elimination_amount),
-                'description': 'Inter-company receivables/payables elimination'
-            })
-
-            total_equity = total_revenue - total_expenses
-
-            run.total_assets = total_assets
-            run.total_liabilities = total_liabilities
-            run.total_equity = total_equity
-            run.total_revenue = total_revenue
-            run.total_expenses = total_expenses
-            run.elimination_entries = eliminations
-            run.consolidated_data = {
-                'companies_count': companies.count(),
-                'period': f'FY{period.fiscal_year} P{period.period_number}'
-            }
-            run.status = 'Completed'
-            run.save()
+                run.total_assets = total_assets
+                run.total_liabilities = total_liabilities
+                run.total_equity = total_equity
+                run.total_revenue = total_revenue
+                run.total_expenses = total_expenses
+                run.elimination_entries = eliminations
+                run.consolidated_data = {
+                    'companies_count': len(companies),
+                    'period': f'FY{period.fiscal_year} P{period.period_number}'
+                }
+                run.status = 'Completed'
+                run.save()
 
             return {
                 'success': True,
@@ -396,6 +233,8 @@ class ConsolidationService:
             }
 
         except Exception as e:
+            # Outer transaction is clean (the savepoint rolled back),
+            # so we can safely update the run row to record the failure.
             run.status = 'Failed'
             run.error_message = str(e)
             run.save()

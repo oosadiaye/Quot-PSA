@@ -783,6 +783,19 @@ class Appropriation(AuditBaseModel):
             models.Index(fields=['fiscal_year', 'status']),
             models.Index(fields=['administrative', 'economic', 'fiscal_year']),
         ]
+        constraints = [
+            # Mirror migration 0013 — without declaring it on the model
+            # Django's ``makemigrations`` saw a schema-vs-model drift and
+            # kept regenerating a RemoveConstraint operation on every
+            # ``makemigrations`` run, which (if accepted) would silently
+            # drop the real uniqueness invariant. Declaring it here
+            # closes that drift loop permanently.
+            models.UniqueConstraint(
+                fields=['administrative', 'economic', 'fund', 'fiscal_year'],
+                condition=models.Q(status='ACTIVE'),
+                name='uniq_active_appropriation_per_dimension_tuple',
+            ),
+        ]
 
     def __str__(self):
         return (
@@ -792,8 +805,24 @@ class Appropriation(AuditBaseModel):
 
     @property
     def total_warrants_released(self):
-        from django.db.models import Sum
-        return self.warrants.filter(status='RELEASED').aggregate(
+        """Sum the amount of warrants currently authorised against this
+        appropriation. Filters out warrants whose ``effective_to`` is
+        past so an expired-by-date warrant the cron hasn't yet flipped
+        to ``EXPIRED`` doesn't keep authorising new commitments. The
+        previous implementation summed every ``RELEASED`` row regardless
+        of expiry, which let operators spend against last quarter's
+        warrant for ≤24h until the daily expire sweep ran.
+
+        Nullable ``effective_to`` (legacy rows) is treated as not
+        expired so historical data keeps counting normally.
+        """
+        from django.db.models import Sum, Q
+        from datetime import date
+        return self.warrants.filter(
+            status='RELEASED',
+        ).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gte=date.today()),
+        ).aggregate(
             total=Sum('amount_released'),
         )['total'] or Decimal('0')
 
@@ -831,6 +860,57 @@ class Appropriation(AuditBaseModel):
         return self.commitments.filter(status='INVOICED').aggregate(
             total=Sum('committed_amount'),
         )['total'] or Decimal('0')
+
+    # ── Contract-side commitments (multi-year contract feature) ─────────
+    # POs and Contracts are orthogonal commitment sources in this codebase:
+    #   • POs       → ProcurementBudgetLink rows (self.commitments reverse FK)
+    #   • Contracts → ContractYearPlan rows that reference this appropriation
+    #
+    # ``total_committed`` deliberately stays PO-only — three downstream
+    # consumers (budget_check_rules, services_virement, appropriation_totals)
+    # depend on its current meaning. Contract commitments live in two new
+    # properties below, plus the combined ``total_all_committed`` that the
+    # appropriation dashboard's "Committed" column renders.
+
+    @property
+    def total_contract_committed(self):
+        """Sum of every contract's planned spend that hits this appropriation.
+
+        Reads from ``ContractYearPlan.planned_amount`` for plans whose
+        ``appropriation`` FK points at this row. Includes carry-forward from
+        prior years so the dashboard reflects the year's full claim on the
+        appropriation, matching the IPSAS 24 view of a year's "total
+        authorised commitment".
+
+        Lives-aggregates (no cache) — contract year plans are low-volume
+        per appropriation (typically 1–3) so the query is cheap. If
+        contracts grow into the thousands per appropriation, denormalise
+        the same way ``cached_total_committed`` works for POs.
+        """
+        from django.db.models import Sum, F
+        # Late import to avoid circular dependency with contracts → budget.
+        try:
+            from contracts.models import ContractYearPlan
+        except ImportError:  # pragma: no cover — contracts always installed
+            return Decimal('0')
+
+        total = ContractYearPlan.objects.filter(
+            appropriation=self,
+        ).aggregate(
+            total=Sum(F('planned_amount') + F('carried_forward_from_prior_year')),
+        )['total']
+        return total or Decimal('0')
+
+    @property
+    def total_all_committed(self):
+        """Combined PO + Contract commitments — what the dashboard shows.
+
+        This is the figure operators expect under a "Committed" column:
+        every kind of obligation the MDA has registered against this
+        appropriation, regardless of source document. Equals
+        ``total_committed (PO) + total_contract_committed``.
+        """
+        return self.total_committed + self.total_contract_committed
 
     @property
     def total_closed_commitments(self):
@@ -1158,28 +1238,63 @@ class Appropriation(AuditBaseModel):
 
 class Warrant(AuditBaseModel):
     """
-    Quarterly cash release (warrant) against approved appropriation.
-    Money cannot be spent until a warrant is issued — the cash release authority.
+    Cash release (warrant) against approved appropriation, valid for
+    a configurable date range — defaults to the appropriation's full
+    fiscal year (annual), narrowable to any sub-period (quarterly,
+    monthly, ad-hoc).
 
-    The Accountant General issues warrants quarterly based on:
-    - Cash availability in TSA
-    - Revenue performance
-    - Expenditure priorities
+    Money cannot be spent until a warrant is issued — the warrant
+    *authorises* spend during ``[effective_from, effective_to]``;
+    once ``effective_to`` elapses the warrant auto-expires (status
+    flips to ``EXPIRED`` via the ``expire_warrants`` management
+    command, and the ``effective_status`` property reflects this
+    immediately on every read so the UI is correct without waiting
+    for the cron tick).
 
-    Warrant amount <= Appropriation amount (cumulative across quarters).
+    Warrant amount <= Appropriation amount (cumulative across the
+    appropriation's whole life — overlap on the same appropriation
+    is rejected by ``clean()``).
+
+    The legacy ``quarter`` integer is retained as a *nullable*
+    convenience column so quarter-grouped reports keep working for
+    historical rows. New writes do not require it; ``save()`` derives
+    it from ``effective_from`` if not provided.
     """
     STATUS_CHOICES = [
         ('PENDING',   'Pending Release'),
         ('RELEASED',  'Released'),
         ('SUSPENDED', 'Suspended'),
         ('EXHAUSTED', 'Exhausted'),
+        ('EXPIRED',   'Expired'),
+        # CANCELLED is an explicit operator decision (mistaken release,
+        # superseded warrant). Distinct from EXPIRED, which is passive
+        # time-based. effective_status overlays EXPIRED only for
+        # PENDING/RELEASED rows past effective_to — CANCELLED rows
+        # remain CANCELLED forever, and the budget overlap check at
+        # clean() already excludes them.
+        ('CANCELLED', 'Cancelled'),
     ]
 
     appropriation     = models.ForeignKey(
         Appropriation, on_delete=models.PROTECT, related_name='warrants',
     )
+    # ── New date-range fields (replace ``quarter`` as the primary
+    #    period identifier). Both required for new rows; the data
+    #    migration backfills existing rows from quarter+fiscal_year.
+    effective_from    = models.DateField(
+        null=True, blank=True,
+        help_text='Date the warrant becomes effective (inclusive).',
+    )
+    effective_to      = models.DateField(
+        null=True, blank=True,
+        help_text='Date the warrant expires (inclusive). After this '
+                  'date the warrant cannot be drawn against.',
+    )
+    # Legacy column — kept nullable for back-compat with quarter-grouped
+    # reporting. Derived from ``effective_from`` on save when absent.
     quarter           = models.IntegerField(
         choices=[(1, 'Q1'), (2, 'Q2'), (3, 'Q3'), (4, 'Q4')],
+        null=True, blank=True,
     )
     amount_released   = models.DecimalField(max_digits=20, decimal_places=2)
     release_date      = models.DateField()
@@ -1202,28 +1317,140 @@ class Warrant(AuditBaseModel):
     notes             = models.TextField(blank=True, default='')
 
     class Meta:
-        ordering = ['appropriation', 'quarter']
+        ordering = ['appropriation', '-effective_from']
         verbose_name = 'Warrant (Cash Release)'
         verbose_name_plural = 'Warrants (Cash Releases)'
-        unique_together = ['appropriation', 'quarter']
+        # ``unique_together = (appropriation, quarter)`` is removed:
+        # multiple non-overlapping date ranges are now allowed on the
+        # same appropriation. Range-overlap enforcement lives in
+        # ``clean()`` below — Postgres exclusion constraints would be
+        # the textbook tool but are non-portable; app-side check is
+        # sufficient because every write goes through the serializer.
+        indexes = [
+            # Names mirror migration 0016 explicitly so Django doesn't
+            # generate a RenameIndex on every makemigrations run. Without
+            # the names, Django auto-derives ``budget_warr_appropr_*_idx``
+            # from the field tuple, sees a mismatch with the schema's
+            # ``budget_warr_appr_eff_idx`` from 0016, and proposes a
+            # rename — a no-op that just adds noise to migration sets.
+            models.Index(
+                fields=['appropriation', 'effective_from'],
+                name='budget_warr_appr_eff_idx',
+            ),
+            models.Index(
+                fields=['effective_to', 'status'],
+                name='budget_warr_to_status_idx',
+            ),
+        ]
 
     def __str__(self):
+        period = (
+            f"{self.effective_from} → {self.effective_to}"
+            if self.effective_from and self.effective_to
+            else f"Q{self.quarter}" if self.quarter else "no-period"
+        )
         return (
-            f"WNT/{self.appropriation.fiscal_year}/Q{self.quarter} "
+            f"WNT/{self.appropriation.fiscal_year} {period} "
             f"- NGN {self.amount_released:,.2f}"
         )
 
+    # ── Real-time expiry helpers ──────────────────────────────────
+    @property
+    def is_expired(self) -> bool:
+        """True when ``effective_to`` is strictly before today.
+
+        Read by the serializer's ``effective_status`` so the UI shows
+        EXPIRED the moment the date elapses, even if the daily
+        ``expire_warrants`` cron hasn't yet flipped the stored status.
+        """
+        from datetime import date
+        return bool(self.effective_to and self.effective_to < date.today())
+
+    @property
+    def effective_status(self) -> str:
+        """Status with a real-time expiry overlay.
+
+        Returns ``EXPIRED`` for any warrant whose ``effective_to`` has
+        passed and that hasn't already reached a terminal state
+        (SUSPENDED / EXHAUSTED / CANCELLED — those win because they
+        represent explicit operator decisions, not passive expiry).
+        PENDING + expired collapses to EXPIRED on the assumption that
+        an unreleased warrant past its window is no longer actionable.
+
+        CANCELLED in particular must not be overlaid: cancelling is
+        an intentional terminal state and re-labelling such rows as
+        EXPIRED creates a counting drift between the filtered
+        "Expired" tab (queries persisted ``status``) and the All view
+        (renders ``effective_status``).
+        """
+        if self.status in ('SUSPENDED', 'EXHAUSTED', 'CANCELLED'):
+            return self.status
+        if self.is_expired:
+            return 'EXPIRED'
+        return self.status
+
+    def save(self, *args, **kwargs):
+        # Derive the legacy quarter column from effective_from for any
+        # row that didn't set it explicitly. Keeps quarter-grouped
+        # reports populated for new writes, even though the field is
+        # no longer the primary period identifier.
+        if self.effective_from and not self.quarter:
+            month = self.effective_from.month
+            self.quarter = ((month - 1) // 3) + 1
+        super().save(*args, **kwargs)
+
     def clean(self):
         super().clean()
-        # Warrant cumulative total cannot exceed appropriation
+        from datetime import date
+
+        # ── Date-range sanity ──────────────────────────────────────
+        if self.effective_from and self.effective_to:
+            if self.effective_to < self.effective_from:
+                raise ValidationError(
+                    'effective_to cannot be earlier than effective_from.'
+                )
+
+        # ── Range-overlap enforcement ──────────────────────────────
+        # Replaces the old (appropriation, quarter) uniqueness. Two
+        # warrants on the same appropriation cannot have overlapping
+        # active windows; expired/suspended warrants don't reserve
+        # budget so they're excluded.
+        if self.effective_from and self.effective_to:
+            overlapping = Warrant.objects.filter(
+                appropriation=self.appropriation,
+                status__in=['PENDING', 'RELEASED'],
+                effective_from__lte=self.effective_to,
+                effective_to__gte=self.effective_from,
+            ).exclude(pk=self.pk)
+            if overlapping.exists():
+                conflict = overlapping.first()
+                raise ValidationError(
+                    f'Date range overlaps an existing warrant on this '
+                    f'appropriation ({conflict.effective_from} → '
+                    f'{conflict.effective_to}, status {conflict.status}).'
+                )
+
+        # ── Cumulative budget ceiling ──────────────────────────────
+        # Sum across active warrants (all date ranges) cannot exceed
+        # the approved appropriation amount. Expired warrants no
+        # longer compete for headroom, mirroring real cash-flow
+        # behaviour: the unused portion can be re-warranted next
+        # period.
         existing = Warrant.objects.filter(
             appropriation=self.appropriation,
             status__in=['PENDING', 'RELEASED'],
         ).exclude(pk=self.pk)
+        # Drop any rows that would now be expired-by-date so the
+        # ceiling check matches the user-visible "active" total.
+        today = date.today()
+        active = [
+            w for w in existing
+            if not (w.effective_to and w.effective_to < today)
+        ]
         from django.db.models import Sum
-        total_released = existing.aggregate(
-            total=Sum('amount_released'),
-        )['total'] or Decimal('0')
+        total_released = sum(
+            (w.amount_released for w in active), Decimal('0'),
+        )
         if total_released + self.amount_released > self.appropriation.amount_approved:
             raise ValidationError(
                 f"Total warrants (NGN {total_released + self.amount_released:,.2f}) "
@@ -1411,5 +1638,134 @@ class AppropriationVirement(AuditBaseModel):
         return f'{self.reference_number} — NGN {self.amount:,.2f} ({self.status})'
 
 
-# BudgetValidationService and BudgetExceededError are in budget/services.py
-# Import from there: from budget.services import BudgetValidationService, BudgetExceededError
+# ─────────────────────────────────────────────────────────────────────
+# Warrant printout configuration
+# ─────────────────────────────────────────────────────────────────────
+class WarrantPrintoutSettings(AuditBaseModel):
+    """Tenant-wide print configuration for warrant (AIE) documents.
+
+    Singleton per tenant — exactly one row, retrieved via
+    ``WarrantPrintoutSettings.get_singleton()``. Holds the letterhead,
+    administrative names, and three signature images that get composed
+    into a print-friendly warrant document on demand.
+
+    Why three signatures specifically:
+      - **Executive Governor**           — supreme authority for state
+                                            cash release.
+      - **Honourable Commissioner of Finance** — political authority
+                                            countersigning the release.
+      - **Accountant-General**           — operational signoff that the
+                                            warrant has been booked
+                                            and the cash is available.
+
+    These are the three signatories on Delta State's standard AIE
+    document; tenants in other states can rename via the *_name fields
+    while keeping the same three-block layout.
+
+    Image storage:
+      Signatures are stored under the tenant's media folder and served
+      via the auth-protected backend. Never expose direct CDN URLs —
+      a forged signature on a warrant is a real audit risk.
+    """
+
+    # ── Letterhead / state identity ───────────────────────────────
+    state_name = models.CharField(
+        max_length=100,
+        default='Delta State',
+        help_text='Used in the printout title block (e.g. "Delta State Government").',
+    )
+    ministry_of_finance_name = models.CharField(
+        max_length=200,
+        default='Ministry of Finance',
+        help_text='Issuing ministry shown on the warrant header.',
+    )
+    office_address = models.TextField(
+        blank=True, default='',
+        help_text='Office address printed under the letterhead.',
+    )
+    letterhead_logo = models.ImageField(
+        upload_to='warrants/printout_settings/logos/',
+        null=True, blank=True,
+        help_text='State coat of arms or ministry logo (PNG/JPG, ~200px tall).',
+    )
+
+    # ── Signatory: Executive Governor ─────────────────────────────
+    governor_name = models.CharField(
+        max_length=200,
+        default='',
+        help_text='Full name of the Executive Governor (printed under signature).',
+    )
+    governor_title = models.CharField(
+        max_length=200,
+        default='Executive Governor of Delta State',
+        help_text='Title shown under the signature block.',
+    )
+    governor_signature = models.ImageField(
+        upload_to='warrants/printout_settings/signatures/',
+        null=True, blank=True,
+        help_text='Scanned signature image (PNG with transparent background ideal).',
+    )
+
+    # ── Signatory: Honourable Commissioner for Finance ───────────
+    finance_commissioner_name = models.CharField(
+        max_length=200,
+        default='',
+        help_text='Full name of the Commissioner for Finance.',
+    )
+    finance_commissioner_title = models.CharField(
+        max_length=200,
+        default='Honourable Commissioner for Finance, Delta State',
+    )
+    finance_commissioner_signature = models.ImageField(
+        upload_to='warrants/printout_settings/signatures/',
+        null=True, blank=True,
+    )
+
+    # ── Signatory: Accountant-General ─────────────────────────────
+    accountant_general_name = models.CharField(
+        max_length=200,
+        default='',
+        help_text='Full name of the Accountant-General of Delta State.',
+    )
+    accountant_general_title = models.CharField(
+        max_length=200,
+        default='Accountant-General of Delta State',
+    )
+    accountant_general_signature = models.ImageField(
+        upload_to='warrants/printout_settings/signatures/',
+        null=True, blank=True,
+    )
+
+    # ── Footer / template reference ──────────────────────────────
+    footer_notes = models.TextField(
+        blank=True, default='',
+        help_text='Optional footer text (e.g. distribution list, archive ref).',
+    )
+    reference_pdf_template = models.FileField(
+        upload_to='warrants/printout_settings/reference_templates/',
+        null=True, blank=True,
+        help_text=(
+            'Optional sample PDF showing the agreed warrant layout. '
+            'Stored as a design reference; never injected into actual '
+            'printouts (each warrant has unique data).'
+        ),
+    )
+
+    class Meta:
+        verbose_name = 'Warrant Printout Settings'
+        verbose_name_plural = 'Warrant Printout Settings'
+
+    def __str__(self) -> str:
+        return f'Warrant Printout Settings · {self.state_name}'
+
+    @classmethod
+    def get_singleton(cls) -> 'WarrantPrintoutSettings':
+        """Return (creating if needed) the single settings row.
+
+        Uses pk=1 by convention — one row per tenant schema thanks to
+        django-tenants. Idempotent + safe to call from anywhere; the
+        first caller in a fresh tenant creates the row with default
+        values, every later caller fetches it.
+        """
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

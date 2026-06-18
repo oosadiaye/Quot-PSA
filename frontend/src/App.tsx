@@ -11,21 +11,31 @@ import LoadingScreen from './components/common/LoadingScreen';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import ModuleGuard from './components/ModuleGuard';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import VerifyEmail from './pages/VerifyEmail';
-import AccountProfile from './pages/AccountProfile';
-import Dashboard from './pages/Dashboard';
-import GovernmentDashboard from './pages/GovernmentDashboard';
-import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
+// Route-component imports are lazy so the landing page bundle doesn't
+// pull in every authenticated dashboard, registration flow, and
+// super-admin surface. Eagerly importing them meant an unauthenticated
+// visitor to the marketing site downloaded ~11 JS chunks they would
+// never use. Suspense boundaries on each route render LoadingScreen
+// during the code-split fetch.
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
+const AccountProfile = lazy(() => import('./pages/AccountProfile'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
+const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
+const LandingPage = lazy(() => import('./pages/public/LandingPage'));
+const PricingPage = lazy(() => import('./pages/public/PricingPage'));
+const ModuleDetailPage = lazy(() => import('./pages/public/ModuleDetailPage'));
+const SetupWizard = lazy(() => import('./pages/SetupWizard'));
+// ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
+// they render on EVERY authenticated page (no Suspense boundary
+// around them) so lazying them would require wrapping their host
+// container with Suspense which isn't worth the byte savings.
 import ImpersonationBanner from './components/ImpersonationBanner';
 import ImpersonationHandler from './components/ImpersonationHandler';
-import LandingPage from './pages/public/LandingPage';
-import PricingPage from './pages/public/PricingPage';
-import ModuleDetailPage from './pages/public/ModuleDetailPage';
-import SetupWizard from './pages/SetupWizard';
 
 // ── Accounting ────────────────────────────────────────────
 const AccountingDashboard = lazy(() => import('./features/accounting/AccountingDashboard'));
@@ -36,6 +46,7 @@ const APManagement = lazy(() => import('./features/accounting/ap/APManagement'))
 const ARManagement = lazy(() => import('./features/accounting/ar/ARManagement'));
 const IncomingPaymentsPage = lazy(() => import('./features/accounting/ar/IncomingPaymentsPage'));
 const OutgoingPaymentsPage = lazy(() => import('./features/accounting/ap/OutgoingPaymentsPage'));
+const PaymentReconciliationQueue = lazy(() => import('./features/accounting/ap/PaymentReconciliationQueue'));
 const FixedAssets = lazy(() => import('./features/accounting/assets/FixedAssets'));
 const FixedAssetForm = lazy(() => import('./features/accounting/assets/FixedAssetForm'));
 const AssetCategoriesPage = lazy(() => import('./features/accounting/assets/AssetCategories'));
@@ -63,6 +74,7 @@ const WarrantList = lazy(() => import('./pages/gov').then(m => ({ default: m.War
 const RevenueBudgetList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueBudgetList })));
 const TSAAccountList = lazy(() => import('./pages/gov').then(m => ({ default: m.TSAAccountList })));
 const PaymentVoucherList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentVoucherList })));
+const MobilizationPaymentList = lazy(() => import('./pages/gov').then(m => ({ default: m.MobilizationPaymentList })));
 const PaymentInstructionList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentInstructionList })));
 const RevenueHeadList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueHeadList })));
 const RevenueCollectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueCollectionList })));
@@ -117,7 +129,14 @@ const GeographicDistributionReport = lazy(() => import('./pages/gov/reports/Geog
 const FundPerformanceReport = lazy(() => import('./pages/gov/reports/FundPerformanceReport'));
 const CommitmentReport = lazy(() => import('./pages/gov/reports/CommitmentReport'));
 const DataQualityPage = lazy(() => import('./pages/gov/DataQualityPage'));
-const RolesAndPermissionsPage = lazy(() => import('./pages/gov/RolesAndPermissionsPage'));
+// Rule-driven RBAC pages — granular permission tree, role editor with
+// live SoD preview, dedicated SoD-rules manager. The legacy
+// RolesAndPermissionsPage was retired here once the new editor reached
+// feature parity (the hardcoded role-pair SoD matrix is still queryable
+// via the ``/api/v1/core/roles/sod-matrix/`` action for tooling).
+const RoleListPage = lazy(() => import('./features/rbac/RoleListPage'));
+const RoleEditorPage = lazy(() => import('./features/rbac/RoleEditorPage'));
+const SoDRulesPage = lazy(() => import('./features/rbac/SoDRulesPage'));
 const ApprovalRulesPage = lazy(() => import('./pages/gov/ApprovalRulesPage'));
 const OverrideAuditPage = lazy(() => import('./pages/gov/OverrideAuditPage'));
 const FiscalYearAdminPage = lazy(() => import('./pages/gov/FiscalYearAdminPage'));
@@ -135,7 +154,10 @@ const CashFlowStatement = lazy(() => import('./features/accounting/reports/CashF
 const PeriodClose = lazy(() => import('./features/accounting/reports/PeriodClose'));
 
 // ── Budget ────────────────────────────────────────────────
-import BudgetLayout from './features/accounting/budget/BudgetLayout';
+// BudgetLayout is lazy-loaded too — keeping it eager pulled the whole
+// budget bundle into the landing-page chunk via its module-level
+// imports.
+const BudgetLayout = lazy(() => import('./features/accounting/budget/BudgetLayout'));
 const BudgetDashboard = lazy(() => import('./features/accounting/budget/pages/BudgetDashboard'));
 const BudgetEntry = lazy(() => import('./features/accounting/budget/pages/BudgetEntry'));
 const VarianceAnalysis = lazy(() => import('./features/accounting/budget/pages/VarianceAnalysis'));
@@ -192,6 +214,9 @@ const InventorySettingsPage   = lazy(() => import('./features/settings/Inventory
 const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManagement'));
 const BankAccountSettings = lazy(() => import('./features/settings/BankAccountSettings'));
 const BrandingSettings = lazy(() => import('./features/settings/BrandingSettings'));
+const WarrantPrintoutSettingsPage = lazy(() => import('./features/settings/WarrantPrintoutSettings'));
+const WarrantPrintPreview = lazy(() => import('./pages/gov/WarrantPrintPreview'));
+const BatchWarrantPrintPreview = lazy(() => import('./pages/gov/BatchWarrantPrintPreview'));
 
 // ── HRM ───────────────────────────────────────────────────
 const HRMDashboard = lazy(() => import('./features/hrm/pages/HRMDashboard'));
@@ -222,6 +247,10 @@ const MyPayslips  = lazy(() => import('./features/portal/pages/MyPayslips'));
 const MyLeave     = lazy(() => import('./features/portal/pages/MyLeave'));
 const MyProfile   = lazy(() => import('./features/portal/pages/MyProfile'));
 const MyDocuments = lazy(() => import('./features/portal/pages/MyDocuments'));
+
+// ── Snapshots ─────────────────────────────────────────────────
+const SnapshotsPage = lazy(() => import('./features/admin/snapshots').then(m => ({ default: m.SnapshotsPage })));
+const TenantSnapshotsPage = lazy(() => import('./features/admin/snapshots').then(m => ({ default: m.TenantSnapshotsPage })));
 
 // ── Contracts & Milestone Payments ───────────────────────────
 const ContractsDashboard  = lazy(() => import('./features/contracts/ContractsDashboard'));
@@ -348,6 +377,9 @@ function App() {
                       <Route path="/superadmin" element={
                         <ProtectedRoute requiredPerm="is_superuser"><SuperAdminDashboard /></ProtectedRoute>
                       } />
+                      <Route path="/admin/snapshots" element={
+                        <ProtectedRoute requiredPerm="is_superuser"><SnapshotsPage /></ProtectedRoute>
+                      } />
 
                       {/* ── User Management (no module guard) ────────── */}
                       <Route path="/user-management" element={
@@ -376,11 +408,17 @@ function App() {
                       <Route path="/settings/tax" element={
                         <ProtectedRoute requiredRole="admin"><TaxManagement /></ProtectedRoute>
                       } />
+                      <Route path="/settings/warrant-printout" element={
+                        <ProtectedRoute requiredRole="admin"><WarrantPrintoutSettingsPage /></ProtectedRoute>
+                      } />
                       <Route path="/settings/bank-accounts" element={
                         <ProtectedRoute requiredRole="admin"><BankAccountSettings /></ProtectedRoute>
                       } />
                       <Route path="/settings/branding" element={
                         <ProtectedRoute requiredRole="admin"><BrandingSettings /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/backups" element={
+                        <ProtectedRoute requiredRole="admin"><TenantSnapshotsPage /></ProtectedRoute>
                       } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════
@@ -420,6 +458,9 @@ function App() {
                         } />
                         <Route path="/accounting/outgoing-payments" element={
                           <ProtectedRoute><OutgoingPaymentsPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-reconciliation-queue" element={
+                          <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>
@@ -650,6 +691,7 @@ function App() {
                       <Route path="/budget/execution-report" element={<ProtectedRoute><ExecutionReport /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts" element={<ProtectedRoute><TSAAccountList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-vouchers" element={<ProtectedRoute><PaymentVoucherList /></ProtectedRoute>} />
+                      <Route path="/accounting/mobilization-advances" element={<ProtectedRoute><MobilizationPaymentList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-instructions" element={<ProtectedRoute><PaymentInstructionList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-heads" element={<ProtectedRoute><RevenueHeadList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections" element={<ProtectedRoute><RevenueCollectionList /></ProtectedRoute>} />
@@ -683,6 +725,11 @@ function App() {
                       <Route path="/budget/appropriations/:id" element={<ProtectedRoute><AppropriationDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id/transactions" element={<ProtectedRoute><AppropriationTransactions /></ProtectedRoute>} />
                       <Route path="/budget/warrants/new" element={<ProtectedRoute><WarrantForm /></ProtectedRoute>} />
+                      {/* ``/print-batch`` and ``/print`` MUST come before ``/:id``
+                          so the router doesn't parse "print"/"print-batch" as a
+                          numeric warrant pk and 404 the preview. */}
+                      <Route path="/budget/warrants/print-batch" element={<ProtectedRoute><BatchWarrantPrintPreview /></ProtectedRoute>} />
+                      <Route path="/budget/warrants/:id/print" element={<ProtectedRoute><WarrantPrintPreview /></ProtectedRoute>} />
                       <Route path="/budget/warrants/:id" element={<ProtectedRoute><WarrantDetail /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts/new" element={<ProtectedRoute><TSAAccountForm /></ProtectedRoute>} />
                       {/* Note: ``/transfer`` MUST come before ``/:id/edit`` so the
@@ -713,7 +760,14 @@ function App() {
                           authenticated user (including ``viewer``) could reach
                           mutating role/approval/audit/fiscal-year config
                           screens. */}
-                      <Route path="/admin/roles" element={<ProtectedRoute requiredRole="admin"><RolesAndPermissionsPage /></ProtectedRoute>} />
+                      {/* New rule-driven RBAC routes. Order matters —
+                          /admin/roles/new and /admin/roles/:id/edit must
+                          come BEFORE the legacy /admin/roles route so
+                          they're matched first. */}
+                      <Route path="/admin/roles/new" element={<ProtectedRoute requiredRole="admin"><RoleEditorPage /></ProtectedRoute>} />
+                      <Route path="/admin/roles/:id/edit" element={<ProtectedRoute requiredRole="admin"><RoleEditorPage /></ProtectedRoute>} />
+                      <Route path="/admin/roles" element={<ProtectedRoute requiredRole="admin"><RoleListPage /></ProtectedRoute>} />
+                      <Route path="/admin/sod-rules" element={<ProtectedRoute requiredRole="admin"><SoDRulesPage /></ProtectedRoute>} />
                       <Route path="/admin/approval-rules" element={<ProtectedRoute requiredRole="admin"><ApprovalRulesPage /></ProtectedRoute>} />
                       <Route path="/admin/audit/overrides" element={<ProtectedRoute requiredRole="admin"><OverrideAuditPage /></ProtectedRoute>} />
                       <Route path="/admin/fiscal-years" element={<ProtectedRoute requiredRole="admin"><FiscalYearAdminPage /></ProtectedRoute>} />

@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
@@ -11,6 +13,8 @@ from .models import (
     ExitRequest, ExitInterview, ExitClearance, FinalSettlement, ExperienceCertificate, AssetReturn,
     StatutoryDeductionTemplate, StatutoryDeduction
 )
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -69,6 +73,102 @@ class EmployeeSerializer(serializers.ModelSerializer):
             return obj.supervisor.user.get_full_name()
         return None
 
+    # PII fields that must be masked unless the requester has
+    # ``hrm.view_employee_pii`` permission or is a superuser.
+    # TODO: at-rest encryption pending — see SECURITY.md
+    _PII_FIELDS = (
+        'national_id_number', 'tax_identification_number',
+        'social_security_number', 'bank_account', 'base_salary', 'hourly_rate',
+    )
+
+    def _can_view_pii(self):
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        user = getattr(request, 'user', None) if request else None
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_perm('hrm.view_employee_pii')
+
+    # Encrypted PII fields whose accessor-decrypted plaintext must be
+    # placed back into the rendered payload (whether masked or full).
+    _ENCRYPTED_PII_ACCESSORS = (
+        'national_id_number',
+        'tax_identification_number',
+        'social_security_number',
+        'bank_account',
+        'bank_routing',
+    )
+
+    def _decrypt_pii_into(self, data, instance):
+        """Replace ciphertext in *data* with each field's decrypted value.
+
+        On accessor failure (e.g. fernet token decryption error after a
+        key rotation, or corrupted ciphertext) we:
+          * log a WARNING with full context so the operator can detect
+            silent data-quality regressions instead of finding empty
+            strings on the frontend with no audit trail; and
+          * record the field on the response payload via
+            ``_pii_decryption_errors`` so the UI can surface a yellow
+            banner asking the user to contact the security team.
+        Returning ``''`` is preserved as the on-the-wire value so we
+        never leak ciphertext into the API.
+        """
+        errors: list[str] = []
+        for field in self._ENCRYPTED_PII_ACCESSORS:
+            if field not in data:
+                continue
+            accessor = getattr(instance, f'get_{field}', None)
+            if accessor is None:
+                continue
+            try:
+                data[field] = accessor()
+            except Exception as exc:
+                logger.warning(
+                    "PII decryption failed for Employee %s field %s: %s",
+                    getattr(instance, 'pk', '?'), field, exc,
+                    exc_info=True,
+                )
+                errors.append(field)
+                # Defensive: never leak ciphertext into the API.
+                data[field] = ''
+        if errors:
+            data['_pii_decryption_errors'] = errors
+        return data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Always route reads through the accessors so the ciphertext at
+        # rest never surfaces — masking below operates on real plaintext.
+        data = self._decrypt_pii_into(data, instance)
+        if self._can_view_pii():
+            return data
+        # Mask: keep only last-4 of NIN/bank_account; redact salary/TIN/SSN.
+        for field in ('national_id_number', 'bank_account', 'social_security_number'):
+            value = data.get(field)
+            if value:
+                value = str(value)
+                data[field] = f"****{value[-4:]}" if len(value) >= 4 else "****"
+        for field in ('tax_identification_number',):
+            if data.get(field):
+                data[field] = "***REDACTED***"
+        for field in ('base_salary', 'hourly_rate'):
+            if field in data and data.get(field) is not None:
+                data[field] = None
+        return data
+
+    def _apply_pii_setters(self, instance, validated_data):
+        """Route writes for encrypted PII through ``set_<field>()``."""
+        for field in self._ENCRYPTED_PII_ACCESSORS:
+            if field in validated_data:
+                setter = getattr(instance, f'set_{field}', None)
+                value = validated_data.pop(field)
+                if setter is not None:
+                    setter(value)
+                else:
+                    setattr(instance, field, value)
+        return validated_data
+
     def validate(self, data):
         if data.get('contract_end_date') and data.get('contract_start_date'):
             if data['contract_end_date'] < data['contract_start_date']:
@@ -79,7 +179,22 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # Split out encrypted PII so super().create() doesn't write
+        # ciphertext-less plaintext into the columns.
+        pii_values = {
+            f: validated_data.pop(f)
+            for f in self._ENCRYPTED_PII_ACCESSORS
+            if f in validated_data
+        }
         employee = super().create(validated_data)
+        if pii_values:
+            for field, value in pii_values.items():
+                setter = getattr(employee, f'set_{field}', None)
+                if setter is not None:
+                    setter(value)
+                else:
+                    setattr(employee, field, value)
+            employee.save(update_fields=list(self._encrypted_pii_save_fields(pii_values.keys())))
 
         onboarding_tasks = OnboardingTask.objects.filter(is_active=True).order_by('sequence')
         hire_date = employee.hire_date
@@ -97,6 +212,30 @@ class EmployeeSerializer(serializers.ModelSerializer):
         ])
 
         return employee
+
+    def update(self, instance, validated_data):
+        pii_values = {
+            f: validated_data.pop(f)
+            for f in self._ENCRYPTED_PII_ACCESSORS
+            if f in validated_data
+        }
+        for field, value in pii_values.items():
+            setter = getattr(instance, f'set_{field}', None)
+            if setter is not None:
+                setter(value)
+            else:
+                setattr(instance, field, value)
+        return super().update(instance, validated_data)
+
+    @staticmethod
+    def _encrypted_pii_save_fields(field_names):
+        """Yield the column names touched by ``set_<field>()`` for a save."""
+        searchable = {'national_id_number', 'tax_identification_number', 'bank_account'}
+        for name in field_names:
+            yield name
+            yield f'{name}_encrypted'
+            if name in searchable:
+                yield f'{name}_hash'
 
 
 class EmployeeListSerializer(EmployeeSerializer):

@@ -7,8 +7,12 @@ Gate 1: Appropriation must exist (always enforced)
 Gate 2: Warrant must be released (only if tenant.enforce_warrant = True)
 Gate 3: Available balance must cover amount (always enforced)
 """
+import logging
 from decimal import Decimal
 from django.db import connection
+from django.db.utils import OperationalError, ProgrammingError
+
+logger = logging.getLogger(__name__)
 
 
 class BudgetExceededError(Exception):
@@ -49,7 +53,16 @@ def _is_warrant_enforced() -> bool:
         if client is None:
             return False
         return bool(getattr(client, 'enforce_warrant', False))
-    except Exception:
+    except (ProgrammingError, OperationalError) as exc:
+        # DB not migrated yet, schema missing, or transient connection
+        # error — fail closed (warrant NOT enforced) so admin tooling
+        # like ``migrate`` or ``createsuperuser`` can still bootstrap.
+        # Narrowed from bare ``except Exception`` so genuine bugs in
+        # the lookup surface instead of being silently swallowed.
+        logger.warning(
+            "warrant-enforcement lookup failed (%s): %s — defaulting to OFF",
+            type(exc).__name__, exc,
+        )
         return False
 
 
@@ -175,7 +188,25 @@ class BudgetValidationService:
         # 2. Check warrant (CONDITIONAL — based on tenant setting)
         warrant_id = None
         if _is_warrant_enforced():
-            active_warrant = appropriation.warrants.filter(status='RELEASED').last()
+            # Filter out warrants whose ``effective_to`` has passed
+            # but which the daily ``expire_warrants`` cron hasn't yet
+            # flipped to status='EXPIRED'. Without this filter an
+            # expired-by-date warrant lingering as RELEASED for up to
+            # 24h after the boundary day silently authorises new
+            # expenditure — the same gap closed in Pass 2 for
+            # ``Appropriation.total_warrants_released`` (budget/models.py:807).
+            # Nullable ``effective_to`` (legacy rows) is treated as
+            # not-expired so historical data keeps validating.
+            from datetime import date
+            from django.db.models import Q
+            active_warrant = (
+                appropriation.warrants
+                .filter(status='RELEASED')
+                .filter(
+                    Q(effective_to__isnull=True) | Q(effective_to__gte=date.today()),
+                )
+                .last()
+            )
             if not active_warrant:
                 raise BudgetExceededError(
                     f"Appropriation exists (ID: {appropriation.pk}) but no active warrant "

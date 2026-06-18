@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle, XCircle, ArrowRight, Search, FileText, Send, Pencil, Trash2, CheckSquare } from 'lucide-react';
-import { usePurchaseRequests, useApprovePR, useRejectPR, useBulkApprovePR, useBulkDeletePR } from './hooks/useProcurement';
+import { usePurchaseRequests, useApprovePR, useRejectPR, useBulkApprovePR, useBulkDeletePR, useSubmitPR } from './hooks/useProcurement';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
@@ -32,6 +32,7 @@ export default function PurchaseRequisitions() {
 
     const { data: requests, isLoading } = usePurchaseRequests({ status: statusFilter, search: searchTerm || undefined, page: currentPage, page_size: pageSize });
     const approveMutation = useApprovePR();
+    const submitMutation = useSubmitPR();
     const rejectMutation = useRejectPR();
     const bulkApproveMutation = useBulkApprovePR();
     const bulkDeleteMutation = useBulkDeletePR();
@@ -45,9 +46,17 @@ export default function PurchaseRequisitions() {
     const allSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedIds.has(id));
     const someSelected = selectedIds.size > 0;
     const selectedList = requestsList.filter((r: any) => selectedIds.has(r.id));
-    const canBulkApprove = selectedList.some((r: any) => r.status === 'Pending' || r.status === 'Draft');
-    const canBulkDelete = selectedList.some((r: any) => r.status === 'Draft' || r.status === 'Rejected');
-    const canEdit = selectedIds.size === 1 && selectedList[0]?.status === 'Draft';
+    // PR transition rules (post-audit-fix #8):
+    //   Draft → Pending  via submit_for_approval (routes through workflow engine)
+    //   Pending → Approved/Rejected via approve / reject (enforces SoD)
+    // The previous list view conflated Draft and Pending into one
+    // "approvable" set, which made the bulk + per-row Approve buttons
+    // fire approve() on Draft rows that the backend correctly rejects
+    // with HTTP 400. Now the two transitions are distinct affordances.
+    const canBulkApprove = selectedList.some((r: any) => r.status === 'Pending');
+    const canBulkSubmit  = selectedList.some((r: any) => r.status === 'Draft');
+    const canBulkDelete  = selectedList.some((r: any) => r.status === 'Draft' || r.status === 'Rejected');
+    const canEdit        = selectedIds.size === 1 && selectedList[0]?.status === 'Draft';
 
     const toggleRow = (id: number) => {
         setSelectedIds(prev => {
@@ -73,15 +82,44 @@ export default function PurchaseRequisitions() {
 
     const handleConfirmedAction = (id: number, action: string) => {
         if (action === 'approve') approveMutation.mutate(id);
+        else if (action === 'submit') submitMutation.mutate(id);
         else if (action === 'reject') rejectMutation.mutate(id);
         setConfirmAction(null);
     };
 
     const handleBulkApprove = async () => {
-        const ids = selectedList.filter((r: any) => r.status === 'Pending' || r.status === 'Draft').map((r: any) => r.id);
+        // ``approve`` only valid on Pending; backend rejects Draft.
+        const ids = selectedList.filter((r: any) => r.status === 'Pending').map((r: any) => r.id);
         if (!ids.length) return;
         const result = await bulkApproveMutation.mutateAsync(ids);
         setBulkResult({ type: 'approve', ...result });
+        clearSelection();
+    };
+
+    const handleBulkSubmit = async () => {
+        // Sequential POSTs because submit_for_approval routes through the
+        // workflow engine and could throw policy violations row-by-row.
+        // Aggregating into a single bulk endpoint would lose the per-PR
+        // SoD diagnostics each call returns.
+        const ids = selectedList.filter((r: any) => r.status === 'Draft').map((r: any) => r.id);
+        if (!ids.length) return;
+        const submitted: { id: number; number: string }[] = [];
+        const errors: { id: number; number: string; reason: string }[] = [];
+        for (const id of ids) {
+            const row = selectedList.find((r: any) => r.id === id) as { id: number; request_number: string };
+            try {
+                await submitMutation.mutateAsync(id);
+                submitted.push({ id, number: row.request_number });
+            } catch (e: unknown) {
+                const err = e as { response?: { data?: { error?: string; detail?: string } } };
+                errors.push({
+                    id,
+                    number: row.request_number,
+                    reason: err?.response?.data?.error || err?.response?.data?.detail || 'Submit failed',
+                });
+            }
+        }
+        setBulkResult({ type: 'approve', approved: submitted, errors });
         clearSelection();
     };
 
@@ -282,7 +320,28 @@ export default function PurchaseRequisitions() {
                     </span>
                     <div style={{ flex: 1 }} />
 
-                    {/* Approve */}
+                    {/* Submit Draft PRs for approval — distinct from Approve.
+                        Draft rows can't be approved directly per the audit-
+                        fix #8 SoD tightening; they go Draft → Pending here
+                        first. */}
+                    <button
+                        onClick={handleBulkSubmit}
+                        disabled={!canBulkSubmit || submitMutation.isPending}
+                        title={!canBulkSubmit ? 'Select Draft PRs to submit for approval' : undefined}
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                            padding: '0.4rem 1rem', borderRadius: '6px', border: 'none',
+                            background: canBulkSubmit ? 'rgba(245,158,11,0.12)' : 'rgba(156,163,175,0.08)',
+                            color: canBulkSubmit ? '#d97706' : '#9ca3af',
+                            cursor: canBulkSubmit ? 'pointer' : 'not-allowed',
+                            fontWeight: 600, fontSize: 'var(--text-sm)',
+                        }}
+                    >
+                        <Send size={15} />
+                        {submitMutation.isPending ? 'Submitting…' : 'Submit'}
+                    </button>
+
+                    {/* Approve — Pending PRs only (backend enforces). */}
                     <button
                         onClick={handleBulkApprove}
                         disabled={!canBulkApprove || bulkApproveMutation.isPending}
@@ -421,7 +480,24 @@ export default function PurchaseRequisitions() {
                                                                 style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
                                                         </div>
                                                     )}
-                                                    {confirmAction?.id !== req.id && (req.status === 'Pending' || req.status === 'Draft') && (
+                                                    {/* Draft → Submit for Approval (Draft → Pending transition). */}
+                                                    {confirmAction?.id !== req.id && req.status === 'Draft' && (
+                                                        <button
+                                                            onClick={() => setConfirmAction({ id: req.id, action: 'submit' })}
+                                                            style={{
+                                                                padding: '0.375rem 0.75rem', borderRadius: '6px', border: 'none',
+                                                                background: 'rgba(245,158,11,0.12)', color: '#d97706',
+                                                                cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600,
+                                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                                            }}
+                                                            title="Submit for Approval"
+                                                        >
+                                                            <Send size={14} />
+                                                            Submit
+                                                        </button>
+                                                    )}
+                                                    {/* Pending → Approve or Reject. */}
+                                                    {confirmAction?.id !== req.id && req.status === 'Pending' && (
                                                         <>
                                                             <button
                                                                 onClick={() => setConfirmAction({ id: req.id, action: 'approve' })}

@@ -1,8 +1,12 @@
+import logging
 from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from core.models import AuditBaseModel
+
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -85,9 +89,24 @@ class Employee(AuditBaseModel):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='employee')
     employee_number = models.CharField(max_length=50, unique=True)
-    
+
     personal_info = models.JSONField(default=dict, blank=True)
-    
+
+    # Direct MDA/tenant scope. Source of truth for payroll-run scoping and
+    # tenant isolation. Previously inferred via
+    # ``department.cost_center.organization``; that chain was incomplete
+    # (CostCenter has no organization FK) and required JOINs on every query.
+    organization = models.ForeignKey(
+        'core.Organization',
+        null=True,  # nullable initially; backfill migration follows
+        blank=True,
+        on_delete=models.PROTECT,
+        db_index=True,
+        related_name='employees',
+        help_text='Tenant/MDA this employee belongs to. Source of truth for '
+                  'payroll-run scoping and tenant isolation.',
+    )
+
     department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name='employees')
     position = models.ForeignKey(Position, on_delete=models.PROTECT, related_name='employees')
     supervisor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='subordinates')
@@ -110,22 +129,35 @@ class Employee(AuditBaseModel):
     hourly_rate = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     
     bank_name = models.CharField(max_length=100, blank=True)
-    bank_account = models.CharField(max_length=50, blank=True)
-    bank_routing = models.CharField(max_length=20, blank=True)
-    
+    # NOTE: bank_account, bank_routing, tax_identification_number,
+    # social_security_number, and national_id_number are widened to
+    # max_length=255 in migration 0018 to fit Fernet ciphertext at rest.
+    # Use the ``set_<field>()`` / ``get_<field>()`` accessors below — direct
+    # assignment is not encrypted and breaks the dual-state flag invariant.
+    bank_account = models.CharField(max_length=255, blank=True)
+    bank_routing = models.CharField(max_length=255, blank=True)
+    bank_account_encrypted = models.BooleanField(default=False)
+    bank_routing_encrypted = models.BooleanField(default=False)
+    bank_account_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+
     # HR-M5: Statutory ID Fields
     tax_identification_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="Tax ID / TIN"
     )
+    tax_identification_number_encrypted = models.BooleanField(default=False)
+    tax_identification_number_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     social_security_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="SSN / Social Security Number"
     )
+    social_security_number_encrypted = models.BooleanField(default=False)
     national_id_number = models.CharField(
-        max_length=50, blank=True,
+        max_length=255, blank=True,
         help_text="National ID Card Number"
     )
+    national_id_number_encrypted = models.BooleanField(default=False)
+    national_id_number_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     passport_number = models.CharField(
         max_length=50, blank=True,
         help_text="Passport Number"
@@ -146,9 +178,173 @@ class Employee(AuditBaseModel):
 
     class Meta:
         ordering = ['employee_number']
+        # V5 — searching employees by hashed PII is an existence oracle
+        # and must be tightly scoped. Without this permission only
+        # superusers may invoke :meth:`find_by_pii_hash`.
+        permissions = (
+            ('search_employee_pii', 'Can search employees by PII hash'),
+        )
 
     def __str__(self):
         return f"{self.employee_number} - {self.user.get_full_name()}"
+
+    # ── PII at-rest encryption accessors ──────────────────────────────
+    # Five fields are encrypted with Fernet (see core.security.pii_crypto).
+    # Three of those also carry an HMAC hash column for exact-match search.
+    # Always use these helpers in application code; direct assignment
+    # bypasses encryption and breaks the dual-state ``<field>_encrypted``
+    # flag invariant.
+    _ENCRYPTED_PII_FIELDS = (
+        'national_id_number',
+        'tax_identification_number',
+        'social_security_number',
+        'bank_account',
+        'bank_routing',
+    )
+    _SEARCHABLE_PII_FIELDS = frozenset({
+        'national_id_number',
+        'tax_identification_number',
+        'bank_account',
+    })
+
+    def _get_encrypted_pii(self, field_name: str) -> str:
+        from core.security.pii_crypto import decrypt_pii, InvalidToken
+        raw = getattr(self, field_name, '') or ''
+        if not raw:
+            return ''
+        if getattr(self, f'{field_name}_encrypted', False):
+            try:
+                return decrypt_pii(raw)
+            except InvalidToken:
+                # Defensive: flag says encrypted but ciphertext is invalid.
+                # Returning empty is safer than leaking ciphertext to a UI.
+                return ''
+        return raw
+
+    def _set_encrypted_pii(self, field_name: str, value) -> None:
+        from core.security.pii_crypto import encrypt_pii, pii_hash
+        if value is None:
+            value = ''
+        if not isinstance(value, str):
+            value = str(value)
+        if value == '':
+            setattr(self, field_name, '')
+            setattr(self, f'{field_name}_encrypted', False)
+            if field_name in self._SEARCHABLE_PII_FIELDS:
+                setattr(self, f'{field_name}_hash', '')
+            return
+        setattr(self, field_name, encrypt_pii(value))
+        setattr(self, f'{field_name}_encrypted', True)
+        if field_name in self._SEARCHABLE_PII_FIELDS:
+            setattr(self, f'{field_name}_hash', pii_hash(value))
+
+    def get_national_id_number(self) -> str:
+        return self._get_encrypted_pii('national_id_number')
+
+    def set_national_id_number(self, value) -> None:
+        self._set_encrypted_pii('national_id_number', value)
+
+    def get_tax_identification_number(self) -> str:
+        return self._get_encrypted_pii('tax_identification_number')
+
+    def set_tax_identification_number(self, value) -> None:
+        self._set_encrypted_pii('tax_identification_number', value)
+
+    def get_social_security_number(self) -> str:
+        return self._get_encrypted_pii('social_security_number')
+
+    def set_social_security_number(self, value) -> None:
+        self._set_encrypted_pii('social_security_number', value)
+
+    def get_bank_account(self) -> str:
+        return self._get_encrypted_pii('bank_account')
+
+    def set_bank_account(self, value) -> None:
+        self._set_encrypted_pii('bank_account', value)
+
+    def get_bank_routing(self) -> str:
+        return self._get_encrypted_pii('bank_routing')
+
+    def set_bank_routing(self, value) -> None:
+        self._set_encrypted_pii('bank_routing', value)
+
+    # V5 — per-user rate limit for PII hash search. Keys are namespaced
+    # by actor primary key; window is 60s; max 20 calls.
+    _PII_SEARCH_RATE_LIMIT = 20
+    _PII_SEARCH_RATE_WINDOW_SECONDS = 60
+
+    @classmethod
+    def find_by_pii_hash(cls, field_name: str, plaintext_value: str, *, actor=None):
+        """Return a queryset of employees whose ``<field_name>`` matches.
+
+        Accepts only the three searchable PII fields. Hashes the
+        plaintext via :func:`core.security.pii_crypto.pii_hash` and
+        filters the indexed ``<field_name>_hash`` column.
+
+        V5 hardening:
+
+        * ``actor`` is mandatory. It must be the user invoking the
+          search and must hold either ``is_superuser`` or the
+          ``hrm.search_employee_pii`` permission. Anonymous / missing
+          actors raise ``PermissionDenied``.
+        * Every call is logged at INFO level with actor pk, field name,
+          and a timestamp. The plaintext value is **never** logged.
+        * Per-user rate limit of 20 calls per 60s; exceeding it raises
+          ``PermissionDenied`` to short-circuit brute-force enumeration.
+        """
+        from django.core.exceptions import PermissionDenied
+        from django.core.cache import cache
+        from core.security.pii_crypto import pii_hash
+
+        # ── 1. Mandatory caller ───────────────────────────────────
+        if actor is None or not getattr(actor, 'is_authenticated', False):
+            raise PermissionDenied(
+                'find_by_pii_hash requires an authenticated actor.'
+            )
+
+        # ── 2. Permission check ───────────────────────────────────
+        if not (
+            getattr(actor, 'is_superuser', False)
+            or actor.has_perm('hrm.search_employee_pii')
+        ):
+            raise PermissionDenied(
+                'You do not have permission to search employees by PII hash.'
+            )
+
+        # ── 3. Field validation ───────────────────────────────────
+        if field_name not in cls._SEARCHABLE_PII_FIELDS:
+            raise ValueError(
+                f"{field_name!r} is not a hash-searchable PII field; "
+                f"choose one of {sorted(cls._SEARCHABLE_PII_FIELDS)}."
+            )
+
+        # ── 4. Per-actor rate limit ───────────────────────────────
+        actor_pk = getattr(actor, 'pk', None)
+        if actor_pk is not None:
+            cache_key = f'pii_search:{actor_pk}'
+            try:
+                current = cache.incr(cache_key)
+            except ValueError:
+                # Key does not exist yet — initialise with TTL.
+                cache.set(cache_key, 1, timeout=cls._PII_SEARCH_RATE_WINDOW_SECONDS)
+                current = 1
+            if current > cls._PII_SEARCH_RATE_LIMIT:
+                logger.warning(
+                    'pii_search_rate_limit_exceeded actor_pk=%s field=%s ts=%s',
+                    actor_pk, field_name, timezone.now().isoformat(),
+                )
+                raise PermissionDenied('Rate limit exceeded')
+
+        # ── 5. Audit log (never logs plaintext) ───────────────────
+        logger.info(
+            'pii_search actor_pk=%s field=%s ts=%s',
+            actor_pk, field_name, timezone.now().isoformat(),
+        )
+
+        hashed = pii_hash(plaintext_value)
+        if not hashed:
+            return cls.objects.none()
+        return cls.objects.filter(**{f'{field_name}_hash': hashed})
 
 
 # =============================================================================

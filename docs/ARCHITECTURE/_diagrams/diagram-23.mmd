@@ -1,0 +1,36 @@
+flowchart TD
+    Start([User: I need to buy laptops]) --> PR[PurchaseRequest<br/>Draft]
+    PR --> PRSub[submit_for_approval]
+    PRSub --> WF1[workflow.Approval<br/>routes to approver]
+    WF1 --> PRApp[PR Approved<br/>+ check_policy gate]
+
+    PRApp --> PO[PurchaseOrder<br/>Draft]
+    PO --> POApp[PO Approved<br/>process_budget_encumbrance<br/>create_commitment_for_po<br/>SELECT FOR UPDATE Appropriation]
+
+    POApp --> Vendor([Vendor delivers goods])
+    Vendor --> GRN[GoodsReceivedNote<br/>Posted]
+    GRN --> StockMv[StockMovement created<br/>ItemStock += qty]
+    GRN --> Commit2[ProcurementBudgetLink<br/>ACTIVE → INVOICED]
+
+    Commit2 --> InvoiceArr([Vendor invoice arrives])
+    InvoiceArr --> IM[InvoiceMatching<br/>Draft → 3-way match]
+    IM --> IMVar{variance ≤ 5%?}
+    IMVar -- yes --> IMApp[Submit for approval]
+    IMVar -- no --> Hold[payment_hold = True<br/>variance review]
+    Hold --> Override[manual override<br/>+ reason]
+    Override --> IMApp
+    IMApp --> WF2[workflow.Approval]
+    WF2 --> Posted[Auto-post via signal:<br/>DR GR/IR, CR AP<br/>+ PPV journal if variance]
+    Posted --> CommitClose[ProcurementBudgetLink<br/>→ CLOSED]
+
+    Posted --> PV[PaymentVoucherGov<br/>DRAFT spawned]
+    PV --> PVCheck[CHECKED]
+    PVCheck --> PVAud[AUDITED]
+    PVAud --> PVApp[APPROVED]
+    PVApp --> PVSched[SCHEDULED]
+    PVSched --> PI[PaymentInstruction<br/>NIBSS / RTGS]
+    PI --> PVPaid[PAID<br/>TSABalanceService.process_payment<br/>DR AP, CR TSA Bank]
+    PVPaid --> Done([Vendor paid])
+
+    classDef gate fill:#fef3c7,stroke:#92400e
+    class POApp,Posted,PVPaid gate

@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
@@ -30,6 +32,7 @@ v1_patterns = [
     path('tenants/', include('tenants.urls')),
     path('superadmin/', include('superadmin.urls')),
     path('contracts/', include('contracts.urls', namespace='contracts')),
+    path('', include('snapshots.urls')),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3
@@ -62,3 +65,18 @@ urlpatterns = [
     # Backward compat — remove after all clients migrate to /api/v1/
     path('api/', include(v1_patterns)),
 ]
+
+# ── Media serving in development ─────────────────────────────────────
+# Without this helper, every URL returned by ``ImageField.url`` /
+# ``FileField.url`` (e.g. /media/warrants/printout_settings/signatures/
+# governor.png) would 404 in dev — files write to disk fine, but Django
+# only serves them when the URLconf is wired explicitly. In production,
+# Nginx / S3 / CDN serves /media/ directly and this no-ops because
+# ``static()`` returns [] when DEBUG is False.
+#
+# Why this matters for the warrant-printout page:
+#   • Upload signature → backend writes file → response includes _url
+#   • Frontend swaps <img src="blob:..."> for <img src="/media/...">
+#   • Without this helper, the second src 404s → image disappears
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -90,6 +90,12 @@ def _serve(
         'rows':         result.rows,
         'totals':       {k: str(v) for k, v in result.totals.items()},
         'generated_at': result.generated_at.isoformat(),
+        # V8 — surface partial-result warnings + per-row failures so the
+        # operator UI can render an attention banner alongside the data.
+        # HTTP status remains 200; ``_warnings`` is the convention used
+        # by every other report endpoint on this codebase.
+        '_warnings':        list(getattr(result, 'warnings', []) or []),
+        'partial_failures': list(getattr(result, 'partial_failures', []) or []),
     }
     return _generic_serve(
         request, as_dict,
@@ -224,9 +230,20 @@ class _MonthlyScheduleView(APIView):
             return Response({'error': 'month must be 1-12'}, status=400)
 
         tenant_name = getattr(getattr(request, 'tenant', None), 'name', '') or ''
-        result = type(self).exporter(
-            year=year, month=month, tenant_name=tenant_name,
-        )
+        # V8 — only an all-sections-failed exporter still raises
+        # ``StatutoryReturnError``. Translate to a 500 so the operator
+        # sees a hard block. Partial failures are NOT raised; they
+        # propagate through the result and render as ``_warnings``.
+        from accounting.statutory import StatutoryReturnError
+        try:
+            result = type(self).exporter(
+                year=year, month=month, tenant_name=tenant_name,
+            )
+        except StatutoryReturnError as exc:
+            return Response(
+                {'error': str(exc), 'partial_failures': []},
+                status=500,
+            )
         return _serve(
             request, result,
             f'{self.filename_stem}-{year:04d}-{month:02d}',

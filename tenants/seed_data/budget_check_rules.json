@@ -1,0 +1,38 @@
+[
+  {
+    "gl_from":               "21000000",
+    "gl_to":                 "21999999",
+    "check_level":           "STRICT",
+    "warning_threshold_pct": 80.00,
+    "description":           "Personnel Costs — STRICT: cannot post without an active appropriation",
+    "priority":              100,
+    "is_active":             true
+  },
+  {
+    "gl_from":               "22000000",
+    "gl_to":                 "22999999",
+    "check_level":           "WARNING",
+    "warning_threshold_pct": 80.00,
+    "description":           "Overhead Costs — warns at 80% utilisation",
+    "priority":              100,
+    "is_active":             true
+  },
+  {
+    "gl_from":               "23000000",
+    "gl_to":                 "23999999",
+    "check_level":           "STRICT",
+    "warning_threshold_pct": 90.00,
+    "description":           "Capital Expenditure — STRICT: requires appropriation backing",
+    "priority":              100,
+    "is_active":             true
+  },
+  {
+    "gl_from":               "00000000",
+    "gl_to":                 "99999999",
+    "check_level":           "WARNING",
+    "warning_threshold_pct": 90.00,
+    "description":           "Default catch-all — warns when over 90% utilised",
+    "priority":              0,
+    "is_active":             true
+  }
+]

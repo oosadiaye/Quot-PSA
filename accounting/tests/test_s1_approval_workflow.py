@@ -20,7 +20,7 @@ class TestMakerCheckerEnforcement:
         return ApprovalInstance.objects.create(
             document_type='JE',
             document_id=1,
-            document_reference='TEST-001',
+            reference_number='TEST-001',
             status='PENDING',
             current_level=0,
             max_level=max_level,

@@ -94,11 +94,11 @@ const ContractsDashboard = () => {
             ],
         },
         {
-            title: 'Payments & Variations',
-            description: 'Certify milestone payments and approve change orders.',
+            title: 'Payments & Write-ups',
+            description: 'Certify milestone payments and approve upward contract revaluations.',
             links: [
                 { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale, desc: 'IPC workflow queue' },
-                { name: 'Variations', path: '/contracts/variations', icon: TrendingUp, desc: 'Change orders by tier' },
+                { name: 'Write-ups', path: '/contracts/variations', icon: TrendingUp, desc: 'Upward contract revaluation by tier' },
             ],
         },
     ];
@@ -107,7 +107,7 @@ const ContractsDashboard = () => {
         <ListPageShell>
             <PageHeader
                 title="Contracts & Milestone Payments"
-                subtitle="Ceiling-safe IPC workflow with tiered variation approval"
+                subtitle="Ceiling-safe IPC workflow with tiered write-up approval"
                 icon={<FileText size={22} style={{ color: 'rgba(255,255,255,0.85)' }} />}
                 backButton={false}
             />

@@ -80,7 +80,43 @@ class ExpiringTokenAuthentication(TokenAuthentication):
 
     Also checks that the token's corresponding UserSession has not been
     revoked, and updates `last_activity` on each authenticated request.
+
+    Cookie-fallback path (added 2026-05-24)
+    ---------------------------------------
+    The base ``TokenAuthentication.authenticate()`` extracts the key
+    from the ``Authorization: Token <key>`` header. We extend it to
+    fall back to the ``AUTH_COOKIE_NAME`` cookie when the header is
+    absent. Header always takes precedence so existing API consumers
+    keep working unchanged; the cookie path only kicks in for the
+    browser session that just received the cookie via login. This is
+    the safe-additive contract: existing callers see no behaviour
+    change.
     """
+
+    def authenticate(self, request):
+        # 1. Standard header path — preserves every existing behaviour
+        # (rate-limiting, tests, third-party API consumers using
+        # ``Token`` header). The base class returns None when no header
+        # is present, in which case we try the cookie below.
+        result = super().authenticate(request)
+        if result is not None:
+            return result
+
+        # 2. Cookie fallback. Only enabled when the operator has opted
+        # in via ``AUTH_COOKIE_ENABLED`` AND the cookie is actually
+        # present on the request. Returning None (not raising) keeps
+        # the DRF chain's "anonymous if no creds" semantics intact for
+        # endpoints that allow it.
+        cookie_name = getattr(settings, 'AUTH_COOKIE_NAME', 'auth_token')
+        if not getattr(settings, 'AUTH_COOKIE_ENABLED', False):
+            return None
+        key = request.COOKIES.get(cookie_name)
+        if not key:
+            return None
+        # Reuse the exact same validation path as the header — token
+        # lookup, expiry check, session-revocation check, last-activity
+        # update — by delegating to authenticate_credentials.
+        return self.authenticate_credentials(key)
 
     def authenticate_credentials(self, key):
         with schema_context('public'):

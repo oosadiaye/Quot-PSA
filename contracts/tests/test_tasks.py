@@ -10,11 +10,29 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from django.utils import timezone
 
 from contracts import tasks
 
 
+try:
+    import celery  # noqa: F401
+
+    _CELERY_INSTALLED = True
+except ImportError:
+    _CELERY_INSTALLED = False
+
+
+@pytest.mark.skipif(
+    not _CELERY_INSTALLED,
+    reason=(
+        "Celery is an optional runtime dependency (see requirements.txt:57). "
+        "When absent, contracts/tasks.py uses a no-op @shared_task fallback "
+        "that returns the bare function — so the ``.name`` attribute these "
+        "tests check for is only present on real Celery-installed envs."
+    ),
+)
 class TestTaskRegistration:
     """Celery names must be stable — beat-schedule entries reference
     them as strings, so a rename is a breaking change."""

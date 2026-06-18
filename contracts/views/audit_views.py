@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS
 
 from contracts.filters import ApprovalStepFilter
 from contracts.models import ContractApprovalStep, ContractDocument
-from contracts.permissions import CanViewContracts
+from contracts.permissions import CanManageContracts, CanViewContracts
 from contracts.serializers import (
     ContractApprovalStepSerializer,
     ContractDocumentSerializer,
@@ -42,9 +42,25 @@ class ContractDocumentViewSet(viewsets.ModelViewSet):
         "contract", "uploaded_by",
     ).order_by("-created_at")
     serializer_class = ContractDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    # Was: ``IsAuthenticated`` only. Any authenticated user in the
+    # tenant could attach a forged PDF (signed BPP no-objection,
+    # contractor's bank-letter) to any contract — a real audit-trail
+    # risk because operators often trust attached docs at face value
+    # when approving IPCs. Reads require ``view_contract``; writes
+    # require ``add_contract``/``change_contract`` so only users
+    # authorised on the underlying contract can attach docs.
+    #
+    # Previously ``permission_classes = [CanViewContracts, CanManageContracts]``
+    # evaluated as logical AND on every request, blocking legitimate
+    # read-only users who lack manage permission. ``get_permissions``
+    # now picks the right gate per HTTP method.
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["contract", "document_type"]
+
+    def get_permissions(self):
+        if self.request and self.request.method in SAFE_METHODS:
+            return [CanViewContracts()]
+        return [CanManageContracts()]
 
     def perform_create(self, serializer):
         serializer.save(

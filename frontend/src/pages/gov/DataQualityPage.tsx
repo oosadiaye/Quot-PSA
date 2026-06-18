@@ -299,9 +299,8 @@ export default function DataQualityPage() {
                         ))}
                     </div>
                 ) : null}
-            </main>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-        </div>
+        </ListPageShell>
     );
 }
 
@@ -329,6 +328,7 @@ function SummaryPill({ count, status }: SummaryPillProps) {
                 textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4,
             }}>
                 {meta.label}
-        </ListPageShell>
+            </div>
+        </div>
     );
 }

@@ -32,6 +32,7 @@ from contracts.models import (
     ContractApprovalStep,
     ContractBalance,
     ContractStatus,
+    ContractYearPlan,
     ApprovalAction,
     ApprovalObjectType,
 )
@@ -113,6 +114,25 @@ class ContractActivationService:
                 fiscal_year=contract.fiscal_year.year if hasattr(contract.fiscal_year, "year") else contract.fiscal_year_id,
             )
 
+        # 4b. Year-plan invariant — multi-year contract support.
+        #
+        # Every active contract MUST have at least one ContractYearPlan
+        # row, because the IPC fiscal-year boundary control reads from
+        # year_plans (not contract.fiscal_year) when deciding which
+        # fiscal years can host IPCs. Two paths:
+        #
+        #   (a) Operator already added one or more year plans for a
+        #       multi-year contract — validate that their
+        #       planned_amount sums to original_sum (with a small
+        #       rounding tolerance so two-decimal-place arithmetic
+        #       doesn't false-trip).
+        #   (b) No year plans exist — auto-create a single-year plan
+        #       so the legacy single-year flow keeps working unchanged.
+        #       Sequence=1, fiscal_year=contract.fiscal_year,
+        #       appropriation=contract.appropriation,
+        #       planned_amount=original_sum.
+        cls._validate_or_create_year_plans(contract)
+
         # 5. Create or refresh the ContractBalance row.
         # NOTE: using get_or_create so re-running activation is idempotent
         # for the balance creation — important during manual recoveries.
@@ -169,6 +189,100 @@ class ContractActivationService:
         )
 
         return contract
+
+    # ── Year-plan invariant ─────────────────────────────────────────────
+    # Tolerance for the planned_amount sum-check. Two-decimal-place
+    # arithmetic over many year plans can drift by a kobo or two from
+    # original_sum due to rounding; ₦0.10 is comfortably below any
+    # number an auditor would flag as material.
+    _SUM_TOLERANCE = Decimal("0.10")
+
+    @classmethod
+    def _validate_or_create_year_plans(cls, contract: Contract) -> None:
+        """Enforce the multi-year invariant or auto-create a single-year plan.
+
+        Called from ``activate`` after required-fields validation and
+        before ``ContractBalance`` creation. Two outcomes:
+
+          (a) Operator pre-populated year plans → sum must equal
+              ``contract.original_sum`` (within ``_SUM_TOLERANCE``);
+              raises ``ValidationError`` otherwise. Each plan must
+              also reference a fiscal year that is consistent with the
+              contract's start/end dates (defensive — nothing
+              technically forbids a year-plan in a year the contract
+              doesn't span, but it indicates a data-entry mistake).
+
+          (b) No year plans exist → create exactly one matching the
+              contract's primary ``fiscal_year`` for the full
+              ``original_sum``. Preserves the legacy single-year
+              behaviour for tenants that don't touch the new feature.
+
+        Idempotent on re-run (e.g. recovery from a failed activation):
+        if (b)'s auto-row was created on a previous attempt, this
+        re-validates as case (a) and passes.
+        """
+        plans = list(contract.year_plans.all())
+
+        if not plans:
+            # Case (b): legacy single-year shape.
+            #
+            # Now that ``Contract.appropriation`` correctly points at
+            # ``budget.Appropriation`` (audit fix #2 / migration 0010),
+            # passing it through to the auto-created year_plan is
+            # finally type-correct. Previously this assignment was a
+            # latent bug: ``Contract.appropriation`` pointed at
+            # ``accounting.BudgetEncumbrance`` while
+            # ``ContractYearPlan.appropriation`` pointed at
+            # ``budget.Appropriation``, so any non-None value would
+            # have failed at write time. 0 of 4 production contracts
+            # had it set, which is why the bug never surfaced.
+            ContractYearPlan.objects.create(
+                contract=contract,
+                fiscal_year=contract.fiscal_year,
+                appropriation=getattr(contract, "appropriation", None),
+                planned_amount=contract.original_sum,
+                carried_forward_from_prior_year=Decimal("0.00"),
+                sequence=1,
+                created_by=contract.updated_by_id and contract.updated_by,
+                updated_by=contract.updated_by_id and contract.updated_by,
+            )
+            return
+
+        # Case (a): validate the multi-year sum.
+        total_planned = sum(
+            (p.planned_amount or Decimal("0.00") for p in plans),
+            Decimal("0.00"),
+        )
+        original_sum = contract.original_sum or Decimal("0.00")
+        delta = abs(total_planned - original_sum)
+        if delta > cls._SUM_TOLERANCE:
+            raise ValidationError(
+                {
+                    "year_plans": (
+                        f"Sum of year-plan planned_amount (₦{total_planned:,.2f}) "
+                        f"does not equal contract original_sum (₦{original_sum:,.2f}). "
+                        f"Delta: ₦{delta:,.2f} — adjust the year plans before "
+                        f"activating."
+                    )
+                }
+            )
+
+        # Defensive: every plan must reference a fiscal_year — already
+        # guaranteed by the FK NOT NULL, but assert here so a future
+        # schema change can't quietly weaken this. Sequences must be
+        # unique 1..N (the unique_together on contract+fiscal_year is
+        # the canonical guarantee; this is a friendlier error path).
+        sequences = [p.sequence for p in plans]
+        if sorted(sequences) != list(range(1, len(plans) + 1)):
+            raise ValidationError(
+                {
+                    "year_plans": (
+                        f"Year plan sequences must be consecutive starting "
+                        f"from 1 (got {sorted(sequences)}). Re-number the "
+                        f"plans chronologically."
+                    )
+                }
+            )
 
 
 # SoD bypass logic now lives in contracts.services.sod (shared across

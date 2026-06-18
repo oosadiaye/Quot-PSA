@@ -611,7 +611,14 @@ class StockMovementViewSet(viewsets.ModelViewSet):
                     movement.save()
                     gl_posted = True
                 except Exception as e:
-                    logger.error(f"GL posting failed for movement {movement.id} ({movement.item.sku}): {e}")
+                    logger.error(
+                        f"GL posting failed for movement {movement.id} "
+                        f"({movement.item.sku}): {e}",
+                        exc_info=True,
+                    )
+                    # Re-raise inside atomic() so the StockMovement rolls back too;
+                    # never return a 201 with partial state.
+                    raise
 
             # Schedule auto-PO check after this transaction commits
             movement_id = movement.id
@@ -704,7 +711,11 @@ class StockMovementViewSet(viewsets.ModelViewSet):
                     movement.save(update_fields=['gl_posted', 'journal_entry'])
                     gl_posted = True
                 except Exception as e:
-                    logger.error(f"GL dispatch posting failed for transfer {movement.id}: {e}")
+                    logger.error(
+                        f"GL dispatch posting failed for transfer {movement.id}: {e}",
+                        exc_info=True,
+                    )
+                    raise
 
         logger.info(
             f"Transfer dispatched: {item.sku} qty={quantity} "
@@ -765,7 +776,11 @@ class StockMovementViewSet(viewsets.ModelViewSet):
                     movement.receive_journal_entry = journal
                     gl_posted = True
                 except Exception as e:
-                    logger.error(f"GL receive posting failed for transfer {movement.id}: {e}")
+                    logger.error(
+                        f"GL receive posting failed for transfer {movement.id}: {e}",
+                        exc_info=True,
+                    )
+                    raise
 
             movement.save(update_fields=['transfer_status', 'receive_journal_entry'])
 

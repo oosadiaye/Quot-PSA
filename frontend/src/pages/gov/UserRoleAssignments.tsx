@@ -33,6 +33,31 @@ interface Assignment {
     assigned_at: string;
 }
 
+// Legacy hardcoded role-pair conflict shape (from
+// ``core/services/sod_conflicts.py``).
+interface LegacyConflict {
+    role_a: string;
+    role_b: string;
+    severity: string;     // 'high' | 'medium' | 'low'
+    reason: string;
+}
+
+// Rule-driven SoD violation shape (from ``core.SoDRule`` + the
+// ``check_assignment`` evaluator). Distinct from the legacy shape
+// because it identifies violations by permission CODE pairs rather
+// than role-pair shorthand, and carries scope/severity that the
+// admin defined on the SoDRule row.
+interface RuleDrivenViolation {
+    rule_code: string;
+    rule_name: string;
+    permission_a: string;
+    permission_b: string;
+    scope: 'hold' | 'same_document';
+    severity: 'block' | 'warn';
+    reason: string;
+    engine: 'rule_driven';
+}
+
 interface UserRow {
     user_id: number;
     username: string;
@@ -42,7 +67,10 @@ interface UserRow {
     role_codes: string[];
     roles: Assignment[];
     sod_clean: boolean;
-    sod_conflicts: Array<{ role_a: string; role_b: string; severity: string; reason: string }>;
+    sod_conflicts: LegacyConflict[];
+    // Added when backend wired both SoD engines through by-user;
+    // older API responses may omit this field, so keep optional.
+    rule_driven_violations?: RuleDrivenViolation[];
     highest_severity: 'none' | 'low' | 'medium' | 'high';
 }
 
@@ -54,9 +82,11 @@ interface ByUserResponse {
 interface SODPreview {
     codes_checked: string[];
     conflict_count: number;
+    rule_driven_count?: number;
     sod_clean: boolean;
     highest_severity: string;
-    conflicts: Array<{ role_a: string; role_b: string; severity: string; reason: string }>;
+    conflicts: LegacyConflict[];
+    rule_driven_violations?: RuleDrivenViolation[];
 }
 
 const SEV_COLOR: Record<string, { bg: string; border: string; text: string }> = {
@@ -179,10 +209,25 @@ export default function UserRoleAssignments() {
                                                 : <AlertTriangle size={11} />}
                                             {row.highest_severity === 'none' ? 'clean' : row.highest_severity}
                                         </span>
-                                        {row.sod_conflicts.length > 0 && (
+                                        {(row.sod_conflicts.length > 0 || (row.rule_driven_violations?.length || 0) > 0) && (
                                             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                                                {row.sod_conflicts.length} conflict
-                                                {row.sod_conflicts.length === 1 ? '' : 's'}
+                                                {/* Both engine counts surface here so admins can tell
+                                                    whether a flag came from the legacy hardcoded
+                                                    role-pair matrix, the tenant-defined SoDRule table,
+                                                    or both. The labels are short to fit the cell. */}
+                                                {row.sod_conflicts.length > 0 && (
+                                                    <span title="Legacy role-pair conflicts">
+                                                        {row.sod_conflicts.length} legacy
+                                                    </span>
+                                                )}
+                                                {row.sod_conflicts.length > 0 && (row.rule_driven_violations?.length || 0) > 0 && (
+                                                    <span style={{ color: '#cbd5e1' }}> · </span>
+                                                )}
+                                                {(row.rule_driven_violations?.length || 0) > 0 && (
+                                                    <span title="Tenant-defined SoDRule violations">
+                                                        {row.rule_driven_violations!.length} rule
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
                                     </td>
@@ -395,30 +440,98 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                     : `SOD ${preview.highest_severity}`)
                                 : 'Preview —'}
                         </div>
-                        {preview && preview.conflicts.length > 0 ? (
-                            <ul style={{
-                                margin: '6px 0 0 0', paddingLeft: 16,
-                                fontSize: 12, color: '#475569', lineHeight: 1.5,
-                            }}>
-                                {preview.conflicts.map((c, i) => {
-                                    const a = roleByCode.get(c.role_a);
-                                    const b = roleByCode.get(c.role_b);
-                                    return (
-                                        <li key={i}>
-                                            <strong>{a?.name ?? c.role_a}</strong>
-                                            {' + '}
-                                            <strong>{b?.name ?? c.role_b}</strong>
-                                            {' — '}
-                                            {c.reason}
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        ) : (
-                            <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
-                                No conflicts for the current role combination.
-                            </div>
-                        )}
+                        {(() => {
+                            const ruleViolations = preview?.rule_driven_violations ?? [];
+                            const hasAnyConflict = (preview?.conflicts.length ?? 0) > 0
+                                || ruleViolations.length > 0;
+                            if (!preview) return null;
+                            if (!hasAnyConflict) {
+                                return (
+                                    <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                                        No conflicts for the current role combination.
+                                    </div>
+                                );
+                            }
+                            return (
+                                <div style={{ marginTop: 6 }}>
+                                    {/* Legacy hardcoded role-pair conflicts */}
+                                    {preview.conflicts.length > 0 && (
+                                        <>
+                                            <div style={{
+                                                fontSize: 11, fontWeight: 700, color: '#475569',
+                                                textTransform: 'uppercase', letterSpacing: '0.4px',
+                                                marginBottom: 4,
+                                            }}>
+                                                Legacy role-pair matrix
+                                            </div>
+                                            <ul style={{
+                                                margin: '0 0 8px 0', paddingLeft: 16,
+                                                fontSize: 12, color: '#475569', lineHeight: 1.5,
+                                            }}>
+                                                {preview.conflicts.map((c, i) => {
+                                                    const a = roleByCode.get(c.role_a);
+                                                    const b = roleByCode.get(c.role_b);
+                                                    return (
+                                                        <li key={i}>
+                                                            <strong>{a?.name ?? c.role_a}</strong>
+                                                            {' + '}
+                                                            <strong>{b?.name ?? c.role_b}</strong>
+                                                            {' — '}
+                                                            {c.reason}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        </>
+                                    )}
+                                    {/* Rule-driven (SoDRule) violations — surface scope + severity
+                                        because tenants can author warn-only rules that don't block. */}
+                                    {ruleViolations.length > 0 && (
+                                        <>
+                                            <div style={{
+                                                fontSize: 11, fontWeight: 700, color: '#475569',
+                                                textTransform: 'uppercase', letterSpacing: '0.4px',
+                                                marginBottom: 4,
+                                            }}>
+                                                Tenant SoD rules
+                                            </div>
+                                            <ul style={{
+                                                margin: 0, paddingLeft: 16,
+                                                fontSize: 12, color: '#475569', lineHeight: 1.5,
+                                            }}>
+                                                {ruleViolations.map((v, i) => (
+                                                    <li key={i}>
+                                                        <strong>{v.rule_name}</strong>
+                                                        {' '}
+                                                        <span style={{
+                                                            display: 'inline-block',
+                                                            padding: '0px 6px', borderRadius: 4,
+                                                            fontSize: 10, fontWeight: 700,
+                                                            background: v.severity === 'block'
+                                                                ? '#fee2e2' : '#fef3c7',
+                                                            color: v.severity === 'block'
+                                                                ? '#991b1b' : '#92400e',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.4px',
+                                                        }}>
+                                                            {v.severity}
+                                                        </span>
+                                                        {' — '}
+                                                        {v.reason}
+                                                        <div style={{
+                                                            fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                                                            fontSize: 10, color: '#94a3b8', marginTop: 2,
+                                                        }}>
+                                                            {v.permission_a} ⨯ {v.permission_b}
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 

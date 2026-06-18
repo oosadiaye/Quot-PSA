@@ -80,6 +80,25 @@ class ContractClosureService:
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
             )
+        # ── SoD: contract drafter cannot self-certify completion ────
+        # CompletionCertificate triggers the 50% retention release
+        # eligibility downstream. Self-certification by the drafter
+        # would let one operator drive contract → practical → retain
+        # released without any independent verification.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also issue its practical-completion certificate.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id": getattr(actor, 'pk', None),
+                },
+            )
         cls._assert_no_open_ipcs(contract)
 
         cert = CompletionCertificate.objects.create(
@@ -143,6 +162,21 @@ class ContractClosureService:
                 f"Contract must be in DEFECTS_LIABILITY to issue final "
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
+            )
+        # SoD — see issue_practical_completion for rationale.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also issue its final-completion certificate.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id": getattr(actor, 'pk', None),
+                },
             )
         cls._assert_no_open_ipcs(contract)
 
@@ -265,6 +299,61 @@ class ContractClosureService:
             raise InvalidTransitionError(
                 "Contract has IPCs still in flight; resolve them first.",
                 context={"contract_id": contract.pk},
+            )
+
+        # H2 follow-up (WS6) — hard-block contract closure when any
+        # PaymentCascadeFailure rows are unresolved for this contract's
+        # IPCs. A cascade failure means the cash leg of a payment
+        # committed but the IPC mark_paid step did not — so the GL
+        # says paid, the sub-ledger says not paid, and the contract
+        # balance is divergent. Closing the contract over that
+        # divergence would erase the audit trail of the owed
+        # reconciliation.
+        try:
+            from accounting.models import PaymentCascadeFailure
+        except ImportError:
+            # V10 — narrowed from bare ``except Exception``. ImportError
+            # is the legitimate pre-migrate-window case (model not yet
+            # loaded into the registry). Every other exception class
+            # (ProgrammingError on missing table, AttributeError on a
+            # mistyped attribute, OperationalError on DB outage) MUST
+            # propagate so the cascade-failure gate stays loud and a
+            # contract cannot be closed over an unobserved cascade
+            # failure. Bare except here would silently fail-open and
+            # let an operator close a contract whose IPCs still have
+            # unresolved divergence between cash leg + sub-ledger.
+            import logging
+            logging.getLogger(__name__).warning(
+                'PaymentCascadeFailure import failed (likely '
+                'pre-migrate-window); cascade-failure gate skipped '
+                'for contract %s', contract.pk,
+            )
+            return
+
+        ipc_ids = list(
+            contract.ipcs.values_list('pk', flat=True),
+        )
+        if not ipc_ids:
+            return
+        pending = PaymentCascadeFailure.objects.filter(
+            ipc_id__in=ipc_ids,
+            resolved=False,
+        )
+        pending_count = pending.count()
+        if pending_count:
+            sample = list(
+                pending.values_list('pk', 'ipc_id', 'created_at')[:5]
+            )
+            raise InvalidTransitionError(
+                f"Contract has {pending_count} unresolved payment "
+                f"cascade failure(s). Resolve them via the payment "
+                f"reconciliation queue before closing the contract.",
+                context={
+                    "contract_id": contract.pk,
+                    "pending_cascade_failures": pending_count,
+                    "sample_failure_ids": [s[0] for s in sample],
+                    "affected_ipc_ids": list({s[1] for s in sample}),
+                },
             )
 
     @staticmethod

@@ -167,11 +167,22 @@ def create_commitment_for_po(po, committed_amount=None) -> bool:
             },
         )
 
+        # If totals refresh fails the ProcurementBudgetLink row exists but
+        # ``Appropriation.cached_total_committed`` is stale — every
+        # subsequent availability check reads a wrong number and over-
+        # commitment becomes possible. Log loudly and re-raise so the
+        # whole atomic block rolls back: better to fail the PO commit
+        # than to silently corrupt the budget cache.
         try:
             from accounting.services.appropriation_totals import refresh_totals
             refresh_totals(locked_appro)
         except Exception:
-            pass
+            logger.error(
+                'refresh_totals failed after PO commit',
+                extra={'po_id': po.pk, 'appropriation_id': locked_appro.pk},
+                exc_info=True,
+            )
+            raise
 
     return True
 
@@ -213,11 +224,21 @@ def cancel_commitment_for_po(po) -> int:
             purchase_order=po, status__in=['ACTIVE', 'INVOICED'],
         ).update(status='CANCELLED')
         if n:
+            # Same logic as commit_for_po: a stale committed-total cache
+            # after a cancel means the appropriation appears exhausted
+            # even though the obligation has been released. Re-raise so
+            # the cancel rolls back rather than silently corrupting the
+            # budget cache.
             try:
                 from accounting.services.appropriation_totals import refresh_totals
                 refresh_totals(link.appropriation)
             except Exception:
-                pass
+                logger.error(
+                    'refresh_totals failed after PO commitment cancel',
+                    extra={'po_id': po.pk, 'appropriation_id': link.appropriation_id},
+                    exc_info=True,
+                )
+                raise
         return n
 
 
@@ -267,11 +288,21 @@ def mark_commitment_invoiced_for_po(po) -> int:
         # the refresh is cheap and keeps the refresh_at timestamp
         # current so downstream staleness alerts work.
         if n:
+            # INVOICED still counts toward total_committed so the cache
+            # value shouldn't change here, but we still re-raise on
+            # failure: a refresh that errors signals corruption upstream
+            # and silently passing leaves the cache timestamp stale,
+            # which breaks downstream staleness alerts.
             try:
                 from accounting.services.appropriation_totals import refresh_totals
                 refresh_totals(link.appropriation)
             except Exception:
-                pass
+                logger.error(
+                    'refresh_totals failed after PO commitment invoiced',
+                    extra={'po_id': po.pk, 'appropriation_id': link.appropriation_id},
+                    exc_info=True,
+                )
+                raise
         return n
 
 

@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer, TrendingUp } from 'lucide-react';
 import Sidebar from '../../../components/Sidebar';
+import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 import apiClient from '../../../api/client';
 import { useFiscalYears } from '../../../hooks/useGovForms';
 import ReportError from './ReportError';
@@ -78,9 +79,25 @@ export default function ExecutionReport() {
 
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+            {/* Note: this page's <main> doesn't carry the .ipsas-report
+                class so the print rule targets <main> directly via the
+                aside/nav hide. Same effective layout as the other
+                report pages. */}
+            <style>{`
+                @media print {
+                    aside, nav, .no-print { display: none !important; }
+                    .print-only { display: block !important; }
+                    main { margin-left: 0 !important; padding: 16mm !important; }
+                    body { background: white !important; }
+                }
+                .print-only { display: none; }
+            `}</style>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
-                <div style={{
+                <div className="print-only" style={{ marginBottom: 16 }}>
+                    <BrandedPrintHeader subtitle="Budget Execution Report" />
+                </div>
+                <div className="no-print" style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: '24px',
                 }}>

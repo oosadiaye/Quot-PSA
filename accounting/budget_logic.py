@@ -197,7 +197,9 @@ def is_warrant_pre_payment_enforced() -> bool:
     return str(stage).lower() != 'payment'
 
 
-def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
+def check_warrant_availability(
+    *, dimensions, account, amount, exclude_po=None, strict: bool = True,
+):
     """Verify a transaction amount fits within the released-warrant ceiling
     for the matching Appropriation.
 
@@ -220,6 +222,15 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
             sum, used when re-checking an already-approved PO during
             invoice posting (we don't want to double-count its own
             commitment that was already booked at PO approval).
+        strict: ``True`` (DEFAULT) — fail CLOSED on any of the three
+            "skip" branches (missing dimensions, no NCoA bridge, no
+            matching ACTIVE appropriation). Callers that legitimately
+            need a soft / preview mode (e.g. validation previews that
+            tell the user "we couldn't evaluate, here's why") must pass
+            ``strict=False`` explicitly. The default was flipped from
+            soft to strict to close C7 — silent fall-through on these
+            branches was letting warrant-ceiling-bypassing payments post
+            whenever the NCoA bridge was incomplete.
 
     Returns:
         (allowed: bool, message: str, balance_info: dict)
@@ -227,6 +238,17 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
         balance_info has: warrants_released, already_consumed,
         available_warrant — useful for surfacing exact numbers in the
         error toast.
+
+    REQUIRES: caller is already inside ``transaction.atomic()``.
+
+    The previous implementation opened its own inner ``transaction.atomic()``
+    block here, which released the ``select_for_update`` row lock the
+    moment this function returned. That defeated the entire purpose of
+    pessimistic locking — the caller's subsequent mutation ran outside
+    the lock, leaving the classic check-then-act race wide open. The
+    inner atomic has been removed; the row lock is now held by the
+    caller's outer atomic until the caller commits. Callers MUST be
+    inside ``transaction.atomic()`` for the lock to be meaningful.
     """
     from budget.models import Appropriation
     from accounting.models.ncoa import (
@@ -236,13 +258,47 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
     mda  = dimensions.get('mda')  if dimensions else None
     fund = dimensions.get('fund') if dimensions else None
     if not (mda and fund and account):
-        return True, "Warrant check skipped (incomplete dimensions).", {}
+        # C7 fix: in strict mode (the default), refuse to silently allow
+        # transactions that are missing the very dimensions the warrant
+        # check depends on. Production payables/PO flows MUST never
+        # bypass the warrant ceiling because a record happens to be
+        # missing its MDA, Fund or Account FK — that's exactly the
+        # condition operators exploit (or hit by mistake) to leak
+        # spending past the cash-release ceiling. Soft mode is retained
+        # for preview/validation endpoints that want to surface the
+        # reason rather than block.
+        msg = "Warrant check skipped (incomplete dimensions)."
+        if strict:
+            logger.warning(
+                'check_warrant_availability strict-fail: incomplete dimensions '
+                '(mda=%s, fund=%s, account=%s)', mda, fund, account,
+            )
+            return False, (
+                "Warrant ceiling cannot be evaluated: MDA, Fund and Account "
+                "are all required to resolve the appropriation. Refusing to "
+                "post in strict mode."
+            ), {}
+        return True, msg, {}
 
     # Resolve legacy → NCoA segments via the legacy_* OneToOne bridges.
     admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
     econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
     fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
     if not (admin_seg and econ_seg and fund_seg):
+        if strict:
+            logger.warning(
+                'check_warrant_availability strict-fail: missing NCoA bridge '
+                '(admin=%s, econ=%s, fund=%s) for mda=%s account=%s fund=%s',
+                bool(admin_seg), bool(econ_seg), bool(fund_seg),
+                getattr(mda, 'pk', mda), getattr(account, 'pk', account),
+                getattr(fund, 'pk', fund),
+            )
+            return False, (
+                "Warrant ceiling cannot be evaluated: one or more NCoA "
+                "segment bridges (Administrative / Economic / Fund) is "
+                "missing. Configure the legacy→NCoA bridge for this MDA / "
+                "Fund / Account before posting."
+            ), {}
         return True, "Warrant check skipped (no NCoA bridge yet).", {}
 
     # Walk the economic parent chain so a leaf-coded transaction (e.g.
@@ -255,15 +311,49 @@ def check_warrant_availability(*, dimensions, account, amount, exclude_po=None):
         candidates.append(cursor)
         cursor = cursor.parent
 
-    appro = Appropriation.objects.filter(
+    # ``select_for_update`` so concurrent payment/commitment posts on
+    # the same appropriation serialise on this row. When the caller
+    # wraps this check + their subsequent mutation in a single
+    # ``transaction.atomic()``, the lock is held until the caller's
+    # commit — which is the only way to prevent the classic check-then-
+    # act race where two threads both read identical cached totals,
+    # both pass the ceiling, and both decrement the balance.
+    #
+    # If the caller is NOT already in an atomic block, Django still
+    # wraps this query in an implicit transaction; the lock releases
+    # at function exit, which serialises multiple concurrent *checks*
+    # but doesn't bridge to the caller's downstream write. That's why
+    # all the financial mutation viewsets that call this function
+    # should themselves be inside ``transaction.atomic()``.
+    # REQUIRES: caller is already inside transaction.atomic()
+    # The select_for_update row lock acquired below is released only
+    # when the caller's outer atomic commits. Calling this without an
+    # outer atomic still works for read-only checks but provides no
+    # cross-mutation race protection.
+    appro = Appropriation.objects.select_for_update().filter(
         administrative=admin_seg,
         economic__in=candidates,
         fund=fund_seg,
         status__iexact='ACTIVE',
     ).first()
     if not appro:
-        # No matching appropriation — let check_budget_availability handle the
-        # "no budget" message. Warrant check has nothing to validate against.
+        # No matching appropriation: in strict mode this is a hard
+        # block — a payment lacking an ACTIVE appropriation is exactly
+        # the un-warranted spending the ceiling exists to prevent. Soft
+        # mode preserves the legacy "let check_budget_availability
+        # surface the no-budget message" behaviour for previews.
+        if strict:
+            logger.warning(
+                'check_warrant_availability strict-fail: no ACTIVE '
+                'Appropriation for admin=%s econ=%s fund=%s',
+                admin_seg.code, econ_seg.code, fund_seg.code,
+            )
+            return False, (
+                f"No ACTIVE appropriation found for "
+                f"{admin_seg.code}/{econ_seg.code}/{fund_seg.code}. Refusing "
+                f"to post in strict mode — the legislative authority to "
+                f"spend on this line has not been enacted."
+            ), {}
         return True, "Warrant check skipped (no matching appropriation).", {}
 
     warrants_released = appro.total_warrants_released or Decimal('0')

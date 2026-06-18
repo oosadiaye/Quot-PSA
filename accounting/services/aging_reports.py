@@ -1,11 +1,27 @@
 """Aging Reports Service
 
 Generates AR/AP aging reports for collection planning and credit management.
+
+Canonical implementation
+------------------------
+``AgingReportService.generate_ar_aging_report`` and
+``generate_ap_aging_report`` are the canonical AR/AP aging entry points
+across the platform. Use these from any new caller (reporting,
+IPSAS notes, dashboard widgets).
+
+H12 follow-up: ``accounting/views/receivables.py::aging_report`` and
+``accounting/views/payables.py::aging_report`` still ship inline
+aging logic that diverges from this service in bucket boundaries and
+status filtering. Those view-level implementations are scheduled for
+migration to call the canonical service in a follow-up. Until then,
+any new aging surface should pull from this service to avoid further
+divergence.
 """
 from datetime import date
 from decimal import Decimal
 from typing import Dict, Any, List
 from dataclasses import dataclass
+from django.db import transaction
 from accounting.models import (
     CustomerInvoice, VendorInvoice, CustomerAging
 )
@@ -35,7 +51,17 @@ class AgingCustomerDetail:
 
 @dataclass
 class AgingReportResult:
-    """Complete aging report."""
+    """Complete aging report.
+
+    M3 (WS6 review) — adds GL reconciliation fields. Aging is computed
+    from the AR sub-ledger (``CustomerInvoice``/``VendorInvoice``). If
+    a Receipt's GL post fails after the sub-ledger ``received_amount``
+    was already incremented (or vice-versa), the sub-ledger drifts
+    from GL silently. ``gl_receivables_balance`` reads the live GL
+    receivables control account balance and ``gl_reconciliation_diff``
+    surfaces any divergence. A non-zero diff is a real-time signal
+    that a reconciliation pass is owed.
+    """
     report_date: date
     as_of_date: date
     fiscal_year: int
@@ -55,6 +81,11 @@ class AgingReportResult:
 
     bucket_summary: Dict[str, Decimal]
 
+    # M3 (WS6 review) — real-time GL reconciliation surface.
+    gl_receivables_balance: Decimal = Decimal('0')
+    gl_reconciliation_diff: Decimal = Decimal('0')
+    gl_reconciliation_warning: str = ''
+
 
 class AgingReportService:
     """Service for AR/AP aging reports."""
@@ -66,6 +97,82 @@ class AgingReportService:
         {'name': '91-120 Days', 'min': 91, 'max': 120},
         {'name': 'Over 120 Days', 'min': 121, 'max': 9999},
     ]
+
+    # M3 (WS6 review) — NCoA codes for AR/AP control accounts.
+    # Reads tenant settings if available; falls back to the Nigerian
+    # NCoA standards.
+    DEFAULT_AR_CONTROL_CODE = '12010101'   # Trade Receivables — Public
+    DEFAULT_AP_CONTROL_CODE = '41010001'   # Trade Payables — Vendor
+
+    @classmethod
+    def _compute_gl_reconciliation(
+        cls,
+        control_code: str,
+        subledger_total: Decimal,
+        fiscal_year: int = None,
+        period: int = None,
+    ) -> tuple:
+        """Compute GL ↔ sub-ledger reconciliation surface for an aging
+        report (M3 — WS6 review).
+
+        Reads the live GL balance for the AR/AP control account and
+        returns ``(gl_balance, diff, warning)``. Diff is positive when
+        GL > sub-ledger (over-stated GL) and negative when GL <
+        sub-ledger (under-stated GL). Warning is empty when |diff| is
+        within rounding tolerance (1 kobo); otherwise contains a one-
+        line description suitable for surfacing in the report banner.
+        """
+        try:
+            from accounting.models import Account, GLBalance
+            from django.db.models import Sum, F as _F
+
+            acct = Account.objects.filter(code=control_code).first()
+            if not acct:
+                return (
+                    Decimal('0'),
+                    Decimal('0'),
+                    f'GL control account {control_code} not found; '
+                    f'reconciliation skipped.',
+                )
+
+            qs = GLBalance.objects.filter(account=acct)
+            if fiscal_year:
+                qs = qs.filter(fiscal_year=fiscal_year)
+            if period:
+                qs = qs.filter(period__lte=period)
+
+            agg = qs.aggregate(
+                d=Sum('debit_balance'), c=Sum('credit_balance'),
+            )
+            # AR is debit-normal; AP is credit-normal. Caller picks
+            # the sign by passing the right control_code, so we just
+            # return (debit - credit) — positive = AR-style balance.
+            gl_balance = (agg['d'] or Decimal('0')) - (agg['c'] or Decimal('0'))
+            diff = gl_balance - subledger_total
+
+            warning = ''
+            if abs(diff) > Decimal('0.01'):
+                warning = (
+                    f'GL receivables control account {control_code} '
+                    f'balance ({gl_balance}) differs from sub-ledger '
+                    f'open-invoice total ({subledger_total}) by {diff}. '
+                    f'Reconciliation pass owed.'
+                )
+            return gl_balance, diff, warning
+
+        except Exception as exc:
+            # Don't blow up the aging report when reconciliation lookup
+            # fails — but DO surface the failure in the warning field.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                'GL reconciliation lookup failed for control %s: %s',
+                control_code, exc, exc_info=True,
+            )
+            return (
+                Decimal('0'),
+                Decimal('0'),
+                f'GL reconciliation lookup failed: {exc}',
+            )
 
     @classmethod
     def get_days_overdue(cls, due_date: date, as_of_date: date) -> int:
@@ -103,17 +210,17 @@ class AgingReportService:
         if as_of_date is None:
             as_of_date = date.today()
 
-        # Sales module removed — use CustomerInvoice for customer info
-        try:
-            from accounting.models import CustomerInvoice
-            invoice = CustomerInvoice.objects.filter(
-                customer_id=customer_id
-            ).values('customer_name').first()
-            customer_name = invoice['customer_name'] if invoice else f"Customer {customer_id}"
-            credit_limit = Decimal('0')
-        except Exception:
-            customer_name = f"Customer {customer_id}"
-            credit_limit = Decimal('0')
+        # Sales module removed — use CustomerInvoice for customer info.
+        # Don't swallow exceptions here: a DB error during AR aging is
+        # a real failure and silently substituting "Customer {id}" hides
+        # it. Only the legitimate "no invoice for this customer" branch
+        # falls through to the placeholder name.
+        from accounting.models import CustomerInvoice
+        invoice = CustomerInvoice.objects.filter(
+            customer_id=customer_id
+        ).values('customer_name').first()
+        customer_name = invoice['customer_name'] if invoice else f"Customer {customer_id}"
+        credit_limit = Decimal('0')
 
         invoices = CustomerInvoice.objects.filter(
             customer_id=customer_id,
@@ -208,9 +315,16 @@ class AgingReportService:
         if fiscal_year:
             invoices_query = invoices_query.filter(fiscal_year=fiscal_year)
 
-        customer_ids_with_balance = invoices_query.values_list(
-            'customer_id', flat=True
-        ).distinct()
+        # Single-pass fetch of every open invoice for this scope.
+        # Previously we issued 2 queries per customer (calculate_customer_aging)
+        # plus 1 query per customer for name lookup — pathological at scale.
+        invoices = list(invoices_query.only(
+            'customer_id', 'customer_name', 'total_amount',
+            'due_date', 'invoice_date',
+        ))
+
+        # Per-customer aggregates built in Python.
+        per_customer: Dict[int, Dict[str, Any]] = {}
 
         total_receivables = Decimal('0')
         total_current = Decimal('0')
@@ -219,50 +333,97 @@ class AgingReportService:
         total_90 = Decimal('0')
         total_over_120 = Decimal('0')
 
-        customer_details = []
-        overdue_count = 0
+        def _empty_buckets() -> Dict[str, Dict[str, Any]]:
+            return {
+                b['name']: {
+                    'total': Decimal('0'),
+                    'count': 0,
+                    'min_days': b['min'],
+                    'max_days': b['max'],
+                }
+                for b in cls.DEFAULT_BUCKETS
+            }
 
-        for cust_id in customer_ids_with_balance:
-            aging = cls.calculate_customer_aging(cust_id, as_of_date, cost_center_id)
-
-            if not include_zero_balance and aging.current_balance == 0:
+        for inv in invoices:
+            amount = inv.total_amount or Decimal('0')
+            paid_amount = getattr(inv, 'amount_paid', None) or Decimal('0')
+            balance = amount - paid_amount
+            if balance <= 0:
                 continue
 
+            cust_id = inv.customer_id
+            entry = per_customer.get(cust_id)
+            if entry is None:
+                entry = {
+                    'customer_id': cust_id,
+                    'customer_name': inv.customer_name or f"Customer {cust_id}",
+                    'credit_limit': Decimal('0'),
+                    'current_balance': Decimal('0'),
+                    'past_due_amount': Decimal('0'),
+                    'buckets': _empty_buckets(),
+                }
+                per_customer[cust_id] = entry
+
+            due = getattr(inv, 'due_date', None) or inv.invoice_date
+            days = cls.get_days_overdue(due, as_of_date)
+            bucket = cls.get_bucket_for_days(days)
+            bname = bucket['name']
+
+            entry['buckets'][bname]['total'] += balance
+            entry['buckets'][bname]['count'] += 1
+            entry['current_balance'] += balance
+            if days > 0:
+                entry['past_due_amount'] += balance
+
+        customer_details = []
+        overdue_count = 0
+        for entry in per_customer.values():
+            if not include_zero_balance and entry['current_balance'] == 0:
+                continue
+
+            bucket_list = [
+                {
+                    'name': name,
+                    'total': data['total'],
+                    'count': data['count'],
+                }
+                for name, data in entry['buckets'].items()
+            ]
             customer_details.append({
-                'customer_id': aging.customer_id,
-                'customer_name': aging.customer_name,
-                'credit_limit': aging.credit_limit,
-                'current_balance': aging.current_balance,
-                'past_due_amount': aging.past_due_amount,
-                'is_over_credit_limit': aging.is_over_credit_limit,
-                'buckets': [
-                    {
-                        'name': b.bucket_name,
-                        'total': b.total_amount,
-                        'count': b.invoice_count,
-                    }
-                    for b in aging.buckets
-                ]
+                'customer_id': entry['customer_id'],
+                'customer_name': entry['customer_name'],
+                'credit_limit': entry['credit_limit'],
+                'current_balance': entry['current_balance'],
+                'past_due_amount': entry['past_due_amount'],
+                'is_over_credit_limit': False,
+                'buckets': bucket_list,
             })
 
-            total_receivables += aging.current_balance
+            total_receivables += entry['current_balance']
+            for name, data in entry['buckets'].items():
+                if name == 'Current':
+                    total_current += data['total']
+                elif name == '31-60 Days':
+                    total_30 += data['total']
+                elif name == '61-90 Days':
+                    total_60 += data['total']
+                elif name == '91-120 Days':
+                    total_90 += data['total']
+                elif name == 'Over 120 Days':
+                    total_over_120 += data['total']
 
-            for bucket in aging.buckets:
-                if bucket.bucket_name == 'Current':
-                    total_current += bucket.total_amount
-                elif bucket.bucket_name == '31-60 Days':
-                    total_30 += bucket.total_amount
-                elif bucket.bucket_name == '61-90 Days':
-                    total_60 += bucket.total_amount
-                elif bucket.bucket_name == '91-120 Days':
-                    total_90 += bucket.total_amount
-                elif bucket.bucket_name == 'Over 120 Days':
-                    total_over_120 += bucket.total_amount
-
-            if aging.past_due_amount > 0:
+            if entry['past_due_amount'] > 0:
                 overdue_count += 1
 
         customer_details.sort(key=lambda x: x['current_balance'], reverse=True)
+
+        # M3 (WS6 review) — surface GL ↔ sub-ledger drift.
+        gl_balance, gl_diff, gl_warning = cls._compute_gl_reconciliation(
+            control_code=cls.DEFAULT_AR_CONTROL_CODE,
+            subledger_total=total_receivables,
+            fiscal_year=fiscal_year,
+            period=period,
+        )
 
         return AgingReportResult(
             report_date=date.today(),
@@ -285,6 +446,9 @@ class AgingReportService:
                 '91-120 Days': total_90,
                 'Over 120 Days': total_over_120,
             },
+            gl_receivables_balance=gl_balance,
+            gl_reconciliation_diff=gl_diff,
+            gl_reconciliation_warning=gl_warning,
         )
 
     @classmethod
@@ -310,9 +474,18 @@ class AgingReportService:
         if fiscal_year:
             invoices_query = invoices_query.filter(fiscal_year=fiscal_year)
 
-        vendor_ids_with_balance = invoices_query.values_list(
-            'vendor_id', flat=True
-        ).distinct()
+        # Single-pass fetch of every open vendor invoice for this scope.
+        invoices = list(invoices_query.only(
+            'vendor_id', 'total_amount', 'due_date', 'invoice_date',
+        ))
+
+        # Bulk vendor-name lookup — one query for all vendors instead of
+        # one Vendor.objects.get per vendor inside the loop.
+        from procurement.models import Vendor
+        vendor_ids_in_play = {inv.vendor_id for inv in invoices}
+        vendors_by_id = Vendor.objects.in_bulk(vendor_ids_in_play)
+
+        per_vendor: Dict[int, Dict[str, Any]] = {}
 
         total_payables = Decimal('0')
         total_current = Decimal('0')
@@ -321,66 +494,62 @@ class AgingReportService:
         total_90 = Decimal('0')
         total_over_120 = Decimal('0')
 
-        vendor_details = []
+        def _empty_buckets_ap() -> Dict[str, Dict[str, Any]]:
+            return {
+                b['name']: {'total': Decimal('0'), 'count': 0}
+                for b in cls.DEFAULT_BUCKETS
+            }
 
-        for vend_id in vendor_ids_with_balance:
-            try:
-                from procurement.models import Vendor
-                vendor = Vendor.objects.get(id=vend_id)
-                vendor_name = vendor.name
-            except:
-                vendor_name = f"Vendor {vend_id}"
+        for inv in invoices:
+            amount = inv.total_amount or Decimal('0')
+            paid_amount = getattr(inv, 'amount_paid', None) or Decimal('0')
+            balance = amount - paid_amount
+            if balance <= 0:
+                continue
 
-            invoices = invoices_query.filter(vendor_id=vend_id)
-
-            buckets_data = {}
-            for bucket_def in cls.DEFAULT_BUCKETS:
-                buckets_data[bucket_def['name']] = {
-                    'total': Decimal('0'),
-                    'count': 0,
+            vend_id = inv.vendor_id
+            entry = per_vendor.get(vend_id)
+            if entry is None:
+                vendor = vendors_by_id.get(vend_id)
+                vendor_name = vendor.name if vendor else f"Vendor {vend_id}"
+                entry = {
+                    'vendor_id': vend_id,
+                    'vendor_name': vendor_name,
+                    'current_balance': Decimal('0'),
+                    'buckets': _empty_buckets_ap(),
                 }
+                per_vendor[vend_id] = entry
 
-            total_balance = Decimal('0')
+            due = getattr(inv, 'due_date', None) or inv.invoice_date
+            days = cls.get_days_overdue(due, as_of_date)
+            bucket = cls.get_bucket_for_days(days)
+            bname = bucket['name']
 
-            for invoice in invoices:
-                amount = invoice.total_amount or Decimal('0')
-                paid_amount = getattr(invoice, 'amount_paid', None) or Decimal('0')
-                balance = amount - paid_amount
+            entry['buckets'][bname]['total'] += balance
+            entry['buckets'][bname]['count'] += 1
+            entry['current_balance'] += balance
 
-                if balance <= 0:
-                    continue
-
-                # S2-09 — age from due_date, fall back to invoice_date.
-                due = getattr(invoice, 'due_date', None) or invoice.invoice_date
-                days = cls.get_days_overdue(due, as_of_date)
-                bucket = cls.get_bucket_for_days(days)
-                bucket_name = bucket['name']
-
-                buckets_data[bucket_name]['total'] += balance
-                buckets_data[bucket_name]['count'] += 1
-
-                total_balance += balance
-
-            if not include_zero_balance and total_balance == 0:
+        vendor_details = []
+        for entry in per_vendor.values():
+            if not include_zero_balance and entry['current_balance'] == 0:
                 continue
 
             vendor_details.append({
-                'vendor_id': vend_id,
-                'vendor_name': vendor_name,
-                'current_balance': total_balance,
+                'vendor_id': entry['vendor_id'],
+                'vendor_name': entry['vendor_name'],
+                'current_balance': entry['current_balance'],
                 'buckets': [
                     {
                         'name': name,
                         'total': data['total'],
                         'count': data['count'],
                     }
-                    for name, data in buckets_data.items()
+                    for name, data in entry['buckets'].items()
                 ]
             })
 
-            total_payables += total_balance
-
-            for name, data in buckets_data.items():
+            total_payables += entry['current_balance']
+            for name, data in entry['buckets'].items():
                 if name == 'Current':
                     total_current += data['total']
                 elif name == '31-60 Days':
@@ -393,6 +562,27 @@ class AgingReportService:
                     total_over_120 += data['total']
 
         vendor_details.sort(key=lambda x: x['current_balance'], reverse=True)
+
+        # M3 (WS6 review) — surface GL ↔ sub-ledger drift on AP side.
+        # AP control account is credit-normal, so we negate the diff
+        # so a positive value still means "GL over-states the balance"
+        # relative to the sub-ledger total.
+        gl_balance_raw, _, _ = cls._compute_gl_reconciliation(
+            control_code=cls.DEFAULT_AP_CONTROL_CODE,
+            subledger_total=total_payables,
+            fiscal_year=fiscal_year,
+            period=period,
+        )
+        ap_gl_balance = -gl_balance_raw   # flip sign for credit-normal AP
+        ap_gl_diff = ap_gl_balance - total_payables
+        ap_gl_warning = ''
+        if abs(ap_gl_diff) > Decimal('0.01'):
+            ap_gl_warning = (
+                f'GL payables control account {cls.DEFAULT_AP_CONTROL_CODE} '
+                f'balance ({ap_gl_balance}) differs from sub-ledger '
+                f'open-invoice total ({total_payables}) by {ap_gl_diff}. '
+                f'Reconciliation pass owed.'
+            )
 
         return AgingReportResult(
             report_date=date.today(),
@@ -415,6 +605,9 @@ class AgingReportService:
                 '91-120 Days': total_90,
                 'Over 120 Days': total_over_120,
             },
+            gl_receivables_balance=ap_gl_balance,
+            gl_reconciliation_diff=ap_gl_diff,
+            gl_reconciliation_warning=ap_gl_warning,
         )
 
     @classmethod
@@ -458,7 +651,20 @@ class AgingReportService:
                 elif bucket['name'] == 'Over 120 Days':
                     aging.days_120 = bucket['total']
 
-            aging.save()
             snapshots.append(aging)
+
+        # H13 fix: delete any prior snapshot for the same as_of_date
+        # before re-creating, so re-running the report doesn't
+        # accumulate duplicate rows. Without this purge the customer's
+        # total balance for ``as_of_date`` would multiply across
+        # re-runs and the aging dashboard would show N× the real
+        # value. Wrapped in the same atomic block as the bulk_create
+        # so a partial failure leaves the snapshot exactly as it was.
+        # VendorAging is not currently modelled in this codebase (AR
+        # uses CustomerAging; AP aging is computed on-demand from
+        # VendorInvoice), so only CustomerAging needs purging here.
+        with transaction.atomic():
+            CustomerAging.objects.filter(as_of_date=as_of_date).delete()
+            CustomerAging.objects.bulk_create(snapshots)
 
         return snapshots

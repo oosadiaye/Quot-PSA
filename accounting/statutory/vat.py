@@ -24,9 +24,12 @@ Output columns
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
-from . import ExportResult, format_csv
+from . import ExportResult, StatutoryReturnError, format_csv
+
+logger = logging.getLogger(__name__)
 
 
 VAT_COLUMNS = [
@@ -68,9 +71,26 @@ def export_vat_return(
     total_output_taxable = Decimal('0')
     total_input_taxable = Decimal('0')
 
+    # V8 — partial-result accumulators. A single corrupt invoice line
+    # must NOT take down the whole VAT filing endpoint.
+    partial_failures: list[dict] = []
+    warnings: list[str] = []
+    total_rows_attempted = 0
+
     for tx in output:
-        taxable = _to_decimal(tx.get('taxable_amount'))
-        vat = _to_decimal(tx.get('vat_amount'))
+        total_rows_attempted += 1
+        try:
+            taxable = _to_decimal(tx.get('taxable_amount'))
+            vat = _to_decimal(tx.get('vat_amount'))
+        except StatutoryReturnError as exc:
+            doc = tx.get('document_number', '<unknown>')
+            warnings.append(f"Output VAT row '{doc}': {exc}")
+            partial_failures.append({
+                'section': 'output_vat', 'document_number': doc,
+                'error': str(exc),
+            })
+            logger.warning('FIRS VAT partial-failure (output): %s — %s', doc, exc)
+            continue
         rows.append({
             'Section':              'Output VAT',
             'Document Type':        tx.get('document_type', 'CI'),
@@ -85,8 +105,19 @@ def export_vat_return(
         total_output_vat += vat
 
     for tx in input_:
-        taxable = _to_decimal(tx.get('taxable_amount'))
-        vat = _to_decimal(tx.get('vat_amount'))
+        total_rows_attempted += 1
+        try:
+            taxable = _to_decimal(tx.get('taxable_amount'))
+            vat = _to_decimal(tx.get('vat_amount'))
+        except StatutoryReturnError as exc:
+            doc = tx.get('document_number', '<unknown>')
+            warnings.append(f"Input VAT row '{doc}': {exc}")
+            partial_failures.append({
+                'section': 'input_vat', 'document_number': doc,
+                'error': str(exc),
+            })
+            logger.warning('FIRS VAT partial-failure (input): %s — %s', doc, exc)
+            continue
         rows.append({
             'Section':              'Input VAT',
             'Document Type':        tx.get('document_type', 'VI'),
@@ -99,6 +130,15 @@ def export_vat_return(
         })
         total_input_taxable += taxable
         total_input_vat += vat
+
+    # All-fail re-raise: if every row failed and at least one was
+    # attempted, the filing carries no real data — escalate to a hard
+    # block at the view layer rather than return an empty CSV.
+    if total_rows_attempted > 0 and len(rows) == 0 and partial_failures:
+        raise StatutoryReturnError(
+            'FIRS VAT return: every Output/Input row failed to coerce. '
+            f'Errors: {"; ".join(w for w in warnings[:5])}'
+        )
 
     net_vat_payable = total_output_vat - total_input_vat
 
@@ -119,16 +159,33 @@ def export_vat_return(
             'net_vat_payable':      net_vat_payable,
             'line_count':           Decimal(len(rows)),
         },
+        warnings=warnings,
+        partial_failures=partial_failures,
     )
 
 
 def _to_decimal(value) -> Decimal:
-    """Coerce to Decimal, defaulting to 0."""
+    """Coerce to Decimal.
+
+    H8 fix: unparseable numeric input is now a hard error rather than a
+    silent zero. A corrupt VAT amount returned by the VATReturnService
+    would otherwise file a zero VAT line to FIRS — a material
+    compliance breach because the operator believed the return
+    succeeded. ``None`` and empty string remain legitimate "no data"
+    markers and map to zero.
+    """
     if isinstance(value, Decimal):
         return value
     if value is None or value == '':
         return Decimal('0')
     try:
         return Decimal(str(value))
-    except Exception:
-        return Decimal('0')
+    except Exception as exc:
+        logger.error(
+            'FIRS VAT return: cannot coerce numeric value %r to Decimal: %s',
+            value, exc,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute FIRS VAT return line: value {value!r} is "
+            f"not a valid number ({exc}); refusing to file a zero return."
+        ) from exc

@@ -1,0 +1,34 @@
+stateDiagram-v2
+    state PR {
+        [*] --> Draft_PR : Draft
+        Draft_PR --> Pending_PR : Pending<br/>submit_for_approval()<br/>+ auto_route_approval
+        Pending_PR --> Approved_PR : Approved<br/>(SoD: requester ≠ approver)
+        Pending_PR --> Rejected_PR : Rejected
+        Rejected_PR --> Draft_PR
+    }
+
+    state PO {
+        [*] --> Draft_PO : Draft
+        Draft_PO --> Pending_PO : Pending
+        Pending_PO --> Approved_PO : Approved<br/>process_budget_encumbrance()<br/>+ create_commitment_for_po()
+        Approved_PO --> PartiallyReceived
+        PartiallyReceived --> Received
+        Approved_PO --> Cancelled
+    }
+
+    state GRN {
+        [*] --> Draft_GRN : Draft
+        Draft_GRN --> Posted_GRN : Posted<br/>StockMovement created<br/>mark_commitment_invoiced_for_po()
+        Draft_GRN --> Cancelled_GRN : Cancelled
+    }
+
+    state Inv {
+        [*] --> Draft_INV : Draft
+        Draft_INV --> Pending_INV : Pending
+        Pending_INV --> Approved_INV : Approved (3-way match)<br/>workflow signal fires<br/>_post_matching_to_gl_inner()<br/>commitment → CLOSED
+    }
+
+    Approved_PR --> Draft_PO : convert PR → PO
+    Approved_PO --> Draft_GRN : goods delivered
+    Posted_GRN --> Draft_INV : vendor invoice received
+    Approved_INV --> [*] : Payment Voucher path

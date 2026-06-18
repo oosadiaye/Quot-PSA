@@ -45,10 +45,13 @@ the portal accepts for the generic MFR intake template.
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
-from . import ExportResult, format_csv
+from . import ExportResult, StatutoryReturnError, format_csv
+
+logger = logging.getLogger(__name__)
 
 
 OAGF_CSV_COLUMNS = ['Section', 'Code', 'Label', 'Amount (NGN)']
@@ -64,32 +67,93 @@ def export_oagf_mfr(
     Pulls from the IPSAS services in ``accounting.services.ipsas_reports``
     to keep computation consistent with the statutory financial
     statements the Auditor-General will review.
+
+    V8 — partial-result pattern. The previous behaviour was to ``raise``
+    ``StatutoryReturnError`` on any per-section mapping failure, which
+    took down the ENTIRE return endpoint for a single corrupted row
+    (DoS surface — one bad mapping breaks every operator's filing).
+    Each section is now wrapped in a per-section try/except that
+    accumulates per-row failures into ``partial_failures`` and surfaces
+    them as ``_warnings`` in the result. The endpoint returns 200 with
+    the partial payload — only an all-sections-failed condition would
+    propagate (handled at the view layer).
     """
     from accounting.services.ipsas_reports import IPSASReportService
 
     period_label = f'{year:04d}-{month:02d}'
 
+    # Accumulators for partial-result reporting.
+    partial_failures: list[dict] = []
+    warnings: list[str] = []
+    sections_attempted = 0
+    sections_failed = 0
+
     # ── Section 1/2/3: Performance (revenue + expenditure + surplus) ──
     # IPSAS 1 SoFPerformance already groups revenue by tax/non-tax/
     # grants/other and expenditure by personnel/overhead/capital/debt/
     # transfers — exactly the OAGF classification.
-    perf = IPSASReportService.statement_of_financial_performance(
-        fiscal_year=year, period=month, comparative=False,
-    )
-
-    revenue_section = _flatten_performance_section(perf.get('revenue', {}))
-    expenditure_section = _flatten_performance_section(perf.get('expenditure', {}))
-    surplus_deficit = perf.get('surplus_deficit', Decimal('0'))
+    revenue_section: list[dict] = []
+    expenditure_section: list[dict] = []
+    surplus_deficit: Decimal = Decimal('0')
+    perf: dict = {}
+    sections_attempted += 1
+    try:
+        perf = IPSASReportService.statement_of_financial_performance(
+            fiscal_year=year, period=month, comparative=False,
+        )
+        revenue_section = _flatten_performance_section(perf.get('revenue', {}))
+        expenditure_section = _flatten_performance_section(perf.get('expenditure', {}))
+        surplus_deficit = perf.get('surplus_deficit', Decimal('0'))
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Performance section (revenue/expenditure/surplus): {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'performance', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
 
     # ── Section 4: Budget execution (IPSAS 24) ──────────────────────────
     # IPSAS 24 needs a fiscal_year_id; we try to resolve it from the
     # year value via the FiscalYear lookup. If unavailable we skip
     # with a note.
-    budget_rows = _build_budget_execution_section(year)
+    budget_rows: list[dict] = []
+    sections_attempted += 1
+    try:
+        budget_rows = _build_budget_execution_section(year)
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Budget execution section: {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'budget_execution', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
 
     # ── Section 5: Fund position (TSA cash) ─────────────────────────────
-    tsa = IPSASReportService.tsa_cash_position()
-    fund_position_rows = _build_fund_position_section(tsa)
+    fund_position_rows: list[dict] = []
+    tsa: dict = {}
+    sections_attempted += 1
+    try:
+        tsa = IPSASReportService.tsa_cash_position()
+        fund_position_rows = _build_fund_position_section(tsa)
+    except StatutoryReturnError as exc:
+        sections_failed += 1
+        msg = f'Fund position (TSA cash) section: {exc}'
+        warnings.append(msg)
+        partial_failures.append({
+            'section': 'fund_position', 'error': str(exc),
+        })
+        logger.warning('OAGF MFR partial-failure: %s', msg)
+
+    # All-fail is the only condition we re-raise — gives the view layer
+    # the option to surface a 500 if every section is broken (rather
+    # than serving an empty filing).
+    if sections_attempted > 0 and sections_failed == sections_attempted:
+        raise StatutoryReturnError(
+            'OAGF MFR: every section failed. '
+            f'Errors: {"; ".join(w for w in warnings)}'
+        )
 
     # ── Assemble CSV (long format) ──────────────────────────────────────
     csv_rows: list[dict] = []
@@ -149,6 +213,8 @@ def export_oagf_mfr(
             'surplus_deficit':   surplus_deficit,
             'tsa_cash_balance':  total_tsa,
         },
+        warnings=warnings,
+        partial_failures=partial_failures,
     )
 
 
@@ -210,25 +276,58 @@ def _build_budget_execution_section(fiscal_year_year: int) -> list[dict]:
     try:
         from accounting.models.advanced import FiscalYear
         fy = FiscalYear.objects.filter(year=fiscal_year_year).first()
-    except Exception:
-        fy = None
+    except Exception as exc:
+        # H8 fix: a DB error resolving the FiscalYear must not silently
+        # file a zero budget-execution section. The operator needs the
+        # filing to fail loudly so the misconfiguration is fixed before
+        # the OAGF return is transmitted.
+        logger.error(
+            'OAGF MFR: FiscalYear lookup failed for year=%s: %s',
+            fiscal_year_year, exc, exc_info=True,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: FiscalYear "
+            f"lookup for {fiscal_year_year} failed ({exc}); refusing to "
+            f"file a zero return. Resolve the database error before "
+            f"retrying."
+        ) from exc
 
     if not fy:
-        return [{
-            'code':   '',
-            'label':  f'Budget-vs-Actual unavailable: no FiscalYear record for {fiscal_year_year}',
-            'amount': Decimal('0'),
-        }]
+        # Reachable DB, but the FY itself isn't configured — surface
+        # this rather than swallow it. OAGF MFRs reference budget
+        # execution against the as-enacted appropriation; if there's no
+        # FY record there's no appropriation framework to report
+        # against, and a zero section is misleading.
+        logger.error(
+            'OAGF MFR: no FiscalYear record for year=%s; cannot build '
+            'budget execution section.', fiscal_year_year,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: no "
+            f"FiscalYear record for {fiscal_year_year}; refusing to "
+            f"file a zero return. Create FY{fiscal_year_year} under "
+            f"Accounting → Fiscal Years and re-run."
+        )
 
     from accounting.services.ipsas_reports import IPSASReportService
     try:
         data = IPSASReportService.budget_vs_actual(fiscal_year_id=fy.pk)
     except Exception as exc:
-        return [{
-            'code':   '',
-            'label':  f'Budget-vs-Actual service error: {exc}',
-            'amount': Decimal('0'),
-        }]
+        # The IPSAS service computes the budget-vs-actual aggregation
+        # that backs the OAGF Section 4 numbers. A service-level failure
+        # here means the operator is about to file an MFR with zero
+        # execution numbers — exactly the silent-zero compliance breach
+        # H8 closes. Re-raise as a hard block.
+        logger.error(
+            'OAGF MFR: IPSAS budget-vs-actual service failed for FY%s '
+            '(id=%s): %s', fiscal_year_year, fy.pk, exc, exc_info=True,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF Budget-vs-Actual section: "
+            f"IPSASReportService.budget_vs_actual failed ({exc}); "
+            f"refusing to file a zero return. Investigate the service "
+            f"error before retrying."
+        ) from exc
 
     rows: list[dict] = []
     for item in data.get('items', []) or []:
@@ -312,14 +411,27 @@ def _humanise_account_type(code: str) -> str:
 
 def _to_decimal(value: Any) -> Decimal:
     """Coerce miscellaneous numeric inputs (Decimal, int, float, str)
-    into a ``Decimal``. Falls back to ``Decimal('0')`` on unparseable
-    input — defensive for IPSAS service outputs that occasionally
-    return floats or stringified decimals."""
+    into a ``Decimal``.
+
+    H8 fix: an unparseable numeric input from the IPSAS service is now
+    treated as a statutory-return failure rather than silently zeroed.
+    The previous fallback to ``Decimal('0')`` meant a single corrupt
+    cell would file a zero line on the OAGF return — exactly the
+    silent-zero compliance breach we are closing. ``None`` and empty
+    string are still legitimate "no data" markers and map to zero.
+    """
     if isinstance(value, Decimal):
         return value
     if value is None or value == '':
         return Decimal('0')
     try:
         return Decimal(str(value))
-    except Exception:
-        return Decimal('0')
+    except Exception as exc:
+        logger.error(
+            'OAGF MFR: cannot coerce numeric value %r to Decimal: %s',
+            value, exc,
+        )
+        raise StatutoryReturnError(
+            f"Cannot compute OAGF return line: value {value!r} is not a "
+            f"valid number ({exc}); refusing to file a zero return."
+        ) from exc

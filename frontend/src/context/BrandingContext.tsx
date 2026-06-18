@@ -6,6 +6,17 @@ export interface BrandingInfo {
     name: string;
     tagline: string;
     logo: string | null;
+    // Contact + postal info — surfaced by the public-branding endpoint
+    // so that printable reports and the warrant printout can render a
+    // complete letterhead without needing an authenticated round-trip.
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+    postal_code: string;
+    phone: string;
+    email: string;
+    website: string;
 }
 
 interface BrandingContextType {
@@ -13,7 +24,11 @@ interface BrandingContextType {
     isLoading: boolean;
 }
 
-const FALLBACK: BrandingInfo = { name: 'QUOT ERP', tagline: '', logo: null };
+const FALLBACK: BrandingInfo = {
+    name: 'QUOT ERP', tagline: '', logo: null,
+    address: '', city: '', state: '', country: '',
+    postal_code: '', phone: '', email: '', website: '',
+};
 
 const BrandingContext = createContext<BrandingContextType>({
     branding: FALLBACK,

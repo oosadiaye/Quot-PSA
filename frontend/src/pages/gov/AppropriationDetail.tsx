@@ -516,6 +516,11 @@ export default function AppropriationDetail() {
                                             <th style={thStyle}>Fund</th>
                                             <th style={thStyle}>Type</th>
                                             <th style={{ ...thStyle, textAlign: 'right' }}>Approved</th>
+                                            {/* Committed = PO + Contract obligations registered against this
+                                                appropriation. Matches the field exposed by AppropriationSerializer
+                                                (total_all_committed); falls back to total_committed if the API
+                                                response predates the multi-year contract feature. */}
+                                            <th style={{ ...thStyle, textAlign: 'right' }}>Committed</th>
                                             <th style={{ ...thStyle, textAlign: 'right' }}>Expended</th>
                                             <th style={{ ...thStyle, textAlign: 'right' }}>Available</th>
                                             <th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
@@ -524,7 +529,7 @@ export default function AppropriationDetail() {
                                     </thead>
                                     <tbody>
                                         {filteredLines.length === 0 && (
-                                            <tr><td colSpan={11} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                            <tr><td colSpan={12} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
                                                 {hasActiveFilter ? 'No lines match the current filters.' : 'No appropriation lines under this MDA.'}
                                             </td></tr>
                                         )}
@@ -559,6 +564,11 @@ export default function AppropriationDetail() {
                                                     </td>
                                                     <td style={{ ...tdStyle, fontSize: '0.6rem', fontWeight: 600 }}>{line.appropriation_type}</td>
                                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{fmtNGN(line.amount_approved)}</td>
+                                                    <td style={{ ...tdStyle, textAlign: 'right', color: '#d97706' }}>
+                                                        {/* Combined PO + Contract committed; ?? falls back to PO-only
+                                                            for any older API response shape. */}
+                                                        {fmtNGN(line.total_all_committed ?? line.total_committed)}
+                                                    </td>
                                                     <td style={{ ...tdStyle, textAlign: 'right', color: '#ef4444' }}>{fmtNGN(line.total_expended)}</td>
                                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: '#059669' }}>{fmtNGN(line.available_balance)}</td>
                                                     <td style={{ ...tdStyle, textAlign: 'center' }}>

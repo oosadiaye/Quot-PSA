@@ -638,8 +638,56 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         journal posting. Concurrent posts on the same appropriation
         are serialised on the row lock; posts on different
         appropriations stay parallel.
+
+        H5: also row-locks the VendorInvoice itself and re-checks
+        ``status`` inside the lock. Without this, two concurrent
+        post requests both see ``status='Approved'`` at the
+        pre-atomic check (line ~588), both enter
+        ``_post_invoice_body``, both write a journal, and the
+        invoice ends up with two Posted journals. The journal-side
+        ``uniq_journalheader_source_doc_posted`` unique constraint
+        catches the second write at the DB layer once we populate
+        ``source_module='ap.vendor_invoice'`` +
+        ``source_document_id=invoice.pk``, but the row lock here
+        is the first line of defence so we fail with a clean 400
+        instead of an IntegrityError.
         """
+        from accounting.models.receivables import VendorInvoice
         with transaction.atomic():
+            # H5: lock the VendorInvoice row and re-check status
+            # under the lock. The pre-atomic check at line ~588 is
+            # not enough — status is only flipped to 'Posted' AFTER
+            # the journal write commits, so two concurrent posts
+            # both see 'Approved' there. The row lock here
+            # serialises them.
+            try:
+                locked_invoice = (
+                    VendorInvoice.objects.select_for_update()
+                    .get(pk=invoice.pk)
+                )
+            except VendorInvoice.DoesNotExist:
+                return Response(
+                    {"error": "Vendor invoice no longer exists."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if locked_invoice.status == 'Posted':
+                return Response(
+                    {"error": "Invoice already posted."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if locked_invoice.status not in ('Draft', 'Approved'):
+                return Response(
+                    {
+                        "error": (
+                            f"Cannot post: invoice status is "
+                            f"{locked_invoice.status}, not Draft or Approved."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Use the locked instance for the remainder so we don't
+            # operate on a stale copy.
+            invoice = locked_invoice
             if invoice.mda_id and invoice.fund_id:
                 try:
                     from budget.models import Appropriation
@@ -886,6 +934,13 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 # = mda). Adding it here keeps the journal's
                 # dimensional context complete and the budget check
                 # consistent with the form's real-time pill.
+                # H5: ``source_module`` + ``source_document_id`` populate
+                # the partial unique index ``uniq_journalheader_source_doc_posted``
+                # so a double-post (two concurrent verifiers) fails at the
+                # DB layer with IntegrityError instead of producing two
+                # Posted journals. The row lock acquired in
+                # ``_post_invoice_locked`` is the primary defence; this is
+                # belt-and-braces against any path that bypasses the lock.
                 journal = JournalHeader.objects.create(
                     reference_number=journal_ref,
                     description=f"Vendor Invoice: {invoice.invoice_number}",
@@ -897,6 +952,8 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     geo=invoice.geo,
                     document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
                     status='Draft',
+                    source_module='ap.vendor_invoice',
+                    source_document_id=invoice.pk,
                 )
 
                 # PF-6: Split expense and tax into separate lines.
@@ -1134,11 +1191,29 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         # whether ProcurementBudgetLink existed.
                         refresh_appropriations_for_po(invoice.purchase_order)
                     except Exception as exc:
+                        # M1: this used to silently swallow the failure
+                        # with a warning log, leaving the
+                        # ProcurementBudgetLink stuck at INVOICED while
+                        # the VI was Posted. Result:
+                        # Appropriation.total_committed double-counted
+                        # (the committed amount stayed on the link AND
+                        # the expense was recognised in the GL), so the
+                        # available balance was understated by exactly
+                        # the invoice amount on every later check. We
+                        # now log + re-raise so the outer
+                        # ``transaction.atomic()`` rolls the VI post
+                        # back. If the commitment-close path is broken
+                        # for a tenant, the operator sees the failure
+                        # immediately rather than discovering it in a
+                        # budget execution report weeks later.
                         import logging
-                        logging.getLogger(__name__).warning(
-                            "VI %s: commitment CLOSED flip failed (non-fatal): %s",
+                        logging.getLogger(__name__).error(
+                            "VI %s: commitment CLOSED flip failed — "
+                            "rolling back VI post to preserve "
+                            "commitment ledger integrity: %s",
                             invoice.invoice_number, exc,
                         )
+                        raise
 
                 # ── Record obligation (encumbrance) for direct invoices (no PO) ──
                 # For direct invoices (no PO upstream) the encumbrance is the
@@ -1403,8 +1478,22 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
-        """Get accounts payable aging report"""
+        """Accounts-Payable aging report (H12 — WS6 review).
+
+        Delegates to the canonical
+        ``accounting.services.aging_reports.AgingReportService`` so the
+        UI report and IPSAS Note 4 always agree. Prior in-view loop
+        used different bucket boundaries and different status filter
+        from the canonical service, so the two surfaces disagreed
+        for the same as-of date.
+
+        The response keys are preserved for backwards compatibility
+        with the existing frontend client; the values are now sourced
+        from the canonical service, including the new GL-reconciliation
+        warning field surfaced by M3.
+        """
         from django.utils import timezone
+        from accounting.services.aging_reports import AgingReportService
 
         as_of_date = request.query_params.get('as_of_date')
         if as_of_date:
@@ -1413,60 +1502,64 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         else:
             as_of_date = timezone.now().date()
 
-        invoices = VendorInvoice.objects.filter(
-            status__in=['Approved', 'Partially Paid'],
-            invoice_date__lte=as_of_date
-        ).select_related('vendor')
+        result = AgingReportService.generate_ap_aging_report(
+            as_of_date=as_of_date,
+            fiscal_year=as_of_date.year,
+            period=as_of_date.month,
+        )
 
-        aging_data = {}
-        for invoice in invoices:
-            vendor_id = invoice.vendor.id
-            if vendor_id not in aging_data:
-                aging_data[vendor_id] = {
-                    'vendor_id': vendor_id,
-                    'vendor_name': invoice.vendor.name,
-                    'current': Decimal('0'),
-                    'days_1_30': Decimal('0'),
-                    'days_31_60': Decimal('0'),
-                    'days_61_90': Decimal('0'),
-                    'days_91_plus': Decimal('0'),
-                    'total_due': Decimal('0')
-                }
+        # Map canonical bucket totals onto the legacy response keys.
+        # Canonical uses 'Current', '31-60 Days', '61-90 Days',
+        # '91-120 Days', 'Over 120 Days'; legacy keys collapse the
+        # last two into 'days_91_plus'.
+        bs = result.bucket_summary
+        days_91_plus = bs.get('91-120 Days', Decimal('0')) + bs.get('Over 120 Days', Decimal('0'))
 
-            balance = invoice.balance_due
-            days_overdue = (as_of_date - invoice.due_date).days
+        # AP report returns vendors under the `customers` key in the
+        # dataclass (shared shape with AR). Reshape and rename for the
+        # legacy `vendors` key the frontend expects.
+        vendors = []
+        for v in result.customers:
+            vb = {b['name']: b['total'] for b in v.get('buckets', [])}
+            vendors.append({
+                'vendor_id': v.get('vendor_id', v.get('customer_id')),
+                'vendor_name': v.get('vendor_name', v.get('customer_name')),
+                'current': vb.get('Current', Decimal('0')),
+                'days_1_30': vb.get('31-60 Days', Decimal('0')),
+                'days_31_60': vb.get('61-90 Days', Decimal('0')),
+                'days_61_90': vb.get('91-120 Days', Decimal('0')),
+                'days_91_plus': vb.get('Over 120 Days', Decimal('0')),
+                'total_due': v.get('current_balance', Decimal('0')),
+            })
 
-            if days_overdue <= 0:
-                aging_data[vendor_id]['current'] += balance
-            elif days_overdue <= 30:
-                aging_data[vendor_id]['days_1_30'] += balance
-            elif days_overdue <= 60:
-                aging_data[vendor_id]['days_31_60'] += balance
-            elif days_overdue <= 90:
-                aging_data[vendor_id]['days_61_90'] += balance
-            else:
-                aging_data[vendor_id]['days_91_plus'] += balance
-
-            aging_data[vendor_id]['total_due'] += balance
-
-        total_current = sum(d['current'] for d in aging_data.values())
-        total_1_30 = sum(d['days_1_30'] for d in aging_data.values())
-        total_31_60 = sum(d['days_31_60'] for d in aging_data.values())
-        total_61_90 = sum(d['days_61_90'] for d in aging_data.values())
-        total_91_plus = sum(d['days_91_plus'] for d in aging_data.values())
-
-        return Response({
+        payload = {
             'as_of_date': as_of_date,
-            'vendors': list(aging_data.values()),
+            'vendors': vendors,
             'summary': {
-                'current': float(total_current),
-                'days_1_30': float(total_1_30),
-                'days_31_60': float(total_31_60),
-                'days_61_90': float(total_61_90),
-                'days_91_plus': float(total_91_plus),
-                'total_due': float(total_current + total_1_30 + total_31_60 + total_61_90 + total_91_plus)
-            }
-        })
+                'current': float(bs.get('Current', Decimal('0'))),
+                'days_1_30': float(bs.get('31-60 Days', Decimal('0'))),
+                'days_31_60': float(bs.get('61-90 Days', Decimal('0'))),
+                'days_61_90': float(bs.get('91-120 Days', Decimal('0'))),
+                'days_91_plus': float(days_91_plus),
+                'total_due': float(result.total_receivables),
+            },
+        }
+
+        # Surface the M3 GL-reconciliation signal if the service
+        # detected sub-ledger ↔ GL drift on the AP control account.
+        # V15 — gate on the dedicated
+        # ``accounting.view_gl_reconciliation_diff`` permission so that
+        # ordinary aging-report viewers don't see internal control-
+        # account balances. Superusers always bypass.
+        if result.gl_reconciliation_warning and (
+            request.user.is_superuser
+            or request.user.has_perm('accounting.view_gl_reconciliation_diff')
+        ):
+            payload['_warnings'] = [result.gl_reconciliation_warning]
+            payload['gl_payables_balance'] = float(result.gl_receivables_balance)
+            payload['gl_reconciliation_diff'] = float(result.gl_reconciliation_diff)
+
+        return Response(payload)
 
 
 class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
@@ -1827,6 +1920,13 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     import logging as _logging
                     from django.utils import timezone
                     _log = _logging.getLogger(__name__)
+                    # Accumulate cascade failures so they surface in the
+                    # API response (was: silent log only). Cash event
+                    # is committed regardless — but the operator now
+                    # sees exactly which downstream documents need
+                    # manual reconciliation. Stashed on the payment
+                    # instance and read by the view's response builder.
+                    payment._cascade_warnings = getattr(payment, '_cascade_warnings', [])
                     try:
                         pv = payment.payment_voucher
                         # 1. Flip the PV to PAID (terminal status). If
@@ -1883,12 +1983,94 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                                     )
                             except Exception as exc:  # noqa: BLE001
                                 # Don't roll back the cash event for
-                                # an IPC mark-paid failure — log and
-                                # leave the IPC for ops to reconcile.
-                                _log.warning(
-                                    "PV propagation: IPC %s mark-paid failed: %s",
+                                # an IPC mark-paid failure — cash has
+                                # already left the TSA. But DO surface
+                                # the failure so the operator can
+                                # reconcile manually rather than
+                                # discovering it during contract
+                                # closure (when cumulative_gross_paid
+                                # mismatches and blocks close).
+                                #
+                                # H2: a stuck IPC means the cash
+                                # journal is committed but
+                                # ContractBalance.cumulative_gross_paid
+                                # was NOT updated and IPC stays
+                                # VOUCHER_RAISED. That's not an
+                                # informational warning — it's a hard
+                                # reconciliation owed back to ops. We
+                                # surface it separately from benign
+                                # cascade warnings via
+                                # ``_cascade_critical_failures`` and
+                                # respond 207 Multi-Status so the
+                                # client can't treat the request as a
+                                # clean 200. A persistent
+                                # PaymentCascadeFailure model is owed
+                                # here (TODO: see Workstream 6 — H2)
+                                # so ContractClosureService can
+                                # hard-block close until cleared, but
+                                # that requires a migration coordinated
+                                # with the BBF queue and is out of
+                                # scope for the surgical fix.
+                                _log.error(
+                                    "PV propagation: IPC %s mark-paid failed "
+                                    "(CRITICAL — manual reconciliation owed): %s",
                                     ipc.pk, exc,
                                 )
+                                failure_record = {
+                                    'kind':   'ipc_mark_paid_failed',
+                                    'ipc_id': ipc.pk,
+                                    'ipc_status': ipc.status,
+                                    'reason': str(exc),
+                                    'action_required': (
+                                        f'Manually mark IPC #{ipc.pk} as PAID via '
+                                        f'POST /contracts/ipcs/{ipc.pk}/mark_paid/ '
+                                        f'after resolving the underlying error '
+                                        f'(typically SoD: payer is also a prior actor, '
+                                        f'or ceiling re-check failure).'
+                                    ),
+                                }
+                                payment._cascade_warnings.append(failure_record)
+                                if not hasattr(payment, '_cascade_critical_failures'):
+                                    payment._cascade_critical_failures = []
+                                payment._cascade_critical_failures.append(failure_record)
+
+                                # H2 follow-up (WS6): persist the failure
+                                # so ContractClosureService can hard-block
+                                # contract close until reconciled, and an
+                                # operator can see the pending queue. The
+                                # in-memory ``_cascade_critical_failures``
+                                # carries the 207 Multi-Status payload to
+                                # the immediate caller; this row outlives
+                                # the request.
+                                try:
+                                    from accounting.models import (
+                                        PaymentCascadeFailure,
+                                    )
+                                    PaymentCascadeFailure.objects.create(
+                                        payment=payment,
+                                        ipc=ipc,
+                                        error_class=type(exc).__name__,
+                                        error_message=str(exc),
+                                        error_context={
+                                            'pv_id': pv.pk,
+                                            'ipc_id': ipc.pk,
+                                            'ipc_status': ipc.status,
+                                            'action_required': failure_record['action_required'],
+                                            'actor_id': getattr(request.user, 'pk', None),
+                                        },
+                                    )
+                                except Exception as persist_exc:  # noqa: BLE001
+                                    # Persistence failure itself must not
+                                    # bury the cascade failure that just
+                                    # happened. Log loudly; the in-memory
+                                    # surface (207 + cascade_warnings)
+                                    # still goes to the caller.
+                                    _log.error(
+                                        "Failed to persist PaymentCascadeFailure "
+                                        "for payment=%s ipc=%s: %s",
+                                        payment.pk, ipc.pk, persist_exc,
+                                        exc_info=True,
+                                    )
 
                         # M7 fix: liquidate the contract commitment for
                         # PV-driven payments. The encumbrance-liquidation
@@ -1951,16 +2133,35 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         balance=F('balance') - amount
                     )
 
-                # P2P-C2: Encumbrance Liquidation — reduce/clear BudgetEncumbrance when payment is posted
-                # Only liquidate if payment is linked to a PO
-                po_reference = None
+                # P2P-C2: Encumbrance Liquidation — reduce/clear
+                # BudgetEncumbrance when payment is posted. Aggregate
+                # allocation amounts BY purchase order so each PO's
+                # encumbrance is liquidated by the sum of allocations
+                # belonging to invoices tied to that PO.
+                #
+                # Previously this loop broke on the first allocation
+                # whose invoice had a PO, then leaked ``allocation`` as
+                # the loop variable into the encumbrance-update block —
+                # applying that ONE allocation's amount to EVERY
+                # encumbrance even when the payment spanned multiple POs.
+                # When a payment had several allocations against several
+                # POs, this both (a) under-liquidated the first PO (only
+                # the first allocation's amount counted) and (b)
+                # over-liquidated the remaining POs by re-applying the
+                # leaked variable.
+                po_totals: dict = {}
                 for allocation in payment.allocations.select_related('invoice').all():
                     invoice = allocation.invoice
-                    if invoice and invoice.purchase_order:
-                        po_reference = invoice.purchase_order
-                        break
+                    if not invoice or not invoice.purchase_order_id:
+                        continue
+                    po_id = invoice.purchase_order_id
+                    po_totals[po_id] = (
+                        po_totals.get(po_id, Decimal('0')) + Decimal(str(allocation.amount or 0))
+                    )
 
-                if po_reference:
+                for po_id, po_total in po_totals.items():
+                    if po_total <= 0:
+                        continue
                     # Race-safe encumbrance liquidation: lock + F() update.
                     # Previously this was read-modify-write so two
                     # concurrent payments against the same PO could both
@@ -1969,14 +2170,15 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     enc_ids = list(
                         BudgetEncumbrance.objects.filter(
                             reference_type='PO',
-                            reference_id=po_reference.pk,
+                            reference_id=po_id,
                             status__in=['ACTIVE', 'PARTIALLY_LIQUIDATED'],
                         ).values_list('pk', flat=True)
                     )
                     for enc_id in enc_ids:
-                        # Lock + atomic F() update.
+                        # Lock + atomic F() update using THIS PO's total,
+                        # not a leaked loop variable.
                         BudgetEncumbrance.objects.select_for_update().filter(pk=enc_id).update(
-                            liquidated_amount=F('liquidated_amount') + allocation.amount,
+                            liquidated_amount=F('liquidated_amount') + po_total,
                         )
                         # Re-read to settle status field.
                         enc = BudgetEncumbrance.objects.get(pk=enc_id)
@@ -1986,11 +2188,41 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         )
                         BudgetEncumbrance.objects.filter(pk=enc_id).update(status=new_status)
 
-            return Response({
-                "status": "Payment posted successfully.",
+            # Cascade warnings: when the PV-driven propagation block
+            # above failed to mark a linked IPC as PAID (typically an
+            # SoD violation because the payer is also a prior actor),
+            # we don't roll back — the cash event is real — but we
+            # MUST surface the failure so the operator knows which
+            # IPC needs manual reconciliation. Without this, a
+            # silently-stuck IPC would block contract closure weeks
+            # later and the operator would have no idea why.
+            response_body = {
+                "status":     "Payment posted successfully.",
                 "journal_id": journal.id,
-                "amount": str(amount)
-            })
+                "amount":     str(amount),
+            }
+            cascade_warnings = getattr(payment, '_cascade_warnings', None) or []
+            cascade_critical = getattr(payment, '_cascade_critical_failures', None) or []
+            if cascade_warnings:
+                response_body['cascade_warnings'] = cascade_warnings
+                response_body['status'] = (
+                    'Payment posted successfully, but '
+                    f'{len(cascade_warnings)} downstream document(s) '
+                    'need manual reconciliation. See cascade_warnings.'
+                )
+            if cascade_critical:
+                # H2: cash journal committed but downstream IPC stayed
+                # VOUCHER_RAISED → ContractBalance is out of sync. The
+                # operator MUST resolve before contract closure. 207
+                # forces the client to surface the partial-success
+                # state instead of silently treating it as a clean 200.
+                response_body['cascade_critical_failures'] = cascade_critical
+                response_body['reconciliation_owed'] = True
+                return Response(
+                    response_body,
+                    status=status.HTTP_207_MULTI_STATUS,
+                )
+            return Response(response_body)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

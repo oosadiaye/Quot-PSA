@@ -1,0 +1,8 @@
+stateDiagram-v2
+    [*] --> DRAFT : IPC created
+    DRAFT --> SUBMITTED : IPCService.submit_ipc()<br/>Controls 1, 3, 7, 8 fire<br/>SELECT FOR UPDATE on ContractBalance
+    SUBMITTED --> CERTIFIER_REVIEWED : IPCService.certify()<br/>Control 9 (3-way w/ MeasurementBook)<br/>SoD: certifier ≠ drafter
+    CERTIFIER_REVIEWED --> APPROVED : IPCService.approve()<br/>Controls 1, 2 re-checked<br/>_enforce_appropriation_gate()<br/>_post_accrual_journal()<br/>SoD: approver ≠ drafter ≠ certifier
+    APPROVED --> VOUCHER_RAISED : IPCService.raise_voucher()<br/>spawns PaymentVoucherGov(DRAFT)<br/>SoD: raiser ≠ above
+    VOUCHER_RAISED --> PAID : IPCService.mark_paid()<br/>VAT / WHT recognised at cash<br/>SoD: payer ≠ above
+    PAID --> [*]

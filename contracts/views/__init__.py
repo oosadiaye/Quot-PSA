@@ -6,6 +6,7 @@ from contracts.views.audit_views import (  # noqa: F401
 from contracts.views.contract_views import (  # noqa: F401
     ContractBalanceViewSet,
     ContractViewSet,
+    ContractYearPlanViewSet,
     MilestoneScheduleViewSet,
 )
 from contracts.views.payment_views import (  # noqa: F401
@@ -22,6 +23,7 @@ from contracts.views.variation_views import (  # noqa: F401
 __all__ = [
     "ContractViewSet",
     "ContractBalanceViewSet",
+    "ContractYearPlanViewSet",
     "MilestoneScheduleViewSet",
     "IPCViewSet",
     "MeasurementBookViewSet",

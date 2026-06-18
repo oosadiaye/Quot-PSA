@@ -131,11 +131,25 @@ class Contract(AuditBaseModel):
         help_text="Expenditure charge account (NCoA 52-digit code)",
     )
     appropriation = models.ForeignKey(
-        "accounting.BudgetEncumbrance",
+        # Audit fix #2: previously pointed to ``accounting.BudgetEncumbrance``
+        # which is the legacy procurement encumbrance ledger, not the
+        # IPSAS appropriation register. The FK was never validated
+        # anywhere (the help-text claim was aspirational), and 0 of 4
+        # production rows had it set — confirming it was effectively
+        # dead column. Now correctly points at ``budget.Appropriation``
+        # so single-year contracts that don't need a multi-year
+        # ``ContractYearPlan`` can still be linked to the year's
+        # appropriation. Multi-year contracts use ``ContractYearPlan``
+        # instead — that's the canonical path.
+        "budget.Appropriation",
         null=True, blank=True,
         on_delete=models.PROTECT,
         related_name="contracts",
-        help_text="Budget appropriation line; validated on each IPC payment",
+        help_text=(
+            "Budget appropriation line for single-year contracts. "
+            "Validated by IPCService._enforce_appropriation_gate at "
+            "each IPC approval. Multi-year contracts use ContractYearPlan."
+        ),
     )
     fiscal_year = models.ForeignKey(
         "accounting.FiscalYear",
@@ -165,6 +179,19 @@ class Contract(AuditBaseModel):
             MaxValueValidator(Decimal("20")),
         ],
         help_text="Retention deduction as % of each certified payment (0–20%)",
+    )
+    retention_cap_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("10.00"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("20")),
+        ],
+        help_text=(
+            "Maximum cumulative retention as % of original_sum. "
+            "Once balance.retention_held reaches this cap no further "
+            "deduction is taken on subsequent IPCs (standard FIDIC / "
+            "Nigerian PPP practice — typically 5–10% of contract sum)."
+        ),
     )
 
     # ── Due-Process Compliance ──────────────────────────────────────────

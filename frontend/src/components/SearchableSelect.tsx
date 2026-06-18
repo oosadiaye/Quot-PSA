@@ -15,7 +15,7 @@
  * put through every parent re-render, debounced fetch, and prefill
  * effect that runs while the user is typing.
  */
-import { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useLayoutEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, ChevronDown, X } from 'lucide-react';
 
@@ -57,6 +57,14 @@ export default function SearchableSelect({
     // hidden``). Recomputed on open + on scroll/resize so the menu
     // follows the trigger if the user scrolls while it's open.
     const [rect, setRect] = useState<DOMRect | null>(null);
+
+    // Stable IDs for WAI-ARIA combobox wiring. ``useId`` gives us a
+    // collision-free, SSR-safe base; we derive listbox + per-option
+    // ids from it so screen readers can announce selection state and
+    // the active descendant.
+    const baseId = useId();
+    const listboxId = `${baseId}-listbox`;
+    const optionId = (value: string) => `${baseId}-opt-${value}`;
 
     // Find selected option label
     const selectedOption = options.find(o => o.value === value);
@@ -179,6 +187,11 @@ export default function SearchableSelect({
             <input
                 ref={inputRef}
                 type="text"
+                role="combobox"
+                aria-expanded={open}
+                aria-controls={listboxId}
+                aria-autocomplete="list"
+                aria-activedescendant={open && value ? optionId(value) : undefined}
                 value={displayValue}
                 onChange={e => {
                     if (!open) setOpen(true);
@@ -233,6 +246,8 @@ export default function SearchableSelect({
             {open && rect && createPortal(
                 <div
                     ref={menuRef}
+                    role="listbox"
+                    id={listboxId}
                     style={{
                         position: 'fixed',
                         top: rect.bottom + 2,
@@ -255,6 +270,9 @@ export default function SearchableSelect({
                             <button
                                 key={opt.value}
                                 type="button"
+                                role="option"
+                                id={optionId(opt.value)}
+                                aria-selected={opt.value === value}
                                 // ``onMouseDown`` with ``preventDefault`` keeps
                                 // focus in the input — without this, clicking
                                 // the option blurs the input first, the close

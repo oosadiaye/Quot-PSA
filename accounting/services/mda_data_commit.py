@@ -39,11 +39,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Callable, Optional
 
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -365,12 +368,27 @@ class MDAImportCommitService:
     @classmethod
     def _load_prior_commit(cls, key: str) -> Optional[CommitResult]:
         """Return a ``CommitResult`` replayed from a prior ``MDAImportLog``
-        row if this key was already committed. Returns None otherwise."""
+        row if this key was already committed.
+
+        Raises :class:`CommitError` if the lookup itself fails — silently
+        returning ``None`` here previously meant the calling MDA quarterly
+        return appeared to commit cleanly while the DB had no record of it
+        (the lookup failure cascaded into a second "first commit" attempt
+        that the caller treated as success). Surfacing the error lets the
+        view return a "Commit failed" response so the operator can act.
+        """
         try:
             from accounting.models import MDAImportLog
             log = MDAImportLog.objects.filter(idempotency_key=key).first()
-        except Exception:
-            return None
+        except Exception as exc:
+            logger.error(
+                "MDAImportLog idempotency lookup failed for key=%s: %s",
+                key, exc, exc_info=True,
+            )
+            raise CommitError(
+                f"Idempotency lookup failed; refusing to commit. "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
         if log is None:
             return None
         return CommitResult(

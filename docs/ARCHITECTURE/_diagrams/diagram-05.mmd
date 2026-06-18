@@ -1,0 +1,9 @@
+flowchart LR
+    A[Onboard tenant] --> B[Create Client<br/>+ Domain]
+    B --> C[migrate_schemas<br/>--tenant]
+    C --> D[Activate TenantModule<br/>flags]
+    D --> E[Create initial<br/>UserTenantRole]
+    E --> F[Tenant goes live]
+    F -.support.-> G[SupportTicket queue]
+    F -.billing.-> H[TenantSubscription<br/>state machine]
+    F -.events.-> I[WebhookDelivery<br/>fan-out + retry]

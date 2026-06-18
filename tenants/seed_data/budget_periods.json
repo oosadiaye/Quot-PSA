@@ -1,0 +1,19 @@
+[
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 1,  "start_date": "{{month_start:1}}",  "end_date": "{{month_end:1}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 2,  "start_date": "{{month_start:2}}",  "end_date": "{{month_end:2}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 3,  "start_date": "{{month_start:3}}",  "end_date": "{{month_end:3}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 4,  "start_date": "{{month_start:4}}",  "end_date": "{{month_end:4}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 5,  "start_date": "{{month_start:5}}",  "end_date": "{{month_end:5}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 6,  "start_date": "{{month_start:6}}",  "end_date": "{{month_end:6}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 7,  "start_date": "{{month_start:7}}",  "end_date": "{{month_end:7}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 8,  "start_date": "{{month_start:8}}",  "end_date": "{{month_end:8}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 9,  "start_date": "{{month_start:9}}",  "end_date": "{{month_end:9}}",  "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 10, "start_date": "{{month_start:10}}", "end_date": "{{month_end:10}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 11, "start_date": "{{month_start:11}}", "end_date": "{{month_end:11}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "MONTHLY",   "period_number": 12, "start_date": "{{month_start:12}}", "end_date": "{{month_end:12}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "QUARTERLY", "period_number": 1,  "start_date": "{{quarter_start:1}}", "end_date": "{{quarter_end:1}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "QUARTERLY", "period_number": 2,  "start_date": "{{quarter_start:2}}", "end_date": "{{quarter_end:2}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "QUARTERLY", "period_number": 3,  "start_date": "{{quarter_start:3}}", "end_date": "{{quarter_end:3}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "QUARTERLY", "period_number": 4,  "start_date": "{{quarter_start:4}}", "end_date": "{{quarter_end:4}}", "status": "OPEN"},
+  {"fiscal_year": "{{current_fy_year}}", "period_type": "ANNUAL",    "period_number": 1,  "start_date": "{{current_fy_start}}", "end_date": "{{current_fy_end}}", "status": "OPEN"}
+]

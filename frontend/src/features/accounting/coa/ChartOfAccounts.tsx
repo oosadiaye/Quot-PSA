@@ -23,6 +23,15 @@ interface Account {
     reconciliation_type: string;
     reconciliation_type_display: string;
     current_balance: string;
+    // SAP-style header / posting flag. When ``is_postable=false`` the
+    // account is a group / header that aggregates child balances and
+    // CANNOT be posted to directly. ``has_children`` is the derived
+    // signal the picker uses to suggest "make this a header" when an
+    // account is converted into a parent.
+    is_postable?: boolean;
+    has_children?: boolean;
+    parent?: number | null;
+    parent_code?: string;
     // Asset auto-capitalisation linkage. When set, posting-time interception
     // creates a FixedAsset, clears this GL to zero (contra credit), and debits
     // the category's cost_account (asset recon GL).

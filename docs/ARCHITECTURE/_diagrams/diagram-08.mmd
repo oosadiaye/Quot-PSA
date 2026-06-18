@@ -1,0 +1,13 @@
+flowchart TB
+    A[Any expenditure attempt<br/>PR / PO / IPC / JV] --> B{find_matching_appropriation<br/>by MDA × Economic × Fund × FY}
+    B -- no match --> C[BudgetCheckRule.policy:<br/>STRICT / WARNING / NONE]
+    B -- match found --> D[check_policy<br/>amount_approved -<br/>committed - expended<br/>>= requested?]
+    D -- yes --> E{Warrant pre-payment<br/>enforced?<br/>Client.enforce_warrant}
+    D -- no --> X[BudgetExceededError]
+    E -- yes --> F[check_warrant_availability<br/>against released warrants]
+    E -- no --> G[Pass]
+    F -- exceeded --> X
+    F -- ok --> G
+    C -- STRICT --> X
+    C -- WARNING/NONE --> G
+    X --> Z[Transaction rolls back]

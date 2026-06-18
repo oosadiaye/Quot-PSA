@@ -37,6 +37,46 @@ def _get_doc_amount(obj):
             return val
     return None
 
+
+def recalc_quantity_received_for_po(po_id):
+    """Recompute every PO line's ``quantity_received`` from posted GRN lines.
+
+    H17 fix: ``PurchaseOrderLine.quantity_received`` is mutated by GRN
+    cancel (procurement/views.py cancel_grn / bulk_cancel) via a direct
+    write, so a stale or out-of-band cancel can leave the field out of
+    sync with the canonical "Σ posted GRN line quantities". The
+    invoice-verification partial-receipt gate (``verify_and_post``)
+    reads this field, so poisoning it can hide a partial receipt from
+    the verifier and let an invoice post against unreceived goods.
+
+    This helper is idempotent: it recomputes the canonical value from
+    GoodsReceivedNoteLine rows whose parent GRN is Posted (other
+    statuses are pre-receipt or cancelled and must not count). Safe to
+    call inside a parent atomic block — uses ``F``-free direct writes
+    locked under ``select_for_update``.
+    """
+    from django.db import transaction as _txn
+    from django.db.models import Sum
+    from decimal import Decimal as _Decimal
+    from .models import PurchaseOrderLine, GoodsReceivedNoteLine
+
+    with _txn.atomic():
+        lines = list(
+            PurchaseOrderLine.objects
+            .select_for_update()
+            .filter(po_id=po_id)
+        )
+        for line in lines:
+            agg = GoodsReceivedNoteLine.objects.filter(
+                po_line_id=line.pk,
+                grn__status='Posted',
+            ).aggregate(total=Sum('quantity_received'))
+            canonical = agg['total'] or _Decimal('0')
+            if line.quantity_received != canonical:
+                PurchaseOrderLine.objects.filter(pk=line.pk).update(
+                    quantity_received=canonical,
+                )
+
 class VendorCategoryViewSet(viewsets.ModelViewSet):
     queryset = VendorCategory.objects.all().select_related('reconciliation_account')
     serializer_class = VendorCategorySerializer
@@ -240,106 +280,111 @@ class VendorViewSet(viewsets.ModelViewSet):
         from accounting.services.treasury_service import TSABalanceService
         from datetime import timedelta
 
-        ref = TransactionSequence.get_next('journal', 'JE-')
-        # ``document_number`` is the operator-facing JV-#### identifier
-        # the Journal Entries list shows in its DOCUMENT NO column.
-        # Earlier code only set ``reference_number``, which left the
-        # column rendering "-". Pulling the JV sequence here keeps the
-        # column populated for vendor-registration revenue postings the
-        # same way AP/AR/Payment journals do.
-        jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-        header = JournalHeader.objects.create(
-            reference_number=ref,
-            description=f"Vendor Registration: {vendor.name} — {invoice.invoice_number}",
-            posting_date=timezone.now().date(),
-            document_number=jv_number,
-            status='Draft',
-            source_module='vendor_registration',
-            source_document_id=invoice.pk,
-        )
-
-        # ── DR: TSA cash GL ──────────────────────────────────────
-        # Resolved via the central tsa_gl_resolver (per-TSA → tenant
-        # default → COA scan). Same code path as treasury revenue and
-        # payment voucher postings, so registration receipts can never
-        # disagree about which cash GL to hit. No hardcoded code.
+        # Wrap the entire GL→TSA→invoice→vendor sequence in a single
+        # atomic block. The previous code ran five separate DB
+        # operations with no rollback: a TSABalanceService or
+        # vendor.save() failure left a Posted journal in the GL with
+        # no matching activated vendor — permanent inconsistency that
+        # auditors had to reconcile by hand. Atomic guarantees the GL
+        # never persists unless the vendor activation also lands.
+        from accounting.models import AccountingSettings
         from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
         try:
-            tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
+            with transaction.atomic():
+                ref = TransactionSequence.get_next('journal', 'JE-')
+                # ``document_number`` is the operator-facing JV-####
+                # identifier the Journal Entries list shows in its
+                # DOCUMENT NO column. Earlier code only set
+                # ``reference_number``, which left the column rendering
+                # "-". Pulling the JV sequence here keeps the column
+                # populated for vendor-registration revenue postings the
+                # same way AP/AR/Payment journals do.
+                jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
+                header = JournalHeader.objects.create(
+                    reference_number=ref,
+                    description=f"Vendor Registration: {vendor.name} — {invoice.invoice_number}",
+                    posting_date=timezone.now().date(),
+                    document_number=jv_number,
+                    status='Draft',
+                    source_module='vendor_registration',
+                    source_document_id=invoice.pk,
+                )
+
+                # ── DR: TSA cash GL ──────────────────────────────────
+                # Resolved via the central tsa_gl_resolver (per-TSA →
+                # tenant default → COA scan). Same code path as
+                # treasury revenue and payment voucher postings, so
+                # registration receipts can never disagree about which
+                # cash GL to hit. No hardcoded code.
+                tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
+
+                # ── CR: Registration-fee revenue GL ────────────────────
+                # Priority chain mirrors the cash side:
+                #   1. AccountingSettings.vendor_registration_revenue_account
+                #   2. Legacy NCoA bridge to 12100200 if catalogued
+                #   3. Loud failure with operator-actionable message
+                settings_obj = AccountingSettings.objects.first()
+                rev_gl = getattr(settings_obj, 'vendor_registration_revenue_account', None) if settings_obj else None
+                if rev_gl is None:
+                    rev_seg = EconomicSegment.objects.filter(code='12100200').first()
+                    rev_gl = (
+                        rev_seg.legacy_account if rev_seg
+                        else Account.objects.filter(
+                            account_type='Income', name__icontains='registration',
+                        ).first()
+                    )
+                if not rev_gl:
+                    raise ValueError(
+                        'Registration-fee revenue account is not configured. '
+                        'Set it in Settings → Accounting → Vendor Registration '
+                        'Revenue Account, or add an Income account named like '
+                        '"Registration Fees" to the Chart of Accounts.'
+                    )
+
+                JournalLine.objects.create(
+                    header=header, account=tsa_gl,
+                    debit=invoice.amount, credit=0,
+                    memo=f"Registration payment: {vendor.name}",
+                )
+                JournalLine.objects.create(
+                    header=header, account=rev_gl,
+                    debit=0, credit=invoice.amount,
+                    memo=f"Registration fee: {invoice.invoice_number}",
+                )
+
+                IPSASJournalService.post_journal(header, request.user)
+
+                TSABalanceService.process_revenue(type('RC', (), {
+                    'tsa_account': invoice.tsa_account,
+                    'amount': invoice.amount,
+                    'receipt_number': invoice.invoice_number,
+                })())
+
+                # Update invoice
+                invoice.status = 'PAID'
+                invoice.payment_reference = payment_reference
+                invoice.payment_date = timezone.now().date()
+                invoice.journal = header
+                invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
+
+                # Activate vendor — 1 year from payment date
+                today = timezone.now().date()
+                vendor.registration_fiscal_year = invoice.fiscal_year
+                vendor.registration_date = today
+                vendor.expiry_date = today + timedelta(days=365)
+                vendor.is_active = True
+                vendor.save(update_fields=[
+                    'registration_fiscal_year', 'registration_date',
+                    'expiry_date', 'is_active', 'updated_at',
+                ])
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
-            header.delete()
+            logger.exception('confirm_registration_payment failed for vendor %s', vendor.pk)
             return Response(
-                {'error': f'Cannot resolve TSA cash GL: {exc}'},
-                status=status.HTTP_400_BAD_REQUEST,
+                {'error': f'Payment confirmation failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        # ── CR: Registration-fee revenue GL ──────────────────────
-        # Priority chain mirrors the cash side:
-        #   1. AccountingSettings.vendor_registration_revenue_account (FK)
-        #   2. Legacy NCoA bridge to 12100200 if the catalogue has it
-        #   3. Loud failure with operator-actionable message
-        from accounting.models import AccountingSettings
-        settings_obj = AccountingSettings.objects.first()
-        rev_gl = getattr(settings_obj, 'vendor_registration_revenue_account', None) if settings_obj else None
-        if rev_gl is None:
-            # Tenant hasn't configured the FK yet — try the conventional
-            # NCoA code as a soft fallback so existing seeded tenants
-            # keep working until an operator picks an explicit account.
-            rev_seg = EconomicSegment.objects.filter(code='12100200').first()
-            rev_gl = (
-                rev_seg.legacy_account if rev_seg
-                else Account.objects.filter(
-                    account_type='Income', name__icontains='registration',
-                ).first()
-            )
-        if not rev_gl:
-            header.delete()
-            return Response(
-                {'error': (
-                    'Registration-fee revenue account is not configured. Set it in '
-                    'Settings → Accounting → Vendor Registration Revenue Account, '
-                    'or add an Income account named like "Registration Fees" to the '
-                    'Chart of Accounts.'
-                )},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        JournalLine.objects.create(
-            header=header, account=tsa_gl,
-            debit=invoice.amount, credit=0,
-            memo=f"Registration payment: {vendor.name}",
-        )
-        JournalLine.objects.create(
-            header=header, account=rev_gl,
-            debit=0, credit=invoice.amount,
-            memo=f"Registration fee: {invoice.invoice_number}",
-        )
-
-        IPSASJournalService.post_journal(header, request.user)
-
-        TSABalanceService.process_revenue(type('RC', (), {
-            'tsa_account': invoice.tsa_account,
-            'amount': invoice.amount,
-            'receipt_number': invoice.invoice_number,
-        })())
-
-        # Update invoice
-        invoice.status = 'PAID'
-        invoice.payment_reference = payment_reference
-        invoice.payment_date = timezone.now().date()
-        invoice.journal = header
-        invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
-
-        # Activate vendor — 1 year from payment date
-        today = timezone.now().date()
-        vendor.registration_fiscal_year = invoice.fiscal_year
-        vendor.registration_date = today
-        vendor.expiry_date = today + timedelta(days=365)
-        vendor.is_active = True
-        vendor.save(update_fields=[
-            'registration_fiscal_year', 'registration_date',
-            'expiry_date', 'is_active', 'updated_at',
-        ])
 
         return Response({
             'status': 'Payment confirmed. Vendor activated.',
@@ -496,85 +541,87 @@ class VendorViewSet(viewsets.ModelViewSet):
         from accounting.services.ipsas_journal_service import IPSASJournalService
         from accounting.services.treasury_service import TSABalanceService
 
-        ref = TransactionSequence.get_next('journal', 'JE-')
-        # See companion fix in approve_registration_invoice — JV-####
-        # document number kept in sync with the JE- reference so the
-        # Journal Entries list always shows a populated DOCUMENT NO.
-        jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
-        header = JournalHeader.objects.create(
-            reference_number=ref,
-            description=f"Vendor Renewal: {vendor.name} — {invoice.invoice_number}",
-            posting_date=timezone.now().date(),
-            document_number=jv_number,
-            status='Draft',
-            source_module='vendor_renewal',
-            source_document_id=invoice.pk,
-        )
-
-        # DR: TSA Cash GL — resolved via the central tsa_gl_resolver
-        # (per-TSA → tenant default → CoA scan). Same code path as
-        # confirm_registration_payment uses; previously this branch
-        # hardcoded NCoA 31100100 which silently posted to a wrong
-        # account on tenants whose TSA cash GL has a different code.
+        # See confirm_registration_payment for the rationale — wrap
+        # the entire GL→TSA→invoice→vendor sequence in a single atomic
+        # block so a downstream failure rolls back the GL posting too.
         from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
-        try:
-            tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
-        except Exception as exc:
-            header.delete()
-            return Response(
-                {'error': f'Cannot resolve TSA cash GL: {exc}'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # CR: Revenue - Registration Fees
-        rev_seg = EconomicSegment.objects.filter(code='12100200').first()
-        rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
-            account_type='Income', name__icontains='fee'
-        ).first()
-        if not rev_gl:
-            header.delete()
-            return Response(
-                {'error': 'Revenue account (Registration Fees / 12100200) not found in Chart of Accounts.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        JournalLine.objects.create(
-            header=header, account=tsa_gl,
-            debit=invoice.amount, credit=0,
-            memo=f"Renewal payment: {vendor.name}",
-        )
-        JournalLine.objects.create(
-            header=header, account=rev_gl,
-            debit=0, credit=invoice.amount,
-            memo=f"Renewal fee: {invoice.invoice_number}",
-        )
-
-        IPSASJournalService.post_journal(header, request.user)
-
-        TSABalanceService.process_revenue(type('RC', (), {
-            'tsa_account': invoice.tsa_account,
-            'amount': invoice.amount,
-            'receipt_number': invoice.invoice_number,
-        })())
-
-        # Update invoice
-        invoice.status = 'PAID'
-        invoice.payment_reference = payment_reference
-        invoice.payment_date = timezone.now().date()
-        invoice.journal = header
-        invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
-
-        # Renew vendor registration — 1 year from payment date
         from datetime import timedelta
-        today = timezone.now().date()
-        vendor.registration_fiscal_year = invoice.fiscal_year
-        vendor.registration_date = today
-        vendor.expiry_date = today + timedelta(days=365)
-        vendor.is_active = True
-        vendor.save(update_fields=[
-            'registration_fiscal_year', 'registration_date',
-            'expiry_date', 'is_active', 'updated_at',
-        ])
+        try:
+            with transaction.atomic():
+                ref = TransactionSequence.get_next('journal', 'JE-')
+                # JV-#### document number kept in sync with the JE-
+                # reference so the Journal Entries list always shows a
+                # populated DOCUMENT NO column.
+                jv_number = TransactionSequence.get_next('journal_voucher', 'JV-')
+                header = JournalHeader.objects.create(
+                    reference_number=ref,
+                    description=f"Vendor Renewal: {vendor.name} — {invoice.invoice_number}",
+                    posting_date=timezone.now().date(),
+                    document_number=jv_number,
+                    status='Draft',
+                    source_module='vendor_renewal',
+                    source_document_id=invoice.pk,
+                )
+
+                # DR: TSA Cash GL — resolved via the central
+                # tsa_gl_resolver (per-TSA → tenant default → CoA scan).
+                tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
+
+                # CR: Revenue - Registration Fees
+                rev_seg = EconomicSegment.objects.filter(code='12100200').first()
+                rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
+                    account_type='Income', name__icontains='fee'
+                ).first()
+                if not rev_gl:
+                    raise ValueError(
+                        'Revenue account (Registration Fees / 12100200) not '
+                        'found in Chart of Accounts.'
+                    )
+
+                JournalLine.objects.create(
+                    header=header, account=tsa_gl,
+                    debit=invoice.amount, credit=0,
+                    memo=f"Renewal payment: {vendor.name}",
+                )
+                JournalLine.objects.create(
+                    header=header, account=rev_gl,
+                    debit=0, credit=invoice.amount,
+                    memo=f"Renewal fee: {invoice.invoice_number}",
+                )
+
+                IPSASJournalService.post_journal(header, request.user)
+
+                TSABalanceService.process_revenue(type('RC', (), {
+                    'tsa_account': invoice.tsa_account,
+                    'amount': invoice.amount,
+                    'receipt_number': invoice.invoice_number,
+                })())
+
+                # Update invoice
+                invoice.status = 'PAID'
+                invoice.payment_reference = payment_reference
+                invoice.payment_date = timezone.now().date()
+                invoice.journal = header
+                invoice.save(update_fields=['status', 'payment_reference', 'payment_date', 'journal', 'updated_at'])
+
+                # Renew vendor registration — 1 year from payment date
+                today = timezone.now().date()
+                vendor.registration_fiscal_year = invoice.fiscal_year
+                vendor.registration_date = today
+                vendor.expiry_date = today + timedelta(days=365)
+                vendor.is_active = True
+                vendor.save(update_fields=[
+                    'registration_fiscal_year', 'registration_date',
+                    'expiry_date', 'is_active', 'updated_at',
+                ])
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('confirm_renewal_payment failed for vendor %s', vendor.pk)
+            return Response(
+                {'error': f'Payment confirmation failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response({
             'status': 'Payment confirmed. Vendor renewed.',
@@ -667,10 +714,70 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve a purchase requisition"""
+        """Approve a purchase requisition.
+
+        SoD (audit fix #8): the PR must be in **Pending** status (i.e.
+        previously routed via ``submit_for_approval`` /
+        ``auto_route_approval``), and the approver must NOT be the
+        same person who created the PR. The previous logic accepted
+        Draft and let a creator with ``IsApprover`` self-approve in
+        one step — circumventing the workflow engine and the SoD
+        gate it enforces.
+        """
         pr = self.get_object()
-        if pr.status not in ('Draft', 'Pending'):
-            return Response({"error": "Only Draft or Pending PRs can be approved."}, status=status.HTTP_400_BAD_REQUEST)
+        if pr.status != 'Pending':
+            return Response(
+                {
+                    "error": (
+                        "Only Pending PRs can be approved. Submit the PR "
+                        "for approval first (POST /submit_for_approval/) "
+                        "so it can be routed through the workflow engine."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Rule-driven SoD gate ────────────────────────────────────
+        # Reads ``SoDRule`` rows scoped to ``same_document``. When a
+        # rule names ``procurement.pr.approve`` and the actor already
+        # exercised the other-side permission on this PR (e.g. created
+        # it), this raises ``SoDViolation`` which the DRF exception
+        # handler (core.drf_exception_handler) translates to a 403
+        # with the structured violations payload. Safe-additive: with
+        # zero rules configured, this is a no-op. The hardcoded
+        # creator-cannot-approve check below stays as a backstop until
+        # tenants explicitly seed a SoD rule covering the same case.
+        from core.services.sod_evaluator import enforce_action
+        # ``requested_by_id`` is the creator field on PurchaseRequest;
+        # the evaluator's default attr map only covers ``created_by_id``,
+        # so we override to point the "creator" action at this field.
+        enforce_action(
+            request.user,
+            'procurement.pr.approve',
+            pr,
+            document_actor_attr_map={
+                'procurement.pr.create': 'requested_by_id',
+                'procurement.pr.submit': 'requested_by_id',
+            },
+        )
+
+        # Self-approval block — superusers retain the override for
+        # break-glass scenarios, but the audit log shows it.
+        if (
+            pr.requested_by_id
+            and pr.requested_by_id == getattr(request.user, 'pk', None)
+            and not getattr(request.user, 'is_superuser', False)
+        ):
+            return Response(
+                {
+                    "error": (
+                        "Segregation of duties: the user who created a PR "
+                        "cannot also approve it. Have a different approver "
+                        "act on this request."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             with transaction.atomic():
@@ -843,6 +950,26 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
                         fiscal_year = pr.requested_date.year if pr.requested_date else None
                         appropriation = find_matching_appropriation(mda=mda, fund=fund, account=account, fiscal_year=fiscal_year)
+                        # Lock the matching appropriation row for the
+                        # duration of this PR's atomic block so two
+                        # concurrent bulk_approve calls on the same
+                        # appropriation serialise. Without this, both
+                        # threads would read the same
+                        # ``cached_total_committed`` snapshot, both
+                        # pass the ceiling check, and both decrement
+                        # — resulting in over-commitment that surfaces
+                        # only when a downstream report adds the rows
+                        # up. ``commitments`` (= ProcurementBudgetLink)
+                        # writes happen in ``save_pr`` further down the
+                        # call chain, but the lock here is sufficient
+                        # because the ceiling read + the write live in
+                        # the SAME outer atomic block.
+                        if appropriation is not None:
+                            from budget.models import Appropriation as _Appropriation
+                            _Appropriation.objects.select_for_update().filter(
+                                pk=appropriation.pk,
+                            ).exists()
+
                         result = check_policy(
                             account_code=account.code if account else '',
                             appropriation=appropriation,
@@ -1125,6 +1252,14 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {"error": f"Only Pending POs can be approved. Current status: {po.status}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Rule-driven SoD gate — see PR approve for full rationale.
+        # The PO model uses the standard ``created_by_id`` field
+        # (AuditBaseModel inheritance), so the evaluator's default
+        # attr map handles "creator vs approver" without an override.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'procurement.po.approve', po)
+
         try:
             po.status = 'Approved'
             po.save()
@@ -1487,11 +1622,184 @@ class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         grn.save()
         return Response({"status": msg, "approval_id": result.get('approval_id')})
 
+    @action(detail=True, methods=['get'], url_path='journal')
+    def journal(self, request, pk=None):
+        """Return the GL journal posted when this GRN was posted.
+
+        Mirrors SAP's "FI Document Display" (FB03) — every posted
+        transaction document exposes the journal entry it produced so
+        operators can reconcile what they see on the document with
+        what landed in the GL.
+
+        Standard IPSAS 3-way-match entry on GRN post:
+
+            DR  Expense / Inventory / Fixed Asset   (per po_line)
+            CR  GR/IR Clearing                       (liability)
+
+        The credit (GR/IR Clearing) parks the liability until the
+        vendor invoice clears it (then DR GR/IR / CR AP at match
+        time, then DR AP / CR Bank at payment). This panel shows
+        the FIRST leg only — the GRN post.
+
+        Lookup ladder for the journal record:
+          1. ``source_module='grn'`` + ``source_document_id=grn.pk``
+             — canonical FK-shaped link set by ``post_goods_received_note``
+             in ``accounting/services/procurement_posting.py``.
+          2. Older procurement-side postings used
+             ``source_module='procurement'``; kept as fallback.
+          3. Last-resort string match on
+             ``reference_number=grn.grn_number`` for any journal
+             written before ``source_module`` columns existed.
+
+        Each line is annotated with a ``role`` hint so the UI can
+        render the human-readable "Debit Expense" / "Credit GR-IR"
+        labels without re-deriving the account type client-side.
+        """
+        from accounting.models.gl import JournalHeader
+
+        grn = self.get_object()
+        journal = (
+            JournalHeader.objects
+            .filter(source_module='grn', source_document_id=grn.pk)
+            .first()
+        )
+        if journal is None:
+            journal = (
+                JournalHeader.objects
+                .filter(source_module='procurement', source_document_id=grn.pk)
+                .first()
+            )
+        if journal is None:
+            journal = (
+                JournalHeader.objects
+                .filter(reference_number=grn.grn_number)
+                .first()
+            )
+        if journal is None:
+            return Response(
+                {
+                    'error': 'No GL journal found for this GRN.',
+                    'grn_status': grn.status,
+                    'hint': (
+                        'The journal is created on Post. If the GRN is '
+                        'still Draft, post it first.'
+                    ),
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        lines = []
+        # Pull the lines with the FK label fields the UI cares about —
+        # one select_related avoids the N+1 that would otherwise fire
+        # per line for the account name.
+        for line in journal.lines.select_related('account').all():
+            # Derive a UX-friendly ``role`` label per line so the panel
+            # can show "Debit Expense" / "Credit GR/IR Clearing" without
+            # the client having to know about reconciliation_type or
+            # account_type. The role buckets the line into one of:
+            #   - 'gr_ir'       — Liability + reconciliation_type or
+            #                     name matches "GR/IR" / "Clearing"
+            #   - 'inventory'   — Asset reconciliation_type='inventory'
+            #   - 'fixed_asset' — Asset code in the 12xxxxxx range
+            #   - 'expense'     — fallback for any Expense-type DR
+            #   - 'ap'          — Liability reconciliation_type='accounts_payable'
+            #   - 'other'       — couldn't classify
+            #
+            # The dr_cr field gives a flat "DR" / "CR" label so the
+            # frontend doesn't have to inspect the amount fields.
+            acct = line.account
+            role = 'other'
+            if acct is not None:
+                acct_type = (acct.account_type or '').lower()
+                recon_type = (acct.reconciliation_type or '').lower()
+                acct_name = (acct.name or '').lower()
+                acct_code = (acct.code or '')
+
+                if 'gr/ir' in acct_name or 'gr-ir' in acct_name or 'goods receipt' in acct_name:
+                    role = 'gr_ir'
+                elif recon_type == 'inventory':
+                    role = 'inventory'
+                elif recon_type == 'accounts_payable':
+                    role = 'ap'
+                elif acct_code.startswith('12'):
+                    role = 'fixed_asset'
+                elif acct_type == 'asset' and recon_type:
+                    role = 'inventory'  # closest reasonable bucket
+                elif acct_type == 'expense':
+                    role = 'expense'
+                elif acct_type == 'liability':
+                    # Liability DR/CR that isn't GR/IR or AP — most
+                    # commonly tax payables or accruals. Keep generic.
+                    role = 'liability'
+
+            dr_cr = 'DR' if line.debit > 0 else 'CR'
+
+            lines.append({
+                'id':           line.id,
+                'account_id':   line.account_id,
+                'account_code': acct.code if acct is not None else None,
+                'account_name': acct.name if acct is not None else None,
+                'account_type': acct.account_type if acct is not None else None,
+                'debit':        str(line.debit),
+                'credit':       str(line.credit),
+                'memo':         line.memo,
+                # New UX hints
+                'role':         role,
+                'dr_cr':        dr_cr,
+            })
+        total_debit  = sum((line.debit  for line in journal.lines.all()), Decimal('0'))
+        total_credit = sum((line.credit for line in journal.lines.all()), Decimal('0'))
+
+        return Response({
+            'journal_id':       journal.id,
+            'reference_number': journal.reference_number,
+            'document_number':  journal.document_number,
+            'posting_date':     journal.posting_date,
+            'description':      journal.description,
+            'status':           journal.status,
+            'source_module':    journal.source_module,
+            'source_document_id': journal.source_document_id,
+            'total_debit':      str(total_debit),
+            'total_credit':     str(total_credit),
+            'is_balanced':      total_debit == total_credit,
+            'lines':            lines,
+            # Short explanation of the expected entry shape — used by
+            # the panel header so even an operator unfamiliar with
+            # 3-way match can read the page.
+            'entry_pattern':    'DR Expense / Inventory  ·  CR GR/IR Clearing (parks AP liability until invoice match)',
+        })
+
     @action(detail=True, methods=['post'])
     def post_grn(self, request, pk=None):
         grn = self.get_object()
         if grn.status == 'Posted':
             return Response({"error": "GRN already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # SELF-HEAL: a desynced state where a Posted journal exists for this
+        # GRN but ``grn.status`` is still Draft can happen if a previous
+        # attempt's outer atomic block committed the journal write but
+        # something downstream (signal, second save, frontend retry race)
+        # left the GRN row at Draft. Without this branch the user gets
+        # stuck — the duplicate-posting check inside
+        # ``post_goods_received_note`` would raise on every retry while
+        # the list view keeps offering a Post button (because grn.status
+        # is still Draft). Detect this here, sync the GRN status to match
+        # the actual GL truth, and return success. Idempotent post is the
+        # SAP / Oracle pattern for the same problem.
+        from accounting.models.gl import JournalHeader
+        existing_journal = JournalHeader.objects.filter(
+            reference_number=grn.grn_number,
+            status='Posted',
+        ).first()
+        if existing_journal is not None:
+            grn.status = 'Posted'
+            grn.save(update_fields=['status', 'updated_at'])
+            return Response({
+                'status': 'GRN status synced — a Posted GL journal already existed for this GRN.',
+                'journal_entry_id': existing_journal.id,
+                'journal_number':   existing_journal.reference_number,
+                'recovered':        True,
+            })
 
         # WARN-4 FIX: block posting whenever a Pending approval exists — regardless
         # of GRN status — so stale approvals can't be bypassed via direct status patches.
@@ -1582,11 +1890,28 @@ class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
                 grn.status = 'Posted'
                 grn.save()
-
-                # Post to GL in real-time.
-                # ItemStock and po_line.quantity_received are already updated
-                # inside GRN.save() above — do not repeat here.
-                journal = TransactionPostingService.post_goods_received_note(grn)
+                # ``GoodsReceivedNote.save()`` (procurement/models.py
+                # around line 1279, "M3 fix") already posts the GR/IR
+                # accrual journal — and updates inventory, commitment,
+                # PO totals — atomically inside the same transaction.
+                # The legacy explicit ``post_goods_received_note(grn)``
+                # call that used to sit here duplicated the journal
+                # write; the second call's ``_check_duplicate_posting``
+                # then raised "Transaction has already been posted to
+                # the GL" and rolled the whole atomic back, leaving
+                # the GRN stuck in Draft. The fix is to NOT call the
+                # service again here — just look up the journal the
+                # model.save path created so we can echo its number
+                # back to the caller.
+                from accounting.models.gl import JournalHeader
+                journal = (
+                    JournalHeader.objects
+                    .filter(source_module='grn', source_document_id=grn.pk)
+                    .first()
+                    or JournalHeader.objects
+                    .filter(reference_number=grn.grn_number)
+                    .first()
+                )
 
             response_data = {"status": "GRN posted and Inventory updated."}
             if journal:
@@ -1912,22 +2237,36 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
             )
             matching.payment_hold = False
 
-        # Budget check before approving the invoice match
+        # Budget check before approving the invoice match (audit fix #4).
+        #
+        # Previously this called the legacy ``check_budget_availability``
+        # engine which returned ``allowed=True`` for tenants with no
+        # row in the legacy ``Budget`` table — which is every modern
+        # tenant on the ``Appropriation`` register. Effectively, no
+        # budget gate at invoice matching for modern tenants. Now
+        # routed through ``check_policy`` against the Appropriation
+        # register, identical to PR / PO / JV gates.
         po = matching.purchase_order
-        if po and po.fund and matching.invoice_amount:
-            from accounting.budget_logic import check_budget_availability
-            # Budget control: MDA + Account (Economic) + Fund only
-            allowed, msg = check_budget_availability(
-                dimensions={'mda': po.mda, 'fund': po.fund},
-                account=po.lines.first().account if po.lines.exists() else None,
-                amount=matching.invoice_amount,
-                date=matching.invoice_date,
-                transaction_type='INV',
-                transaction_id=matching.pk or 0,
+        first_account = po.lines.first().account if (po and po.lines.exists()) else None
+        if po and po.fund and matching.invoice_amount and first_account:
+            from accounting.services.budget_check_rules import (
+                check_policy, find_matching_appropriation,
             )
-            if not allowed:
+            inv_year = (matching.invoice_date or timezone.now().date()).year
+            appropriation = find_matching_appropriation(
+                mda=po.mda, fund=po.fund, account=first_account,
+                fiscal_year=inv_year,
+            )
+            policy_result = check_policy(
+                account_code=first_account.code,
+                appropriation=appropriation,
+                requested_amount=matching.invoice_amount,
+                transaction_label='vendor invoice match',
+                account_name=getattr(first_account, 'name', ''),
+            )
+            if policy_result.blocked:
                 return Response(
-                    {"error": f"Budget check failed for invoice: {msg}"},
+                    {"error": f"Budget check failed for invoice: {policy_result.reason}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1939,43 +2278,70 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         matching.save()
 
         # Post variance to GL if significant (price diff between PO and invoice)
+        #
+        # ATOMICITY (audit fix #5): Header + lines + GLBalance update must
+        # commit together or not at all. The previous bare ``try/except
+        # Exception`` swallowed failures in ``_update_gl_balances`` and
+        # left the journal+lines persisted while ``GLBalance`` was never
+        # touched — silent ledger split. Now wrapped in
+        # ``transaction.atomic()`` so a balance-update failure rolls
+        # back the header + lines too. Operator-facing errors still
+        # surface as a 400 with a clear message.
         variance_amount = getattr(matching, 'variance_amount', None) or Decimal('0')
         journal_ref = None
         if variance_amount and abs(variance_amount) > Decimal('0.01'):
-            try:
-                from accounting.transaction_posting import get_gl_account
-                from accounting.models import JournalHeader, JournalLine
-                ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
-                ppv_account = get_gl_account('PPV', 'Expense', 'Purchase Price Variance')
-                if not ppv_account:
-                    ppv_account = get_gl_account('PURCHASE_EXPENSE', 'Expense', 'Purchase')
+            from accounting.transaction_posting import get_gl_account, TransactionPostingService
+            from accounting.models import JournalHeader, JournalLine
+            ap_account = get_gl_account('ACCOUNTS_PAYABLE', 'Liability', 'Payable')
+            ppv_account = get_gl_account('PPV', 'Expense', 'Purchase Price Variance')
+            if not ppv_account:
+                ppv_account = get_gl_account('PURCHASE_EXPENSE', 'Expense', 'Purchase')
 
-                if ap_account and ppv_account:
-                    ppv_journal = JournalHeader.objects.create(
-                        posting_date=matching.invoice_date or timezone.now().date(),
-                        description=f"Invoice Variance: {matching.invoice_reference} vs PO {matching.purchase_order.po_number if matching.purchase_order else ''}",
-                        reference_number=f"PPV-{matching.pk}",
-                        mda=matching.purchase_order.mda if matching.purchase_order else None,
-                        fund=matching.purchase_order.fund if matching.purchase_order else None,
-                        function=matching.purchase_order.function if matching.purchase_order else None,
-                        program=matching.purchase_order.program if matching.purchase_order else None,
-                        geo=matching.purchase_order.geo if matching.purchase_order else None,
-                        status='Posted',
+            if ap_account and ppv_account:
+                try:
+                    with transaction.atomic():
+                        ppv_ref = f"PPV-{matching.pk}"
+                        ppv_journal = JournalHeader.objects.create(
+                            posting_date=matching.invoice_date or timezone.now().date(),
+                            description=f"Invoice Variance: {matching.invoice_reference} vs PO {matching.purchase_order.po_number if matching.purchase_order else ''}",
+                            reference_number=ppv_ref,
+                            document_number=ppv_ref,
+                            mda=matching.purchase_order.mda if matching.purchase_order else None,
+                            fund=matching.purchase_order.fund if matching.purchase_order else None,
+                            function=matching.purchase_order.function if matching.purchase_order else None,
+                            program=matching.purchase_order.program if matching.purchase_order else None,
+                            geo=matching.purchase_order.geo if matching.purchase_order else None,
+                            status='Posted',
+                            source_module='procurement',
+                            source_document_id=matching.pk,
+                        )
+                        abs_variance = abs(variance_amount)
+                        if variance_amount > 0:
+                            # Invoice > PO: we owe more — additional AP, PPV is a loss
+                            JournalLine.objects.create(header=ppv_journal, account=ppv_account, debit=abs_variance, credit=Decimal('0.00'), memo=f"Purchase price variance: {matching.invoice_reference}")
+                            JournalLine.objects.create(header=ppv_journal, account=ap_account, debit=Decimal('0.00'), credit=abs_variance, memo=f"AP adjustment: {matching.invoice_reference}")
+                        else:
+                            # Invoice < PO: we owe less — reduce AP, PPV is a gain
+                            JournalLine.objects.create(header=ppv_journal, account=ap_account, debit=abs_variance, credit=Decimal('0.00'), memo=f"AP reduction: {matching.invoice_reference}")
+                            JournalLine.objects.create(header=ppv_journal, account=ppv_account, debit=Decimal('0.00'), credit=abs_variance, memo=f"Purchase price variance gain: {matching.invoice_reference}")
+                        TransactionPostingService._update_gl_balances(ppv_journal)
+                        journal_ref = ppv_journal.reference_number
+                except Exception as e:
+                    # Roll back already happened due to atomic(); log and
+                    # bubble a clear 400 so the operator knows the match
+                    # itself succeeded but the variance journal didn't.
+                    logger.warning(f"Variance GL posting failed for matching {matching.pk}: {e}")
+                    return Response(
+                        {
+                            "error": (
+                                "Invoice was matched, but posting the price-variance "
+                                f"journal failed: {e}. The match has been saved; "
+                                "post the variance manually or retry."
+                            ),
+                            "match_saved": True,
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
-                    abs_variance = abs(variance_amount)
-                    if variance_amount > 0:
-                        # Invoice > PO: we owe more — additional AP, PPV is a loss
-                        JournalLine.objects.create(header=ppv_journal, account=ppv_account, debit=abs_variance, credit=Decimal('0.00'), memo=f"Purchase price variance: {matching.invoice_reference}")
-                        JournalLine.objects.create(header=ppv_journal, account=ap_account, debit=Decimal('0.00'), credit=abs_variance, memo=f"AP adjustment: {matching.invoice_reference}")
-                    else:
-                        # Invoice < PO: we owe less — reduce AP, PPV is a gain
-                        JournalLine.objects.create(header=ppv_journal, account=ap_account, debit=abs_variance, credit=Decimal('0.00'), memo=f"AP reduction: {matching.invoice_reference}")
-                        JournalLine.objects.create(header=ppv_journal, account=ppv_account, debit=Decimal('0.00'), credit=abs_variance, memo=f"Purchase price variance gain: {matching.invoice_reference}")
-                    from accounting.transaction_posting import TransactionPostingService
-                    TransactionPostingService._update_gl_balances(ppv_journal)
-                    journal_ref = ppv_journal.reference_number
-            except Exception as e:
-                logger.warning(f"Variance GL posting failed for matching {matching.pk}: {e}")
 
         response_data = {"status": "Invoice matched successfully."}
         if journal_ref:
@@ -2412,6 +2778,15 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                     "cross_mda": True,
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        # H17 fix: recompute ``quantity_received`` from posted GRN line
+        # quantities BEFORE evaluating the partial-receipt gate. GRN
+        # cancellation paths (``cancel_grn`` / ``bulk_cancel``) mutate
+        # this field directly, so a stale value could mask a partial
+        # receipt and let the verifier post an invoice against unreceived
+        # goods. The helper is idempotent and atomic.
+        recalc_quantity_received_for_po(po.pk)
+        po.refresh_from_db()
+
         # Detect partial receipt (any PO line not fully received)
         partial = False
         if po.lines.exists():
@@ -2600,6 +2975,24 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
                 vi.save()
 
                 matching.vendor_invoice = vi
+                # C4 fix: run per-line three-way verification now that
+                # the VendorInvoice exists. We call ``match_lines``
+                # directly (NOT ``calculate_match``) so the header-level
+                # status flip to 'Approved' above is preserved unless
+                # the per-line scan ACTUALLY finds something out of
+                # tolerance — in which case ``match_lines`` downgrades
+                # status to 'Variance', sets ``payment_hold=True``, and
+                # the subsequent ``save()`` persists the new state.
+                # On the verify_and_post path the rolled-up
+                # single-VendorInvoiceLine created downstream may not
+                # carry per-line item names, so the unmatchable-lines
+                # branch will flag this clearly via ``gl_post_error``.
+                from decimal import Decimal as _Dec
+                from django.conf import settings as _s
+                _vt = _Dec(str(getattr(_s, 'PROCUREMENT_SETTINGS', {}).get(
+                    'INVOICE_VARIANCE_THRESHOLD', 5,
+                )))
+                matching.match_lines(variance_threshold=_vt)
                 matching.save()
 
                 # ── Close the budget commitment ─────────────────────
@@ -3336,58 +3729,62 @@ class PurchaseReturnViewSet(viewsets.ModelViewSet):
                 ret.save()
 
                 # Step 5 — Post GL reversal
-                journal_ref = None
-                try:
-                    journal = TransactionPostingService.post_purchase_return(ret)
-                    journal_ref = journal.reference_number
-                    logger.info(f"Purchase return {ret.return_number} GL posted: {journal_ref}")
-                except Exception as e:
-                    logger.error(f"GL posting failed for purchase return {ret.return_number}: {e}")
-                    # Non-fatal: complete the return but log the GL failure for manual correction
+                # C5 fix: the previous try/except swallowed GL failures,
+                # leaving stock decremented + status='Completed' with no
+                # GL reversal posted (an unbalanced "credit GR/IR but no
+                # cash/payable debit" pattern). Move the GL post inside
+                # the atomic block AND let exceptions propagate. The
+                # outer ``transaction.atomic()`` rolls back the stock
+                # decrement, the status flip, AND the auto-Credit-Note
+                # creation below — all of them must commit atomically
+                # or none must commit.
+                journal = TransactionPostingService.post_purchase_return(ret)
+                journal_ref = journal.reference_number
+                logger.info(f"Purchase return {ret.return_number} GL posted: {journal_ref}")
 
                 # Step 6 — Auto-create VendorCreditNote if none linked
+                # NOTE: this runs inside the same atomic block as Steps
+                # 3-5, so a CN-creation failure rolls back the stock
+                # decrement, status flip, and GL reversal together.
                 credit_note_number = None
                 if not ret.credit_note_id and ret.total_amount > 0:
-                    try:
-                        import datetime
-                        year = datetime.date.today().year
-                        cn_prefix = f'CN-{year}-'
-                        # Race-safe: lock last CN row and derive next seq from its number
-                        last_cn = (
-                            VendorCreditNote.objects
-                            .select_for_update()
-                            .filter(credit_note_number__startswith=cn_prefix)
-                            .order_by('-credit_note_number')
-                            .first()
-                        )
-                        if last_cn and last_cn.credit_note_number:
-                            try:
-                                cn_seq = int(last_cn.credit_note_number.split('-')[-1]) + 1
-                            except (ValueError, IndexError):
-                                cn_seq = VendorCreditNote.objects.filter(
-                                    credit_note_number__startswith=cn_prefix
-                                ).count() + 1
-                        else:
-                            cn_seq = 1
-                        credit_note_number = f'{cn_prefix}{cn_seq:05d}'
+                    import datetime
+                    year = datetime.date.today().year
+                    cn_prefix = f'CN-{year}-'
+                    # Race-safe: lock last CN row and derive next seq from its number
+                    last_cn = (
+                        VendorCreditNote.objects
+                        .select_for_update()
+                        .filter(credit_note_number__startswith=cn_prefix)
+                        .order_by('-credit_note_number')
+                        .first()
+                    )
+                    if last_cn and last_cn.credit_note_number:
+                        try:
+                            cn_seq = int(last_cn.credit_note_number.split('-')[-1]) + 1
+                        except (ValueError, IndexError):
+                            cn_seq = VendorCreditNote.objects.filter(
+                                credit_note_number__startswith=cn_prefix
+                            ).count() + 1
+                    else:
+                        cn_seq = 1
+                    credit_note_number = f'{cn_prefix}{cn_seq:05d}'
 
-                        credit_note = VendorCreditNote.objects.create(
-                            credit_note_number=credit_note_number,
-                            vendor=ret.vendor,
-                            purchase_order=ret.purchase_order,
-                            goods_received_note=ret.goods_received_note,
-                            credit_note_date=ret.return_date,
-                            reason=f"Purchase Return {ret.return_number}: {ret.reason[:200]}",
-                            amount=ret.total_amount,
-                            tax_amount=Decimal('0'),
-                            # total_amount is required (no DB default); equals amount + tax_amount
-                            total_amount=ret.total_amount,
-                            status='Draft',
-                        )
-                        ret.credit_note = credit_note
-                        PurchaseReturn.objects.filter(pk=ret.pk).update(credit_note=credit_note)
-                    except Exception as e:
-                        logger.error(f"Credit note auto-creation failed for {ret.return_number}: {e}")
+                    credit_note = VendorCreditNote.objects.create(
+                        credit_note_number=credit_note_number,
+                        vendor=ret.vendor,
+                        purchase_order=ret.purchase_order,
+                        goods_received_note=ret.goods_received_note,
+                        credit_note_date=ret.return_date,
+                        reason=f"Purchase Return {ret.return_number}: {ret.reason[:200]}",
+                        amount=ret.total_amount,
+                        tax_amount=Decimal('0'),
+                        # total_amount is required (no DB default); equals amount + tax_amount
+                        total_amount=ret.total_amount,
+                        status='Draft',
+                    )
+                    ret.credit_note = credit_note
+                    PurchaseReturn.objects.filter(pk=ret.pk).update(credit_note=credit_note)
 
             return Response({
                 "status": "Purchase return completed.",

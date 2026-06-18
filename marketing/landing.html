@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Quot PSE — IPSAS-compliant Integrated Financial Management Information System for Nigerian state governments. Real-time General Ledger, Treasury Single Account, Appropriation-to-Payment lifecycle, NCoA classification, and multi-MDA tenancy in one platform." />
+<title>Quot PSE — Public Sector IFMIS, Built for Real-Time Accountability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ───────────── Design tokens ─────────────
+     Light luxury palette with deep navy authority and a restrained
+     ochre accent. Government audiences respond to gravitas — no
+     gradient blobs, no SaaS purples. */
+  :root {
+    --ivory:        oklch(98.4% 0.005 95);
+    --ivory-warm:   oklch(96.8% 0.012 90);
+    --paper:        oklch(99.2% 0.002 95);
+    --ink:          oklch(20%   0.018 250);
+    --ink-soft:     oklch(35%   0.016 250);
+    --ink-muted:    oklch(55%   0.010 250);
+    --rule:         oklch(88%   0.005 250);
+    --rule-soft:    oklch(93%   0.004 250);
+    --navy:         oklch(28%   0.06  255);
+    --navy-deep:    oklch(18%   0.05  255);
+    --ochre:        oklch(64%   0.13  78);
+    --ochre-deep:   oklch(54%   0.14  68);
+    --sage:         oklch(58%   0.07  150);
+    --crimson:      oklch(48%   0.16  25);
+
+    --serif:        'Cormorant Garamond', 'Times New Roman', Georgia, serif;
+    --sans:         'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono:         'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    --measure:      62ch;
+    --w-page:       min(1240px, 100% - 3rem);
+
+    --t-display:    clamp(3rem, 1.6rem + 6.5vw, 7rem);
+    --t-hero:       clamp(2.4rem, 1.4rem + 4.5vw, 4.6rem);
+    --t-section:    clamp(1.85rem, 1.2rem + 2.4vw, 3rem);
+    --t-card:       clamp(1.1rem, 0.9rem + 0.8vw, 1.5rem);
+    --t-body:       clamp(0.95rem, 0.85rem + 0.3vw, 1.05rem);
+    --t-eyebrow:    0.72rem;
+    --t-fineprint:  0.78rem;
+
+    --space-page:   clamp(4rem, 3rem + 5vw, 9rem);
+    --space-block:  clamp(2rem, 1.4rem + 1.6vw, 3.5rem);
+
+    --shadow-card:  0 1px 0 oklch(80% 0.012 250 / 0.4),
+                    0 12px 32px -16px oklch(20% 0.05 250 / 0.18);
+    --shadow-deep:  0 1px 0 oklch(80% 0.012 250 / 0.5),
+                    0 24px 64px -24px oklch(20% 0.05 250 / 0.25);
+
+    --ease:         cubic-bezier(.16, 1, .3, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ivory);
+    color: var(--ink);
+    font: 400 var(--t-body)/1.65 var(--sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+
+    /* Fine paper-grain texture — composited via radial gradient,
+       not images, so the file stays self-contained. */
+    background-image:
+      radial-gradient(oklch(85% 0.01 250 / 0.06) 1px, transparent 1px),
+      linear-gradient(180deg, var(--paper) 0%, var(--ivory) 18%, var(--ivory-warm) 100%);
+    background-size: 18px 18px, auto;
+    background-attachment: fixed;
+  }
+
+  ::selection { background: var(--ochre); color: var(--ivory); }
+
+  a { color: inherit; text-decoration: none; }
+
+  .wrap { width: var(--w-page); margin-inline: auto; }
+
+  /* ───────────── Reusable typography ───────────── */
+  .eyebrow {
+    font: 500 var(--t-eyebrow)/1 var(--sans);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ochre-deep);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 1.5rem;
+    height: 1px;
+    background: var(--ochre-deep);
+  }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.02em; line-height: 1.04; margin: 0; color: var(--navy-deep); }
+  h2 { font-size: var(--t-section); }
+  h3 { font-size: var(--t-card); font-weight: 600; }
+  p { margin: 0; max-width: var(--measure); }
+  .lede { font: 400 clamp(1.05rem, 0.9rem + 0.6vw, 1.3rem)/1.55 var(--sans); color: var(--ink-soft); max-width: 56ch; }
+  .quiet { color: var(--ink-muted); }
+
+  /* ───────────── Top bar ───────────── */
+  header.top {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(98.4% 0.005 95 / 0.78);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .top .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 0;
+  }
+  .brand {
+    display: inline-flex; align-items: baseline; gap: 0.55rem;
+    font: 600 1.1rem/1 var(--serif);
+    letter-spacing: 0.02em;
+    color: var(--navy-deep);
+  }
+  .brand .mark {
+    width: 26px; height: 26px;
+    background: var(--navy-deep);
+    border-radius: 4px;
+    display: inline-grid; place-items: center;
+    color: var(--ochre);
+    font: 600 0.78rem/1 var(--mono);
+    transform: translateY(2px);
+  }
+  .brand small {
+    font: 400 0.7rem/1 var(--sans);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    transform: translateY(-1px);
+  }
+  nav.nav { display: flex; gap: 2rem; }
+  nav.nav a {
+    font: 500 0.85rem/1 var(--sans);
+    color: var(--ink-soft);
+    transition: color 0.2s var(--ease);
+  }
+  nav.nav a:hover { color: var(--navy-deep); }
+  @media (max-width: 720px) { nav.nav { display: none; } }
+
+  /* ───────────── Buttons ───────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    padding: 0.85rem 1.4rem;
+    font: 600 0.85rem/1 var(--sans);
+    letter-spacing: 0.02em;
+    border-radius: 999px;
+    transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease), background 0.25s var(--ease);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--navy-deep);
+    color: var(--ivory);
+    box-shadow: 0 1px 0 oklch(40% 0.05 255), 0 14px 28px -16px oklch(18% 0.05 255 / 0.5);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 oklch(40% 0.05 255), 0 20px 36px -16px oklch(18% 0.05 255 / 0.55); }
+  .btn-ghost {
+    color: var(--navy-deep);
+    border-color: var(--rule);
+    background: transparent;
+  }
+  .btn-ghost:hover { background: var(--ivory-warm); border-color: oklch(75% 0.01 250); }
+  .btn .arrow { display: inline-block; transition: transform 0.25s var(--ease); }
+  .btn:hover .arrow { transform: translateX(3px); }
+
+  /* ───────────── Hero ───────────── */
+  section.hero {
+    padding: clamp(4rem, 2rem + 8vw, 9rem) 0 clamp(3.5rem, 2rem + 5vw, 7rem);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero .grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: clamp(2rem, 1rem + 4vw, 5rem);
+    align-items: end;
+  }
+  @media (max-width: 920px) { .hero .grid { grid-template-columns: 1fr; } }
+
+  .hero h1 {
+    font-size: var(--t-display);
+    line-height: 0.96;
+    color: var(--navy-deep);
+    margin-top: 1.5rem;
+  }
+  .hero h1 .accent { color: var(--ochre-deep); font-style: italic; font-weight: 400; }
+  .hero h1 em { font-style: italic; font-weight: 400; color: var(--ink-soft); }
+  .hero .lede { margin-top: 1.5rem; max-width: 50ch; }
+  .hero .actions {
+    margin-top: 2rem;
+    display: flex; gap: 0.8rem; flex-wrap: wrap;
+  }
+
+  /* Hero side: a "live ledger" mock that hints at the real product */
+  .ledger-card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 1.4rem 1.5rem 1.6rem;
+    box-shadow: var(--shadow-card);
+    font-family: var(--mono);
+    transform-origin: bottom right;
+    animation: rise 1.2s var(--ease) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(20px) scale(0.99); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+  .ledger-card .lc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px dashed var(--rule);
+    margin-bottom: 1rem;
+  }
+  .lc-head .ref { font: 500 0.78rem/1 var(--mono); color: var(--ink-muted); letter-spacing: 0.04em; }
+  .lc-head .pill {
+    font: 500 0.62rem/1 var(--sans);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--sage);
+    background: oklch(58% 0.07 150 / 0.1);
+    padding: 0.4rem 0.6rem;
+    border-radius: 999px;
+  }
+  .lc-row {
+    display: grid;
+    grid-template-columns: 6ch 1fr 10ch 10ch;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+    padding: 0.45rem 0;
+    align-items: baseline;
+  }
+  .lc-row .acct { color: var(--ink-soft); }
+  .lc-row .narr { color: var(--ink-muted); font-family: var(--sans); font-size: 0.78rem; }
+  .lc-row .dr   { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .lc-row .cr   { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .lc-row.tot {
+    border-top: 1px solid var(--rule);
+    margin-top: 0.4rem; padding-top: 0.7rem;
+    font-weight: 600;
+    color: var(--navy-deep);
+  }
+  .lc-foot {
+    margin-top: 0.9rem;
+    display: flex; gap: 1rem;
+    font: 400 0.7rem/1 var(--sans);
+    color: var(--ink-muted);
+  }
+  .lc-foot .badge { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .lc-foot .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--sage); }
+
+  .hero .stamp {
+    position: absolute;
+    top: clamp(2.5rem, 4vw, 5rem);
+    right: -1.2rem;
+    transform: rotate(8deg);
+    border: 2px solid var(--ochre-deep);
+    color: var(--ochre-deep);
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    font: 600 0.65rem/1 var(--mono);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    background: var(--paper);
+    box-shadow: var(--shadow-card);
+    pointer-events: none;
+  }
+  @media (max-width: 920px) { .hero .stamp { display: none; } }
+
+  /* ───────────── Section base ───────────── */
+  section.block {
+    padding: var(--space-page) 0;
+    position: relative;
+  }
+  section.block + section.block { padding-top: 0; }
+  .section-head {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: clamp(2rem, 1rem + 3vw, 4rem);
+    align-items: end;
+    margin-bottom: var(--space-block);
+  }
+  @media (max-width: 800px) { .section-head { grid-template-columns: 1fr; } }
+  .section-head .heading h2 { margin-top: 0.9rem; }
+
+  /* ───────────── Pillars (4-up bento) ───────────── */
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.25rem;
+  }
+  .pillars > article {
+    grid-column: span 6;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 1.6rem 1.6rem 1.8rem;
+    transition: border-color 0.3s var(--ease), transform 0.3s var(--ease);
+    position: relative;
+    overflow: hidden;
+  }
+  .pillars > article:hover { border-color: oklch(78% 0.012 250); transform: translateY(-2px); }
+  .pillars > article.wide { grid-column: span 12; }
+  @media (max-width: 800px) { .pillars > article { grid-column: span 12; } }
+
+  .pillar-num {
+    font: 500 0.7rem/1 var(--mono);
+    letter-spacing: 0.18em;
+    color: var(--ochre-deep);
+    margin-bottom: 0.9rem;
+  }
+  .pillar-num::before { content: '— '; }
+  .pillars h3 { color: var(--navy-deep); margin-bottom: 0.7rem; max-width: 28ch; }
+  .pillars p   { color: var(--ink-soft); }
+
+  .pillar-figure {
+    margin-top: 1.4rem;
+    padding: 0.95rem 1.1rem;
+    background: var(--ivory-warm);
+    border-radius: 8px;
+    border: 1px solid var(--rule-soft);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem;
+  }
+  .pillar-figure .num { font: 500 1.6rem/1 var(--serif); color: var(--navy-deep); font-variant-numeric: tabular-nums; }
+  .pillar-figure .lbl { font: 500 0.72rem/1.3 var(--sans); color: var(--ink-muted); letter-spacing: 0.02em; max-width: 24ch; }
+
+  /* ───────────── IFMIS chain — the differentiating visual ───────────── */
+  section.flow {
+    background: var(--navy-deep);
+    color: var(--ivory);
+    padding: var(--space-page) 0;
+    position: relative;
+    overflow: hidden;
+  }
+  section.flow::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 80% at 100% 0%, oklch(35% 0.08 255 / 0.6), transparent 60%),
+      radial-gradient(40% 60% at 0% 100%, oklch(25% 0.06 255 / 0.7), transparent 70%);
+    pointer-events: none;
+  }
+  section.flow .wrap { position: relative; }
+  section.flow .eyebrow { color: var(--ochre); }
+  section.flow .eyebrow::before { background: var(--ochre); }
+  section.flow h2 { color: var(--ivory); }
+  section.flow .lede { color: oklch(85% 0.012 250); }
+
+  .chain {
+    margin-top: var(--space-block);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    position: relative;
+  }
+  @media (max-width: 920px) { .chain { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 540px) { .chain { grid-template-columns: 1fr; } }
+
+  .chain .step {
+    border-top: 1px solid oklch(40% 0.04 255 / 0.5);
+    padding: 1.5rem 1.4rem 1.6rem;
+    position: relative;
+  }
+  .chain .step + .step { border-left: 1px solid oklch(40% 0.04 255 / 0.5); }
+  @media (max-width: 920px) { .chain .step:nth-child(odd) { border-left: 0; } }
+
+  .chain .step .ix {
+    font: 500 0.7rem/1 var(--mono);
+    letter-spacing: 0.18em;
+    color: var(--ochre);
+    margin-bottom: 1rem;
+  }
+  .chain .step h3 { color: var(--ivory); margin-bottom: 0.6rem; font-size: 1.4rem; }
+  .chain .step p {
+    font: 400 0.85rem/1.55 var(--sans);
+    color: oklch(82% 0.012 250);
+  }
+  .chain .step .ctrl {
+    margin-top: 1rem;
+    font: 500 0.68rem/1.4 var(--mono);
+    letter-spacing: 0.04em;
+    color: oklch(68% 0.04 255);
+  }
+  .chain .step .ctrl span { display: block; }
+
+  /* ───────────── Module matrix ───────────── */
+  .modules {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.1rem;
+  }
+  @media (max-width: 880px) { .modules { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 540px) { .modules { grid-template-columns: 1fr; } }
+  .modules article {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 1.2rem 1.2rem 1.3rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
+    transition: border-color 0.2s var(--ease);
+  }
+  .modules article:hover { border-color: oklch(78% 0.012 250); }
+  .modules .glyph {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    background: oklch(96% 0.012 90);
+    color: var(--navy-deep);
+    display: grid; place-items: center;
+    font: 600 0.85rem/1 var(--serif);
+    margin-bottom: 0.3rem;
+    border: 1px solid var(--rule-soft);
+  }
+  .modules h3 { font-size: 1.05rem; }
+  .modules ul {
+    margin: 0.4rem 0 0; padding: 0; list-style: none;
+    font: 400 0.82rem/1.65 var(--sans);
+    color: var(--ink-muted);
+  }
+  .modules ul li::before {
+    content: '·';
+    color: var(--ochre);
+    font-weight: 700;
+    margin-right: 0.55rem;
+  }
+
+  /* ───────────── Compliance row ───────────── */
+  .compliance {
+    display: flex; flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    margin-top: 2rem;
+  }
+  .compliance span {
+    font: 500 0.72rem/1 var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+  .compliance span strong {
+    color: var(--navy-deep);
+    margin-right: 0.5rem;
+  }
+
+  /* ───────────── Quote / outcome ───────────── */
+  .outcome {
+    margin-top: var(--space-block);
+    padding: clamp(2rem, 1.4rem + 2vw, 3rem);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    box-shadow: var(--shadow-deep);
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 2rem;
+    align-items: center;
+  }
+  @media (max-width: 800px) { .outcome { grid-template-columns: 1fr; } }
+  .outcome blockquote {
+    margin: 0;
+    font: 400 clamp(1.3rem, 0.9rem + 1vw, 1.85rem)/1.35 var(--serif);
+    color: var(--navy-deep);
+    letter-spacing: -0.01em;
+  }
+  .outcome blockquote::before {
+    content: '“';
+    font-size: 2.5em; line-height: 0.5;
+    color: var(--ochre);
+    margin-right: 0.2rem;
+    vertical-align: -0.3em;
+  }
+  .outcome figcaption {
+    font: 400 0.85rem/1.5 var(--sans);
+    color: var(--ink-muted);
+    border-left: 2px solid var(--ochre);
+    padding-left: 1rem;
+  }
+  .outcome figcaption strong { display: block; color: var(--navy-deep); font-weight: 600; margin-bottom: 0.2rem; }
+
+  /* ───────────── Stats strip ───────────── */
+  section.stats {
+    background: var(--ivory-warm);
+    border-block: 1px solid var(--rule);
+    padding: clamp(2.5rem, 1.5rem + 3vw, 5rem) 0;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2rem 3rem;
+  }
+  @media (max-width: 880px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
+  .stat .num {
+    font: 500 clamp(2rem, 1.3rem + 2.5vw, 3.2rem)/1 var(--serif);
+    color: var(--navy-deep);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .stat .num small { font: 500 0.5em/1 var(--sans); color: var(--ochre-deep); margin-left: 0.2em; letter-spacing: 0; vertical-align: 0.1em; }
+  .stat .lbl {
+    margin-top: 0.6rem;
+    font: 500 0.78rem/1.5 var(--sans);
+    color: var(--ink-soft);
+    max-width: 24ch;
+  }
+
+  /* ───────────── CTA ───────────── */
+  section.cta {
+    padding: var(--space-page) 0 calc(var(--space-page) - 1rem);
+  }
+  .cta-card {
+    background: linear-gradient(140deg, var(--navy-deep) 0%, oklch(22% 0.05 250) 70%, oklch(26% 0.06 240) 100%);
+    color: var(--ivory);
+    border-radius: 18px;
+    padding: clamp(2.5rem, 1.8rem + 3vw, 5rem);
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 3rem;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-deep);
+  }
+  .cta-card::after {
+    content: '';
+    position: absolute;
+    top: -40%; right: -10%;
+    width: 60%; height: 180%;
+    background: radial-gradient(closest-side, oklch(64% 0.13 78 / 0.28), transparent 70%);
+    pointer-events: none;
+  }
+  @media (max-width: 800px) { .cta-card { grid-template-columns: 1fr; } }
+  .cta-card h2 { color: var(--ivory); max-width: 18ch; }
+  .cta-card p { color: oklch(85% 0.012 250); margin-top: 1rem; }
+  .cta-card .actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+  .cta-card .actions .btn-primary { background: var(--ochre); color: var(--navy-deep); }
+  .cta-card .actions .btn-primary:hover { background: oklch(70% 0.13 78); }
+  .cta-card .actions .btn-ghost { color: var(--ivory); border-color: oklch(70% 0.04 255 / 0.5); }
+  .cta-card .actions .btn-ghost:hover { background: oklch(30% 0.05 255 / 0.4); border-color: oklch(80% 0.05 255 / 0.6); }
+
+  .cta-side {
+    background: oklch(20% 0.04 255 / 0.5);
+    border: 1px solid oklch(40% 0.04 255 / 0.4);
+    border-radius: 12px;
+    padding: 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: oklch(85% 0.012 250);
+  }
+  .cta-side .k { color: var(--ochre); }
+  .cta-side .v { color: var(--ivory); }
+
+  /* ───────────── Footer ───────────── */
+  footer.foot {
+    border-top: 1px solid var(--rule);
+    padding: 2rem 0 3rem;
+    color: var(--ink-muted);
+    font: 400 0.82rem/1.6 var(--sans);
+  }
+  footer .row {
+    display: flex; flex-wrap: wrap; gap: 1rem 2rem;
+    align-items: baseline; justify-content: space-between;
+  }
+  footer a { color: var(--ink-soft); }
+  footer a:hover { color: var(--navy-deep); }
+
+  /* Reduced motion respects user preference globally */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+
+<body>
+  <header class="top">
+    <div class="wrap row">
+      <a class="brand" href="#top" aria-label="Quot PSE — home">
+        <span class="mark" aria-hidden="true">Q</span>
+        Quot&nbsp;PSE <small>Public Sector Edition</small>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#what">Platform</a>
+        <a href="#flow">IFMIS Chain</a>
+        <a href="#modules">Modules</a>
+        <a href="#trust">Trust</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ───────────── HERO ───────────── -->
+    <section class="hero">
+      <div class="wrap grid">
+        <div>
+          <span class="eyebrow">Integrated Financial Management for States &amp; MDAs</span>
+          <h1>
+            Public&#8209;sector finance,<br />
+            <span class="accent">balanced</span> in <em>real time</em>.
+          </h1>
+          <p class="lede">
+            Quot&nbsp;PSE is the IPSAS-compliant IFMIS platform that turns the
+            Appropriation&nbsp;→&nbsp;Warrant&nbsp;→&nbsp;Commitment&nbsp;→&nbsp;Payment chain into a
+            single auditable event stream. Every transaction posts to the General Ledger
+            on commit. Every report reads from a single source of truth. Every signature
+            is on the record.
+          </p>
+          <div class="actions">
+            <a class="btn btn-primary" href="#contact">
+              Request a Demo
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="btn btn-ghost" href="#flow">See the IFMIS Chain</a>
+          </div>
+        </div>
+
+        <aside aria-label="Live ledger sample">
+          <div class="ledger-card" role="figure" aria-label="Sample posted journal entry">
+            <div class="lc-head">
+              <span class="ref">JV-2026-04217 · Posted 14:08:23</span>
+              <span class="pill">Balanced</span>
+            </div>
+            <div class="lc-row">
+              <span class="acct">21030</span>
+              <span class="narr">Construction-in-progress · Lot B</span>
+              <span class="dr">8,400,000.00</span>
+              <span class="cr">—</span>
+            </div>
+            <div class="lc-row">
+              <span class="acct">41200</span>
+              <span class="narr">Retention held · 5%</span>
+              <span class="dr">—</span>
+              <span class="cr">420,000.00</span>
+            </div>
+            <div class="lc-row">
+              <span class="acct">20100</span>
+              <span class="narr">Accounts Payable · Vendor 0871</span>
+              <span class="dr">—</span>
+              <span class="cr">7,980,000.00</span>
+            </div>
+            <div class="lc-row tot">
+              <span></span>
+              <span>Σ controls passed</span>
+              <span class="dr">8,400,000.00</span>
+              <span class="cr">8,400,000.00</span>
+            </div>
+            <div class="lc-foot">
+              <span class="badge"><span class="dot"></span> Chokepoint OK</span>
+              <span class="badge"><span class="dot"></span> Period open</span>
+              <span class="badge"><span class="dot"></span> SoD verified</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <span class="stamp" aria-hidden="true">IPSAS Cash &amp; Accrual</span>
+    </section>
+
+    <!-- ───────────── PILLARS ───────────── -->
+    <section class="block" id="what">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="heading">
+            <span class="eyebrow">What Quot Does</span>
+            <h2>An IFMIS that posts, balances, and proves itself&mdash;without the spreadsheet detour.</h2>
+          </div>
+          <p class="lede">
+            Designed for Nigerian state governments, ministries, departments and
+            agencies. Configurable from a single Treasury ledger to a multi-MDA
+            federation with separate cash, separate approval chains, separate
+            audit trails&mdash;all from one platform.
+          </p>
+        </div>
+
+        <div class="pillars">
+
+          <article>
+            <div class="pillar-num">01 / Real-time GL</div>
+            <h3>Every transaction posts to the ledger on commit.</h3>
+            <p>
+              A single posting chokepoint enforces double-entry on Journal
+              Entries, AP and AR invoices, GRNs, Invoice Verifications, IPC
+              accruals, retention releases, payment vouchers, asset
+              capitalisations, and TSA cash movements. Reports read from
+              live <code>GLBalance</code>, never from cached projections.
+            </p>
+            <div class="pillar-figure">
+              <span class="num">&lt; 50ms</span>
+              <span class="lbl">From "Post" click to balanced GL row, p95</span>
+            </div>
+          </article>
+
+          <article>
+            <div class="pillar-num">02 / IPSAS &amp; NCoA</div>
+            <h3>Built around the standards your auditors already cite.</h3>
+            <p>
+              IPSAS 1, 2, 17, 24, 31, 33 mapped into the model layer&mdash;not
+              bolted on at report time. The full National Chart of Accounts taxonomy
+              with administrative, economic, functional, programme, fund and
+              geographic segments is enforced at the journal-line boundary.
+            </p>
+            <div class="pillar-figure">
+              <span class="num">1,147</span>
+              <span class="lbl">NCoA economic segments active per tenant</span>
+            </div>
+          </article>
+
+          <article>
+            <div class="pillar-num">03 / Multi-MDA isolation</div>
+            <h3>One platform. One database. Per-MDA cash, controls, and views.</h3>
+            <p>
+              Each MDA operates in its own PostgreSQL schema with its own
+              approval templates, warrant ceilings, TSA accounts, and
+              superadmin scope. SEPARATED isolation mode prevents data
+              leakage across MDAs even where they share approver groups.
+            </p>
+            <div class="pillar-figure">
+              <span class="num">N : 1</span>
+              <span class="lbl">MDAs per tenant, with full schema isolation</span>
+            </div>
+          </article>
+
+          <article>
+            <div class="pillar-num">04 / Audit trail by design</div>
+            <h3>Immutable records, segregation of duties, configurable rules.</h3>
+            <p>
+              Every approval, override, impersonation, and budget check is
+              persisted with actor, timestamp, IP, and reason. SoD is enforced
+              structurally: requester &ne; certifier &ne; approver &ne; payer.
+              Configurable budget-check rules let you tighten or relax control
+              per-account-range without code changes.
+            </p>
+            <div class="pillar-figure">
+              <span class="num">100%</span>
+              <span class="lbl">Of state changes recorded with named actor</span>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── IFMIS FLOW ───────────── -->
+    <section class="flow" id="flow">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="heading">
+            <span class="eyebrow">The IFMIS Chain</span>
+            <h2>Appropriation to payment, with controls at every step.</h2>
+          </div>
+          <p class="lede">
+            Quot enforces the four-stage public-sector spending lifecycle as
+            a hard sequence&mdash;not a suggestion. You cannot commit beyond
+            warrant. You cannot pay without commitment. You cannot post without
+            balance. The chain is the product.
+          </p>
+        </div>
+
+        <div class="chain">
+          <div class="step">
+            <div class="ix">Stage 01</div>
+            <h3>Appropriation</h3>
+            <p>
+              Legislative budget is enacted into NCoA segments. Original
+              amount is snapshot for IPSAS&nbsp;24 variance disclosure;
+              evolves through virements as the Final Budget.
+            </p>
+            <div class="ctrl">
+              <span>· Race-safe enactment</span>
+              <span>· Original-amount snapshot</span>
+              <span>· Virement under SoD</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="ix">Stage 02</div>
+            <h3>Warrant / AIE</h3>
+            <p>
+              Quarterly cash-release authority. PO and PV approvals are
+              gated by the released-warrant ceiling, not the appropriation
+              alone&mdash;cash discipline matches the legal authority.
+            </p>
+            <div class="ctrl">
+              <span>· Bucketed by MDA &times; fund</span>
+              <span>· Fail-closed on read error</span>
+              <span>· MFA gate at release</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="ix">Stage 03</div>
+            <h3>Commitment</h3>
+            <p>
+              PO approval registers a <code>ProcurementBudgetLink</code> against
+              the appropriation. Reservations move ACTIVE&nbsp;→&nbsp;INVOICED&nbsp;→&nbsp;CLOSED
+              as goods receive and invoices verify. Encumbrance is alive.
+            </p>
+            <div class="ctrl">
+              <span>· 3-way match</span>
+              <span>· GR/IR clearing</span>
+              <span>· Atomic liquidation</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="ix">Stage 04</div>
+            <h3>Payment &amp; TSA</h3>
+            <p>
+              Payment Voucher posts the cash journal, debits TSA, cascades
+              the &ldquo;Paid&rdquo; status to AP, IPC, and contract balance&mdash;
+              all in one atomic transaction. Inter-TSA transfers post a
+              balanced JV both ways.
+            </p>
+            <div class="ctrl">
+              <span>· One-click PV → GL</span>
+              <span>· Cascade-on-paid</span>
+              <span>· Real-time bank balance</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── MODULES ───────────── -->
+    <section class="block" id="modules">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="heading">
+            <span class="eyebrow">Modules</span>
+            <h2>Every operating department, on the same ledger.</h2>
+          </div>
+          <p class="lede">
+            Twelve interlocking modules share one journal layer, one
+            chart of accounts, and one approval engine. Adopt all of
+            it or pick the slice your tenant needs first.
+          </p>
+        </div>
+
+        <div class="modules">
+          <article>
+            <span class="glyph" aria-hidden="true">G</span>
+            <h3>General Ledger &amp; Reporting</h3>
+            <ul>
+              <li>Trial Balance, SoFP, Financial Performance</li>
+              <li>Cash Flow Statement, Budget Performance</li>
+              <li>Variance analysis with IPSAS&nbsp;24 narrative</li>
+              <li>Period close with chokepoint validation</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">A</span>
+            <h3>Accounts Payable</h3>
+            <ul>
+              <li>Vendor invoices with WHT and VAT cash-basis</li>
+              <li>Payment cycles with allocation tracking</li>
+              <li>Race-safe paid-amount accumulation</li>
+              <li>Bank-balance live update on post</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">R</span>
+            <h3>Accounts Receivable</h3>
+            <ul>
+              <li>Customer invoices, dunning, ageing</li>
+              <li>Incoming payments and remittances</li>
+              <li>IGR receipts with TSA credit</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">B</span>
+            <h3>Budget &amp; Appropriations</h3>
+            <ul>
+              <li>Original, supplementary, virement types</li>
+              <li>Warrants / AIE with quarterly ceilings</li>
+              <li>Configurable budget-check rules per range</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">P</span>
+            <h3>Procurement (P2P)</h3>
+            <ul>
+              <li>PR &rarr; PO &rarr; GRN &rarr; Invoice Verification</li>
+              <li>Three-way match with variance reasoning</li>
+              <li>BPP-aligned approval thresholds</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">C</span>
+            <h3>Contract Management</h3>
+            <ul>
+              <li>IPCs with monotonicity and ceiling guards</li>
+              <li>Mobilization advance, retention &amp; release</li>
+              <li>Variations with cumulative-tier control</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">T</span>
+            <h3>Treasury &amp; TSA</h3>
+            <ul>
+              <li>Main TSA &rarr; sub-account &rarr; zero-balance</li>
+              <li>Payment Voucher &amp; Payment Instruction</li>
+              <li>Inter-TSA transfer with atomic 2-leg JV</li>
+              <li>Bank reconciliation with charge JV</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">F</span>
+            <h3>Fixed Assets</h3>
+            <ul>
+              <li>Auto-capitalisation from AP invoice lines</li>
+              <li>Depreciation schedules</li>
+              <li>Disposal with gain/loss recognition</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">W</span>
+            <h3>Workflow Approvals</h3>
+            <ul>
+              <li>Configurable templates per document type</li>
+              <li>Sequential, parallel, &amp; delegate routing</li>
+              <li>SLA monitoring with at-risk &amp; overdue tiers</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">H</span>
+            <h3>Human Resources</h3>
+            <ul>
+              <li>Payroll runs with statutory deductions</li>
+              <li>Leave requests through workflow</li>
+              <li>Cadre management &amp; staffing audit</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">I</span>
+            <h3>Inventory</h3>
+            <ul>
+              <li>Item, batch, warehouse, stock movements</li>
+              <li>GR/IR-coupled receipts</li>
+              <li>Per-MDA warehouse routing</li>
+            </ul>
+          </article>
+          <article>
+            <span class="glyph" aria-hidden="true">S</span>
+            <h3>Superadmin &amp; Tenants</h3>
+            <ul>
+              <li>Per-tenant subdomain provisioning</li>
+              <li>Subscription, payment, &amp; module gating</li>
+              <li>Impersonation logs &amp; cross-tenant guards</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── COMPLIANCE / TRUST ───────────── -->
+    <section class="block" id="trust">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="heading">
+            <span class="eyebrow">Compliance &amp; Trust</span>
+            <h2>The standards your auditor opens with.</h2>
+          </div>
+          <p class="lede">
+            Quot is built to the public-sector financial standards Nigerian
+            states are required to comply with&mdash;and tested against the
+            patterns your AG&rsquo;s office has been writing manually.
+          </p>
+        </div>
+
+        <div class="compliance" aria-label="Standards adhered to">
+          <span><strong>IPSAS&nbsp;1</strong> Financial Position</span>
+          <span><strong>IPSAS&nbsp;2</strong> Cash Flow Statement</span>
+          <span><strong>IPSAS&nbsp;17</strong> PP&amp;E / Asset Revaluation</span>
+          <span><strong>IPSAS&nbsp;24</strong> Budget vs Actual + Variance</span>
+          <span><strong>IPSAS&nbsp;31</strong> Intangible Assets</span>
+          <span><strong>IPSAS&nbsp;33</strong> First-time Adoption</span>
+          <span><strong>NCoA</strong> Federal Chart of Accounts</span>
+          <span><strong>BPP</strong> Procurement Tiers (Local / Board / BPP)</span>
+          <span><strong>NPPCA</strong> Variation &amp; due-process control</span>
+          <span><strong>WHT &amp; VAT</strong> Cash-basis recognition at payment</span>
+          <span><strong>FAAC</strong> Treasury Single Account architecture</span>
+        </div>
+
+        <figure class="outcome">
+          <blockquote>
+            We replaced four spreadsheets, two desktop ledgers and a
+            month-long quarterly close with one platform that closes in
+            an afternoon and surfaces variance the day it happens.
+          </blockquote>
+          <figcaption>
+            <strong>Director of Finance, pilot MDA</strong>
+            Q4 implementation review&mdash;name on file for procurement reference.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ───────────── STATS STRIP ───────────── -->
+    <section class="stats">
+      <div class="wrap">
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="num">12<small>+</small></div>
+            <div class="lbl">Functional modules on one ledger</div>
+          </div>
+          <div class="stat">
+            <div class="num">100<small>%</small></div>
+            <div class="lbl">Atomic posting&mdash;commit or rollback, never half</div>
+          </div>
+          <div class="stat">
+            <div class="num">7</div>
+            <div class="lbl">IPSAS standards mapped into the model layer</div>
+          </div>
+          <div class="stat">
+            <div class="num">∞</div>
+            <div class="lbl">MDAs per tenant, with schema-level isolation</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── CTA ───────────── -->
+    <section class="cta block" id="contact">
+      <div class="wrap">
+        <div class="cta-card">
+          <div>
+            <span class="eyebrow" style="color: var(--ochre);">Book a Working Session</span>
+            <h2>See it post a real journal in your own data.</h2>
+            <p>
+              We will set up a demo tenant for your MDA, ingest a redacted
+              chart of accounts and a month of historic transactions, and
+              walk you through Appropriation&nbsp;→&nbsp;Payment&nbsp;→&nbsp;Audit
+              in a single working session. No slideware.
+            </p>
+            <div class="actions">
+              <a class="btn btn-primary" href="mailto:osadiaye4real@googlemail.com?subject=Quot%20PSE%20%E2%80%94%20Demo%20Request">
+                Email the team
+                <span class="arrow" aria-hidden="true">→</span>
+              </a>
+              <a class="btn btn-ghost" href="mailto:osadiaye4real@googlemail.com?subject=Quot%20PSE%20%E2%80%94%20RFP%20Pack">
+                Request the RFP pack
+              </a>
+            </div>
+          </div>
+          <div class="cta-side" aria-label="Contact card">
+            <div><span class="k">contact:</span> <span class="v">Quot PSE Team</span></div>
+            <div><span class="k">email:</span>&nbsp;&nbsp; <span class="v">osadiaye4real@googlemail.com</span></div>
+            <div><span class="k">scope:</span>&nbsp;&nbsp; <span class="v">Federal &amp; State MDAs, Nigeria</span></div>
+            <div><span class="k">deploy:</span> <span class="v">SaaS · On-prem · Hybrid</span></div>
+            <div><span class="k">stack:</span>&nbsp;&nbsp; <span class="v">Django · Postgres · React</span></div>
+            <div><span class="k">audit:</span>&nbsp;&nbsp; <span class="v">IPSAS &middot; NCoA &middot; BPP</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="wrap row">
+      <div>&copy; <span id="y">2026</span> Quot&nbsp;PSE. Built for accountability.</div>
+      <div>
+        <a href="#what">Platform</a> &nbsp;·&nbsp;
+        <a href="#flow">IFMIS</a> &nbsp;·&nbsp;
+        <a href="#trust">Compliance</a> &nbsp;·&nbsp;
+        <a href="mailto:osadiaye4real@googlemail.com">Contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Single tiny script: keep the footer year truthful without committing
+    // a hardcoded date. Respects no-JS environments — page is fully
+    // legible without it.
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

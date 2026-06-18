@@ -1,0 +1,9 @@
+{
+  "year":        "{{current_fy_year}}",
+  "name":        "FY {{current_fy_year}}",
+  "start_date":  "{{current_fy_start}}",
+  "end_date":    "{{current_fy_end}}",
+  "period_type": "Monthly",
+  "status":      "Open",
+  "is_active":   true
+}

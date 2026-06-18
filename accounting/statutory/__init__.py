@@ -36,6 +36,22 @@ from decimal import Decimal
 from typing import Any
 
 
+class StatutoryReturnError(Exception):
+    """Raised when a statutory return cannot be computed safely.
+
+    H8 fix: every aggregation failure in the OAGF / FIRS / PAYE
+    exporters used to be swallowed and substituted with zero. That
+    silently filed a ZERO return to the regulator — a material
+    compliance breach because the operator believed the filing
+    succeeded. Misconfigured statutory mappings (missing NCoA bridge,
+    schema drift on a service input, etc.) must be a hard block on
+    the filing, surfaced to the operator as a 500/409, NOT a quiet
+    zero. The view layer translates this exception into an HTTP
+    response so the misconfiguration is fixed before any return is
+    actually transmitted to the regulator's portal.
+    """
+
+
 @dataclass(frozen=True)
 class ExportResult:
     """Return shape for every statutory exporter.
@@ -44,6 +60,12 @@ class ExportResult:
     programmatic consumption and JSON APIs. ``csv`` is the same data
     rendered as RFC 4180 CSV with the header row. Metadata is optional
     context the caller renders in a cover page (period, totals).
+
+    V8 — added ``warnings`` and ``partial_failures`` so exporters can
+    surface per-section failures without taking down the whole filing.
+    The view layer renders these into ``_warnings`` + ``partial_failures``
+    on the JSON response (HTTP 200) so the operator sees the partial
+    data plus the precise rows that need attention.
     """
     regulator: str
     report_name: str
@@ -53,6 +75,8 @@ class ExportResult:
     csv: str
     totals: dict[str, Decimal] = field(default_factory=dict)
     generated_at: date = field(default_factory=date.today)
+    warnings: list[str] = field(default_factory=list)
+    partial_failures: list[dict[str, Any]] = field(default_factory=list)
 
 
 def format_csv(columns: list[str], rows: list[dict[str, Any]]) -> str:

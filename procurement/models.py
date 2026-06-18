@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -242,9 +242,17 @@ class VendorRenewalInvoice(AuditBaseModel):
 
 
 class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
-    """Initial request for purchase."""
+    """Initial request for purchase.
+
+    Status machine — Draft → Pending is mandatory before Approved
+    (audit fix #8). The previous machine allowed Draft → Approved
+    directly, which let a creator with the ``IsApprover`` permission
+    bypass the workflow approval engine entirely (no
+    ``auto_route_approval`` step, no SoD enforcement). The view-layer
+    ``approve`` action now also rejects Draft + creator-equals-approver.
+    """
     ALLOWED_TRANSITIONS = {
-        'Draft': ['Pending', 'Approved'],
+        'Draft': ['Pending'],
         'Pending': ['Approved', 'Rejected'],
         'Approved': [],
         'Rejected': ['Draft'],
@@ -341,31 +349,54 @@ class PurchaseRequest(StatusTransitionMixin, AuditBaseModel):
         super().save(*args, **kwargs)
 
     def validate_budget(self):
-        """Checks if budget exists for the lines in this PR."""
+        """Checks if budget exists for the lines in this PR.
+
+        Audit fix #3: previously this used the legacy
+        ``check_budget_availability`` engine which returned ``allowed=True``
+        for any tenant with no rows in the legacy ``Budget`` table —
+        modern tenants on ``Appropriation`` had a no-op gate at
+        ``save()`` time even though the view-level ``approve`` action
+        was correctly using ``check_policy``. Two engines, two
+        verdicts. Now both call sites go through the centralised
+        ``check_policy`` resolver against the Appropriation register
+        so the result is consistent regardless of where the gate fires.
+        """
+        from accounting.services.budget_check_rules import (
+            check_policy, find_matching_appropriation,
+        )
         budget_totals = {}
         for line in self.lines.all():
-            key = (line.account, self.mda, self.fund, self.function, self.program, self.geo)
+            if not line.account_id:
+                continue
+            # Match the view-layer approve gate: budget control is on
+            # MDA + Account (Economic) + Fund only. Function / Programme
+            # / Geo are reporting dimensions, not budget gates.
+            key = (line.account, self.mda, self.fund)
             amount = line.estimated_unit_price * line.quantity
             budget_totals[key] = budget_totals.get(key, Decimal('0.00')) + amount
 
-        for (account, mda, fund, function, program, geo), total_amount in budget_totals.items():
-            allowed, message = check_budget_availability(
-                dimensions={
-                    'mda': mda,
-                    'fund': fund,
-                    'function': function,
-                    'program': program,
-                    'geo': geo
-                },
-                account=account,
-                amount=total_amount,
-                date=self.requested_date or date.today(),
-                transaction_type='PR',
-                transaction_id=self.pk or 0
+        fiscal_year = (self.requested_date or date.today()).year
+        block_messages: list[str] = []
+        for (account, mda, fund), total_amount in budget_totals.items():
+            appropriation = find_matching_appropriation(
+                mda=mda, fund=fund, account=account,
+                fiscal_year=fiscal_year,
             )
+            result = check_policy(
+                account_code=account.code if account else '',
+                appropriation=appropriation,
+                requested_amount=total_amount,
+                transaction_label='purchase requisition',
+                account_name=getattr(account, 'name', '') if account else '',
+            )
+            if result.blocked:
+                acct_code = account.code if account else 'N/A'
+                block_messages.append(f"{acct_code}: {result.reason}")
 
-            if not allowed:
-                raise ValidationError(f"Budget Check Failed for {account.code}: {message}")
+        if block_messages:
+            raise ValidationError(
+                "Budget Check Failed: " + "; ".join(block_messages)
+            )
 
     class Meta:
         indexes = [
@@ -575,39 +606,47 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                 self._check_warrant_ceiling()
                 self.process_budget_encumbrance()
                 # ── Register Appropriation commitment (ProcurementBudgetLink) ──
-                try:
-                    from accounting.services.procurement_commitments import create_commitment_for_po
-                    create_commitment_for_po(self)
-                except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "Commitment link failed for PO %s: %s", self.po_number, exc,
-                    )
+                # C6 fix: do NOT swallow commitment-link failures here. The
+                # inner service raises ``BudgetExceededError`` /
+                # ``IntegrityError`` only when the appropriation guard has
+                # actually rejected the spend, or when the DB rejects the
+                # link row. Letting these propagate ensures the surrounding
+                # ``transaction.atomic()`` rolls back the PO status flip so
+                # we never have "Draft → Approved" without a matching
+                # ``ProcurementBudgetLink`` — the previous broad except
+                # ate every exception including config-level ones and let
+                # the PO commit in an un-encumbered state.
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(self)
 
             # Refresh commitment when an already-Approved/Posted PO is
             # saved (e.g. header edit or price change before any GRN
-            # exists).
+            # exists). C6 fix: same reasoning — let failures bubble so
+            # the edit rolls back rather than silently de-syncing the
+            # encumbrance from the new PO header.
             if self.pk and self.status in ['Approved', 'Posted'] and old_status in ['Approved', 'Posted']:
-                try:
-                    from accounting.services.procurement_commitments import create_commitment_for_po
-                    create_commitment_for_po(self)
-                except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "Commitment refresh failed for PO %s: %s", self.po_number, exc,
-                    )
+                from accounting.services.procurement_commitments import create_commitment_for_po
+                create_commitment_for_po(self)
 
             if self.pk and old_status in ['Approved', 'Posted'] and self.status in ['Rejected', 'Closed']:
                 self.cancel_budget_encumbrance()
-                try:
-                    from accounting.services.procurement_commitments import cancel_commitment_for_po
-                    cancel_commitment_for_po(self)
-                except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "Cancel commitment failed for PO %s: %s", self.po_number, exc,
-                    )
+                # C6 fix: cancellation failure must roll back the status
+                # flip — otherwise the PO appears Rejected/Closed while
+                # the appropriation still shows it as encumbered, leading
+                # to phantom blocked budget that no operator can release.
+                from accounting.services.procurement_commitments import cancel_commitment_for_po
+                cancel_commitment_for_po(self)
 
+            # ImmutableModelMixin.save enforces a blanket "no Posted
+            # mutation" rule unless ``_allow_status_change`` is passed.
+            # ``validate_status_transition`` above has already vetted
+            # any Posted→X transition against ALLOWED_TRANSITIONS
+            # (only Posted→Closed is permitted, plus same-state
+            # Posted→Posted re-saves for commitment refresh), so we
+            # explicitly opt-in here when the prior persisted state
+            # was Posted.
+            if old_status == 'Posted':
+                kwargs['_allow_status_change'] = True
             super().save(*args, **kwargs)
 
     def _check_warrant_ceiling(self):
@@ -688,6 +727,22 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         import logging as _logging
         _log = _logging.getLogger('dtsg')
 
+        # Audit fix #7: take a SELECT FOR UPDATE on every candidate
+        # ``Appropriation`` row BEFORE ``check_policy`` reads
+        # ``cached_total_committed``. Without this lock,
+        # ``process_budget_encumbrance`` and the subsequent
+        # ``create_commitment_for_po`` (also called in PO save) take
+        # their own independent locks — two concurrent PO approvals
+        # against a near-zero-balance Appropriation could both pass
+        # ``check_policy`` against the same stale cached value before
+        # either commits its commitment row. Locking up-front makes the
+        # downstream lock in ``create_commitment_for_po`` a re-entrant
+        # no-op (Postgres permits nested SELECT FOR UPDATE on the same
+        # row inside one transaction) and serialises the whole
+        # encumbrance pipeline behind a single row lock per
+        # appropriation.
+        from budget.models import Appropriation as _Appropriation
+
         budget_totals: dict = {}
         for line in self.lines.all():
             key = (line.account, self.mda, self.fund, self.function, self.program, self.geo)
@@ -732,6 +787,16 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
                 mda=mda, fund=fund, account=account,
                 fiscal_year=fiscal_year,
             )
+            # Lock the row before the policy read so the
+            # ``cached_total_committed`` value seen by ``check_policy``
+            # is the same value that downstream commitment writers will
+            # see when they re-lock under their own atomic block.
+            if appropriation is not None:
+                appropriation = (
+                    _Appropriation.objects
+                    .select_for_update()
+                    .get(pk=appropriation.pk)
+                )
             result = check_policy(
                 account_code=account.code if account else '',
                 appropriation=appropriation,
@@ -836,17 +901,19 @@ class PurchaseOrderLine(models.Model):
         return f"PO Line: {self.item_description}"
 
     def _refresh_po_commitment(self):
-        """Refresh the parent PO's appropriation commitment after a line change."""
+        """Refresh the parent PO's appropriation commitment after a line change.
+
+        C6 fix: do NOT swallow commitment refresh failures. Letting the
+        exception propagate ensures the surrounding request-level
+        ``transaction.atomic()`` rolls back the line-level write so the
+        encumbrance and the PO lines stay in sync. The previous
+        broad-except path could leave a freshly-saved line on an
+        Approved PO whose appropriation no longer reflected the new
+        quantity × unit_price.
+        """
         if self.po_id and self.po.status in ('Approved', 'Posted'):
-            try:
-                from accounting.services.procurement_commitments import create_commitment_for_po
-                create_commitment_for_po(self.po)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Commitment refresh failed after line change on PO %s: %s",
-                    self.po.po_number, exc,
-                )
+            from accounting.services.procurement_commitments import create_commitment_for_po
+            create_commitment_for_po(self.po)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -855,16 +922,12 @@ class PurchaseOrderLine(models.Model):
     def delete(self, *args, **kwargs):
         po = self.po  # capture before deletion removes the FK
         super().delete(*args, **kwargs)
+        # C6 fix: see _refresh_po_commitment — failures must bubble so
+        # the deletion rolls back if the appropriation can't be re-
+        # encumbered, rather than leaving a stale ProcurementBudgetLink.
         if po.status in ('Approved', 'Posted'):
-            try:
-                from accounting.services.procurement_commitments import create_commitment_for_po
-                create_commitment_for_po(po)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Commitment refresh failed after line deletion on PO %s: %s",
-                    po.po_number, exc,
-                )
+            from accounting.services.procurement_commitments import create_commitment_for_po
+            create_commitment_for_po(po)
 
 class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
     """Confirms receipt of goods/services."""
@@ -1189,17 +1252,16 @@ class GoodsReceivedNote(StatusTransitionMixin, AuditBaseModel):
                 # still counts toward Appropriation.total_committed
                 # (which sums status IN ('ACTIVE', 'INVOICED')) so the
                 # budget encumbrance is preserved until the PV pays.
-                try:
-                    from accounting.services.procurement_commitments import (
-                        mark_commitment_invoiced_for_po,
-                    )
-                    mark_commitment_invoiced_for_po(po)
-                except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "GRN %s: commitment INVOICED flip failed (non-fatal): %s",
-                        self.grn_number, exc,
-                    )
+                # C6 fix: do NOT swallow this. The commitment flip is
+                # part of the GRN-Posted invariant — a Posted GRN with
+                # its ProcurementBudgetLink still in ACTIVE state will
+                # mis-classify in the Budget Execution Report. Let the
+                # exception propagate so the surrounding atomic rolls
+                # back the GRN status flip too.
+                from accounting.services.procurement_commitments import (
+                    mark_commitment_invoiced_for_po,
+                )
+                mark_commitment_invoiced_for_po(po)
 
                 # M3 fix: post the GR/IR accrual journal here, inside
                 # the same atomic block as the status flip and
@@ -1630,6 +1692,249 @@ class InvoiceMatching(StatusTransitionMixin, AuditBaseModel):
             else:
                 self.status = 'Variance'
                 self.payment_hold = True
+
+        # C4 fix: per-line three-way match. Header amounts can mask a
+        # fraudulent invoice that reverses qty × unit_price against the
+        # PO (e.g. 100 units @ ₦10 against a PO of 50 units @ ₦20 — same
+        # total, completely different commercial fact). Walk each PO
+        # line, sum posted GRN qty against it, derive invoice qty, and
+        # raise a variance if any line is out of tolerance.
+        try:
+            self.match_lines(variance_threshold=variance_threshold)
+        except Exception as exc:  # noqa: BLE001 — last-ditch guard
+            # Per-line check must never silently report Matched. Surface
+            # the failure on gl_post_error so the operator sees it.
+            import logging
+            logging.getLogger(__name__).critical(
+                'InvoiceMatching %s: per-line three-way match failed: %s',
+                getattr(self, 'pk', '<unsaved>'), exc,
+            )
+            self.gl_post_error = (
+                f'Per-line three-way match failed: {type(exc).__name__}: {exc}'
+            )[:5000]
+
+    def match_lines(self, *, variance_threshold=Decimal('5')):
+        """Per-line three-way match — PO line × GRN line × Invoice line.
+
+        For each ``PurchaseOrderLine`` on this matching's PO:
+          • ``qty_received``  = Σ ``GoodsReceivedNoteLine.quantity_received``
+            where ``po_line_id == line.pk`` AND the parent GRN is Posted.
+          • ``qty_invoiced``  = derived from the linked VendorInvoice's
+            lines. The auto-create path in
+            ``GoodsReceivedNote.save()`` builds VendorInvoiceLine rows
+            with description ``"<item.name> × <quantity>"``, so we
+            best-effort parse the trailing quantity. When the invoice
+            was created out-of-band and the description doesn't carry
+            a quantity hint, we fall back to amount / unit_price.
+          • ``unit_price_invoiced`` = invoice_line.amount / qty_invoiced
+            when qty_invoiced > 0; verified against ``po_line.unit_price``
+            within the same percentage tolerance as the header check.
+
+        Hard blocker: ``accounting.VendorInvoiceLine`` has no FK back to
+        ``procurement.PurchaseOrderLine``, so the match is heuristic
+        (item-name / description matching). When the heuristic cannot
+        confidently associate every PO line with at least one invoice
+        line, this method DOWNGRADES the match from 'Full' to 'Partial'
+        and stamps ``gl_post_error`` rather than falsely report
+        Matched. Operators must verify manually.
+
+        Side-effects on the InvoiceMatching:
+          • Appends per-line variance notes to ``variance_reason``.
+          • Downgrades ``match_type`` to 'Partial' and
+            ``status`` to 'Variance' (with ``payment_hold=True``) when
+            any line is out of tolerance.
+        """
+        from decimal import Decimal as _Decimal
+        po = self.purchase_order
+        if po is None:
+            return
+        po_lines = list(po.lines.select_related('item').all())
+        if not po_lines:
+            return
+
+        # Build the invoice-line index keyed by lowered item.name.
+        invoice_lines_by_name = {}
+        invoice_lines_unindexed = []
+        vendor_invoice = self.vendor_invoice
+        if vendor_invoice is None:
+            # No central VendorInvoice yet — header match alone cannot
+            # be downgraded automatically (the invoice may still be
+            # created downstream). Flag as best-effort and exit.
+            return
+        # V9 — heuristic association is intentionally STRICT. The
+        # previous rule (``item_name in desc_lower``) accepted any
+        # substring match, so a vendor could file a "Maintenance of
+        # Generator Set 100KVA" line against a PO for "Generator Set
+        # 100KVA" — same substring, completely different commercial
+        # fact. We tighten to: exact match OR prefix-with-space
+        # boundary. This still tolerates the standard auto-create
+        # pattern "<item.name> × <qty>" because that emits "Generator
+        # Set 100KVA × 5" which starts with the item name + space.
+        # NOTE: even a successful heuristic match cannot promote a
+        # match_type to 'Full' below — see ceiling-on-Full guard.
+        heuristic_matched_any = False
+        for inv_line in vendor_invoice.lines.all():
+            desc_lower = (inv_line.description or '').strip().lower()
+            placed = False
+            for po_line in po_lines:
+                item_name = (
+                    (po_line.item.name if po_line.item_id else po_line.item_description)
+                    or ''
+                ).strip().lower()
+                if not item_name:
+                    continue
+                # Strict boundary: exact OR prefix-with-space-or-multiplier.
+                # ``×`` is the auto-create separator from
+                # ``GoodsReceivedNote.save()`` — accept that explicitly
+                # without falling back to loose substring.
+                if (
+                    desc_lower == item_name
+                    or desc_lower.startswith(item_name + ' ')
+                    or desc_lower.startswith(item_name + ' ×')
+                    or desc_lower.startswith(item_name + ' x ')
+                ):
+                    invoice_lines_by_name.setdefault(po_line.pk, []).append(inv_line)
+                    placed = True
+                    heuristic_matched_any = True
+                    break
+            if not placed:
+                invoice_lines_unindexed.append(inv_line)
+
+        unmatchable_lines = []
+        out_of_tolerance = []
+        notes = []
+        threshold = _Decimal(str(variance_threshold))
+
+        for po_line in po_lines:
+            # qty_received: posted GRN lines only.
+            from procurement.models import GoodsReceivedNoteLine
+            agg_received = GoodsReceivedNoteLine.objects.filter(
+                po_line_id=po_line.pk,
+                grn__status='Posted',
+            ).aggregate(total=models.Sum('quantity_received'))
+            qty_received = agg_received['total'] or _Decimal('0')
+
+            inv_lines = invoice_lines_by_name.get(po_line.pk, [])
+            if not inv_lines:
+                unmatchable_lines.append(po_line)
+                continue
+
+            qty_invoiced = _Decimal('0')
+            total_invoiced_amount = _Decimal('0')
+            for inv_line in inv_lines:
+                line_amount = _Decimal(str(inv_line.amount or 0))
+                total_invoiced_amount += line_amount
+                # Try to recover qty from the auto-create description
+                # ("<name> × <qty>"); fall back to amount / unit_price.
+                parsed_qty = None
+                if '×' in (inv_line.description or ''):
+                    try:
+                        tail = inv_line.description.rsplit('×', 1)[1].strip()
+                        parsed_qty = _Decimal(tail.split()[0])
+                    except (IndexError, ValueError, ArithmeticError):
+                        parsed_qty = None
+                if parsed_qty is not None:
+                    qty_invoiced += parsed_qty
+                elif po_line.unit_price and po_line.unit_price > 0:
+                    qty_invoiced += line_amount / po_line.unit_price
+
+            # Verify qty_invoiced ≤ qty_received (no invoicing beyond receipts).
+            if qty_invoiced > qty_received:
+                out_of_tolerance.append(po_line)
+                notes.append(
+                    f"Line '{po_line.item_description}': invoiced qty "
+                    f"{qty_invoiced} exceeds received qty {qty_received}."
+                )
+                continue
+
+            # Verify unit price within tolerance.
+            if qty_invoiced > 0 and po_line.unit_price and po_line.unit_price > 0:
+                unit_price_invoiced = total_invoiced_amount / qty_invoiced
+                price_delta_pct = abs(
+                    unit_price_invoiced - po_line.unit_price
+                ) / po_line.unit_price * _Decimal('100')
+                if price_delta_pct > threshold:
+                    out_of_tolerance.append(po_line)
+                    notes.append(
+                        f"Line '{po_line.item_description}': invoiced unit "
+                        f"price {unit_price_invoiced:.2f} vs PO unit price "
+                        f"{po_line.unit_price:.2f} ({price_delta_pct:.2f}% > "
+                        f"{threshold}% tolerance)."
+                    )
+
+        # Update matching record based on per-line findings.
+        # Status flip is GATED: do NOT downgrade an already-Approved
+        # matching back to Variance — that would violate the
+        # ALLOWED_TRANSITIONS guard (Approved is terminal). Instead
+        # stamp ``gl_post_error`` and set ``payment_hold=True`` so the
+        # finance team sees a hard banner in the UI and must release
+        # the hold before payment.
+        terminal_states = {'Approved', 'Rejected'}
+        if unmatchable_lines:
+            unmatchable_descs = ', '.join(
+                f"'{ln.item_description}'" for ln in unmatchable_lines[:5]
+            )
+            msg = (
+                f'Per-line three-way match could not associate '
+                f'{len(unmatchable_lines)} PO line(s) ({unmatchable_descs}) '
+                f'with any VendorInvoiceLine (VendorInvoiceLine has no FK '
+                f'back to PurchaseOrderLine — header match passed but '
+                f'per-line verification incomplete).'
+            )
+            self.gl_post_error = msg[:5000]
+            if self.match_type == 'Full':
+                self.match_type = 'Partial'
+            if self.status == 'Matched':
+                self.status = 'Variance'
+                self.payment_hold = True
+            elif self.status in terminal_states:
+                # Already locked — set the hold so payment cannot proceed.
+                self.payment_hold = True
+
+        if out_of_tolerance:
+            if self.match_type == 'Full':
+                self.match_type = 'Partial'
+            self.payment_hold = True
+            if self.status not in terminal_states:
+                self.status = 'Variance'
+            # Append per-line notes to variance_reason without clobbering
+            # any operator-supplied reason.
+            existing = (self.variance_reason or '').strip()
+            line_notes = '\n'.join(notes)
+            self.variance_reason = (
+                f'{existing}\n\n[Auto] Per-line variances:\n{line_notes}'
+                if existing else f'[Auto] Per-line variances:\n{line_notes}'
+            )[:10000]
+            # Surface the same on gl_post_error so finance sees a hard
+            # banner regardless of whether status flipped.
+            self.gl_post_error = (
+                f'Per-line variance detected: {line_notes}'
+            )[:5000]
+
+        # V9 — heuristic-match ceiling on Full. The association above
+        # was a string heuristic (no FK on ``VendorInvoiceLine`` back
+        # to ``PurchaseOrderLine``). A clean per-line heuristic pass
+        # is NOT strong enough evidence to promote a match to 'Full' —
+        # only an explicit FK would justify Full. Cap at 'Partial' to
+        # force a human review for anything that wasn't otherwise
+        # downgraded. This is intentionally conservative: a vendor who
+        # crafted a line description to satisfy our tightened substring
+        # rule (item-name prefix) would still pass the heuristic, but
+        # the resulting 'Partial' status keeps payment_hold off the
+        # critical-path and surfaces the row to AP for explicit review.
+        if heuristic_matched_any and self.match_type == 'Full':
+            self.match_type = 'Partial'
+            existing_err = (self.gl_post_error or '').strip()
+            ceiling_note = (
+                'Per-line three-way match associated via string '
+                'heuristic only (VendorInvoiceLine has no FK to '
+                'PurchaseOrderLine); match_type ceilinged at Partial '
+                'pending operator confirmation.'
+            )
+            self.gl_post_error = (
+                (existing_err + '\n' + ceiling_note) if existing_err
+                else ceiling_note
+            )[:5000]
 
     def save(self, *args, **kwargs):
         # Allocate the system-tracking number on first save so every new

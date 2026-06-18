@@ -106,28 +106,34 @@ def _parse_date(value):
 
 def _parse_decimal(value) -> Decimal:
     """Parse a number cell tolerantly — handles '₦1,234.00', '(500.00)',
-    blank cells, and '-' / 'NIL' placeholders."""
+    blank cells, and '-' / 'NIL' placeholders.
+
+    Two clean passes:
+      1. Strip every recognised currency token (text codes like NGN/USD
+         case-insensitively; symbol tokens like ₦/$ as-is).
+      2. Strip thousands separators / spaces and parse the remainder
+         as Decimal, honouring accounting parentheses for negatives.
+    """
     if value is None:
         return Decimal('0')
     v = str(value).strip()
     if not v or v.lower() in ('-', 'nil', 'n/a', 'none', '--'):
         return Decimal('0')
-    # Strip all recognised currency tokens (case-insensitive on text codes).
-    upper = v.upper()
+
+    # Pass 1 — strip currency tokens. Use an upper-cased working copy
+    # so text codes match case-insensitively while keeping the original
+    # casing of any non-currency content irrelevant (we discard it next).
+    stripped = v.upper()
     for tok in _CURRENCY_TOKENS:
-        if tok.isalpha():
-            upper = upper.replace(tok, '')
-        else:
-            v = v.replace(tok, '')
-    if any(tok.isalpha() for tok in _CURRENCY_TOKENS):
-        # Re-apply text-code stripping via the upper variant.
-        v = upper if upper != v.upper() else v
-    v = v.replace(',', '').replace(' ', '').strip()
-    negative = v.startswith('(') and v.endswith(')')
+        stripped = stripped.replace(tok.upper(), '')
+
+    # Pass 2 — drop separators and whitespace, then parse.
+    stripped = stripped.replace(',', '').replace(' ', '').strip()
+    negative = stripped.startswith('(') and stripped.endswith(')')
     if negative:
-        v = v[1:-1]
+        stripped = stripped[1:-1]
     try:
-        result = Decimal(v)
+        result = Decimal(stripped)
     except InvalidOperation:
         return Decimal('0')
     return -result if negative else result
@@ -556,15 +562,53 @@ def _do_auto_match(statement: TSABankStatement, actor) -> dict:
         matched += 1
 
     if to_update:
-        TSABankStatementLine.objects.bulk_update(
-            to_update,
-            [
-                'matched_payment', 'matched_revenue',
-                'match_status', 'match_confidence',
-                'matched_by', 'matched_at',
-            ],
-            batch_size=500,
-        )
+        # Optimistic-concurrency path. The ``already_matched_*_ids`` sets
+        # above guard against the common case, but two near-simultaneous
+        # auto-match runs on *different* statements can both pass that
+        # snapshot check before either commits — and would then both try
+        # to write the same matched_payment/matched_revenue FK. The DB
+        # partial unique constraints
+        # ``uniq_tsastmtline_matched_payment`` and
+        # ``uniq_tsastmtline_matched_revenue`` (migration 0102) refuse
+        # the second write with ``IntegrityError``. We don't want to
+        # abort the whole batch on one losing line, so on IntegrityError
+        # we fall back to per-row save and count the conflicts as
+        # ``skipped`` — the operator can re-run auto-match (the losing
+        # PI is now matched on another statement, so it won't be a
+        # candidate next time).
+        from django.db import IntegrityError
+        from django.db import transaction as _txn
+
+        try:
+            with _txn.atomic():
+                TSABankStatementLine.objects.bulk_update(
+                    to_update,
+                    [
+                        'matched_payment', 'matched_revenue',
+                        'match_status', 'match_confidence',
+                        'matched_by', 'matched_at',
+                    ],
+                    batch_size=500,
+                )
+        except IntegrityError:
+            # Fall back to per-row save so the surviving rows still
+            # land. Each row's atomic savepoint isolates its own
+            # constraint failure.
+            for line in to_update:
+                try:
+                    with _txn.atomic():
+                        line.save(update_fields=[
+                            'matched_payment', 'matched_revenue',
+                            'match_status', 'match_confidence',
+                            'matched_by', 'matched_at',
+                        ])
+                except IntegrityError:
+                    # Concurrent run took the candidate. Decrement
+                    # the matched tally, bump skipped — the operator
+                    # will see "N lines skipped due to concurrent
+                    # match" in the response.
+                    matched = max(0, matched - 1)
+                    skipped += 1
 
     return {
         'matched': matched,

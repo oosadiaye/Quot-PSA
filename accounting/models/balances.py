@@ -31,8 +31,20 @@ class GLBalance(models.Model):
     class Meta:
         # S3-05 — uniqueness now includes MDA. Different MDAs sharing
         # the same economic account maintain separate balance rows.
-        unique_together = ['account', 'fund', 'function', 'program', 'geo', 'mda', 'fiscal_year', 'period']
+        #
+        # WS5-A — Replaced ``unique_together`` (which Postgres treats as
+        # NULLS DISTINCT, allowing duplicate logically-equivalent rows with
+        # NULL dimensions) with a ``UniqueConstraint(nulls_distinct=False)``
+        # so any combination of NULL dimensions still collides for
+        # ``get_or_create()``. Requires Postgres 15+ and Django 5+.
         ordering = ['fiscal_year', 'period', 'account__code']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['account', 'fund', 'function', 'program', 'geo', 'mda', 'fiscal_year', 'period'],
+                name='uniq_glbalance_dims_nulls_not_distinct',
+                nulls_distinct=False,
+            ),
+        ]
         indexes = [
             models.Index(fields=['fiscal_year', 'period']),
             models.Index(fields=['account', 'fiscal_year']),

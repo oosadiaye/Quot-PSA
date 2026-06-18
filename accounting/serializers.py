@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import serializers
 from .models import (
     Account, Fund, Function, Program, Geo, Currency, GLBalance,
@@ -25,8 +27,18 @@ from .models import (
 )
 
 
+_logger = logging.getLogger(__name__)
+
+
 def is_dimensions_enabled(context):
-    """Check if dimensions module is enabled based on request context."""
+    """Check if dimensions module is enabled based on request context.
+
+    H7 fix: fail CLOSED on tenant-lookup errors. Returning ``True`` on
+    exception silently disabled dimension-based budget enforcement
+    every time a tenant lookup misfired (DB hiccup, schema drift,
+    misconfigured tenant table). The control surface should stay
+    engaged; surface the misconfiguration in logs and return ``False``.
+    """
     if not context:
         return True
     request = context.get('request')
@@ -35,8 +47,14 @@ def is_dimensions_enabled(context):
     from tenants.models import is_dimensions_enabled as check_dimensions
     try:
         return check_dimensions(request.tenant)
-    except Exception:
-        return True
+    except Exception as exc:
+        # Tenant lookup failures silently disable dimension-based budget
+        # enforcement; fail closed and surface the misconfiguration.
+        _logger.warning(
+            'is_dimensions_enabled failed closed for tenant=%r: %s',
+            getattr(request, 'tenant', None), exc,
+        )
+        return False
 
 
 class FundSerializer(serializers.ModelSerializer):
@@ -83,19 +101,41 @@ class AccountSerializer(serializers.ModelSerializer):
         source='asset_category.name', read_only=True, default='',
     )
 
+    # SAP-style header / posting status hints for the UI:
+    #   ``is_postable`` is the writable flag operators toggle on the form.
+    #   ``has_children`` is derived — it's the cheap signal the picker
+    #     uses to render the hierarchy tree (account with children →
+    #     usually a header). Tenants can still flag a leaf as a header
+    #     (e.g. reserved system accounts) which is why ``is_postable``
+    #     stays the source of truth, not the derived ``has_children``.
+    has_children = serializers.SerializerMethodField()
+    parent_code = serializers.CharField(
+        source='parent.code', read_only=True, default='',
+    )
+
     class Meta:
         model = Account
         fields = [
             'id', 'code', 'name', 'account_type', 'is_active',
             'is_reconciliation', 'reconciliation_type', 'reconciliation_type_display',
             'current_balance',
+            # SAP-style hierarchy + posting flag.
+            'parent', 'parent_code', 'is_postable', 'has_children',
             # Phase 1 asset auto-capitalisation linkage. Both fields are
             # writable so the COA Add/Edit form can configure them; the
             # ``*_code``/``*_name`` companions are read-only display helpers.
             'auto_create_asset', 'asset_category',
             'asset_category_code', 'asset_category_name',
         ]
-        read_only_fields = ['id', 'current_balance', 'asset_category_code', 'asset_category_name']
+        read_only_fields = [
+            'id', 'current_balance', 'asset_category_code', 'asset_category_name',
+            'parent_code', 'has_children',
+        ]
+
+    def get_has_children(self, obj) -> bool:
+        # Calls the model helper which does ``.children.exists()`` — a
+        # cheap EXISTS query, no N+1 concerns even on large CoAs.
+        return obj.has_children() if hasattr(obj, 'has_children') else False
 
     def validate(self, attrs):
         # Mirror the model's clean(): cannot enable auto-create without a
@@ -227,7 +267,18 @@ class JournalHeaderSerializer(serializers.ModelSerializer):
             'total_debit', 'total_credit', 'document_number',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'total_debit', 'total_credit', 'document_number']
+        # ``status`` is read-only here because the ViewSet's ``create``
+        # path called ``_post_to_gl`` directly if a journal arrived
+        # already-Posted, which silently bypassed the
+        # ``IsApprover('post')`` permission gate enforced on the
+        # ``post_journal`` action. Posting is a privileged action and
+        # must go through the dedicated endpoint. Operators with the
+        # `post` permission can flip Draft → Posted there.
+        read_only_fields = [
+            'id', 'status',
+            'created_at', 'updated_at', 'created_by', 'updated_by',
+            'total_debit', 'total_credit', 'document_number',
+        ]
 
     def get_total_debit(self, obj):
         from django.db.models import Sum
@@ -2033,3 +2084,116 @@ class BudgetCheckRuleSerializer(serializers.ModelSerializer):
         if level in ('NONE', 'STRICT') and thr is None:
             attrs['warning_threshold_pct'] = 80
         return attrs
+
+
+# ─────────────────────────────────────────────────────────────────
+# PaymentCascadeFailure — H2 follow-up reconciliation queue (WS6)
+# ─────────────────────────────────────────────────────────────────
+from accounting.models import PaymentCascadeFailure
+
+
+class PaymentCascadeFailureSerializer(serializers.ModelSerializer):
+    """Read-mostly serializer for the cascade-failure reconciliation queue.
+
+    The model is written by ``post_payment`` automatically (never via
+    this serializer), so create/update are not exposed. The only
+    write path is the ``resolve`` viewset action which uses
+    ``mark_resolved`` directly. All fields are read-only here.
+    """
+
+    payment_number = serializers.CharField(
+        source='payment.payment_number', read_only=True,
+    )
+    ipc_reference = serializers.CharField(
+        source='ipc.reference_number', read_only=True, allow_null=True,
+    )
+    resolved_by_username = serializers.CharField(
+        source='resolved_by.username', read_only=True, allow_null=True,
+    )
+    is_resolvable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentCascadeFailure
+        fields = [
+            'id',
+            'payment', 'payment_number',
+            'ipc', 'ipc_reference',
+            'error_class', 'error_message', 'error_context',
+            'created_at',
+            'resolved', 'resolved_at', 'resolved_by', 'resolved_by_username',
+            'resolution_note',
+            'is_resolvable',
+        ]
+        read_only_fields = fields
+
+    def get_is_resolvable(self, obj) -> bool:
+        """True if the calling user can resolve this row.
+
+        V3 — mirrors the dedicated ``resolve_paymentcascadefailure``
+        permission used by the viewset ``resolve`` action so the
+        frontend button state matches the server-side gate.
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        return (
+            request.user.is_superuser
+            or request.user.has_perm('accounting.resolve_paymentcascadefailure')
+        )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # V13 — defense-in-depth: strip < and > from string fields so any
+        # future migration to dangerouslySetInnerHTML cannot be a stored
+        # XSS vector. The render path today (React string child) is safe;
+        # this is belt-and-suspenders. error_message is operator-visible
+        # text from arbitrary exception classes (.message, .__str__()),
+        # error_context is a free-form dict populated at except-time —
+        # both are potentially attacker-influenced via crafted vendor /
+        # IPC inputs that bubbled into the exception string.
+        if isinstance(data.get('error_message'), str):
+            data['error_message'] = (
+                data['error_message'].replace('<', '&lt;').replace('>', '&gt;')
+            )
+        ctx = data.get('error_context') or {}
+        if isinstance(ctx, dict):
+            for k, v in list(ctx.items()):
+                if isinstance(v, str):
+                    ctx[k] = v.replace('<', '&lt;').replace('>', '&gt;')
+            data['error_context'] = ctx
+        return data
+
+
+# ---------------------------------------------------------------------------
+# V7 — Fiscal period reopen two-actor approval
+# ---------------------------------------------------------------------------
+
+from .models import FiscalPeriodReopenApproval  # noqa: E402  (intentional bottom-of-file import)
+
+
+class FiscalPeriodReopenApprovalSerializer(serializers.ModelSerializer):
+    """Read-only serializer for the two-actor reopen approval queue.
+
+    State transitions happen via ``FiscalPeriodReopenApprovalViewSet``
+    actions (``approve`` / ``reject``); the API does NOT permit direct
+    PUT/PATCH on these rows.
+    """
+
+    requested_by_username = serializers.CharField(
+        source='requested_by.username', read_only=True,
+    )
+    approved_by_username = serializers.CharField(
+        source='approved_by.username', read_only=True, allow_null=True,
+    )
+
+    class Meta:
+        model = FiscalPeriodReopenApproval
+        fields = [
+            'id', 'fiscal_period',
+            'requested_by', 'requested_by_username',
+            'requested_at', 'reason',
+            'approved_by', 'approved_by_username',
+            'approved_at', 'rejection_reason',
+            'status', 'executed_at',
+        ]
+        read_only_fields = fields

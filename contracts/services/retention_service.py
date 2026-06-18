@@ -61,10 +61,28 @@ class RetentionService:
 
         Caller then calls apply_deduction under SELECT FOR UPDATE to
         increment balance.retention_held.
+
+        Cumulative cap: once ``balance.retention_held`` reaches
+        ``contract.retention_cap_percent`` of ``contract.original_sum``,
+        no further retention is deducted on this IPC. Mirrors standard
+        FIDIC / Nigerian PPP practice — typically capped at 5–10% of
+        contract sum so the contractor isn't bled past the original
+        risk holdback ratio over the contract life.
         """
         if contract.retention_rate <= ZERO:
             return ZERO
-        return quantize_currency(this_certificate_gross * contract.retention_rate / HUNDRED)
+        raw = quantize_currency(this_certificate_gross * contract.retention_rate / HUNDRED)
+        cap_percent = getattr(contract, 'retention_cap_percent', None) or ZERO
+        if cap_percent <= ZERO:
+            return raw
+        cap_amount = quantize_currency(
+            (contract.original_sum or ZERO) * cap_percent / HUNDRED
+        )
+        already_held = balance.retention_held or ZERO
+        headroom = cap_amount - already_held
+        if headroom <= ZERO:
+            return ZERO
+        return min(raw, headroom)
 
     @staticmethod
     def apply_deduction(
@@ -110,6 +128,28 @@ class RetentionService:
                 f"Contract must be in {required_status} to release "
                 f"{release_type} retention (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
+            )
+
+        # ── SoD: contract creator cannot create the release ─────────
+        # Without this gate, the user who drafted the contract could
+        # also create the retention release for that contract — the
+        # release amount can be 50%+ of held retention, real money.
+        # The existing ``approve`` and ``mark_paid`` methods get their
+        # own SoD checks below.
+        if (
+            contract.created_by_id
+            and contract.created_by_id == getattr(actor, 'pk', None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who drafted the contract "
+                "cannot also create its retention release. Have a different "
+                "officer raise the release.",
+                context={
+                    "contract_id": contract.pk,
+                    "contract_drafter_id": contract.created_by_id,
+                    "actor_id": getattr(actor, 'pk', None),
+                },
             )
 
         # Uniqueness at DB level too (unique_together), but friendlier error here
@@ -307,8 +347,24 @@ class RetentionService:
         # the GL roll-up lands on the same MDA bucket as the IPC accrual
         # that originally credited Retention-Held.
         ncoa = contract.ncoa_code
+        # Posting date for the **accrual** journal = moment of
+        # approval, not the future cash settlement date. The
+        # previous expression read ``release.payment_date or
+        # timezone.now().date()`` — but ``payment_date`` is ONLY
+        # set later inside ``mark_paid``, so at this code path it
+        # was always None and the fallback to ``now()`` always
+        # fired. That was misleading (the ``or`` clause read like
+        # it offered a choice but never could). The IPSAS-correct
+        # date for the accrual is the moment the release was
+        # approved, captured in ``updated_at`` by approve()'s save
+        # just before this method runs.
+        accrual_date = (
+            release.updated_at.date()
+            if release.updated_at
+            else timezone.now().date()
+        )
         journal = JournalHeader.objects.create(
-            posting_date=release.payment_date or timezone.now().date(),
+            posting_date=accrual_date,
             reference_number=f"RR-{release.pk}-{release.release_type}",
             description=(
                 f"Retention release ({release.get_release_type_display()}) "
@@ -320,7 +376,11 @@ class RetentionService:
             program=getattr(getattr(ncoa, 'programme', None), 'legacy_program', None) if ncoa else None,
             geo=getattr(getattr(ncoa, 'geographic', None), 'legacy_geo', None) if ncoa else None,
             status='Draft',
-            source_module='contracts',
+            # Distinct ``source_module`` per contracts-app document
+            # type — see ipc_service.py for the rationale (partial
+            # unique constraint on (source_module, source_document_id)
+            # for Posted journals).
+            source_module='contract_retention_release',
             source_document_id=release.pk,
             posted_by=actor,
         )
@@ -359,6 +419,32 @@ class RetentionService:
         if release.status != RetentionReleaseStatus.APPROVED:
             raise InvalidTransitionError(
                 f"Release must be APPROVED to mark paid (is {release.status})."
+            )
+
+        # ── SoD: approver cannot also mark paid ─────────────────────
+        # Retention release is the final cash-out moment for the
+        # contract; the canonical SoD invariant is "the user who
+        # approved the release cannot also disburse it". The release
+        # carries the approver in ``updated_by`` after approve()
+        # commits (line 246 sets it). Also block the creator from
+        # marking paid for symmetry with the broader policy.
+        prior_actor_ids = {
+            release.created_by_id,
+            release.updated_by_id,  # last-set in approve()
+        }
+        if (
+            getattr(actor, 'pk', None) in prior_actor_ids
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise InvalidTransitionError(
+                "Segregation of duties: the user who created or approved "
+                "the retention release cannot also mark it paid. Have a "
+                "different treasury officer perform the disbursement.",
+                context={
+                    "release_id": release.pk,
+                    "prior_actor_ids": [aid for aid in prior_actor_ids if aid],
+                    "actor_id": getattr(actor, 'pk', None),
+                },
             )
 
         balance = ContractBalance.objects.select_for_update().get(pk=release.contract_id)

@@ -1,0 +1,52 @@
+.node rect, .node polygon, .node circle, .node ellipse {
+            filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.12));
+            stroke-width: 2px !important;
+        }
+        text {
+            font-family: 'Segoe UI', 'Inter', system-ui, sans-serif !important;
+        }
+        /* Edge labels — every flavour Mermaid emits */
+        .edgeLabel,
+        .edgeLabel rect,
+        .edgeLabel foreignObject,
+        .edgeLabel foreignObject div,
+        .edgeLabel span,
+        .edgeLabel p,
+        .transition-label,
+        g.edgeLabel rect.background {
+            background-color: #fef3c7 !important;
+            fill: #fef3c7 !important;
+            color: #0f172a !important;
+            font-weight: 600 !important;
+            border-radius: 4px;
+        }
+        .edgeLabel text,
+        .edgeLabel tspan,
+        .edge-label text,
+        .transition-label text {
+            fill: #0f172a !important;
+            font-weight: 600 !important;
+        }
+        /* StateDiagram transition labels render under .transition-label
+           or .edgeTerminals — cover both. */
+        .stateDiagram-v2 .transition-label rect,
+        .stateDiagram-v2 g.edgeLabel rect {
+            fill: #fef3c7 !important;
+            stroke: #92400e !important;
+            stroke-width: 1px !important;
+        }
+        .stateDiagram-v2 .transition-label text,
+        .stateDiagram-v2 g.edgeLabel text {
+            fill: #0f172a !important;
+        }
+        /* Subgraph clusters */
+        .cluster rect {
+            fill: #f8fafc !important;
+            stroke: #cbd5e1 !important;
+            stroke-dasharray: 4 4;
+        }
+        /* Notes */
+        .note, .noteText {
+            fill: #fef3c7 !important;
+            stroke: #92400e !important;
+        }

@@ -62,12 +62,12 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 invoice.document_number = TransactionSequence.get_next('invoice_doc', 'INV-')
                 invoice.save(update_fields=['document_number'])
 
-            # Build journal as Draft, populate, then lock to Posted at
-            # the end. ImmutableModelMixin blocks any mutation once
-            # status='Posted', including line additions — building Draft
-            # then flipping is the only safe ordering. Reference number
-            # avoids a double-prefix when invoice_number already starts
-            # with CINV-.
+            # Build journal as Draft, populate, then route through
+            # IPSASJournalService.post_journal (WS-6 G-A): one place
+            # enforces balance, postable-account, period gate,
+            # idempotency, audit log, and GL balance updates.
+            # Reference number avoids a double-prefix when
+            # invoice_number already starts with CINV-.
             ref_seed = invoice.invoice_number or invoice.document_number or ''
             ref = ref_seed if ref_seed.startswith('CINV-') else f"CINV-{ref_seed}"
             journal = JournalHeader.objects.create(
@@ -80,6 +80,8 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 geo=invoice.geo,
                 document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
                 status='Draft',
+                source_module='ar.invoice',
+                source_document_id=invoice.pk,
             )
 
             # Debit AR (increase receivable)
@@ -102,12 +104,10 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 document_number=journal.document_number,
             )
 
-            # Update GL balances from journal lines
-            self._update_gl_from_journal(journal)
-
-            # Lock the journal — must be the last write to it.
-            journal.status = 'Posted'
-            journal.save(update_fields=['status'], _allow_status_change=True)
+            # Canonical post — validates balance + period gate + writes
+            # GL balances + emits audit log + flips status to Posted.
+            from accounting.services.ipsas_journal_service import IPSASJournalService
+            IPSASJournalService.post_journal(journal, user=user)
 
             # Link journal to invoice and persist
             invoice.journal_entry = journal
@@ -129,27 +129,38 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_invoice(self, request, pk=None):
-        """Post customer invoice to GL in real-time."""
-        invoice = self.get_object()
+        """Post customer invoice to GL in real-time.
 
-        if str(invoice.status).lower() == 'posted':
-            return Response({"error": "Invoice already posted."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # S1-06 — fiscal period gate.
-        try:
-            from accounting.services.base_posting import BasePostingService
-            BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
-        except Exception as exc:
-            return Response(
-                {"error": str(exc), "period_closed": True},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        WS-6 G-A: GL writes funneled through IPSASJournalService inside
+        ``_post_to_gl``. The invoice row is locked here so concurrent
+        double-clicks serialise on the source-document idempotency
+        constraint (``uniq_journalheader_source_doc_posted``).
+        """
+        from accounting.services.ipsas_journal_service import JournalPostingError
 
         try:
-            self._post_to_gl(invoice, request.user)
+            with transaction.atomic():
+                invoice = CustomerInvoice.objects.select_for_update().get(pk=pk)
 
-            invoice.status = 'Posted'
-            invoice.save(_allow_status_change=True)
+                if str(invoice.status).lower() == 'posted':
+                    return Response({"error": "Invoice already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # S1-06 — fiscal period gate (also re-checked inside
+                # IPSASJournalService.post_journal; surfaced here so the
+                # caller gets a nice period_closed=True hint).
+                try:
+                    from accounting.services.base_posting import BasePostingService
+                    BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
+                except Exception as exc:
+                    return Response(
+                        {"error": str(exc), "period_closed": True},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                self._post_to_gl(invoice, request.user)
+
+                invoice.status = 'Posted'
+                invoice.save(_allow_status_change=True)
 
             return Response({
                 "status": "Invoice posted to GL successfully.",
@@ -158,6 +169,8 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 "fiscal_year": invoice.invoice_date.year,
                 "period": invoice.invoice_date.month
             })
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -169,65 +182,74 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_credit_memo(self, request, pk=None):
-        """Post AR credit memo to GL: Dr Revenue / Cr Accounts Receivable."""
-        invoice = self.get_object()
+        """Post AR credit memo to GL: Dr Revenue / Cr Accounts Receivable.
 
-        if invoice.document_type != 'Credit Memo':
-            return Response({"error": "This document is not a Credit Memo."}, status=status.HTTP_400_BAD_REQUEST)
-        if str(invoice.status).lower() == 'posted':
-            return Response({"error": "Credit memo already posted."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # S1-06 — fiscal period gate.
-        try:
-            from accounting.services.base_posting import BasePostingService
-            BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
-        except Exception as exc:
-            return Response(
-                {"error": str(exc), "period_closed": True},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         from django.conf import settings as django_settings
         default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
-        # AR discovery — reconciliation_type first.
-        ar_account = Account.objects.filter(
-            account_type='Asset', is_reconciliation=True,
-            reconciliation_type='accounts_receivable',
-            is_active=True,
-        ).first()
-        if not ar_account:
-            ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
-            ar_account = Account.objects.filter(code=ar_code).first()
-        if not ar_account:
-            ar_account = Account.objects.filter(
-                account_type='Asset', name__icontains='Receivable',
-            ).first()
-
-        rev_code = default_gl.get('SALES_REVENUE', '40100000')
-        revenue_account = Account.objects.filter(code=rev_code).first()
-
-        if not ar_account or not revenue_account:
-            missing = []
-            if not ar_account:
-                missing.append("Accounts Receivable (flag an Asset account with reconciliation_type='accounts_receivable')")
-            if not revenue_account:
-                missing.append("Revenue (set DEFAULT_GL_ACCOUNTS['SALES_REVENUE'] in settings)")
-            return Response(
-                {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        amount = invoice.total_amount
-
         try:
             with transaction.atomic():
+                invoice = CustomerInvoice.objects.select_for_update().get(pk=pk)
+
+                if invoice.document_type != 'Credit Memo':
+                    return Response({"error": "This document is not a Credit Memo."}, status=status.HTTP_400_BAD_REQUEST)
+                if str(invoice.status).lower() == 'posted':
+                    return Response({"error": "Credit memo already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # S1-06 — fiscal period gate (re-checked inside
+                # IPSASJournalService.post_journal).
+                try:
+                    from accounting.services.base_posting import BasePostingService
+                    BasePostingService._validate_fiscal_period(invoice.invoice_date, user=request.user)
+                except Exception as exc:
+                    return Response(
+                        {"error": str(exc), "period_closed": True},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # AR discovery — reconciliation_type first.
+                ar_account = Account.objects.filter(
+                    account_type='Asset', is_reconciliation=True,
+                    reconciliation_type='accounts_receivable',
+                    is_active=True,
+                ).first()
+                if not ar_account:
+                    ar_code = default_gl.get('ACCOUNTS_RECEIVABLE', '10200000')
+                    ar_account = Account.objects.filter(code=ar_code).first()
+                if not ar_account:
+                    ar_account = Account.objects.filter(
+                        account_type='Asset', name__icontains='Receivable',
+                    ).first()
+
+                rev_code = default_gl.get('SALES_REVENUE', '40100000')
+                revenue_account = Account.objects.filter(code=rev_code).first()
+
+                if not ar_account or not revenue_account:
+                    missing = []
+                    if not ar_account:
+                        missing.append("Accounts Receivable (flag an Asset account with reconciliation_type='accounts_receivable')")
+                    if not revenue_account:
+                        missing.append("Revenue (set DEFAULT_GL_ACCOUNTS['SALES_REVENUE'] in settings)")
+                    return Response(
+                        {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                amount = invoice.total_amount
+
                 if not invoice.document_number:
                     invoice.document_number = TransactionSequence.get_next('credit_memo_ar_doc', 'ARCM-')
                     invoice.save(update_fields=['document_number'])
 
-                # Build the journal Draft, lock Posted at the end —
-                # same Posted-immutability discipline as AP.
+                # Build the journal Draft; IPSASJournalService.post_journal
+                # flips to Posted, writes GL balances, runs the period gate,
+                # validates balance, and emits the audit log.
                 cm_seed = invoice.invoice_number or invoice.document_number or ''
                 cm_ref = cm_seed if cm_seed.startswith('ARCM-') else f"ARCM-{cm_seed}"
                 journal = JournalHeader.objects.create(
@@ -240,6 +262,8 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                     geo=invoice.geo,
                     document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
                     status='Draft',
+                    source_module='ar.credit_memo',
+                    source_document_id=invoice.pk,
                 )
 
                 # Dr Revenue (reverses revenue earned)
@@ -261,11 +285,7 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                     document_number=journal.document_number,
                 )
 
-                CustomerInvoiceViewSet._update_gl_from_journal(journal)
-
-                # Lock journal — must be the last write to it.
-                journal.status = 'Posted'
-                journal.save(update_fields=['status'], _allow_status_change=True)
+                IPSASJournalService.post_journal(journal, user=request.user)
 
                 invoice.journal_entry = journal
                 invoice.status = 'Posted'
@@ -276,13 +296,30 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
                 "invoice_id": invoice.id,
                 "amount": str(amount),
             })
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get'])
     def aging_report(self, request):
-        """Get accounts receivable aging report"""
+        """Accounts-Receivable aging report (H12 — WS6 review).
+
+        Delegates to the canonical
+        ``accounting.services.aging_reports.AgingReportService`` so the
+        UI report and IPSAS Note 3 always agree. Prior in-view loop
+        used different bucket boundaries ('days_1_30' vs '31-60 Days')
+        and different status filter ('Sent'/'Partially Paid'/'Overdue'
+        vs 'POSTED'/'APPROVED') so the two surfaces disagreed for the
+        same as-of date.
+
+        The response keys are preserved for backwards compatibility
+        with the existing frontend client; the values are now sourced
+        from the canonical service, including the new GL-reconciliation
+        warning field surfaced by M3.
+        """
         from django.utils import timezone
+        from accounting.services.aging_reports import AgingReportService
 
         as_of_date = request.query_params.get('as_of_date')
         if as_of_date:
@@ -291,60 +328,63 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
         else:
             as_of_date = timezone.now().date()
 
-        invoices = CustomerInvoice.objects.filter(
-            status__in=['Sent', 'Partially Paid', 'Overdue'],
-            invoice_date__lte=as_of_date
+        result = AgingReportService.generate_ar_aging_report(
+            as_of_date=as_of_date,
+            fiscal_year=as_of_date.year,
+            period=as_of_date.month,
         )
 
-        aging_data = {}
-        for invoice in invoices:
-            customer_id = invoice.customer_name or f'inv-{invoice.id}'
-            if customer_id not in aging_data:
-                aging_data[customer_id] = {
-                    'customer_id': customer_id,
-                    'customer_name': invoice.customer_name or 'Unknown',
-                    'current': Decimal('0'),
-                    'days_1_30': Decimal('0'),
-                    'days_31_60': Decimal('0'),
-                    'days_61_90': Decimal('0'),
-                    'days_91_plus': Decimal('0'),
-                    'total_due': Decimal('0')
-                }
+        # Map canonical bucket totals onto the legacy response keys
+        # the frontend expects. The canonical service uses 'Current',
+        # '31-60 Days', '61-90 Days', '91-120 Days', 'Over 120 Days';
+        # the legacy keys roll 91-120 + Over 120 into a single
+        # 'days_91_plus' bucket so we sum here to preserve the shape.
+        bs = result.bucket_summary
+        days_91_plus = bs.get('91-120 Days', Decimal('0')) + bs.get('Over 120 Days', Decimal('0'))
 
-            balance = invoice.balance_due
-            days_overdue = (as_of_date - invoice.due_date).days
+        # Reshape per-customer rows into the legacy key set, again
+        # collapsing 91-120 + Over 120 → days_91_plus.
+        customers = []
+        for c in result.customers:
+            cb = {b['name']: b['total'] for b in c.get('buckets', [])}
+            customers.append({
+                'customer_id': c['customer_id'],
+                'customer_name': c['customer_name'],
+                'current': cb.get('Current', Decimal('0')),
+                'days_1_30': cb.get('31-60 Days', Decimal('0')),
+                'days_31_60': cb.get('61-90 Days', Decimal('0')),
+                'days_61_90': cb.get('91-120 Days', Decimal('0')),
+                'days_91_plus': cb.get('Over 120 Days', Decimal('0')),
+                'total_due': c.get('current_balance', Decimal('0')),
+            })
 
-            if days_overdue <= 0:
-                aging_data[customer_id]['current'] += balance
-            elif days_overdue <= 30:
-                aging_data[customer_id]['days_1_30'] += balance
-            elif days_overdue <= 60:
-                aging_data[customer_id]['days_31_60'] += balance
-            elif days_overdue <= 90:
-                aging_data[customer_id]['days_61_90'] += balance
-            else:
-                aging_data[customer_id]['days_91_plus'] += balance
-
-            aging_data[customer_id]['total_due'] += balance
-
-        total_current = sum(d['current'] for d in aging_data.values())
-        total_1_30 = sum(d['days_1_30'] for d in aging_data.values())
-        total_31_60 = sum(d['days_31_60'] for d in aging_data.values())
-        total_61_90 = sum(d['days_61_90'] for d in aging_data.values())
-        total_91_plus = sum(d['days_91_plus'] for d in aging_data.values())
-
-        return Response({
+        payload = {
             'as_of_date': as_of_date,
-            'customers': list(aging_data.values()),
+            'customers': customers,
             'summary': {
-                'current': float(total_current),
-                'days_1_30': float(total_1_30),
-                'days_31_60': float(total_31_60),
-                'days_61_90': float(total_61_90),
-                'days_91_plus': float(total_91_plus),
-                'total_due': float(total_current + total_1_30 + total_31_60 + total_61_90 + total_91_plus)
-            }
-        })
+                'current': float(bs.get('Current', Decimal('0'))),
+                'days_1_30': float(bs.get('31-60 Days', Decimal('0'))),
+                'days_31_60': float(bs.get('61-90 Days', Decimal('0'))),
+                'days_61_90': float(bs.get('91-120 Days', Decimal('0'))),
+                'days_91_plus': float(days_91_plus),
+                'total_due': float(result.total_receivables),
+            },
+        }
+
+        # Surface the M3 GL-reconciliation signal if the service
+        # detected sub-ledger ↔ GL drift. V15 — gate on the dedicated
+        # ``accounting.view_gl_reconciliation_diff`` permission so that
+        # ordinary aging-report viewers don't see internal control-
+        # account balances. Superusers always bypass.
+        if result.gl_reconciliation_warning and (
+            request.user.is_superuser
+            or request.user.has_perm('accounting.view_gl_reconciliation_diff')
+        ):
+            payload['_warnings'] = [result.gl_reconciliation_warning]
+            payload['gl_receivables_balance'] = float(result.gl_receivables_balance)
+            payload['gl_reconciliation_diff'] = float(result.gl_reconciliation_diff)
+
+        return Response(payload)
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):
@@ -367,44 +407,51 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_receipt(self, request, pk=None):
-        """Post receipt — creates journal entry + updates GL balances + customer balance."""
-        receipt = self.get_object()
+        """Post receipt — creates journal entry + updates GL balances + customer balance.
 
-        # S1-06 — fiscal period gate on receipt_date (fallback to today).
-        from accounting.services.base_posting import BasePostingService
-        rcpt_date = getattr(receipt, 'receipt_date', None) or getattr(receipt, 'payment_date', None)
-        if rcpt_date:
-            try:
-                BasePostingService._validate_fiscal_period(rcpt_date, user=request.user)
-            except Exception as exc:
-                return Response(
-                    {"error": str(exc), "period_closed": True},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        if str(receipt.status).lower() == 'posted':
-            return Response({"error": "Receipt already posted."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Advance / downpayment receipts do not require invoice allocations
-        if receipt.is_advance:
-            pass  # Skip allocation check — handled via Customer Advances GL account below
-        else:
-            if not receipt.allocations.exists():
-                return Response({"error": "Receipt has no allocations."}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Validate allocations sum equals receipt total
-            allocation_sum = receipt.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            if allocation_sum != receipt.total_amount:
-                return Response(
-                    {"error": f"Allocation total ({allocation_sum}) does not match receipt amount ({receipt.total_amount})."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        WS-6 G-A: routed through IPSASJournalService.
+        """
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
 
         try:
             from django.conf import settings as django_settings
             default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
 
             with transaction.atomic():
+                # Lock the receipt row up-front — double-click protection.
+                receipt = Receipt.objects.select_for_update().get(pk=pk)
+
+                # S1-06 — fiscal period gate on receipt_date (fallback to today).
+                from accounting.services.base_posting import BasePostingService
+                rcpt_date = getattr(receipt, 'receipt_date', None) or getattr(receipt, 'payment_date', None)
+                if rcpt_date:
+                    try:
+                        BasePostingService._validate_fiscal_period(rcpt_date, user=request.user)
+                    except Exception as exc:
+                        return Response(
+                            {"error": str(exc), "period_closed": True},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                if str(receipt.status).lower() == 'posted':
+                    return Response({"error": "Receipt already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Advance / downpayment receipts do not require invoice allocations
+                if receipt.is_advance:
+                    pass  # Skip allocation check — handled via Customer Advances GL account below
+                else:
+                    if not receipt.allocations.exists():
+                        return Response({"error": "Receipt has no allocations."}, status=status.HTTP_400_BAD_REQUEST)
+
+                    # Validate allocations sum equals receipt total
+                    allocation_sum = receipt.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                    if allocation_sum != receipt.total_amount:
+                        return Response(
+                            {"error": f"Allocation total ({allocation_sum}) does not match receipt amount ({receipt.total_amount})."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                 # AR discovery — reconciliation_type marker first, then
                 # legacy code default, then name heuristic. Mirrors AP/AR
                 # invoice posting.
@@ -462,6 +509,8 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                     posting_date=receipt.receipt_date,
                     document_number=TransactionSequence.get_next('journal_voucher', 'JV-'),
                     status='Draft',
+                    source_module='ar.receipt',
+                    source_document_id=receipt.pk,
                 )
 
                 # Debit Bank (increase asset)
@@ -515,12 +564,9 @@ class ReceiptViewSet(viewsets.ModelViewSet):
                     line.document_number = journal.document_number
                     line.save(update_fields=['document_number'])
 
-                # Update GL balances
-                self._update_gl_from_journal(journal)
-
-                # Lock journal — must be the last write to it.
-                journal.status = 'Posted'
-                journal.save(update_fields=['status'], _allow_status_change=True)
+                # Canonical post — period gate + balance check + audit
+                # log + GL balance updates + status flip to Posted.
+                IPSASJournalService.post_journal(journal, user=request.user)
 
                 # Link journal to receipt and update status
                 receipt.journal_entry = journal
@@ -544,10 +590,12 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
             return Response({
                 "status": "Receipt posted to GL successfully.",
-                "journal_id": journal.id,
+                "journal_id": journal.pk,
                 "receipt_id": receipt.id,
                 "amount": str(amount)
             })
+        except JournalPostingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

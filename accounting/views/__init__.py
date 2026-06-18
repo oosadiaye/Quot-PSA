@@ -73,6 +73,7 @@ from .deferred_treasury import (  # noqa: F401
 from .period_fiscal import (  # noqa: F401
     FiscalPeriodViewSet, FiscalYearViewSet, PeriodAccessViewSet, PeriodCloseCheckViewSet,
     PeriodCloseChecklistView,
+    FiscalPeriodReopenApprovalViewSet,
 )
 
 # Recurring Journals, Accruals, Period Management

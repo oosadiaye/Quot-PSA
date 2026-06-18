@@ -8,7 +8,7 @@ import {
     Package, FileText, CheckCircle, XCircle, AlertTriangle,
     Building2, Truck, Calendar, User, Layers, ArrowLeft,
 } from 'lucide-react';
-import { useGRN, usePostGRN, useCancelGRN } from './hooks/useProcurement';
+import { useGRN, usePostGRN, useCancelGRN, useGRNJournal } from './hooks/useProcurement';
 import { useCurrency } from '../../context/CurrencyContext';
 import { safeMultiply } from '../accounting/utils/currency';
 import AccountingLayout from '../accounting/AccountingLayout';
@@ -22,6 +22,22 @@ const statusConfig: Record<string, { bg: string; color: string; border: string }
     'On Hold': { bg: '#fef3c7', color: '#a16207', border: '#fde68a' },
     Posted:    { bg: '#dcfce7', color: '#15803d', border: '#86efac' },
     Cancelled: { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
+};
+
+/**
+ * Human-readable label for each ``GRNJournalLine.role`` bucket the
+ * backend computes. Keeps the mapping in one place so the panel's
+ * caption ("Debit Expense") stays in sync with the backend's
+ * server-side classification — no magic strings sprinkled in JSX.
+ */
+const ROLE_LABEL: Record<string, string> = {
+    expense:     'Expense',
+    inventory:   'Inventory',
+    fixed_asset: 'Fixed Asset',
+    gr_ir:       'GR/IR Clearing',
+    ap:          'Accounts Payable',
+    liability:   'Liability',
+    other:       'Other',
 };
 
 interface GRNLine {
@@ -54,6 +70,19 @@ export default function GRNView() {
 
     const grnId = id ? Number(id) : null;
     const { data: grn, isLoading, error } = useGRN(grnId);
+
+    // ⚠️ Hooks order: every hook must be called on every render in the
+    // same order. ``useGRNJournal`` must therefore sit ABOVE the
+    // ``if (isLoading) return`` / ``if (!grn) return`` early-returns
+    // below — otherwise React's hook-count comparison flags it on the
+    // success render ("Rendered more hooks than during the previous
+    // render"). The hook itself is safe to call with no data; we pass
+    // an inline ``enabled`` flag derived from the live ``grn`` query so
+    // the network request only fires when the GRN is actually Posted.
+    const { data: journal } = useGRNJournal(
+        grnId,
+        grn?.status === 'Posted',
+    );
 
     const postMutation = usePostGRN();
     const cancelMutation = useCancelGRN();
@@ -119,6 +148,11 @@ export default function GRNView() {
     const isCancelled = status === 'Cancelled';
     const canPost = ['Draft', 'Received', 'On Hold'].includes(status);
     const canCancel = !['Posted', 'Cancelled'].includes(status);
+
+    // ``journal`` is fetched higher up via ``useGRNJournal`` (must run
+    // before the early-return blocks above to keep React's hook order
+    // stable). It silently returns null on 404 so the panel collapses
+    // cleanly when no journal exists yet.
 
     // Lines come back with quantity_received as a string. The serializer
     // also bakes po_line into each GRN line as just the FK id — to render
@@ -333,6 +367,169 @@ export default function GRNView() {
                         </p>
                     </div>
 
+                    {/* Accounting Entry — SAP FB03 style. Each line is
+                        rendered as either a DEBIT row (left-aligned
+                        green) or a CREDIT row (right-aligned amber)
+                        and tagged with the canonical role label
+                        ("Expense", "Inventory", "GR/IR Clearing", …)
+                        derived server-side from the account's
+                        reconciliation_type / account_type. This way
+                        the operator immediately sees the textbook
+                        pattern for a GRN post: ``DR Expense (or
+                        Inventory) / CR GR-IR Clearing``. */}
+                    {isPosted && journal && (
+                        <div className="card" style={{ padding: '1.25rem' }}>
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                marginBottom: '0.5rem',
+                            }}>
+                                <FileText size={16} style={{ color: 'var(--color-primary)' }} />
+                                <h4 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 700 }}>
+                                    Accounting Entry
+                                </h4>
+                                <span style={{
+                                    marginLeft: 'auto',
+                                    padding: '2px 8px', borderRadius: 999,
+                                    fontSize: 10, fontWeight: 700,
+                                    background: '#dcfce7', color: '#15803d',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                }}>
+                                    {journal.status}
+                                </span>
+                            </div>
+
+                            {/* Plain-English caption explaining the textbook
+                                entry shape — surfaces ``entry_pattern`` from
+                                the backend so even an operator unfamiliar
+                                with IPSAS 3-way match can read the page. */}
+                            <div style={{
+                                fontSize: 11, color: 'var(--color-text-muted)',
+                                marginBottom: '0.75rem', lineHeight: 1.4,
+                            }}>
+                                {journal.entry_pattern}
+                            </div>
+
+                            <div style={{
+                                fontSize: 'var(--text-xs)',
+                                color: 'var(--color-text-muted)',
+                                marginBottom: '0.75rem',
+                                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                            }}>
+                                {journal.document_number || journal.reference_number}
+                                {' · '}
+                                {new Date(journal.posting_date).toLocaleDateString('en-GB')}
+                            </div>
+
+                            {/* DR / CR ledger rows */}
+                            <div style={{
+                                display: 'flex', flexDirection: 'column', gap: 6,
+                            }}>
+                                {journal.lines.map((line) => {
+                                    const isDr = line.dr_cr === 'DR';
+                                    const amount = parseFloat(isDr ? line.debit : line.credit);
+                                    const roleLabel = ROLE_LABEL[line.role] ?? 'Other';
+                                    const roleColor = isDr
+                                        ? { bg: '#ecfdf5', fg: '#166534', strip: '#22c55e' }   // green for DR
+                                        : { bg: '#fffbeb', fg: '#92400e', strip: '#f59e0b' };  // amber for CR
+                                    return (
+                                        <div key={line.id} style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '46px 1fr auto',
+                                            gap: 10, alignItems: 'start',
+                                            padding: '8px 10px',
+                                            background: roleColor.bg,
+                                            borderLeft: `3px solid ${roleColor.strip}`,
+                                            borderRadius: 6,
+                                        }}>
+                                            <div style={{
+                                                fontSize: 10, fontWeight: 800,
+                                                color: roleColor.fg,
+                                                letterSpacing: '0.05em',
+                                            }}>
+                                                {line.dr_cr}
+                                            </div>
+                                            <div>
+                                                <div style={{
+                                                    fontSize: 11, fontWeight: 700,
+                                                    color: roleColor.fg,
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.04em',
+                                                    marginBottom: 2,
+                                                }}>
+                                                    {roleLabel}
+                                                </div>
+                                                <code style={{
+                                                    fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                                                    fontSize: 10, color: 'var(--color-text-muted)',
+                                                }}>
+                                                    {line.account_code}
+                                                </code>
+                                                <div style={{
+                                                    fontSize: 11.5, color: 'var(--color-text)',
+                                                    marginTop: 2, lineHeight: 1.3,
+                                                }}>
+                                                    {line.account_name}
+                                                </div>
+                                                {line.memo && (
+                                                    <div style={{
+                                                        fontSize: 10,
+                                                        color: 'var(--color-text-muted)',
+                                                        marginTop: 2, fontStyle: 'italic',
+                                                    }}>
+                                                        {line.memo}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div style={{
+                                                fontSize: 13, fontWeight: 700,
+                                                color: roleColor.fg,
+                                                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {formatCurrency(amount)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Totals strip */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr auto auto',
+                                gap: 16, marginTop: 10,
+                                padding: '8px 10px',
+                                borderTop: '2px solid var(--color-border)',
+                                fontSize: 11, fontWeight: 700,
+                            }}>
+                                <div style={{ color: 'var(--color-text-muted)' }}>Total</div>
+                                <div style={{
+                                    fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                                    color: '#166534',
+                                }}>
+                                    DR {formatCurrency(parseFloat(journal.total_debit))}
+                                </div>
+                                <div style={{
+                                    fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                                    color: '#92400e',
+                                }}>
+                                    CR {formatCurrency(parseFloat(journal.total_credit))}
+                                </div>
+                            </div>
+
+                            {!journal.is_balanced && (
+                                <div style={{
+                                    marginTop: '0.5rem', padding: '0.5rem',
+                                    background: '#fef2f2', color: '#b91c1c',
+                                    borderRadius: 6, fontSize: 10, fontWeight: 600,
+                                }}>
+                                    <AlertTriangle size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
+                                    Journal is unbalanced — DR ≠ CR. Contact accounting.
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* What happens on Post */}
                     {!isPosted && !isCancelled && (
                         <div className="card" style={{ padding: '1.25rem' }}>
@@ -364,6 +561,18 @@ const th: React.CSSProperties = {
 };
 const td: React.CSSProperties = {
     padding: '0.6rem 0.5rem', fontSize: 'var(--text-sm)',
+};
+
+// Compact journal-line table styles — the Accounting Entry panel
+// lives in the right-column sidebar, so the columns are tighter than
+// the main GRN line table above.
+const journalTh: React.CSSProperties = {
+    padding: '0.25rem 0.4rem 0.5rem', textAlign: 'left',
+    fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.05em', color: 'var(--color-text-muted)',
+};
+const journalTd: React.CSSProperties = {
+    padding: '0.4rem', fontSize: 11, verticalAlign: 'top',
 };
 
 function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {

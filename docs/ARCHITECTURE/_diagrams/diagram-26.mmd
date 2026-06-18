@@ -1,0 +1,14 @@
+flowchart LR
+    A[PayrollPeriod opens] --> B[PayrollRun<br/>Draft<br/>for MDA × Period]
+    B --> C[Compute<br/>Apply SalaryStructure<br/>Apply statutory deductions]
+    C --> D[InProgress]
+    D --> E[Workflow approval<br/>HR Director / AG]
+    E --> F[Approved]
+    F --> G[PayrollPostingService<br/>.post_payroll_run]
+    G --> H[JournalHeader Posted<br/>DR Salary Expense<br/>CR Payroll Liability<br/>CR PAYE / Pension / NHF]
+    H --> I[Spawn PaymentVoucherGov<br/>per beneficiary group]
+    I --> J[PV → SCHEDULED → PAID]
+    J --> K[TSA Bank balance<br/>decremented]
+
+    classDef gate fill:#fef3c7,stroke:#92400e
+    class H,J gate

@@ -604,6 +604,16 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Rule-driven SoD gate. The canonical PV-cycle invariant is:
+        # the user who raised / checked / approved / scheduled a PV
+        # cannot be the same user who marks it paid. Configure those
+        # rules in core.SoDRule with permission_a/b drawn from
+        # treasury.voucher.{create,check,approve,schedule,pay}. With
+        # zero rules this is a no-op; SoDViolation is translated to
+        # a structured 403 by core.drf_exception_handler.
+        from core.services.sod_evaluator import enforce_action
+        enforce_action(request.user, 'treasury.voucher.pay', pv)
+
         bank_reference = request.data.get('bank_reference', '')
 
         with transaction.atomic():

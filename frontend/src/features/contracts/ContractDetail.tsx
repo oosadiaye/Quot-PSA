@@ -37,6 +37,7 @@ import {
 } from './hooks/useContracts';
 import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
+import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
@@ -100,7 +101,9 @@ function currentPhaseIndex(status: ContractStatus): number {
 
 
 // ── Tab type ─────────────────────────────────────────────────────────
-type TabKey = 'milestones' | 'ipcs' | 'variations';
+// 'year-plans' is the multi-year contract tab — visible on every contract,
+// shows even single-year contracts (which auto-create one year_plan row).
+type TabKey = 'milestones' | 'ipcs' | 'variations' | 'year-plans';
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -118,6 +121,11 @@ const ContractDetail = () => {
   const { data: balance } = useContractBalance(cid);
   const { data: ipcs } = useIPCs({ contract: cid });
   const { data: variations } = useVariations({ contract: cid });
+  // Year plans drive the multi-year IPC posting boundary (Control 8).
+  // Even single-year contracts have one row, so the tab is always
+  // populated — useful for showing the operator which fiscal years
+  // can host IPCs for this contract.
+  const { data: yearPlans } = useYearPlans({ contract: cid });
 
   // ── Original budget from the matching Appropriation ──────────────
   // Fires when MDA + economic + fund + fiscal year are all present
@@ -357,7 +365,7 @@ const ContractDetail = () => {
         message.error(
           `Total milestone value would be ${formatCurrency(milestoneTotals.totalValue + v)}, `
           + `which exceeds the contract sum of ${formatCurrency(ceiling)}. `
-          + `Reduce the value or raise a contract variation first.`,
+          + `Reduce the value or raise a contract write-up first.`,
         );
         return;
       }
@@ -473,7 +481,7 @@ const ContractDetail = () => {
                   {status === 'FINAL_COMPLETION' && (
                     <Popconfirm
                       title="Close this contract?"
-                      description="Closing is terminal. No further IPCs or variations may be raised."
+                      description="Closing is terminal. No further IPCs or write-ups may be raised."
                       okText="Yes, close"
                       okButtonProps={{ danger: true }}
                       cancelText="Cancel"
@@ -726,7 +734,12 @@ const ContractDetail = () => {
                 <TabButton
                   active={activeTab === 'variations'}
                   onClick={() => setActiveTab('variations')}
-                  label={`Variations (${variations?.count ?? 0})`}
+                  label={`Write-ups (${variations?.count ?? 0})`}
+                />
+                <TabButton
+                  active={activeTab === 'year-plans'}
+                  onClick={() => setActiveTab('year-plans')}
+                  label={`Year Plan (${yearPlans?.count ?? 0})`}
                 />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', paddingBottom: '0.5rem' }}>
@@ -757,11 +770,11 @@ const ContractDetail = () => {
                     disabled={!canRaiseVariation}
                     title={
                       !canRaiseVariation
-                        ? 'Activate the contract first to raise variations'
-                        : 'Submit a new variation / change order'
+                        ? 'Activate the contract first to raise write-ups'
+                        : 'Submit a new write-up — upward revaluation of the contract amount'
                     }
                   >
-                    <Plus size={14} /> NEW VARIATION
+                    <Plus size={14} /> NEW WRITE-UP
                   </button>
                 )}
               </div>
@@ -793,6 +806,13 @@ const ContractDetail = () => {
               <VariationsTab
                 variations={variations?.results ?? []}
                 onOpen={(vId) => navigate(`/contracts/variations/${vId}`)}
+                formatCurrency={formatCurrency}
+              />
+            )}
+            {activeTab === 'year-plans' && (
+              <YearPlansTab
+                yearPlans={yearPlans?.results ?? []}
+                originalSum={Number(contract?.original_sum ?? 0)}
                 formatCurrency={formatCurrency}
               />
             )}
@@ -896,7 +916,7 @@ const ContractDetail = () => {
           <div style={{ flex: 1 }}>
             <strong>This contract is a DRAFT.</strong> Click <em>Activate</em> in the
             hero to assign the official contract number, materialise the balance
-            ledger, and unlock IPC + variation submission.
+            ledger, and unlock IPC + write-up submission.
           </div>
         </div>
       )}
@@ -1447,6 +1467,115 @@ function VariationsTab({ variations, onOpen, formatCurrency }: VariationsTabProp
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+
+interface YearPlansTabProps {
+  yearPlans: ContractYearPlan[];
+  originalSum: number;
+  formatCurrency: (n: number) => string;
+}
+function YearPlansTab({ yearPlans, originalSum, formatCurrency }: YearPlansTabProps) {
+  if (!yearPlans.length) {
+    // Should never render in practice — ContractActivationService creates
+    // at least one row at activation. Defensive copy in case the contract
+    // is still in DRAFT and the operator hasn't begun planning yet.
+    return (
+      <EmptyState
+        title="No Year Plan Yet"
+        description="Year plans split a contract's spend across the fiscal years it covers. They're auto-created at activation; for multi-year contracts, add rows during draft to define the per-year breakdown."
+        iconKey="kanban"
+      />
+    );
+  }
+
+  // Sum-vs-originalSum reconciliation row. Each year's planned amount
+  // sums to original_sum once activated; while still in DRAFT the
+  // operator may be mid-edit and the sum may not yet match.
+  const totalPlanned = yearPlans.reduce(
+    (acc, yp) => acc + Number(yp.planned_amount || 0),
+    0,
+  );
+  const totalCarried = yearPlans.reduce(
+    (acc, yp) => acc + Number(yp.carried_forward_from_prior_year || 0),
+    0,
+  );
+  const reconciles = Math.abs(totalPlanned - originalSum) < 0.01;
+
+  return (
+    <div style={card({ pad: 0 })}>
+      <table style={dataTable}>
+        <thead>
+          <tr style={tableHeadRow}>
+            <th style={th}>Year</th>
+            <th style={th}>Fiscal Year</th>
+            <th style={th}>Appropriation</th>
+            <th style={{ ...th, textAlign: 'right' }}>Planned</th>
+            <th style={{ ...th, textAlign: 'right' }}>Carry-forward</th>
+            <th style={{ ...th, textAlign: 'right' }}>Total Authorised</th>
+          </tr>
+        </thead>
+        <tbody>
+          {yearPlans.map((yp) => (
+            <tr key={yp.id} style={tableRow}>
+              <td style={{ ...td, fontWeight: 700 }}>Year {yp.sequence}</td>
+              <td style={td}>{yp.fiscal_year_label}</td>
+              <td style={td}>
+                {yp.appropriation_label || (
+                  <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                    Not yet assigned
+                  </span>
+                )}
+              </td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
+                {formatCurrency(Number(yp.planned_amount))}
+              </td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
+                {Number(yp.carried_forward_from_prior_year || 0) > 0
+                  ? formatCurrency(Number(yp.carried_forward_from_prior_year))
+                  : '—'}
+              </td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>
+                {formatCurrency(Number(yp.total_authorised_for_year))}
+              </td>
+            </tr>
+          ))}
+          <tr style={{ ...tableRow, background: '#f8fafc', fontWeight: 700 }}>
+            <td style={{ ...td, textAlign: 'right' }} colSpan={3}>
+              Total
+            </td>
+            <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
+              {formatCurrency(totalPlanned)}
+            </td>
+            <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
+              {totalCarried > 0 ? formatCurrency(totalCarried) : '—'}
+            </td>
+            <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
+              {formatCurrency(totalPlanned + totalCarried)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {!reconciles && (
+        <div
+          style={{
+            padding: '12px 16px',
+            background: '#fff7ed',
+            borderTop: '1px solid #fed7aa',
+            color: '#9a3412',
+            fontSize: '0.78rem',
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Sum mismatch.</strong> Year-plan total{' '}
+          <span style={{ fontFamily: 'monospace' }}>{formatCurrency(totalPlanned)}</span> does not
+          equal the contract original sum{' '}
+          <span style={{ fontFamily: 'monospace' }}>{formatCurrency(originalSum)}</span>. Activation
+          will be refused until they match — adjust planned_amount on one or more years.
+        </div>
+      )}
     </div>
   );
 }

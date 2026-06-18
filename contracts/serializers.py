@@ -21,6 +21,7 @@ from contracts.models import (
     ContractBalance,
     ContractDocument,
     ContractVariation,
+    ContractYearPlan,
     InterimPaymentCertificate,
     MeasurementBook,
     MilestoneSchedule,
@@ -61,6 +62,63 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
             "retention_balance",
         ]
         read_only_fields = fields
+
+
+# ── ContractYearPlan ───────────────────────────────────────────────────
+
+class ContractYearPlanSerializer(serializers.ModelSerializer):
+    """Multi-year contract payment-plan slice.
+
+    Read fields are denormalised so the frontend's Year-Plan tab can
+    render planned-vs-actual without an N+1 chain:
+      - ``fiscal_year_label`` — display string (e.g. "FY 2027")
+      - ``appropriation_label`` — display string (e.g. "Health · Capital")
+      - ``total_authorised_for_year`` — planned + carried-forward
+    """
+
+    fiscal_year_label = serializers.SerializerMethodField()
+    appropriation_label = serializers.SerializerMethodField()
+    total_authorised_for_year = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+
+    class Meta:
+        model = ContractYearPlan
+        fields = [
+            "id",
+            "contract",
+            "fiscal_year",
+            "fiscal_year_label",
+            "appropriation",
+            "appropriation_label",
+            "planned_amount",
+            "carried_forward_from_prior_year",
+            "total_authorised_for_year",
+            "sequence",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_fiscal_year_label(self, obj: ContractYearPlan) -> str:
+        fy = getattr(obj, "fiscal_year", None)
+        if fy is None:
+            return ""
+        # Most FiscalYear models have a ``year`` int; fall back to str().
+        year = getattr(fy, "year", None)
+        return f"FY {year}" if year is not None else str(fy)
+
+    def get_appropriation_label(self, obj: ContractYearPlan) -> str:
+        appr = getattr(obj, "appropriation", None)
+        if appr is None:
+            return ""
+        # Tolerant: appropriation models in this codebase don't have a
+        # uniform ``__str__`` shape, so fall back through several fields.
+        for attr in ("display_label", "name", "appropriation_number"):
+            val = getattr(appr, attr, None)
+            if val:
+                return str(val)
+        return f"Appropriation #{appr.pk}"
 
 
 # ── Milestones ────────────────────────────────────────────────────────
@@ -536,6 +594,21 @@ class ContractApprovalStepSerializer(serializers.ModelSerializer):
 
 # ── Contract documents ────────────────────────────────────────────────
 
+# Contract attachments are operator-facing evidence (BPP no-objection
+# letters, signed PV scans, contractor bank letters). Browsers report
+# ``Content-Type`` from the local OS guess — trivially spoofable.
+# Match against the project's shared magic-byte catalogue so a
+# renamed .exe can't pose as a .pdf in the audit trail.
+_CONTRACT_DOC_ALLOWED_EXT = {
+    '.pdf', '.jpg', '.jpeg', '.png',
+    '.doc', '.docx', '.xlsx',
+}
+# 25 MB ceiling — scanned PDFs of full contracts can be large but
+# anything beyond this is almost certainly a misclick (raw bitmap)
+# and we want to fail fast before chewing through TSA storage.
+_CONTRACT_DOC_MAX_BYTES = 25 * 1024 * 1024
+
+
 class ContractDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContractDocument
@@ -545,3 +618,22 @@ class ContractDocumentSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "uploaded_by", "created_at", "updated_at"]
+
+    def validate_file(self, value):
+        """Magic-byte + extension + size validation.
+
+        Was: no validation at all — any authenticated user could
+        upload an arbitrary binary disguised as a PDF/DOCX. The
+        shared ``core.file_validation.validate_uploaded_file`` helper
+        runs the same checks the tenant onboarding flow uses, so the
+        rules can't drift between upload surfaces.
+        """
+        from core.file_validation import validate_uploaded_file
+        is_valid, err = validate_uploaded_file(
+            value,
+            allowed_extensions=_CONTRACT_DOC_ALLOWED_EXT,
+            max_bytes=_CONTRACT_DOC_MAX_BYTES,
+        )
+        if not is_valid:
+            raise serializers.ValidationError(err)
+        return value

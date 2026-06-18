@@ -34,6 +34,8 @@ import {
     Bell,
     HardDrive,
     UserCog,
+    ShieldCheck,
+    ShieldAlert,
     Ticket,
     CalendarClock,
     GraduationCap,
@@ -65,6 +67,8 @@ import {
     Activity,
     Scale,
     Handshake,
+    FileSignature,
+    Archive,
 } from 'lucide-react';
 import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
@@ -131,7 +135,16 @@ const menuItems: MenuItem[] = [
             // from the same mental cluster as account management.
             { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
+            // Mobilization advances live with payment vouchers because
+            // they're the *trigger* for a PV — operator scans this list
+            // to see "which advances are PENDING and need a PV raised".
+            { name: 'Mobilization Advances', path: '/accounting/mobilization-advances', icon: Banknote },
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            // H2 follow-up (WS6) — operator surface for cascade failures.
+            // Sits next to Outgoing Payments because the failures come
+            // from posted-payment cascades; this is the same operator
+            // mental cluster.
+            { name: 'Payment Reconciliation Queue', path: '/accounting/payment-reconciliation-queue', icon: AlertTriangle },
             { name: 'Payment Instructions', path: '/accounting/payment-instructions', icon: CreditCard },
             { name: 'Bank Reconciliation', path: '/accounting/bank-reconciliation', icon: Scale },
             { name: 'Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Activity },
@@ -171,7 +184,11 @@ const menuItems: MenuItem[] = [
             { name: 'All Contracts', path: '/contracts', icon: FileText },
             { name: 'New Contract', path: '/contracts/new', icon: FilePlus },
             { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale },
-            { name: 'Variations', path: '/contracts/variations', icon: TrendingUp },
+            // "Write-up" is the product label for upward contract-amount revaluations.
+            // Route path stays /contracts/variations so existing bookmarks and the
+            // ContractVariation API contract continue to work — only the user-facing
+            // label changes.
+            { name: 'Write-ups', path: '/contracts/variations', icon: TrendingUp },
         ],
     },
     {
@@ -232,20 +249,32 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'view_journalheader', module: 'audit',
     },
     {
-        name: 'Roles & Permissions', icon: Shield, path: '/admin/roles',
-        requiredPerm: 'view_user', module: 'admin',
-    },
-    {
-        name: 'Approval Rules', icon: CheckCircle, path: '/admin/approval-rules',
-        requiredPerm: 'view_approvalrule', module: 'admin',
-    },
-    {
-        name: 'Override Audit', icon: AlertTriangle, path: '/admin/audit/overrides',
-        requiredPerm: 'view_journalheader', module: 'audit',
-    },
-    {
-        name: 'Fiscal Years', icon: Calendar, path: '/admin/fiscal-years',
-        requiredPerm: 'view_fiscalyear', module: 'admin',
+        // ── Administration group ──────────────────────────────────────
+        // Bundles all tenant-administrator surfaces under one entry so
+        // role/permission/user-management is discoverable as a unit
+        // rather than scattered across five top-level items. The order
+        // inside ``subItems`` mirrors the workflow an admin follows
+        // when onboarding a new tenant: define perms → assemble roles
+        // → assign users → write SoD rules → tune approval gates →
+        // review audit/override trail.
+        // ``module: null`` (not ``'admin'``) is intentional: 'admin'
+        // isn't a billable TenantModule entry — every tenant gets RBAC
+        // by definition. ``isModuleEnabled`` does a strict ``=== true``
+        // check, so when a tenant has any explicit ``enabled_modules``
+        // dict entries but ``admin`` isn't one of them, this group
+        // would silently disappear. Mirroring the pattern used by the
+        // existing "Settings" entry below: gate visibility purely by
+        // ``requiredPerm`` (tenant admins bypass via ``tenant_role``).
+        name: 'Administration', icon: ShieldCheck, path: '/admin/roles',
+        requiredPerm: 'view_user', module: null,
+        subItems: [
+            { name: 'Roles & Permissions', path: '/admin/roles',          icon: Shield },
+            { name: 'User Management',     path: '/user-management',      icon: UserCog },
+            { name: 'SoD Rules',           path: '/admin/sod-rules',      icon: ShieldAlert },
+            { name: 'Approval Rules',      path: '/admin/approval-rules', icon: CheckCircle },
+            { name: 'Override Audit',      path: '/admin/audit/overrides', icon: AlertTriangle },
+            { name: 'Fiscal Years',        path: '/admin/fiscal-years',   icon: Calendar },
+        ],
     },
     {
         name: 'Appropriations', icon: DollarSign, path: '/budget/appropriations',
@@ -276,7 +305,10 @@ const menuItems: MenuItem[] = [
             { name: 'Instances', path: '/workflow/instances', icon: List },
         ],
     },
-    { name: 'User Management', icon: UserCog, path: '/user-management', requiredPerm: 'view_employee', module: null },
+    // ``User Management`` was previously a separate top-level entry
+    // here — it now lives inside the Administration group above so all
+    // tenant-admin surfaces (roles, users, SoD, audit, approvals) are
+    // discoverable as one cohesive unit instead of being scattered.
     {
         name: 'Settings', icon: Settings, path: '/settings/organizations',
         requiredPerm: 'view_accountingsettings', module: null,
@@ -288,6 +320,12 @@ const menuItems: MenuItem[] = [
             { name: 'Tax Management', path: '/settings/tax', icon: Receipt },
             { name: 'Branding & Company', path: '/settings/branding', icon: Building },
             { name: 'Accounting Settings', path: '/settings/accounting', icon: Settings },
+            // Tenant-wide warrant printout config — letterhead + 3
+            // signatures (Governor, Finance Commissioner, AG) used to
+            // compose every AIE printout. Configure once at onboarding;
+            // future signatory changes only need a new image upload.
+            { name: 'Warrant Printout', path: '/settings/warrant-printout', icon: FileSignature },
+            { name: 'Backups', path: '/settings/backups', icon: Archive },
         ],
     },
     {
@@ -295,6 +333,7 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'is_superuser', module: null,
         subItems: [
             { name: 'Admin Dashboard', path: '/superadmin', icon: Settings },
+            { name: 'Snapshots', path: '/admin/snapshots', icon: Archive },
         ],
     },
 ];
@@ -509,16 +548,19 @@ const Sidebar = () => {
         <div style={{
             width: '260px',
             height: '100vh',
-            background: 'linear-gradient(180deg, #1a1f66 0%, #242a88 100%)',
-            color: 'rgba(255,255,255,0.75)',
+            // Light theme to match the SuperAdmin sidebar reference: white
+            // surface, slate text, solid indigo (#2926d9) pill for the
+            // active item. Replaces the previous navy gradient.
+            background: '#ffffff',
+            color: '#475569',
             display: 'flex', flexDirection: 'column',
             position: 'fixed', left: 0, top: 0,
             overflowY: 'auto',
-            borderRight: '1px solid rgba(255,255,255,0.07)',
+            borderRight: '1px solid #e2e8f0',
             zIndex: isMobile ? 28 : 20,
             transform: isMobile ? (drawerOpen ? 'translateX(0)' : 'translateX(-100%)') : 'none',
             transition: isMobile ? 'transform 240ms cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-            boxShadow: isMobile && drawerOpen ? '0 0 40px rgba(0,0,0,0.35)' : 'none',
+            boxShadow: isMobile && drawerOpen ? '0 0 40px rgba(15,23,42,0.18)' : 'none',
         }}>
             {/* Close button — mobile drawer only */}
             {isMobile && (
@@ -528,8 +570,8 @@ const Sidebar = () => {
                     className="tap-target"
                     style={{
                         position: 'absolute', top: 8, right: 8,
-                        background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer',
-                        color: '#fff', borderRadius: 8, zIndex: 2,
+                        background: '#f1f5f9', border: 'none', cursor: 'pointer',
+                        color: '#475569', borderRadius: 8, zIndex: 2,
                     }}
                 >
                     <X size={20} />
@@ -538,12 +580,15 @@ const Sidebar = () => {
             {/* Header */}
             <div style={{
                 padding: '20px 20px 16px',
-                borderBottom: '1px solid rgba(255,255,255,0.1)'
+                borderBottom: '1px solid #e2e8f0',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <div style={{
                         width: '36px', height: '36px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.15)',
+                        // Light tint of the new accent so the placeholder
+                        // logo block reads as part of the same palette
+                        // when ``branding.logo`` is unset.
+                        background: '#eef0fe',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0, overflow: 'hidden',
                     }}>
@@ -551,18 +596,19 @@ const Sidebar = () => {
                             <img src={branding.logo} alt={branding.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         ) : (
                             <svg viewBox="0 0 40 40" fill="none" width="20" height="20">
-                                <rect x="4" y="8" width="14" height="14" rx="3" fill="white"/>
-                                <rect x="22" y="8" width="14" height="14" rx="3" fill="rgba(255,255,255,0.7)"/>
-                                <rect x="4" y="26" width="14" height="6" rx="3" fill="rgba(255,255,255,0.5)"/>
-                                <rect x="22" y="26" width="14" height="6" rx="3" fill="rgba(255,255,255,0.3)"/>
+                                {/* Inverted from white-on-navy to indigo-on-light. */}
+                                <rect x="4" y="8" width="14" height="14" rx="3" fill="#2926d9"/>
+                                <rect x="22" y="8" width="14" height="14" rx="3" fill="rgba(41,38,217,0.7)"/>
+                                <rect x="4" y="26" width="14" height="6" rx="3" fill="rgba(41,38,217,0.5)"/>
+                                <rect x="22" y="26" width="14" height="6" rx="3" fill="rgba(41,38,217,0.3)"/>
                             </svg>
                         )}
                     </div>
                     <div>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.3px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.3px' }}>
                             {branding.name}
                         </div>
-                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>
                             Enterprise Platform
                         </div>
                     </div>
@@ -577,13 +623,33 @@ const Sidebar = () => {
             {/* Navigation */}
             <nav style={{ flex: 1, padding: '4px 12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
                 {filteredItems.map((item) => {
-                    // Bright Quot accent green used for both hover and
-                    // active states so the user can immediately see where
-                    // they are in the nav. Translucent variants for
-                    // subtle hover, solid + bold strip for active.
-                    const ACCENT = '#39cd9a';
-                    const HOVER_BG = 'rgba(57, 205, 154, 0.12)';
-                    const ACTIVE_BG = 'rgba(57, 205, 154, 0.20)';
+                    // Light-theme palette anchored on indigo #2926d9.
+                    // Active state is now a SOLID full-width pill (matches
+                    // the SuperAdmin reference): the accent fills the
+                    // background and text/icon flip to white. Hover is a
+                    // gentle slate wash so it reads as "interactive" without
+                    // competing with the active selection.
+                    const ACCENT = '#2926d9';
+                    // Slightly darker on press would be nice for tactile
+                    // feedback, but a single shade keeps the active pill
+                    // visually stable while users navigate.
+                    const ACTIVE_BG  = ACCENT;
+                    const ACTIVE_FG  = '#ffffff';
+                    const HOVER_BG   = '#f1f5f9';        // slate-100
+                    const HOVER_FG   = '#0f172a';        // slate-900
+                    // Inactive sidebar text was previously slate-600 / slate-400
+                    // which read as washed-out grey ("ash") against the white
+                    // background. Bumped to near-black (slate-900) for the
+                    // primary text and slate-700 for the icon/chevron so the
+                    // visual rhythm of label > icon survives while every label
+                    // now meets AAA contrast against the white sidebar.
+                    // Active state (white on blue) and hover state untouched.
+                    const INACTIVE_FG       = '#0f172a'; // slate-900 (near-black)
+                    const INACTIVE_ICON     = '#334155'; // slate-700
+                    const INACTIVE_LABEL_FG = '#0f172a'; // slate-900 (unified
+                    //   with row FG — the label IS the affordance, no longer
+                    //   needs a separate "darker than the row" treatment).
+                    const INACTIVE_CHEVRON  = '#334155'; // slate-700
 
                     const parentActive = isParentActive(item);
 
@@ -597,24 +663,23 @@ const Sidebar = () => {
                         padding: '8px 12px', borderRadius: '8px',
                         cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
                         background: parentActive ? ACTIVE_BG : 'transparent',
-                        color: parentActive ? ACCENT : 'rgba(255,255,255,0.75)',
+                        color: parentActive ? ACTIVE_FG : INACTIVE_FG,
                         // Link inherits <a> defaults; strip them out.
                         textDecoration: 'none',
-                        // Solid 3px accent strip on the left edge of the
-                        // active row — visible at a glance, even when
-                        // multiple parent items share a similar shade.
-                        boxShadow: parentActive ? `inset 3px 0 0 0 ${ACCENT}` : 'none',
+                        // The previous design used an inset 3px strip; the
+                        // SuperAdmin reference uses a fully filled pill
+                        // instead — strip removed.
                     };
                     const parentRowHoverIn = (e: React.MouseEvent<HTMLElement>) => {
                         if (!parentActive) {
                             (e.currentTarget as HTMLElement).style.background = HOVER_BG;
-                            (e.currentTarget as HTMLElement).style.color = ACCENT;
+                            (e.currentTarget as HTMLElement).style.color = HOVER_FG;
                         }
                     };
                     const parentRowHoverOut = (e: React.MouseEvent<HTMLElement>) => {
                         if (!parentActive) {
                             (e.currentTarget as HTMLElement).style.background = 'transparent';
-                            (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.75)';
+                            (e.currentTarget as HTMLElement).style.color = INACTIVE_FG;
                         }
                     };
                     // Only the parent without subItems gets the
@@ -627,20 +692,23 @@ const Sidebar = () => {
                     const parentInner = (
                         <>
                             <item.icon size={18} style={{
-                                color: parentActive ? ACCENT : 'rgba(255,255,255,0.5)',
+                                // Icon/label/chevron all flip to white when
+                                // the parent is active so the entire pill
+                                // reads as a single solid block.
+                                color: parentActive ? ACTIVE_FG : INACTIVE_ICON,
                                 flexShrink: 0
                             }} />
                             <span style={{
                                 flex: 1, fontSize: '13.5px',
                                 fontWeight: parentActive ? 700 : 500,
-                                color: parentActive ? ACCENT : 'rgba(255,255,255,0.85)',
+                                color: parentActive ? ACTIVE_FG : INACTIVE_LABEL_FG,
                             }}>
                                 {item.name}
                             </span>
                             {item.subItems ? (
                                 expandedMenus.includes(item.name) ?
-                                    <ChevronDown size={14} style={{ color: parentActive ? ACCENT : 'rgba(255,255,255,0.35)' }} /> :
-                                    <ChevronRight size={14} style={{ color: parentActive ? ACCENT : 'rgba(255,255,255,0.35)' }} />
+                                    <ChevronDown size={14} style={{ color: parentActive ? ACTIVE_FG : INACTIVE_CHEVRON }} /> :
+                                    <ChevronRight size={14} style={{ color: parentActive ? ACTIVE_FG : INACTIVE_CHEVRON }} />
                             ) : null}
                         </>
                     );
@@ -681,7 +749,11 @@ const Sidebar = () => {
                             )}
 
                             {item.subItems && expandedMenus.includes(item.name) && (
-                                <div style={{ marginLeft: '12px', borderLeft: '1.5px solid rgba(255,255,255,0.15)', marginTop: '2px', marginBottom: '4px' }}>
+                                <div style={{
+                                    marginLeft: '12px',
+                                    borderLeft: '1.5px solid #e2e8f0',
+                                    marginTop: '2px', marginBottom: '4px',
+                                }}>
                                     {item.subItems.map((subItem) => {
                                         const subActive = isActive(subItem.path);
                                         return (
@@ -692,12 +764,17 @@ const Sidebar = () => {
                                                 style={{
                                                     position: 'relative',
                                                     display: 'flex', alignItems: 'center', gap: '8px',
-                                                    padding: '6px 12px 6px 16px', borderRadius: '0 6px 6px 0',
+                                                    padding: '6px 12px 6px 16px',
+                                                    // Sub-items use the same fully-rounded pill so
+                                                    // the active state matches the parent visually
+                                                    // (a half-rounded sub-pill would have looked
+                                                    // mismatched against a fully-rounded parent
+                                                    // pill on the same theme).
+                                                    borderRadius: '6px',
                                                     cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
                                                     background: subActive ? ACTIVE_BG : 'transparent',
                                                     marginLeft: '4px',
                                                     textDecoration: 'none',
-                                                    boxShadow: subActive ? `inset 3px 0 0 0 ${ACCENT}` : 'none',
                                                 }}
                                                 onMouseOver={(e) => {
                                                     if (!subActive) {
@@ -711,13 +788,13 @@ const Sidebar = () => {
                                                 }}
                                             >
                                                 <subItem.icon size={14} style={{
-                                                    color: subActive ? ACCENT : 'rgba(255,255,255,0.5)',
+                                                    color: subActive ? ACTIVE_FG : INACTIVE_ICON,
                                                     flexShrink: 0
                                                 }} />
                                                 <span style={{
                                                     fontSize: '12.5px',
-                                                    fontWeight: subActive ? 700 : 400,
-                                                    color: subActive ? ACCENT : 'rgba(255,255,255,0.75)',
+                                                    fontWeight: subActive ? 700 : 500,
+                                                    color: subActive ? ACTIVE_FG : INACTIVE_FG,
                                                 }}>
                                                     {subItem.name}
                                                 </span>
@@ -732,24 +809,27 @@ const Sidebar = () => {
             </nav>
 
             {/* Footer */}
-            <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ padding: '12px', borderTop: '1px solid #e2e8f0' }}>
                 {/* Account / Profile link — real <Link> so right-click /
-                    middle-click / Ctrl+click open in a new tab natively. */}
+                    middle-click / Ctrl+click open in a new tab natively.
+                    Active state uses the same solid indigo pill as the
+                    main nav so the footer feels like a continuation of
+                    the navigation, not a separate styling system. */}
                 <Link
                     to="/account"
                     style={{
                         display: 'flex', alignItems: 'center', gap: '10px',
                         padding: '8px 12px', borderRadius: '8px',
                         cursor: 'pointer', transition: 'all 0.15s',
-                        color: isActive('/account') ? '#ffffff' : 'rgba(255,255,255,0.75)',
-                        background: isActive('/account') ? 'rgba(255,255,255,0.14)' : 'transparent',
+                        color: isActive('/account') ? '#ffffff' : '#475569',
+                        background: isActive('/account') ? '#2926d9' : 'transparent',
                         marginBottom: '2px',
                         textDecoration: 'none',
                     }}
-                    onMouseOver={(e) => { if (!isActive('/account')) e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; }}
+                    onMouseOver={(e) => { if (!isActive('/account')) e.currentTarget.style.background = '#f1f5f9'; }}
                     onMouseOut={(e) => { if (!isActive('/account')) e.currentTarget.style.background = 'transparent'; }}
                 >
-                    <User size={18} style={{ color: isActive('/account') ? '#ffffff' : 'rgba(255,255,255,0.5)' }} />
+                    <User size={18} style={{ color: isActive('/account') ? '#ffffff' : '#94a3b8' }} />
                     <span style={{ fontSize: '13.5px', fontWeight: 500 }}>My Account</span>
                 </Link>
 
@@ -759,9 +839,9 @@ const Sidebar = () => {
                         display: 'flex', alignItems: 'center', gap: '10px',
                         padding: '8px 12px', borderRadius: '8px',
                         cursor: 'pointer', transition: 'all 0.15s',
-                        color: 'rgba(252,165,165,0.9)',
+                        color: '#dc2626',
                     }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.18)'}
+                    onMouseOver={(e) => e.currentTarget.style.background = '#fef2f2'}
                     onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                 >
                     <LogOut size={18} />

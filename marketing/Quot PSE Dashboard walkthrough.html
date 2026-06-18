@@ -1,0 +1,1723 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Quot PSE — interactive UI walkthrough. Click any module in the left rail to preview its design. Single-file HTML — no build, no dependencies, no tracking." />
+<title>Quot PSE — UI Walkthrough · Tenant Dashboard &amp; All Modules</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  DESIGN TOKENS — same palette as the landing page so this  ║
+   ║  artefact reads as a coherent set when shared with client. ║
+   ╚════════════════════════════════════════════════════════════╝ */
+:root {
+  --ivory:        oklch(98.4% 0.005 95);
+  --ivory-warm:   oklch(96.8% 0.012 90);
+  --paper:        oklch(99.2% 0.002 95);
+  --canvas:       oklch(97.5% 0.006 95);
+  --ink:          oklch(20% 0.018 250);
+  --ink-soft:     oklch(35% 0.016 250);
+  --ink-muted:    oklch(55% 0.010 250);
+  --ink-faint:    oklch(70% 0.008 250);
+  --rule:         oklch(88% 0.005 250);
+  --rule-soft:    oklch(93% 0.004 250);
+  --navy:         oklch(28% 0.06  255);
+  --navy-deep:    oklch(18% 0.05  255);
+  --ochre:        oklch(64% 0.13  78);
+  --ochre-deep:   oklch(54% 0.14  68);
+  --ochre-soft:   oklch(95% 0.04  85);
+  --sage:         oklch(58% 0.07 150);
+  --sage-soft:    oklch(94% 0.04 150);
+  --crimson:      oklch(48% 0.16 25);
+  --crimson-soft: oklch(95% 0.04 25);
+  --sky:          oklch(56% 0.10 230);
+  --sky-soft:     oklch(94% 0.03 230);
+
+  --serif: 'Cormorant Garamond', Georgia, serif;
+  --sans:  'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --rail-w: 280px;
+  --shadow-sm: 0 1px 0 oklch(82% 0.012 250 / 0.5);
+  --shadow-md: 0 1px 0 oklch(82% 0.012 250 / 0.5),
+               0 8px 24px -12px oklch(20% 0.05 250 / 0.16);
+  --shadow-lg: 0 1px 0 oklch(82% 0.012 250 / 0.5),
+               0 24px 56px -24px oklch(20% 0.05 250 / 0.22);
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font: 400 14px/1.55 var(--sans);
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--ochre); color: var(--ivory); }
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  SHELL — fixed left rail, scrollable canvas right          ║
+   ╚════════════════════════════════════════════════════════════╝ */
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  min-height: 100vh;
+}
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: relative !important; height: auto !important; max-height: 50vh; overflow-y: auto; }
+}
+
+/* ─── REVIEW BANNER (top of page) ─── */
+.review-banner {
+  grid-column: 1 / -1;
+  background: var(--navy-deep);
+  color: var(--ivory);
+  font: 500 12px/1.4 var(--sans);
+  letter-spacing: 0.04em;
+  padding: 8px 24px;
+  display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid oklch(40% 0.04 255);
+}
+.review-banner .pill {
+  background: var(--ochre);
+  color: var(--navy-deep);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.review-banner .meta { color: oklch(80% 0.012 250); font-family: var(--mono); font-size: 11px; }
+
+/* ─── LEFT NAVIGATION RAIL ─── */
+.rail {
+  position: sticky; top: 0;
+  height: 100vh;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.rail::-webkit-scrollbar { width: 6px; }
+.rail::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 99px; }
+
+.rail-brand {
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.rail-brand .b-row { display: flex; align-items: baseline; gap: 10px; }
+.rail-brand .mark {
+  width: 32px; height: 32px;
+  background: var(--navy-deep);
+  color: var(--ochre);
+  border-radius: 6px;
+  display: grid; place-items: center;
+  font: 600 14px/1 var(--mono);
+  transform: translateY(4px);
+}
+.rail-brand .name { font: 600 15px/1.1 var(--serif); color: var(--navy-deep); letter-spacing: 0.02em; }
+.rail-brand .sub  { font: 400 9px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.18em; text-transform: uppercase; margin-top: 2px; }
+
+/* ─── TENANT SWITCHER ─── */
+.tenant-card {
+  margin: 14px;
+  padding: 12px;
+  background: var(--ivory-warm);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease);
+}
+.tenant-card:hover { border-color: var(--rule); }
+.tenant-card .t-eyebrow { font: 500 9px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px; }
+.tenant-card .t-row { display: flex; align-items: center; gap: 10px; }
+.tenant-card .t-glyph {
+  width: 28px; height: 28px; flex-shrink: 0;
+  background: var(--navy-deep); color: var(--ochre);
+  border-radius: 6px;
+  display: grid; place-items: center;
+  font: 600 11px/1 var(--mono);
+}
+.tenant-card .t-name { font: 600 12px/1.2 var(--sans); color: var(--ink); }
+.tenant-card .t-meta { font: 400 10px/1.2 var(--sans); color: var(--ink-muted); margin-top: 2px; }
+.tenant-card .t-arrow { margin-left: auto; color: var(--ink-faint); font-size: 14px; }
+
+/* ─── MODULE GROUPS ─── */
+.rail-group { padding: 10px 14px 4px; }
+.rail-group .g-title {
+  font: 500 9px/1 var(--sans);
+  color: var(--ink-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 12px 8px 6px;
+}
+.rail-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font: 500 12.5px/1.2 var(--sans);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.rail-link:hover { background: var(--ivory-warm); color: var(--ink); }
+.rail-link.active {
+  background: var(--navy-deep);
+  color: var(--ivory);
+  border-color: var(--navy-deep);
+  box-shadow: 0 4px 14px -8px oklch(18% 0.05 255 / 0.4);
+}
+.rail-link.active .icon { color: var(--ochre); }
+.rail-link .icon {
+  width: 16px; height: 16px; flex-shrink: 0;
+  color: var(--ink-muted);
+  display: grid; place-items: center;
+  font-size: 13px;
+}
+.rail-link .badge {
+  margin-left: auto;
+  font: 500 10px/1 var(--mono);
+  background: var(--ochre-soft);
+  color: var(--ochre-deep);
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+.rail-link.active .badge { background: var(--ochre); color: var(--navy-deep); }
+.rail-sub {
+  padding: 4px 10px 4px 36px;
+  font: 400 11.5px/1.4 var(--sans);
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.rail-sub:hover { background: var(--ivory-warm); color: var(--ink-soft); }
+.rail-sub.active { color: var(--navy-deep); font-weight: 600; }
+
+/* ─── USER FOOTER IN RAIL ─── */
+.rail-user {
+  margin-top: auto;
+  padding: 14px;
+  border-top: 1px solid var(--rule-soft);
+  display: flex; align-items: center; gap: 10px;
+}
+.rail-user .avatar {
+  width: 32px; height: 32px;
+  background: oklch(70% 0.07 30);
+  color: var(--ivory);
+  border-radius: 99px;
+  display: grid; place-items: center;
+  font: 600 11px/1 var(--sans);
+}
+.rail-user .name { font: 500 12px/1.2 var(--sans); color: var(--ink); }
+.rail-user .role { font: 400 10px/1.2 var(--sans); color: var(--ink-muted); }
+.rail-user .gear { margin-left: auto; color: var(--ink-faint); font-size: 14px; cursor: pointer; }
+
+/* ╔════════════════════════════════════════════════════════════╗
+   ║  CANVAS — every module screen renders inside this column   ║
+   ╚════════════════════════════════════════════════════════════╝ */
+.canvas { padding: 0; background: var(--canvas); }
+.scene { display: none; padding: 28px 36px 60px; max-width: 1320px; }
+.scene.active { display: block; }
+@media (max-width: 1100px) { .scene { padding: 24px; } }
+
+/* ─── SCREEN HEADER ─── */
+.s-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.s-head .crumb { font: 400 11px/1 var(--sans); color: var(--ink-muted); margin-bottom: 6px; }
+.s-head .crumb span + span::before { content: '·'; margin: 0 8px; color: var(--ink-faint); }
+.s-head h1 { font: 500 28px/1.1 var(--serif); color: var(--navy-deep); margin: 0 0 4px; letter-spacing: -0.01em; }
+.s-head .desc { font: 400 13px/1.5 var(--sans); color: var(--ink-soft); max-width: 60ch; }
+.s-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ─── BUTTONS ─── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  font: 500 12.5px/1 var(--sans);
+  border-radius: 7px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { background: var(--ivory-warm); border-color: oklch(78% 0.012 250); }
+.btn-primary { background: var(--navy-deep); color: var(--ivory); border-color: var(--navy-deep); }
+.btn-primary:hover { background: var(--navy); border-color: var(--navy); }
+.btn-accent { background: var(--ochre); color: var(--navy-deep); border-color: var(--ochre); }
+.btn-accent:hover { background: oklch(70% 0.13 78); }
+.btn-sm { padding: 5px 10px; font-size: 11.5px; }
+
+/* ─── KPI CARDS ─── */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  margin-bottom: 24px;
+}
+@media (max-width: 1100px) { .kpi-row { grid-template-columns: 1fr 1fr; } }
+.kpi {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 16px 18px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi .lbl { font: 500 10px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.14em; text-transform: uppercase; }
+.kpi .val { font: 500 26px/1 var(--serif); color: var(--navy-deep); margin-top: 12px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.kpi .delta { font: 500 11px/1 var(--mono); margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.kpi .delta.up { color: var(--sage); }
+.kpi .delta.down { color: var(--crimson); }
+.kpi .spark { position: absolute; right: 14px; bottom: 14px; opacity: 0.55; }
+
+/* ─── CARDS / PANELS ─── */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.card .c-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card .c-head h3 { font: 600 13px/1 var(--sans); color: var(--navy-deep); margin: 0; letter-spacing: 0.02em; }
+.card .c-head .t-tabs { display: flex; gap: 4px; }
+.card .c-head .t-tab {
+  font: 500 11px/1 var(--sans);
+  padding: 5px 10px; border-radius: 6px;
+  color: var(--ink-muted); cursor: pointer;
+}
+.card .c-head .t-tab.on { background: var(--ivory-warm); color: var(--ink); }
+.card .c-body { padding: 16px 18px; }
+.card .c-body.tight { padding: 0; }
+
+/* ─── DATA TABLES ─── */
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl thead th {
+  text-align: left;
+  font: 500 10px/1 var(--sans);
+  color: var(--ink-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--canvas);
+}
+.tbl tbody td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink);
+  vertical-align: middle;
+}
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover td { background: var(--ivory-warm); }
+.tbl .num { font-variant-numeric: tabular-nums; text-align: right; }
+.tbl .ref { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+.tbl .muted { color: var(--ink-muted); font-size: 11.5px; }
+
+/* ─── STATUS PILLS ─── */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 500 10.5px/1 var(--sans);
+  padding: 4px 8px;
+  border-radius: 99px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+.pill.draft    { background: oklch(95% 0.005 95); color: var(--ink-muted); }
+.pill.pending  { background: oklch(96% 0.04 85); color: var(--ochre-deep); }
+.pill.review   { background: var(--sky-soft); color: var(--sky); }
+.pill.approved { background: var(--sage-soft); color: var(--sage); }
+.pill.posted   { background: var(--sage-soft); color: var(--sage); }
+.pill.paid     { background: oklch(94% 0.04 200); color: oklch(45% 0.12 220); }
+.pill.rejected { background: var(--crimson-soft); color: var(--crimson); }
+.pill.cancelled{ background: oklch(94% 0.005 250); color: var(--ink-muted); }
+.pill.warning  { background: oklch(96% 0.05 60); color: oklch(48% 0.14 50); }
+
+/* ─── FORM PRIMITIVES ─── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+.form-grid .col-2 { grid-column: span 2; }
+.fld { display: flex; flex-direction: column; gap: 6px; }
+.fld label { font: 500 10px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.12em; text-transform: uppercase; }
+.fld input, .fld select, .fld textarea {
+  font: 400 13px/1.4 var(--sans);
+  padding: 9px 11px;
+  border: 1.5px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  width: 100%;
+}
+.fld input:focus, .fld select:focus, .fld textarea:focus {
+  outline: 2px solid var(--ochre); outline-offset: -1px;
+  border-color: var(--ochre-deep);
+}
+.fld .hint { font: 400 11px/1.4 var(--sans); color: var(--ink-muted); }
+
+/* ─── 2-COL LAYOUT (table + side panel) ─── */
+.split-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
+@media (max-width: 1200px) { .split-2 { grid-template-columns: 1fr; } }
+.split-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+@media (max-width: 1200px) { .split-3 { grid-template-columns: 1fr; } }
+
+/* ─── BREADCRUMB & FILTER BAR ─── */
+.toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.toolbar .search {
+  flex: 1; min-width: 220px;
+  padding: 7px 12px;
+  font: 400 12.5px/1 var(--sans);
+  border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.toolbar .filter {
+  padding: 6px 10px;
+  font: 500 11.5px/1 var(--sans);
+  border: 1px solid var(--rule); border-radius: 6px;
+  color: var(--ink-soft); background: var(--paper);
+  cursor: pointer;
+}
+.toolbar .filter.on { background: var(--navy-deep); color: var(--ivory); border-color: var(--navy-deep); }
+
+/* ─── IFMIS CHAIN VISUAL ─── */
+.chain-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 22px;
+}
+@media (max-width: 1100px) { .chain-strip { grid-template-columns: 1fr 1fr; } }
+.chain-step {
+  position: relative;
+  padding: 14px 16px 16px 36px;
+  background: var(--canvas);
+  border-radius: 8px;
+  border: 1px solid var(--rule-soft);
+}
+.chain-step .num {
+  position: absolute; left: 12px; top: 14px;
+  font: 600 11px/1 var(--mono);
+  width: 18px; height: 18px;
+  border-radius: 99px;
+  background: var(--ochre);
+  color: var(--navy-deep);
+  display: grid; place-items: center;
+}
+.chain-step .lbl { font: 500 11px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.chain-step .val { font: 500 18px/1.1 var(--serif); color: var(--navy-deep); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.chain-step .meta { font: 400 11px/1.3 var(--sans); color: var(--ink-muted); margin-top: 4px; }
+
+/* ─── ACTIVITY FEED ─── */
+.feed { display: flex; flex-direction: column; }
+.feed-row {
+  display: grid; grid-template-columns: auto 1fr auto;
+  gap: 12px; align-items: start;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.feed-row:last-child { border-bottom: 0; }
+.feed-row .dot {
+  width: 8px; height: 8px; border-radius: 99px;
+  background: var(--sage);
+  margin-top: 7px;
+}
+.feed-row .dot.warn   { background: var(--ochre); }
+.feed-row .dot.danger { background: var(--crimson); }
+.feed-row .dot.info   { background: var(--sky); }
+.feed-row .body { font: 400 12.5px/1.5 var(--sans); }
+.feed-row .body strong { color: var(--navy-deep); font-weight: 600; }
+.feed-row .body em { font-style: normal; color: var(--ink-muted); }
+.feed-row .ts { font: 400 11px/1 var(--mono); color: var(--ink-muted); white-space: nowrap; }
+
+/* ─── INLINE CHARTS (SVG) ─── */
+.chart-wrap { padding: 8px 18px 16px; }
+.chart-wrap svg { width: 100%; height: auto; display: block; }
+.chart-legend { display: flex; gap: 16px; padding: 0 18px 14px; font: 400 11px/1 var(--sans); color: var(--ink-muted); flex-wrap: wrap; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* ─── APPROVAL TIMELINE ─── */
+.timeline { display: flex; flex-direction: column; padding: 4px 4px 4px 0; }
+.tl-row {
+  display: grid; grid-template-columns: 22px 1fr; gap: 14px;
+  padding: 10px 18px;
+  position: relative;
+}
+.tl-row::before {
+  content: ''; position: absolute;
+  left: 28px; top: 30px; bottom: -10px;
+  width: 1px; background: var(--rule);
+}
+.tl-row:last-child::before { display: none; }
+.tl-row .node {
+  width: 22px; height: 22px; border-radius: 99px;
+  display: grid; place-items: center;
+  background: var(--paper);
+  border: 2px solid var(--rule);
+  font: 700 10px/1 var(--mono);
+  color: var(--ink-muted);
+  z-index: 1;
+}
+.tl-row.done .node    { background: var(--sage); border-color: var(--sage); color: var(--ivory); }
+.tl-row.active .node  { background: var(--ochre); border-color: var(--ochre); color: var(--navy-deep); }
+.tl-row.danger .node  { background: var(--crimson); border-color: var(--crimson); color: var(--ivory); }
+.tl-row .step-name { font: 600 12.5px/1.2 var(--sans); color: var(--navy-deep); }
+.tl-row .step-meta { font: 400 11.5px/1.4 var(--sans); color: var(--ink-muted); margin-top: 2px; }
+
+/* ─── BANNERS / CALLOUTS ─── */
+.banner {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 16px; border-radius: 8px;
+  font: 400 12.5px/1.5 var(--sans);
+  margin-bottom: 16px;
+}
+.banner.info { background: var(--sky-soft); border: 1px solid oklch(80% 0.05 230); color: oklch(36% 0.10 240); }
+.banner.warn { background: oklch(96% 0.05 80); border: 1px solid oklch(82% 0.08 80); color: oklch(38% 0.12 60); }
+.banner strong { display: block; margin-bottom: 2px; }
+
+/* ─── SCREEN-SWITCHER NAV (next/prev at bottom) ─── */
+.scene-nav {
+  margin-top: 36px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+  display: flex; justify-content: space-between; gap: 12px;
+}
+.scene-nav a {
+  text-decoration: none;
+  display: inline-flex; flex-direction: column; gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper);
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  min-width: 180px;
+}
+.scene-nav a:hover { background: var(--ivory-warm); }
+.scene-nav .lbl { font: 500 10px/1 var(--sans); color: var(--ink-muted); letter-spacing: 0.14em; text-transform: uppercase; }
+.scene-nav .nm { font: 600 13px/1 var(--sans); color: var(--navy-deep); margin-top: 4px; }
+.scene-nav .right { text-align: right; }
+
+/* ─── LANDING / INTRO PANE ─── */
+.intro-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 28px 32px 32px;
+  margin-bottom: 22px;
+}
+.intro-card h2 { font: 500 24px/1.15 var(--serif); color: var(--navy-deep); margin: 0 0 10px; letter-spacing: -0.01em; }
+.intro-card p { font: 400 13.5px/1.6 var(--sans); color: var(--ink-soft); margin: 0; max-width: 65ch; }
+
+/* ─── PRINT (so it renders cleanly if client prints to PDF) ─── */
+@media print {
+  .rail, .scene-nav, .review-banner { display: none !important; }
+  .scene { display: block !important; page-break-after: always; padding: 18px 24px; }
+  body { background: white; }
+  .card, .kpi { box-shadow: none; }
+}
+
+/* ─── REDUCED-MOTION RESPECT ─── */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <div class="review-banner">
+    <span><span class="pill">For Review</span> &nbsp; Quot PSE — UI Walkthrough</span>
+    <span class="meta">Click any module on the left rail to preview · Single-file HTML · Last revision: <span id="ymd"></span></span>
+  </div>
+
+  <!-- ╔══════════════════════════════════════════════════════════╗
+       ║  LEFT RAIL — mirrors Sidebar.tsx in the actual codebase  ║
+       ╚══════════════════════════════════════════════════════════╝ -->
+  <aside class="rail" aria-label="Module navigation">
+
+    <div class="rail-brand">
+      <div class="b-row">
+        <span class="mark">Q</span>
+        <div>
+          <div class="name">Quot&nbsp;PSE</div>
+          <div class="sub">Public Sector Edition</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tenant-card" role="button" tabindex="0">
+      <div class="t-eyebrow">Active Tenant</div>
+      <div class="t-row">
+        <span class="t-glyph">MOH</span>
+        <div>
+          <div class="t-name">Ministry of Health</div>
+          <div class="t-meta">Delta State · FY 2026</div>
+        </div>
+        <span class="t-arrow">⌄</span>
+      </div>
+    </div>
+
+    <nav>
+      <div class="rail-group">
+        <div class="g-title">Overview</div>
+        <a class="rail-link active" data-target="dashboard">
+          <span class="icon">◉</span> Dashboard
+        </a>
+        <a class="rail-link" data-target="reports">
+          <span class="icon">▤</span> IPSAS Reports
+          <span class="badge">7</span>
+        </a>
+      </div>
+
+      <div class="rail-group">
+        <div class="g-title">Financial Core</div>
+        <a class="rail-link" data-target="gl">
+          <span class="icon">≣</span> General Ledger
+        </a>
+        <a class="rail-link" data-target="ap">
+          <span class="icon">↗</span> Accounts Payable
+        </a>
+        <a class="rail-link" data-target="ar">
+          <span class="icon">↙</span> Accounts Receivable
+        </a>
+        <a class="rail-link" data-target="assets">
+          <span class="icon">◰</span> Fixed Assets
+        </a>
+      </div>
+
+      <div class="rail-group">
+        <div class="g-title">Public Sector</div>
+        <a class="rail-link" data-target="budget">
+          <span class="icon">▥</span> Budget &amp; Appropriation
+        </a>
+        <a class="rail-link" data-target="treasury">
+          <span class="icon">⌂</span> Treasury &amp; TSA
+          <span class="badge">NEW</span>
+        </a>
+      </div>
+
+      <div class="rail-group">
+        <div class="g-title">Procurement &amp; Contracts</div>
+        <a class="rail-link" data-target="procurement">
+          <span class="icon">▰</span> Procurement (P2P)
+        </a>
+        <a class="rail-link" data-target="contracts">
+          <span class="icon">⌬</span> Contracts &amp; IPCs
+        </a>
+        <a class="rail-link" data-target="inventory">
+          <span class="icon">⬚</span> Inventory
+        </a>
+      </div>
+
+      <div class="rail-group">
+        <div class="g-title">People &amp; Workflow</div>
+        <a class="rail-link" data-target="approvals">
+          <span class="icon">✓</span> Approvals
+          <span class="badge">12</span>
+        </a>
+        <a class="rail-link" data-target="hr">
+          <span class="icon">○</span> HR &amp; Payroll
+        </a>
+      </div>
+
+      <div class="rail-group">
+        <div class="g-title">Administration</div>
+        <a class="rail-link" data-target="superadmin">
+          <span class="icon">✦</span> Superadmin
+        </a>
+      </div>
+    </nav>
+
+    <div class="rail-user">
+      <span class="avatar">AO</span>
+      <div>
+        <div class="name">Adaeze Okafor</div>
+        <div class="role">Finance Director</div>
+      </div>
+      <span class="gear">⚙</span>
+    </div>
+  </aside>
+
+  <!-- ╔══════════════════════════════════════════════════════════╗
+       ║  CANVAS — every module screen                            ║
+       ╚══════════════════════════════════════════════════════════╝ -->
+  <main class="canvas">
+
+    <!-- ────────────────────── 1. DASHBOARD ────────────────────── -->
+    <section class="scene active" id="dashboard">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Workspace</span><span>Ministry of Health</span><span>Dashboard</span></div>
+          <h1>Tenant Dashboard</h1>
+          <div class="desc">Real-time financial position, IFMIS chain progress, and the day's pending decisions — all on one screen.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Export · PDF</button>
+          <button class="btn">FY 2026 ⌄</button>
+          <button class="btn-primary btn">+ Quick Post</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="lbl">Total Appropriation</div>
+          <div class="val">₦ 18.42 B</div>
+          <div class="delta up">▲ 4.2% vs. prior FY</div>
+          <svg class="spark" width="80" height="28" viewBox="0 0 80 28">
+            <polyline fill="none" stroke="oklch(58% 0.07 150)" stroke-width="1.5" points="0,22 12,18 24,20 36,12 48,15 60,8 72,6 80,3"/>
+          </svg>
+        </div>
+        <div class="kpi">
+          <div class="lbl">Cash on TSA</div>
+          <div class="val">₦ 4.86 B</div>
+          <div class="delta down">▼ 2.1% week-on-week</div>
+          <svg class="spark" width="80" height="28" viewBox="0 0 80 28">
+            <polyline fill="none" stroke="oklch(54% 0.14 68)" stroke-width="1.5" points="0,8 12,12 24,9 36,14 48,16 60,18 72,22 80,20"/>
+          </svg>
+        </div>
+        <div class="kpi">
+          <div class="lbl">Pending Approvals</div>
+          <div class="val">12</div>
+          <div class="delta down">▼ 3 cleared today</div>
+          <svg class="spark" width="80" height="28" viewBox="0 0 80 28">
+            <polyline fill="none" stroke="oklch(54% 0.14 68)" stroke-width="1.5" points="0,5 12,8 24,10 36,12 48,11 60,16 72,18 80,20"/>
+          </svg>
+        </div>
+        <div class="kpi">
+          <div class="lbl">Variance to Budget</div>
+          <div class="val">+ 1.8%</div>
+          <div class="delta up">Under-spend, on plan</div>
+          <svg class="spark" width="80" height="28" viewBox="0 0 80 28">
+            <polyline fill="none" stroke="oklch(58% 0.07 150)" stroke-width="1.5" points="0,16 12,14 24,15 36,12 48,10 60,11 72,8 80,5"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="chain-strip" aria-label="IFMIS execution chain">
+        <div class="chain-step"><span class="num">1</span><div class="lbl">Appropriated</div><div class="val">₦ 18.42B</div><div class="meta">FY 2026 Original + 1 Supp</div></div>
+        <div class="chain-step"><span class="num">2</span><div class="lbl">Warranted</div><div class="val">₦ 11.20B</div><div class="meta">Q1 + Q2 released</div></div>
+        <div class="chain-step"><span class="num">3</span><div class="lbl">Committed</div><div class="val">₦ 8.94B</div><div class="meta">228 active POs</div></div>
+        <div class="chain-step"><span class="num">4</span><div class="lbl">Expended</div><div class="val">₦ 6.32B</div><div class="meta">98 PVs cleared</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head">
+            <h3>Cash Position by Account</h3>
+            <div class="t-tabs">
+              <span class="t-tab on">90d</span>
+              <span class="t-tab">YTD</span>
+              <span class="t-tab">12m</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <!-- Stacked area chart, pure SVG -->
+            <svg viewBox="0 0 720 220" role="img" aria-label="Cash position">
+              <defs>
+                <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stop-color="oklch(28% 0.06 255)" stop-opacity="0.85"/>
+                  <stop offset="100%" stop-color="oklch(28% 0.06 255)" stop-opacity="0.15"/>
+                </linearGradient>
+                <linearGradient id="g2" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stop-color="oklch(64% 0.13 78)" stop-opacity="0.55"/>
+                  <stop offset="100%" stop-color="oklch(64% 0.13 78)" stop-opacity="0.05"/>
+                </linearGradient>
+              </defs>
+              <!-- gridlines -->
+              <g stroke="oklch(88% 0.005 250)" stroke-width="1">
+                <line x1="40" y1="40"  x2="700" y2="40"  stroke-dasharray="3 3"/>
+                <line x1="40" y1="100" x2="700" y2="100" stroke-dasharray="3 3"/>
+                <line x1="40" y1="160" x2="700" y2="160"/>
+              </g>
+              <!-- bottom area: TSA Sub -->
+              <path d="M40,180 L120,170 L200,160 L280,158 L360,150 L440,140 L520,130 L600,118 L700,110 L700,180 Z" fill="url(#g2)"/>
+              <!-- top area: Main TSA -->
+              <path d="M40,140 L120,128 L200,118 L280,108 L360,90 L440,80 L520,68 L600,55 L700,45 L700,180 Z" fill="url(#g1)"/>
+              <!-- axis labels -->
+              <g font-family="JetBrains Mono" font-size="10" fill="oklch(55% 0.01 250)">
+                <text x="40"  y="200">Apr</text>
+                <text x="160" y="200">May</text>
+                <text x="280" y="200">Jun</text>
+                <text x="400" y="200">Jul</text>
+                <text x="520" y="200">Aug</text>
+                <text x="640" y="200">Sep</text>
+                <text x="0" y="44">5B</text>
+                <text x="0" y="104">3B</text>
+                <text x="0" y="164">1B</text>
+              </g>
+            </svg>
+          </div>
+          <div class="chart-legend">
+            <span><i style="background:oklch(28% 0.06 255)"></i> Main TSA</span>
+            <span><i style="background:oklch(64% 0.13 78)"></i> Sub-account (MOH)</span>
+            <span><i style="background:oklch(58% 0.07 150)"></i> Revenue Collection</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="c-head">
+            <h3>Today's Activity</h3>
+            <span class="muted" style="font:400 11px/1 var(--mono); color:var(--ink-muted)">Live · 12:48 WAT</span>
+          </div>
+          <div class="feed">
+            <div class="feed-row"><span class="dot"></span>
+              <div class="body"><strong>PV-2026-04217</strong> approved by Director &mdash; <em>posted to GL automatically</em></div>
+              <span class="ts">12:42</span>
+            </div>
+            <div class="feed-row"><span class="dot info"></span>
+              <div class="body">3-way match cleared on <strong>IV-2026-00188</strong> &mdash; <em>variance 0.6%, within tolerance</em></div>
+              <span class="ts">11:58</span>
+            </div>
+            <div class="feed-row"><span class="dot warn"></span>
+              <div class="body"><strong>Warrant Q3</strong> nearing 80% utilisation on Health · Recurrent</div>
+              <span class="ts">11:30</span>
+            </div>
+            <div class="feed-row"><span class="dot"></span>
+              <div class="body">GRN <strong>GRN-2026-00942</strong> posted &mdash; <em>stock movement created, GR/IR booked</em></div>
+              <span class="ts">10:14</span>
+            </div>
+            <div class="feed-row"><span class="dot info"></span>
+              <div class="body">Bank reconciliation complete on <strong>TSA-MOH-001</strong></div>
+              <span class="ts">09:48</span>
+            </div>
+            <div class="feed-row"><span class="dot danger"></span>
+              <div class="body">Budget breach on <strong>PR-2026-04419</strong> &mdash; <em>blocked, notified requester</em></div>
+              <span class="ts">09:12</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="dashboard"><span class="lbl">You are here</span><span class="nm">Dashboard</span></a>
+        <a data-target="reports" class="right"><span class="lbl">Next ›</span><span class="nm">IPSAS Reports</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 2. IPSAS REPORTS ────────────────────── -->
+    <section class="scene" id="reports">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Reports</span><span>IPSAS Statutory Pack</span></div>
+          <h1>IPSAS Reports</h1>
+          <div class="desc">Statement of Financial Position, Performance, Cash Flow, Budget Performance, Variance — all read live from <code style="font-family:var(--mono);font-size:12px">GLBalance</code>.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Period: Sep 2026 ⌄</button>
+          <button class="btn">Export · XBRL</button>
+          <button class="btn-accent btn">Generate Pack · PDF</button>
+        </div>
+      </div>
+
+      <div class="banner info">
+        <strong>All seven IPSAS reports read from a single <code>GLBalance</code> source.</strong>
+        Posting any document — journal, AP, AR, IPC, payment voucher — invalidates the report cache instantly. There is no batch ETL window.
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Total Assets</div><div class="val">₦ 24.18 B</div><div class="delta up">▲ vs. prior period</div></div>
+        <div class="kpi"><div class="lbl">Total Liabilities</div><div class="val">₦ 6.72 B</div><div class="delta down">▼ paid down</div></div>
+        <div class="kpi"><div class="lbl">Net Assets</div><div class="val">₦ 17.46 B</div><div class="delta up">▲ surplus accreting</div></div>
+        <div class="kpi"><div class="lbl">Surplus / (Deficit)</div><div class="val">₦ 1.92 B</div><div class="delta up">YTD positive</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>Statement of Financial Position</h3><span class="muted" style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)">IPSAS 1</span></div>
+          <table class="tbl">
+            <thead><tr><th>Class</th><th class="num">FY 2026 YTD</th><th class="num">FY 2025</th><th class="num">Δ</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Cash &amp; Equivalents</strong></td><td class="num">4,862,140,000</td><td class="num">5,011,002,000</td><td class="num" style="color:var(--crimson)">−2.97%</td></tr>
+              <tr><td>Receivables</td><td class="num">1,124,500,000</td><td class="num">982,300,000</td><td class="num" style="color:var(--sage)">+14.5%</td></tr>
+              <tr><td>Inventory</td><td class="num">312,800,000</td><td class="num">287,200,000</td><td class="num" style="color:var(--sage)">+8.9%</td></tr>
+              <tr><td>Property, Plant &amp; Equipment</td><td class="num">17,884,300,000</td><td class="num">16,540,100,000</td><td class="num" style="color:var(--sage)">+8.1%</td></tr>
+              <tr><td><strong style="color:var(--navy-deep)">Total Assets</strong></td><td class="num"><strong>24,183,740,000</strong></td><td class="num">22,820,602,000</td><td class="num" style="color:var(--sage)">+5.97%</td></tr>
+              <tr><td colspan="4" style="background:var(--canvas);font:500 10px/1 var(--sans);color:var(--ink-muted);letter-spacing:0.12em;text-transform:uppercase">Liabilities</td></tr>
+              <tr><td>Accounts Payable</td><td class="num">2,488,310,000</td><td class="num">2,902,440,000</td><td class="num" style="color:var(--sage)">−14.3%</td></tr>
+              <tr><td>Retention Held</td><td class="num">418,200,000</td><td class="num">385,100,000</td><td class="num">+8.6%</td></tr>
+              <tr><td>Statutory Liabilities (WHT/VAT)</td><td class="num">211,400,000</td><td class="num">198,800,000</td><td class="num">+6.3%</td></tr>
+              <tr><td>Long-term Borrowings</td><td class="num">3,600,000,000</td><td class="num">3,600,000,000</td><td class="num">—</td></tr>
+              <tr><td><strong style="color:var(--navy-deep)">Total Liabilities</strong></td><td class="num"><strong>6,717,910,000</strong></td><td class="num">7,086,340,000</td><td class="num" style="color:var(--sage)">−5.20%</td></tr>
+              <tr><td colspan="4" style="background:var(--canvas);font:500 10px/1 var(--sans);color:var(--ink-muted);letter-spacing:0.12em;text-transform:uppercase">Net Assets</td></tr>
+              <tr><td>Accumulated Fund</td><td class="num">15,540,000,000</td><td class="num">13,815,000,000</td><td class="num" style="color:var(--sage)">+12.5%</td></tr>
+              <tr><td>Surplus / (Deficit)</td><td class="num">1,925,830,000</td><td class="num">1,919,262,000</td><td class="num">+0.34%</td></tr>
+              <tr style="background:var(--ivory-warm)"><td><strong style="color:var(--navy-deep)">Total Liabilities + Net Assets</strong></td><td class="num"><strong>24,183,740,000</strong></td><td class="num">22,820,602,000</td><td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="c-head"><h3>Available Reports</h3></div>
+            <table class="tbl">
+              <tbody>
+                <tr><td><strong>SoFP</strong> · IPSAS 1<div class="muted">Statement of Financial Position</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>Performance</strong> · IPSAS 1<div class="muted">Revenue · Expenses · Surplus</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>Cash Flow</strong> · IPSAS 2<div class="muted">Op · Inv · Fin activities</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>Budget Performance</strong> · IPSAS 24<div class="muted">Budget vs Actual + variance</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>Trial Balance</strong><div class="muted">Raw DR/CR by account</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>TSA Cash Position</strong><div class="muted">All TSAs · live balances</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+                <tr><td><strong>Warrant Utilization</strong><div class="muted">Released · committed · paid</div></td><td class="num"><span class="pill posted">Live</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="c-head"><h3>Variance Analysis · IPSAS 24</h3></div>
+            <div class="chart-wrap">
+              <svg viewBox="0 0 320 200">
+                <g font-family="JetBrains Mono" font-size="9" fill="oklch(55% 0.01 250)">
+                  <rect x="20" y="60"  width="40" height="120" fill="oklch(28% 0.06 255)"/>
+                  <rect x="80" y="80"  width="40" height="100" fill="oklch(28% 0.06 255 / 0.6)"/>
+                  <rect x="140" y="100" width="40" height="80"  fill="oklch(28% 0.06 255 / 0.4)"/>
+                  <rect x="200" y="40"  width="40" height="140" fill="oklch(64% 0.13 78)"/>
+                  <rect x="260" y="50"  width="40" height="130" fill="oklch(64% 0.13 78 / 0.6)"/>
+                  <text x="40" y="194" text-anchor="middle">Health</text>
+                  <text x="100" y="194" text-anchor="middle">Educ</text>
+                  <text x="160" y="194" text-anchor="middle">Works</text>
+                  <text x="220" y="194" text-anchor="middle">Agri</text>
+                  <text x="280" y="194" text-anchor="middle">Other</text>
+                </g>
+              </svg>
+            </div>
+            <div class="chart-legend"><span><i style="background:oklch(28% 0.06 255)"></i> Budget</span><span><i style="background:oklch(64% 0.13 78)"></i> Actual</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="dashboard"><span class="lbl">‹ Prev</span><span class="nm">Dashboard</span></a>
+        <a data-target="gl" class="right"><span class="lbl">Next ›</span><span class="nm">General Ledger</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 3. GENERAL LEDGER ────────────────────── -->
+    <section class="scene" id="gl">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Financial Core</span><span>General Ledger</span><span>Journal Entries</span></div>
+          <h1>General Ledger</h1>
+          <div class="desc">Every posted journal across every module. Filter by source, period, account dimension; drill into any line.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Trial Balance</button>
+          <button class="btn">Account Inquiry</button>
+          <button class="btn-primary btn">+ New Journal</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input class="search" placeholder="Search by document, vendor, narrative…" />
+        <span class="filter on">All Sources</span>
+        <span class="filter">Manual JV</span>
+        <span class="filter">AP</span>
+        <span class="filter">Procurement</span>
+        <span class="filter">Treasury</span>
+        <span class="filter">Contracts</span>
+        <span class="filter">Payroll</span>
+      </div>
+
+      <div class="card">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Posting Date</th>
+              <th>Source</th>
+              <th>Description</th>
+              <th>MDA · Fund</th>
+              <th class="num">DR (₦)</th>
+              <th class="num">CR (₦)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="ref">JV-2026-04217</td><td>06 Sep 26</td><td>Treasury</td><td>PV settlement · Vendor 0871 · Lot B retention</td><td class="muted">MOH · Recurrent</td><td class="num">8,400,000</td><td class="num">8,400,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04216</td><td>06 Sep 26</td><td>AP</td><td>Vendor invoice · MedSupply Ltd</td><td class="muted">MOH · Capital</td><td class="num">12,800,000</td><td class="num">12,800,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04215</td><td>06 Sep 26</td><td>Procurement</td><td>GRN · GR/IR clearing · Order 04102</td><td class="muted">MOH · Capital</td><td class="num">12,800,000</td><td class="num">12,800,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04214</td><td>05 Sep 26</td><td>Contracts</td><td>IPC accrual · Niger Roads · Cert #4</td><td class="muted">Works · Capital</td><td class="num">42,150,000</td><td class="num">42,150,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04213</td><td>05 Sep 26</td><td>AR</td><td>IGR receipt · Health levy · TSA credit</td><td class="muted">MOH · Revenue</td><td class="num">2,840,000</td><td class="num">2,840,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04212</td><td>05 Sep 26</td><td>Payroll</td><td>Sept 2026 payroll run · 1,184 employees</td><td class="muted">MOH · Personnel</td><td class="num">218,420,000</td><td class="num">218,420,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04211</td><td>05 Sep 26</td><td>Manual JV</td><td>Reclass · Q3 imprest correction</td><td class="muted">Treasury · GF</td><td class="num">125,000</td><td class="num">125,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04210</td><td>04 Sep 26</td><td>Asset</td><td>Capitalisation · Generator (auto from AP)</td><td class="muted">MOH · Capital</td><td class="num">3,650,000</td><td class="num">3,650,000</td><td><span class="pill posted">Posted</span></td></tr>
+            <tr><td class="ref">JV-2026-04209</td><td>04 Sep 26</td><td>Manual JV</td><td>Bank charges · Sept rec on TSA-MOH-001</td><td class="muted">Treasury · GF</td><td class="num">28,500</td><td class="num">28,500</td><td><span class="pill draft">Draft</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="reports"><span class="lbl">‹ Prev</span><span class="nm">IPSAS Reports</span></a>
+        <a data-target="ap" class="right"><span class="lbl">Next ›</span><span class="nm">Accounts Payable</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 4. ACCOUNTS PAYABLE ────────────────────── -->
+    <section class="scene" id="ap">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Financial Core</span><span>Accounts Payable</span><span>Vendor Invoices</span></div>
+          <h1>Accounts Payable</h1>
+          <div class="desc">Vendor invoices, payment cycles, and WHT/VAT cash-basis recognition — wired into the budget, the warrant ceiling, and the GL chokepoint.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Outgoing Payments</button>
+          <button class="btn">Aged Payables</button>
+          <button class="btn-primary btn">+ New Invoice</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Open Invoices</div><div class="val">186</div><div class="delta">≈ ₦ 2.49B outstanding</div></div>
+        <div class="kpi"><div class="lbl">Due This Week</div><div class="val">42</div><div class="delta down">▼ urgent: 8</div></div>
+        <div class="kpi"><div class="lbl">YTD Paid</div><div class="val">₦ 6.32B</div><div class="delta up">▲ on track</div></div>
+        <div class="kpi"><div class="lbl">Avg Days to Pay</div><div class="val">11.4</div><div class="delta up">improved 2.1d</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>Open Invoices</h3>
+            <div class="t-tabs"><span class="t-tab on">All</span><span class="t-tab">Pending Approval</span><span class="t-tab">Approved</span><span class="t-tab">Posted</span></div>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>Invoice</th><th>Vendor</th><th>Due</th><th class="num">Net (₦)</th><th class="num">WHT</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="ref">VI-2026-00922</td><td>MedSupply Ltd<div class="muted">VEN-0871</div></td><td>09 Sep 26<div class="muted">3 days</div></td><td class="num">12,800,000</td><td class="num">5%</td><td><span class="pill review">In Review</span></td></tr>
+              <tr><td class="ref">VI-2026-00921</td><td>BlueWave Logistics<div class="muted">VEN-0102</div></td><td>11 Sep 26</td><td class="num">2,140,500</td><td class="num">2.5%</td><td><span class="pill approved">Approved</span></td></tr>
+              <tr><td class="ref">VI-2026-00920</td><td>Niger Roads Ltd<div class="muted">VEN-0419</div></td><td>14 Sep 26</td><td class="num">38,200,000</td><td class="num">5%</td><td><span class="pill posted">Posted</span></td></tr>
+              <tr><td class="ref">VI-2026-00919</td><td>Lagos Print &amp; Pack<div class="muted">VEN-0258</div></td><td>15 Sep 26</td><td class="num">487,200</td><td class="num">2.5%</td><td><span class="pill draft">Draft</span></td></tr>
+              <tr><td class="ref">VI-2026-00918</td><td>EnergyCo<div class="muted">VEN-0033</div></td><td>16 Sep 26</td><td class="num">912,800</td><td class="num">10%</td><td><span class="pill paid">Paid</span></td></tr>
+              <tr><td class="ref">VI-2026-00917</td><td>Federal Polytechnic Stores<div class="muted">VEN-0801</div></td><td>17 Sep 26</td><td class="num">5,420,000</td><td class="num">5%</td><td><span class="pill review">In Review</span></td></tr>
+              <tr><td class="ref">VI-2026-00916</td><td>Helix Pharma<div class="muted">VEN-1124</div></td><td>20 Sep 26</td><td class="num">9,840,000</td><td class="num">5%</td><td><span class="pill approved">Approved</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="c-head"><h3>New Vendor Invoice</h3></div>
+          <div class="c-body">
+            <div class="form-grid">
+              <div class="fld col-2"><label>Vendor</label>
+                <select><option>MedSupply Ltd · VEN-0871</option><option>BlueWave Logistics</option></select>
+                <span class="hint">WHT default: 5% (Goods/Services). Override per line.</span>
+              </div>
+              <div class="fld"><label>Invoice Number</label><input value="MS-2026-0817" /></div>
+              <div class="fld"><label>Invoice Date</label><input type="date" value="2026-09-06" /></div>
+              <div class="fld"><label>Document Total (₦)</label><input value="12,800,000.00" /></div>
+              <div class="fld"><label>VAT Code</label><select><option>VAT 7.5% standard</option><option>VAT exempt</option></select></div>
+              <div class="fld col-2"><label>Description</label><input value="Surgical consumables · Lot B-7 · 12 cartons"/></div>
+              <div class="fld"><label>NCoA Economic Segment</label><select><option>22020405 · Medical &amp; Surgical Supplies</option></select></div>
+              <div class="fld"><label>Linked PO</label><select><option>PO-2026-04102 · MedSupply Ltd</option></select></div>
+            </div>
+            <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn">Save Draft</button>
+              <button class="btn-primary btn">Submit for Approval</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="gl"><span class="lbl">‹ Prev</span><span class="nm">General Ledger</span></a>
+        <a data-target="ar" class="right"><span class="lbl">Next ›</span><span class="nm">Accounts Receivable</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 5. ACCOUNTS RECEIVABLE ────────────────────── -->
+    <section class="scene" id="ar">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Financial Core</span><span>Accounts Receivable</span></div>
+          <h1>Accounts Receivable</h1>
+          <div class="desc">Customer invoices, IGR collections, dunning. IGR receipts credit the configured TSA in real time.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Aged Receivables</button>
+          <button class="btn">Receipts</button>
+          <button class="btn-primary btn">+ New Invoice</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Receivables Open</div><div class="val">₦ 1.12B</div><div class="delta down">▼ collected ₦ 84M wk</div></div>
+        <div class="kpi"><div class="lbl">IGR · Sept 2026</div><div class="val">₦ 2.84B</div><div class="delta up">▲ 18% MoM</div></div>
+        <div class="kpi"><div class="lbl">Overdue</div><div class="val">₦ 218M</div><div class="delta down">19% of book</div></div>
+        <div class="kpi"><div class="lbl">Customer Count</div><div class="val">1,840</div><div class="delta">324 active wk</div></div>
+      </div>
+
+      <div class="card">
+        <div class="c-head"><h3>Customer Invoices</h3>
+          <div class="t-tabs"><span class="t-tab on">Open</span><span class="t-tab">Paid</span><span class="t-tab">Overdue</span><span class="t-tab">All</span></div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Invoice</th><th>Customer</th><th>Issue Date</th><th>Due</th><th class="num">Total (₦)</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="ref">CI-2026-00461</td><td>Federal Hospital Asaba</td><td>02 Sep 26</td><td>17 Sep 26</td><td class="num">14,200,000</td><td class="num">14,200,000</td><td><span class="pill pending">Issued</span></td></tr>
+            <tr><td class="ref">CI-2026-00460</td><td>Delta Polytechnic</td><td>01 Sep 26</td><td>16 Sep 26</td><td class="num">820,000</td><td class="num">410,000</td><td><span class="pill paid">Partially Paid</span></td></tr>
+            <tr><td class="ref">CI-2026-00459</td><td>Niger NGO Coalition</td><td>30 Aug 26</td><td>14 Sep 26</td><td class="num">312,500</td><td class="num">0</td><td><span class="pill paid">Paid</span></td></tr>
+            <tr><td class="ref">CI-2026-00458</td><td>Local Govt · Oshimili South</td><td>22 Aug 26</td><td>06 Sep 26</td><td class="num">4,820,000</td><td class="num">4,820,000</td><td><span class="pill rejected">Overdue</span></td></tr>
+            <tr><td class="ref">CI-2026-00457</td><td>Private Donor · Ufuoma Trust</td><td>15 Aug 26</td><td>30 Aug 26</td><td class="num">1,200,000</td><td class="num">0</td><td><span class="pill paid">Paid</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="ap"><span class="lbl">‹ Prev</span><span class="nm">Accounts Payable</span></a>
+        <a data-target="assets" class="right"><span class="lbl">Next ›</span><span class="nm">Fixed Assets</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 6. FIXED ASSETS ────────────────────── -->
+    <section class="scene" id="assets">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Financial Core</span><span>Fixed Assets</span></div>
+          <h1>Fixed Assets</h1>
+          <div class="desc">Auto-capitalisation from AP invoice lines, depreciation schedules, and disposal with gain/loss recognition.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Run Depreciation</button>
+          <button class="btn">Revaluation</button>
+          <button class="btn-primary btn">+ Capitalise Asset</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Asset Register Total</div><div class="val">₦ 17.88B</div><div class="delta up">+ ₦ 348M YTD</div></div>
+        <div class="kpi"><div class="lbl">Accumulated Depreciation</div><div class="val">₦ 2.11B</div><div class="delta">11.8% of cost</div></div>
+        <div class="kpi"><div class="lbl">Net Book Value</div><div class="val">₦ 15.77B</div><div class="delta up">88.2% retained</div></div>
+        <div class="kpi"><div class="lbl">Disposed YTD</div><div class="val">12</div><div class="delta">Gain ₦ 4.2M</div></div>
+      </div>
+
+      <div class="card">
+        <div class="c-head"><h3>Asset Register</h3><span class="muted" style="font:400 11px/1 var(--mono);color:var(--ink-muted)">2,184 items</span></div>
+        <table class="tbl">
+          <thead><tr><th>Asset</th><th>Class</th><th>Acquired</th><th class="num">Cost (₦)</th><th class="num">Accum Dep</th><th class="num">NBV</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Land Cruiser GX-R</strong><div class="muted ref">FA-2026-00214</div></td><td>Vehicle</td><td>14 Aug 26</td><td class="num">28,400,000</td><td class="num">632,000</td><td class="num">27,768,000</td><td><span class="pill posted">In Use</span></td></tr>
+            <tr><td><strong>200 KVA Diesel Generator</strong><div class="muted ref">FA-2026-00213</div></td><td>Equipment</td><td>04 Sep 26</td><td class="num">3,650,000</td><td class="num">0</td><td class="num">3,650,000</td><td><span class="pill posted">In Use</span></td></tr>
+            <tr><td><strong>X-Ray Imaging System</strong><div class="muted ref">FA-2025-01840</div></td><td>Medical Equipment</td><td>22 Mar 25</td><td class="num">42,800,000</td><td class="num">8,560,000</td><td class="num">34,240,000</td><td><span class="pill posted">In Use</span></td></tr>
+            <tr><td><strong>Office Block · Asaba HQ</strong><div class="muted ref">FA-2024-00180</div></td><td>Building</td><td>09 Jan 24</td><td class="num">1,420,000,000</td><td class="num">71,000,000</td><td class="num">1,349,000,000</td><td><span class="pill posted">In Use</span></td></tr>
+            <tr><td><strong>Server Rack · Datacentre</strong><div class="muted ref">FA-2023-00940</div></td><td>IT Equipment</td><td>18 Jul 23</td><td class="num">8,420,000</td><td class="num">3,371,000</td><td class="num">5,049,000</td><td><span class="pill warning">Due Revaluation</span></td></tr>
+            <tr><td><strong>Toyota Hilux · 2018</strong><div class="muted ref">FA-2018-04210</div></td><td>Vehicle</td><td>03 Mar 18</td><td class="num">8,800,000</td><td class="num">8,360,000</td><td class="num">440,000</td><td><span class="pill cancelled">Disposed (gain)</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="ar"><span class="lbl">‹ Prev</span><span class="nm">Accounts Receivable</span></a>
+        <a data-target="budget" class="right"><span class="lbl">Next ›</span><span class="nm">Budget &amp; Appropriation</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 7. BUDGET & APPROPRIATION ────────────────────── -->
+    <section class="scene" id="budget">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Public Sector</span><span>Budget</span><span>Appropriations</span></div>
+          <h1>Budget &amp; Appropriation</h1>
+          <div class="desc">Original, supplementary, and virement appropriations. Warrants gate cash release; encumbrance is alive.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Warrants / AIE</button>
+          <button class="btn">Virement</button>
+          <button class="btn-primary btn">+ New Appropriation</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="c-head"><h3>FY 2026 Appropriation · Health Sector</h3>
+          <span class="pill posted">ACTIVE · enacted 18 Mar 2026</span>
+        </div>
+        <div class="c-body">
+          <div class="kpi-row">
+            <div class="kpi"><div class="lbl">Original</div><div class="val">₦ 18,000,000,000</div><div class="delta">enacted snapshot</div></div>
+            <div class="kpi"><div class="lbl">Supplementary</div><div class="val">+ ₦ 420,000,000</div><div class="delta up">▲ approved Q2</div></div>
+            <div class="kpi"><div class="lbl">Final Budget</div><div class="val">₦ 18,420,000,000</div><div class="delta">post-virement</div></div>
+            <div class="kpi"><div class="lbl">Available</div><div class="val">₦ 9,484,000,000</div><div class="delta">51.5% remaining</div></div>
+          </div>
+
+          <table class="tbl" style="margin-top:8px">
+            <thead><tr><th>Economic Segment</th><th>Programme</th><th class="num">Original (₦)</th><th class="num">Final (₦)</th><th class="num">Committed</th><th class="num">Expended</th><th class="num">Available</th></tr></thead>
+            <tbody>
+              <tr><td>22020405 · Medical &amp; Surgical Supplies</td><td>Primary Healthcare</td><td class="num">2,400,000,000</td><td class="num">2,400,000,000</td><td class="num">1,184,000,000</td><td class="num">812,000,000</td><td class="num" style="color:var(--sage)">404,000,000</td></tr>
+              <tr><td>21010101 · Salaries</td><td>Personnel</td><td class="num">5,820,000,000</td><td class="num">5,820,000,000</td><td class="num">0</td><td class="num">2,910,000,000</td><td class="num" style="color:var(--sage)">2,910,000,000</td></tr>
+              <tr><td>23030121 · Construction · Hospitals</td><td>Capital · Infrastructure</td><td class="num">4,200,000,000</td><td class="num">4,200,000,000</td><td class="num">3,180,000,000</td><td class="num">1,640,000,000</td><td class="num" style="color:var(--ochre-deep)">1,020,000,000</td></tr>
+              <tr><td>22030106 · Transport &amp; Travel</td><td>Operating</td><td class="num">320,000,000</td><td class="num">340,000,000</td><td class="num">158,000,000</td><td class="num">98,000,000</td><td class="num" style="color:var(--sage)">182,000,000</td></tr>
+              <tr><td>22020201 · Drugs &amp; Pharmaceuticals</td><td>Primary Healthcare</td><td class="num">1,800,000,000</td><td class="num">2,200,000,000</td><td class="num">1,420,000,000</td><td class="num">680,000,000</td><td class="num" style="color:var(--sage)">780,000,000</td></tr>
+              <tr><td>23050102 · Vehicle Acquisition</td><td>Capital · Operations</td><td class="num">280,000,000</td><td class="num">280,000,000</td><td class="num">280,000,000</td><td class="num">192,000,000</td><td class="num" style="color:var(--crimson)">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="c-head"><h3>Q3 2026 Warrant Utilization</h3></div>
+        <div class="chart-wrap">
+          <svg viewBox="0 0 720 80">
+            <g font-family="JetBrains Mono" font-size="10" fill="oklch(55% 0.01 250)">
+              <rect x="40" y="20" width="640" height="20" fill="oklch(94% 0.01 95)" rx="4"/>
+              <rect x="40" y="20" width="448" height="20" fill="oklch(28% 0.06 255)" rx="4"/>
+              <rect x="40" y="20" width="280" height="20" fill="oklch(64% 0.13 78)" rx="4"/>
+              <text x="40" y="60">Released ₦ 11.20B / 18.42B (60.8%)</text>
+              <text x="320" y="60">Committed ₦ 8.94B (48.5%)</text>
+              <text x="488" y="60" text-anchor="end">Expended ₦ 6.32B</text>
+            </g>
+          </svg>
+        </div>
+        <div class="chart-legend">
+          <span><i style="background:oklch(64% 0.13 78)"></i> Expended</span>
+          <span><i style="background:oklch(28% 0.06 255)"></i> Committed</span>
+          <span><i style="background:oklch(94% 0.01 95)"></i> Released ceiling</span>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="assets"><span class="lbl">‹ Prev</span><span class="nm">Fixed Assets</span></a>
+        <a data-target="treasury" class="right"><span class="lbl">Next ›</span><span class="nm">Treasury &amp; TSA</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 8. TREASURY & TSA (incl. Bank Transfer) ────────────────────── -->
+    <section class="scene" id="treasury">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Public Sector</span><span>Treasury &amp; Banking (TSA)</span></div>
+          <h1>Treasury &amp; TSA</h1>
+          <div class="desc">Main TSA, sub-accounts, zero-balance accounts; Payment Vouchers, Payment Instructions, the new inter-TSA Bank Transfer, and bank reconciliation.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Cash Sweep</button>
+          <button class="btn">Bank Reconciliation</button>
+          <button class="btn-accent btn">↹ Bank Transfer</button>
+          <button class="btn-primary btn">+ Payment Voucher</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Total TSA Cash</div><div class="val">₦ 4.86B</div><div class="delta">across 12 accounts</div></div>
+        <div class="kpi"><div class="lbl">PVs Pending</div><div class="val">14</div><div class="delta">≈ ₦ 282M</div></div>
+        <div class="kpi"><div class="lbl">Last Sweep</div><div class="val">06 Sep · 06:00</div><div class="delta up">cleaned ₦ 184M</div></div>
+        <div class="kpi"><div class="lbl">Recon Coverage</div><div class="val">98.4%</div><div class="delta up">▲ matched</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>TSA Accounts</h3></div>
+          <table class="tbl">
+            <thead><tr><th>Account #</th><th>Name</th><th>Type</th><th>Bank</th><th class="num">Current Balance (₦)</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="ref">0010-0001-001</td><td><strong>Main TSA</strong></td><td>MAIN_TSA</td><td>CBN</td><td class="num">2,840,200,000</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td class="ref">0010-1002-008</td><td>Consolidated Revenue Fund</td><td>CONSOLIDATED</td><td>CBN</td><td class="num">740,500,000</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td class="ref">0010-2018-104</td><td>MOH Sub-Account</td><td>SUB_ACCOUNT</td><td>FBN</td><td class="num">820,400,000</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td class="ref">0010-2018-105</td><td>MOH Capital Sub-Account</td><td>SUB_ACCOUNT</td><td>FBN</td><td class="num">240,800,000</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td class="ref">0010-2018-106</td><td>MOH Imprest · Asaba HQ</td><td>ZERO_BALANCE</td><td>Zenith</td><td class="num">0</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td class="ref">0010-2018-107</td><td>MOH Revenue Collection</td><td>REVENUE</td><td>UBA</td><td class="num">214,800,000</td><td><span class="pill posted">Active</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="c-head"><h3>Bank Transfer · TSA → TSA</h3>
+            <span class="pill warning">New module</span>
+          </div>
+          <div class="c-body">
+            <div class="banner info" style="margin-bottom:14px">
+              <div>
+                <strong>One atomic JV in real time.</strong>
+                Posts DR Target Cash GL / CR Source Cash GL via the chokepoint, F()-updates both balances, locks both rows in pk-order. Cannot overdraw.
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="fld col-2"><label>From TSA</label>
+                <select><option>0010-0001-001 · Main TSA · Bal ₦ 2,840,200,000</option></select>
+              </div>
+              <div class="fld col-2"><label>To TSA</label>
+                <select><option>0010-2018-104 · MOH Sub-Account · Bal ₦ 820,400,000</option></select>
+              </div>
+              <div class="fld"><label>Amount (₦)</label><input value="184,000,000.00" /></div>
+              <div class="fld"><label>Transfer Date</label><input type="date" value="2026-09-06" /></div>
+              <div class="fld col-2"><label>Narration</label><input value="Top-up for MoH Q3 capital warrant"/></div>
+            </div>
+            <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn">Cancel</button>
+              <button class="btn-accent btn">Post Transfer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="c-head"><h3>Recent Payment Vouchers</h3></div>
+        <table class="tbl">
+          <thead><tr><th>PV</th><th>Beneficiary</th><th>Posted</th><th class="num">Gross (₦)</th><th class="num">Deductions</th><th class="num">Net (₦)</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="ref">PV-2026-04217</td><td>Vendor 0871 · Lot B retention</td><td>06 Sep 26 12:42</td><td class="num">8,400,000</td><td class="num">420,000</td><td class="num">7,980,000</td><td><span class="pill paid">Paid</span></td></tr>
+            <tr><td class="ref">PV-2026-04216</td><td>Niger Roads · IPC #4</td><td>05 Sep 26</td><td class="num">42,150,000</td><td class="num">4,215,000</td><td class="num">37,935,000</td><td><span class="pill paid">Paid</span></td></tr>
+            <tr><td class="ref">PV-2026-04215</td><td>BlueWave Logistics</td><td>05 Sep 26</td><td class="num">2,140,500</td><td class="num">53,512</td><td class="num">2,086,988</td><td><span class="pill posted">Scheduled</span></td></tr>
+            <tr><td class="ref">PV-2026-04214</td><td>Helix Pharma</td><td>05 Sep 26</td><td class="num">9,840,000</td><td class="num">492,000</td><td class="num">9,348,000</td><td><span class="pill approved">Approved</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="budget"><span class="lbl">‹ Prev</span><span class="nm">Budget &amp; Appropriation</span></a>
+        <a data-target="procurement" class="right"><span class="lbl">Next ›</span><span class="nm">Procurement (P2P)</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 9. PROCUREMENT (P2P) ────────────────────── -->
+    <section class="scene" id="procurement">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Procurement</span><span>P2P Chain</span></div>
+          <h1>Procurement (P2P)</h1>
+          <div class="desc">Purchase Requisition → Order → Goods Received → Invoice Verification (3-way match) → Payment.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Purchase Requisitions</button>
+          <button class="btn">Orders</button>
+          <button class="btn">GRNs</button>
+          <button class="btn-primary btn">+ New Requisition</button>
+        </div>
+      </div>
+
+      <div class="chain-strip">
+        <div class="chain-step"><span class="num">1</span><div class="lbl">Requisition</div><div class="val">42 open</div><div class="meta">≈ ₦ 184M requested</div></div>
+        <div class="chain-step"><span class="num">2</span><div class="lbl">Purchase Order</div><div class="val">228 active</div><div class="meta">₦ 8.94B committed</div></div>
+        <div class="chain-step"><span class="num">3</span><div class="lbl">Goods Received</div><div class="val">186 partial · 42 full</div><div class="meta">GR/IR clearing live</div></div>
+        <div class="chain-step"><span class="num">4</span><div class="lbl">Invoice Verified</div><div class="val">158 cleared</div><div class="meta">Variance avg 0.4%</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>Active Purchase Orders</h3>
+            <div class="t-tabs"><span class="t-tab on">All</span><span class="t-tab">Awaiting GRN</span><span class="t-tab">Posting</span></div>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>PO</th><th>Vendor</th><th>Approved</th><th class="num">Total (₦)</th><th class="num">Received</th><th>Match</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="ref">PO-2026-04102</td><td>MedSupply Ltd</td><td>22 Aug 26</td><td class="num">12,800,000</td><td class="num">100%</td><td><span class="pill posted">3-way OK</span></td><td><span class="pill posted">Posted</span></td></tr>
+              <tr><td class="ref">PO-2026-04101</td><td>Niger Roads Ltd</td><td>20 Aug 26</td><td class="num">38,200,000</td><td class="num">68%</td><td><span class="pill warning">2-way</span></td><td><span class="pill posted">Posted</span></td></tr>
+              <tr><td class="ref">PO-2026-04098</td><td>Helix Pharma</td><td>18 Aug 26</td><td class="num">9,840,000</td><td class="num">100%</td><td><span class="pill posted">3-way OK</span></td><td><span class="pill posted">Posted</span></td></tr>
+              <tr><td class="ref">PO-2026-04097</td><td>BlueWave Logistics</td><td>14 Aug 26</td><td class="num">2,140,500</td><td class="num">0%</td><td><span class="pill draft">awaiting GRN</span></td><td><span class="pill approved">Approved</span></td></tr>
+              <tr><td class="ref">PO-2026-04094</td><td>Lagos Print &amp; Pack</td><td>12 Aug 26</td><td class="num">487,200</td><td class="num">100%</td><td><span class="pill warning">variance 4.1%</span></td><td><span class="pill review">Review</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="c-head"><h3>3-Way Match · IV-2026-00188</h3>
+            <span class="pill posted">Cleared</span>
+          </div>
+          <div class="c-body">
+            <table class="tbl">
+              <thead><tr><th></th><th class="num">PO (₦)</th><th class="num">GRN (₦)</th><th class="num">Invoice (₦)</th></tr></thead>
+              <tbody>
+                <tr><td>Surgical consumables (Lot B-7)</td><td class="num">12,000,000</td><td class="num">12,000,000</td><td class="num">12,072,000</td></tr>
+                <tr><td>Sterile gloves (24,000)</td><td class="num">800,000</td><td class="num">800,000</td><td class="num">800,000</td></tr>
+                <tr style="background:var(--ivory-warm)"><td><strong>Total</strong></td><td class="num"><strong>12,800,000</strong></td><td class="num"><strong>12,800,000</strong></td><td class="num"><strong>12,872,000</strong></td></tr>
+              </tbody>
+            </table>
+            <div style="margin-top:14px;display:flex;gap:14px;align-items:center;font-size:12.5px">
+              <span class="pill posted">Variance 0.56%</span>
+              <span class="muted" style="color:var(--ink-muted)">Within configured 1.0% tolerance</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="treasury"><span class="lbl">‹ Prev</span><span class="nm">Treasury &amp; TSA</span></a>
+        <a data-target="contracts" class="right"><span class="lbl">Next ›</span><span class="nm">Contracts &amp; IPCs</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 10. CONTRACTS & IPCs ────────────────────── -->
+    <section class="scene" id="contracts">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Contracts</span><span>Niger Roads · CTR-2026-00018</span></div>
+          <h1>Contract &amp; IPC</h1>
+          <div class="desc">Construction, infrastructure, and service contracts with monotonicity, ceiling, retention, mobilization, and variation controls.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Variation Order</button>
+          <button class="btn">Retention Release</button>
+          <button class="btn-primary btn">+ New IPC</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="c-head">
+          <h3>CTR-2026-00018 · Construction of 12-Bed PHC · Niger Roads Ltd</h3>
+          <span class="pill posted">ACTIVATED</span>
+        </div>
+        <div class="c-body">
+          <div class="kpi-row">
+            <div class="kpi"><div class="lbl">Original Sum</div><div class="val">₦ 280,000,000</div></div>
+            <div class="kpi"><div class="lbl">Variations Approved</div><div class="val">+ ₦ 22,400,000</div><div class="delta">8.0% · LOCAL tier</div></div>
+            <div class="kpi"><div class="lbl">Contract Ceiling</div><div class="val">₦ 302,400,000</div></div>
+            <div class="kpi"><div class="lbl">Cumulative Certified</div><div class="val">₦ 168,150,000</div><div class="delta up">55.6% complete</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>IPC History</h3></div>
+          <table class="tbl">
+            <thead><tr><th>IPC</th><th>Posted</th><th class="num">Gross (₦)</th><th class="num">Mob Recovery</th><th class="num">Retention</th><th class="num">Net (₦)</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="ref">IPC-04</td><td>05 Sep 26</td><td class="num">42,150,000</td><td class="num">4,215,000</td><td class="num">2,107,500</td><td class="num">35,827,500</td><td><span class="pill paid">Paid</span></td></tr>
+              <tr><td class="ref">IPC-03</td><td>14 Aug 26</td><td class="num">38,800,000</td><td class="num">3,880,000</td><td class="num">1,940,000</td><td class="num">32,980,000</td><td><span class="pill paid">Paid</span></td></tr>
+              <tr><td class="ref">IPC-02</td><td>18 Jul 26</td><td class="num">42,200,000</td><td class="num">4,220,000</td><td class="num">2,110,000</td><td class="num">35,870,000</td><td><span class="pill paid">Paid</span></td></tr>
+              <tr><td class="ref">IPC-01</td><td>22 Jun 26</td><td class="num">45,000,000</td><td class="num">4,500,000</td><td class="num">2,250,000</td><td class="num">38,250,000</td><td><span class="pill paid">Paid</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="c-head"><h3>Contract Balance · Live</h3></div>
+            <div class="c-body">
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--ink-muted)">Mobilization paid</span><strong>₦ 28,000,000</strong></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--ink-muted)">Mob recovered</span><strong style="color:var(--sage)">₦ 16,815,000</strong></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--ink-muted)">Retention held</span><strong>₦ 8,407,500</strong></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--ink-muted)">Retention released</span><strong>₦ 0</strong></div>
+                <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--rule)"><span style="color:var(--ink)">Cumulative paid</span><strong style="color:var(--navy-deep);font-size:15px">₦ 142,927,500</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="c-head"><h3>Variation Tier · Cumulative</h3></div>
+            <div class="c-body">
+              <div class="banner info">
+                <div>
+                  <strong>8.0% cumulative — LOCAL tier.</strong>
+                  Two variations approved, totalling ₦ 22.4M. Next variation that pushes cumulative above 15% would auto-route to BOARD tier; above 25% requires BPP no-objection.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="procurement"><span class="lbl">‹ Prev</span><span class="nm">Procurement (P2P)</span></a>
+        <a data-target="inventory" class="right"><span class="lbl">Next ›</span><span class="nm">Inventory</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 11. INVENTORY ────────────────────── -->
+    <section class="scene" id="inventory">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Procurement &amp; Contracts</span><span>Inventory</span></div>
+          <h1>Inventory</h1>
+          <div class="desc">Items, batches, warehouses, and stock movements — coupled to GRN posting and per-MDA warehouse routing.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Stock Counts</button>
+          <button class="btn">Transfers</button>
+          <button class="btn-primary btn">+ Stock Movement</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Active Items</div><div class="val">2,184</div><div class="delta">312M valuation</div></div>
+        <div class="kpi"><div class="lbl">Warehouses</div><div class="val">14</div><div class="delta">across 8 MDAs</div></div>
+        <div class="kpi"><div class="lbl">Low Stock Alerts</div><div class="val">28</div><div class="delta down">▼ ROP triggered</div></div>
+        <div class="kpi"><div class="lbl">Movements Today</div><div class="val">142</div><div class="delta up">42 IN · 100 OUT</div></div>
+      </div>
+
+      <div class="card">
+        <div class="c-head"><h3>Stock by Warehouse</h3></div>
+        <table class="tbl">
+          <thead><tr><th>Warehouse</th><th>MDA</th><th>Active SKUs</th><th class="num">Total Units</th><th class="num">Valuation (₦)</th><th>Last Count</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Asaba HQ Stores</strong></td><td>MOH</td><td>418</td><td class="num">14,820</td><td class="num">82,140,000</td><td>02 Sep 26</td></tr>
+            <tr><td><strong>Sapele General Hospital</strong></td><td>MOH</td><td>312</td><td class="num">8,442</td><td class="num">48,200,000</td><td>30 Aug 26</td></tr>
+            <tr><td><strong>Warri Procurement Depot</strong></td><td>Works</td><td>184</td><td class="num">2,118</td><td class="num">142,800,000</td><td>22 Aug 26</td></tr>
+            <tr><td><strong>Ughelli Education Stores</strong></td><td>Education</td><td>240</td><td class="num">5,820</td><td class="num">18,420,000</td><td>14 Aug 26</td></tr>
+            <tr><td><strong>State Pharma Vault</strong></td><td>MOH</td><td>1,030</td><td class="num">42,840</td><td class="num">21,200,000</td><td>05 Sep 26</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="contracts"><span class="lbl">‹ Prev</span><span class="nm">Contracts &amp; IPCs</span></a>
+        <a data-target="approvals" class="right"><span class="lbl">Next ›</span><span class="nm">Approvals</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 12. APPROVALS ────────────────────── -->
+    <section class="scene" id="approvals">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>People &amp; Workflow</span><span>Approvals</span><span>My Inbox</span></div>
+          <h1>Approvals · My Inbox</h1>
+          <div class="desc">Documents waiting for your decision — across modules. SoD enforced; delegation supported; SLA visible.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">My Delegations</button>
+          <button class="btn">SLA Monitor</button>
+          <button class="btn">All Approvals</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">In Your Inbox</div><div class="val">12</div><div class="delta down">▼ 3 cleared today</div></div>
+        <div class="kpi"><div class="lbl">Overdue</div><div class="val">2</div><div class="delta down">SLA breach</div></div>
+        <div class="kpi"><div class="lbl">At Risk (&lt; 4h)</div><div class="val">3</div><div class="delta">due soon</div></div>
+        <div class="kpi"><div class="lbl">Avg Decision Time</div><div class="val">3.4h</div><div class="delta up">improved 1.1h</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>Pending Decisions</h3></div>
+          <table class="tbl">
+            <thead><tr><th>Document</th><th>Module</th><th>Requested by</th><th class="num">Amount</th><th>SLA</th></tr></thead>
+            <tbody>
+              <tr><td class="ref">VI-2026-00922<div class="muted">MedSupply Ltd · WHT 5%</div></td><td>AP</td><td>Adamu B.</td><td class="num">12,800,000</td><td><span class="pill warning">3h left</span></td></tr>
+              <tr><td class="ref">VI-2026-00917<div class="muted">Federal Polytechnic Stores</div></td><td>AP</td><td>Chioma E.</td><td class="num">5,420,000</td><td><span class="pill rejected">Overdue 2h</span></td></tr>
+              <tr><td class="ref">PR-2026-04419<div class="muted">Drugs &amp; pharmaceuticals</div></td><td>Procurement</td><td>Tunde I.</td><td class="num">42,000,000</td><td><span class="pill pending">8h left</span></td></tr>
+              <tr><td class="ref">IPC-2026-00188<div class="muted">Niger Roads · Cert #5</div></td><td>Contracts</td><td>Femi O.</td><td class="num">38,200,000</td><td><span class="pill warning">3h left</span></td></tr>
+              <tr><td class="ref">PV-2026-04220<div class="muted">Helix Pharma settlement</div></td><td>Treasury</td><td>Auto-routed</td><td class="num">9,348,000</td><td><span class="pill pending">12h left</span></td></tr>
+              <tr><td class="ref">VAR-2026-00012<div class="muted">Niger Roads · scope addendum</div></td><td>Contracts</td><td>Femi O.</td><td class="num">22,400,000</td><td><span class="pill rejected">Overdue 1d</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="c-head"><h3>VI-2026-00922 · Decision</h3></div>
+          <div class="c-body">
+            <div class="timeline">
+              <div class="tl-row done"><span class="node">✓</span>
+                <div><div class="step-name">Submitted by Adamu Bakare</div><div class="step-meta">06 Sep 26 · 09:18 · Junior Accountant</div></div>
+              </div>
+              <div class="tl-row done"><span class="node">✓</span>
+                <div><div class="step-name">Verified · Internal Audit</div><div class="step-meta">06 Sep 26 · 10:42 · Folake Owolabi</div></div>
+              </div>
+              <div class="tl-row active"><span class="node">3</span>
+                <div><div class="step-name">Awaiting · Director Finance</div><div class="step-meta">You · SLA 3h remaining</div></div>
+              </div>
+              <div class="tl-row"><span class="node">4</span>
+                <div><div class="step-name">Permanent Secretary sign-off</div><div class="step-meta">Auto-routes after Director Finance</div></div>
+              </div>
+            </div>
+            <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn">Reject</button>
+              <button class="btn">Request Info</button>
+              <button class="btn-accent btn">✓ Approve</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="inventory"><span class="lbl">‹ Prev</span><span class="nm">Inventory</span></a>
+        <a data-target="hr" class="right"><span class="lbl">Next ›</span><span class="nm">HR &amp; Payroll</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 13. HR & PAYROLL ────────────────────── -->
+    <section class="scene" id="hr">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>People</span><span>HR &amp; Payroll</span></div>
+          <h1>HR &amp; Payroll</h1>
+          <div class="desc">Employee master, payroll runs with statutory deductions, and leave requests routed through the workflow engine.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Leave Calendar</button>
+          <button class="btn">Cadre Review</button>
+          <button class="btn-primary btn">Run Payroll</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Active Headcount</div><div class="val">1,184</div><div class="delta">42 contract · 1,142 perm</div></div>
+        <div class="kpi"><div class="lbl">Sept 2026 Payroll</div><div class="val">₦ 218.4M</div><div class="delta up">posted to GL</div></div>
+        <div class="kpi"><div class="lbl">PAYE Withheld</div><div class="val">₦ 28.1M</div><div class="delta">to FIRS</div></div>
+        <div class="kpi"><div class="lbl">Leave Requests Open</div><div class="val">14</div><div class="delta">8 awaiting approval</div></div>
+      </div>
+
+      <div class="card">
+        <div class="c-head"><h3>Payroll Run · September 2026</h3>
+          <span class="pill posted">POSTED · 05 Sep 26</span>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Cadre</th><th class="num">Headcount</th><th class="num">Gross (₦)</th><th class="num">PAYE</th><th class="num">Pension</th><th class="num">Net (₦)</th></tr></thead>
+          <tbody>
+            <tr><td>Senior Medical Officer</td><td class="num">42</td><td class="num">28,400,000</td><td class="num">4,260,000</td><td class="num">2,272,000</td><td class="num">21,868,000</td></tr>
+            <tr><td>Medical Officer</td><td class="num">184</td><td class="num">62,800,000</td><td class="num">8,160,000</td><td class="num">5,024,000</td><td class="num">49,616,000</td></tr>
+            <tr><td>Registered Nurse</td><td class="num">418</td><td class="num">71,400,000</td><td class="num">8,568,000</td><td class="num">5,712,000</td><td class="num">57,120,000</td></tr>
+            <tr><td>Pharmacist</td><td class="num">86</td><td class="num">22,800,000</td><td class="num">2,964,000</td><td class="num">1,824,000</td><td class="num">18,012,000</td></tr>
+            <tr><td>Admin / Support</td><td class="num">454</td><td class="num">33,000,000</td><td class="num">4,158,000</td><td class="num">2,640,000</td><td class="num">26,202,000</td></tr>
+            <tr style="background:var(--ivory-warm)"><td><strong>Total</strong></td><td class="num"><strong>1,184</strong></td><td class="num"><strong>218,400,000</strong></td><td class="num"><strong>28,110,000</strong></td><td class="num"><strong>17,472,000</strong></td><td class="num"><strong>172,818,000</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="approvals"><span class="lbl">‹ Prev</span><span class="nm">Approvals</span></a>
+        <a data-target="superadmin" class="right"><span class="lbl">Next ›</span><span class="nm">Superadmin</span></a>
+      </div>
+    </section>
+
+    <!-- ────────────────────── 14. SUPERADMIN ────────────────────── -->
+    <section class="scene" id="superadmin">
+      <div class="s-head">
+        <div>
+          <div class="crumb"><span>Administration</span><span>Superadmin</span><span>Tenant Operations</span></div>
+          <h1>Superadmin</h1>
+          <div class="desc">Tenant lifecycle, subscription &amp; payment, module gating, audit logs, and impersonation governance — all under SoD and MFA.</div>
+        </div>
+        <div class="actions">
+          <button class="btn">Impersonation Log</button>
+          <button class="btn">Audit Trail</button>
+          <button class="btn-primary btn">+ Provision Tenant</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Active Tenants</div><div class="val">14</div><div class="delta up">+1 this month</div></div>
+        <div class="kpi"><div class="lbl">Total MDAs</div><div class="val">86</div><div class="delta">across 14 tenants</div></div>
+        <div class="kpi"><div class="lbl">Pending Payments</div><div class="val">3</div><div class="delta">awaiting approval</div></div>
+        <div class="kpi"><div class="lbl">MRR · Subscriptions</div><div class="val">₦ 24.2M</div><div class="delta up">▲ 18% MoM</div></div>
+      </div>
+
+      <div class="split-2">
+        <div class="card">
+          <div class="c-head"><h3>Tenants</h3>
+            <div class="t-tabs"><span class="t-tab on">Active</span><span class="t-tab">Provisioning</span><span class="t-tab">Suspended</span></div>
+          </div>
+          <table class="tbl">
+            <thead><tr><th>Tenant</th><th>Plan</th><th>MDAs</th><th>Users</th><th>Subscription</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Delta State Govt</strong><div class="muted">delta.quotpse.ng</div></td><td>Enterprise</td><td>14</td><td>248</td><td>Annual · ₦ 96M</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td><strong>Niger State Govt</strong><div class="muted">niger.quotpse.ng</div></td><td>Enterprise</td><td>11</td><td>184</td><td>Annual · ₦ 72M</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td><strong>Federal Min. of Health</strong><div class="muted">moh-fed.quotpse.ng</div></td><td>Enterprise</td><td>8</td><td>312</td><td>Annual · ₦ 84M</td><td><span class="pill posted">Active</span></td></tr>
+              <tr><td><strong>BPP Pilot</strong><div class="muted">bpp.quotpse.ng</div></td><td>Pilot</td><td>4</td><td>42</td><td>Quarterly · ₦ 4.2M</td><td><span class="pill review">Pilot</span></td></tr>
+              <tr><td><strong>Kwara State Govt</strong><div class="muted">kwara.quotpse.ng</div></td><td>Standard</td><td>7</td><td>92</td><td>Annual · ₦ 28M</td><td><span class="pill pending">Renewal Due</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="c-head"><h3>Recent Audit Events</h3>
+            <span class="muted" style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)">Immutable</span>
+          </div>
+          <div class="feed">
+            <div class="feed-row"><span class="dot"></span>
+              <div class="body">Tenant <strong>Delta State Govt</strong> · Permission grant: <em>view_paymentvoucher</em> to user 0218</div>
+              <span class="ts">12:42</span>
+            </div>
+            <div class="feed-row"><span class="dot warn"></span>
+              <div class="body">Impersonation started · superadmin → <strong>tenant: Niger State</strong> · justification: support ticket #441</div>
+              <span class="ts">11:30</span>
+            </div>
+            <div class="feed-row"><span class="dot info"></span>
+              <div class="body">Subscription payment approved · <strong>BPP Pilot</strong> · ₦ 4,200,000 · Quarterly</div>
+              <span class="ts">10:14</span>
+            </div>
+            <div class="feed-row"><span class="dot"></span>
+              <div class="body">Module <strong>Contracts</strong> enabled for tenant <em>Federal Min. of Health</em></div>
+              <span class="ts">09:48</span>
+            </div>
+            <div class="feed-row"><span class="dot danger"></span>
+              <div class="body">Failed login (5 attempts) for <strong>auditor.kwara@quotpse.ng</strong> · account locked 30m</div>
+              <span class="ts">08:12</span>
+            </div>
+            <div class="feed-row"><span class="dot"></span>
+              <div class="body">Tenant <strong>Kwara State Govt</strong> · Notification: subscription renewal in 14 days</div>
+              <span class="ts">06:00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-nav">
+        <a data-target="hr"><span class="lbl">‹ Prev</span><span class="nm">HR &amp; Payroll</span></a>
+        <a data-target="dashboard" class="right"><span class="lbl">Back to start ›</span><span class="nm">Dashboard</span></a>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // ─── Tiny router: switch the .active class on click ───
+  // Vanilla JS, no framework. Hash-friendly so the URL bar reflects
+  // the current screen and a deep-link shared with the client opens
+  // directly on that scene.
+  (function () {
+    const links  = document.querySelectorAll('[data-target]');
+    const scenes = document.querySelectorAll('.scene');
+    const railLinks = document.querySelectorAll('.rail-link[data-target]');
+
+    function show(id) {
+      const target = document.getElementById(id);
+      if (!target) return;
+      scenes.forEach(s => s.classList.remove('active'));
+      target.classList.add('active');
+      railLinks.forEach(l => {
+        l.classList.toggle('active', l.dataset.target === id);
+      });
+      document.querySelector('.canvas').scrollTo({ top: 0, behavior: 'instant' });
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      if (history.replaceState) {
+        history.replaceState(null, '', '#' + id);
+      }
+    }
+
+    links.forEach(l => {
+      l.addEventListener('click', e => {
+        e.preventDefault();
+        show(l.dataset.target);
+      });
+    });
+
+    // Deep-link support: open at the hashed scene if present
+    const initial = (location.hash || '#dashboard').slice(1);
+    show(initial);
+
+    // Today's date in the review banner — keeps the artefact feeling
+    // current even if a stale copy is forwarded around.
+    const d = new Date();
+    document.getElementById('ymd').textContent =
+      d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
+  })();
+</script>
+
+</body>
+</html>

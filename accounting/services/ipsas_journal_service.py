@@ -99,6 +99,23 @@ class IPSASJournalService:
                         f"control account {eco.code} ({eco.name})."
                     )
 
+            # 5. Header / group account guard (SAP "Block for Posting").
+            # ``Account.is_postable=False`` marks an account as a header
+            # whose role is to aggregate child balances, not to receive
+            # postings. Posting directly to it would break the trial-
+            # balance invariant that "header balance = Σ children". This
+            # check is the third layer of defence (after model.clean()
+            # at form level and the DB-level validators on JournalLine);
+            # we still run it here so raw-SQL inserts and bypass paths
+            # also can't slip through to ``status='Posted'``.
+            if line.account_id and line.account and not line.account.is_postable:
+                errors.append(
+                    f"Line {idx}: Account {line.account.code} "
+                    f"({line.account.name}) is a header / group account "
+                    f"and cannot be posted to directly. Pick one of its "
+                    f"leaf descendants instead."
+                )
+
         if total_dr != total_cr:
             errors.append(
                 f"Journal is not balanced. "
@@ -110,7 +127,7 @@ class IPSASJournalService:
 
     @staticmethod
     @transaction.atomic
-    def post_journal(journal, user):
+    def post_journal(journal, user, force_period_open: bool = False):
         """
         Full validation + posting pipeline.
         Raises JournalPostingError on any failure.
@@ -118,10 +135,17 @@ class IPSASJournalService:
         Args:
             journal: JournalHeader instance
             user: User performing the posting
+            force_period_open: When True, bypass PeriodControlService.
+                Reserved for system-initiated closing journals (e.g.
+                year-end close) where the closing period is intentionally
+                being mutated as part of the close ceremony itself.
+                Never expose this flag to user-facing endpoints.
         Returns:
             The posted JournalHeader instance
         """
         from accounting.models.audit import TransactionAuditLog
+        from accounting.models.gl import JournalHeader
+        from accounting.services.period_control import PeriodControlService
 
         # 1. Validate
         errors = IPSASJournalService.validate_journal(journal)
@@ -130,7 +154,28 @@ class IPSASJournalService:
                 "Journal validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             )
 
-        # 2. Check journal is in correct status
+        # 1b. Period gate — this service is the canonical post path for
+        # treasury PV mark-paid, revenue collection, IPC accruals,
+        # depreciation, asset disposals, etc. Without this check, all
+        # of those flows could post into a CLOSED/LOCKED fiscal or
+        # budget period (the gate was only enforced on
+        # ProcurementPostingService). Skips when posting_date isn't set
+        # — validate_journal raises in that case anyway. Year-end close
+        # passes force_period_open=True because the closing journal is
+        # what *makes* the period closed.
+        if journal.posting_date and not force_period_open:
+            period_status = PeriodControlService.check_period_status(
+                journal.posting_date, document_type='journal',
+            )
+            if not period_status.can_post:
+                raise JournalPostingError(
+                    f"Cannot post to period for {journal.posting_date}: "
+                    + "; ".join(period_status.messages)
+                )
+
+        # 2. Lock the row and re-check status under the lock so two
+        # concurrent post requests can't both pass the gate and double-post.
+        journal = JournalHeader.objects.select_for_update().get(pk=journal.pk)
         if journal.status not in IPSASJournalService.POSTABLE_STATUSES:
             raise JournalPostingError(
                 f"Cannot post journal with status '{journal.status}'. "

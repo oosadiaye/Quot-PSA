@@ -18,6 +18,7 @@ from contracts.models import (
     Contract,
     ContractApprovalStep,
     ContractBalance,
+    ContractYearPlan,
     MilestoneSchedule,
 )
 from contracts.permissions import (
@@ -33,6 +34,7 @@ from contracts.serializers import (
     ContractApprovalStepSerializer,
     ContractBalanceSerializer,
     ContractSerializer,
+    ContractYearPlanSerializer,
     MilestoneScheduleSerializer,
 )
 from contracts.services import (
@@ -63,6 +65,27 @@ class ContractViewSet(viewsets.ModelViewSet):
     filterset_class = ContractFilter
     search_fields = ["contract_number", "title", "reference"]
     ordering_fields = ["created_at", "signed_date", "original_sum"]
+
+    def get_queryset(self):
+        """Tenant MDA-isolation. In SEPARATED mode restricts to the
+        operator's own MDA; oversight orgs see all. Mirrors the
+        ``OrganizationFilterMixin`` pattern used in accounting viewsets.
+        Contract.mda is the AdministrativeSegment FK.
+        """
+        qs = super().get_queryset()
+        request = getattr(self, 'request', None)
+        if not request:
+            return qs
+        if getattr(request, 'mda_isolation_mode', 'UNIFIED') != 'SEPARATED':
+            return qs
+        org = getattr(request, 'organization', None)
+        if not org:
+            return qs.none()
+        if getattr(org, 'has_cross_mda_read', False):
+            return qs
+        if getattr(org, 'administrative_segment_id', None):
+            return qs.filter(mda_id=org.administrative_segment_id)
+        return qs.none()
 
     def get_permissions(self):
         if self.action in ("create", "update", "partial_update", "destroy"):
@@ -331,3 +354,76 @@ class ContractBalanceViewSet(mixins.ListModelMixin,
     permission_classes = [CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["contract"]
+
+
+class ContractYearPlanViewSet(viewsets.ModelViewSet):
+    """Multi-year contract year-plan slices.
+
+    A contract has one or more ContractYearPlan rows; their planned_amount
+    sums to the contract's original_sum. Each row is one fiscal year of
+    spend, hitting that year's appropriation. Year plans gate IPC posting
+    via ``IPCService.submit_ipc`` Control 8.
+
+    Edit policy:
+      - ``DRAFT`` contract: year plans are mutable (operator builds the
+        multi-year breakdown before activation).
+      - Any other status: year plans become read-only via ``perform_update``
+        / ``perform_destroy`` rejection — except for assigning the
+        ``appropriation`` FK on a plan whose appropriation is null
+        (typical at Year-N enactment).
+
+    Filterable by ``contract`` so the frontend's Year-Plan tab can fetch
+    just the rows for the contract being viewed.
+    """
+
+    queryset = (
+        ContractYearPlan.objects
+        .select_related("contract", "fiscal_year", "appropriation")
+        .order_by("contract", "sequence")
+    )
+    serializer_class = ContractYearPlanSerializer
+    permission_classes = [CanManageContracts]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["contract", "fiscal_year"]
+
+    def perform_update(self, serializer):
+        """Allow appropriation assignment after activation; refuse other edits.
+
+        Year plans on an active contract are mostly immutable — changing
+        ``planned_amount`` post-activation would silently break the
+        sum-equals-original-sum invariant. The one exception is assigning
+        an ``appropriation`` to a plan whose ``appropriation`` was null
+        at activation (typical when Year-2's Appropriation Act enacts
+        partway through the contract).
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        instance = self.get_object()
+        contract = instance.contract
+        if contract.status != "DRAFT":
+            # Identify which fields the operator is trying to change.
+            mutable_after_activation = {"appropriation"}
+            requested = set(serializer.validated_data.keys())
+            forbidden = requested - mutable_after_activation
+            if forbidden:
+                raise PermissionDenied(
+                    f"Year plan fields {sorted(forbidden)} cannot be changed "
+                    f"after contract activation. Only ``appropriation`` may "
+                    f"be assigned post-activation (typical at Year-N enactment). "
+                    f"Cancel and re-draft the contract if the planned amount "
+                    f"or fiscal year needs to change."
+                )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+
+        if instance.contract.status != "DRAFT":
+            raise PermissionDenied(
+                "Year plans cannot be deleted after contract activation — "
+                "doing so would break the sum-equals-original-sum invariant "
+                "and orphan any IPCs already posted in that fiscal year. "
+                "Use a contract-cancellation workflow if the entire "
+                "contract is being unwound."
+            )
+        instance.delete()

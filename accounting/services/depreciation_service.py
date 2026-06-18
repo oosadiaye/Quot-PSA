@@ -299,6 +299,31 @@ class DepreciationService:
         """
         Post depreciation to the general ledger.
 
+        **DEPRECATED (WS-6 G-A C8 / M11):** The canonical depreciation
+        posting path is
+        ``accounting.services.depreciation.run_monthly_depreciation``
+        (wired into the ``run_monthly_depreciation`` management command
+        and the ``FixedAssetViewSet.bulk_depreciation`` API). It is the
+        only path the UI and scheduler call. This method is retained
+        for backwards-compatibility with legacy scripts that built
+        ``DepreciationRun`` objects via
+        ``DepreciationService.calculate_depreciation_run`` — when those
+        callers vanish, this method can be deleted outright.
+
+        Previously this routine bypassed:
+          * the fiscal-period gate (could post into a CLOSED period)
+          * ``update_gl_from_journal`` (GLBalance rows never updated;
+            the journal posted in name only)
+          * ``IPSASJournalService.post_journal`` audit log + balance
+            re-check
+
+        It now routes through ``IPSASJournalService.post_journal`` so
+        the same gates as every other posting surface apply. Lines are
+        built here from the ``DepreciationRun`` detail rows because the
+        bulk service operates on a different shape (per-asset, no
+        precomputed run); migrating callers to ``run_monthly_depreciation``
+        is the long-term fix.
+
         Args:
             run_id: DepreciationRun ID
             user: User posting
@@ -306,7 +331,21 @@ class DepreciationService:
         Returns:
             Tuple of (success, message, journal_id)
         """
+        import warnings
+        from decimal import Decimal as _D
         from accounting.models import JournalHeader, JournalLine
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService, JournalPostingError,
+        )
+
+        warnings.warn(
+            "DepreciationService.post_depreciation is deprecated; use "
+            "accounting.services.depreciation.run_monthly_depreciation "
+            "(the canonical bulk depreciation path used by the UI and "
+            "the run_monthly_depreciation management command).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         try:
             run = DepreciationRun.objects.get(id=run_id)
@@ -321,69 +360,79 @@ class DepreciationService:
 
         journal = None
 
-        with transaction.atomic():
-            journal = JournalHeader.objects.create(
-                posting_date=run.run_date,
-                description=f"Depreciation Run FY{run.fiscal_year} P{run.period}",
-                reference_number=f"DEP-{run.fiscal_year}{run.period:02d}-{run.id}",
-                status='Draft',
-                source_module='assets',
-                source_document_id=run.pk,
-            )
-
-            depreciation_account = None
-            accumulated_account = None
-
-            for detail in run.details.all():
-                if detail.period_depreciation <= 0:
-                    continue
-
-                asset = detail.asset
-
-                if asset.depreciation_expense_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=asset.depreciation_expense_account,
-                        debit=detail.period_depreciation,
-                        memo=f"Depreciation: {detail.asset_code}"
-                    )
-
-                if asset.accumulated_depreciation_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=asset.accumulated_depreciation_account,
-                        credit=detail.period_depreciation,
-                        memo=f"Accumulated Depreciation: {detail.asset_code}"
-                    )
-
-                asset.accumulated_depreciation = detail.accumulated_depreciation_after
-                asset.save()
-
-                from accounting.models import DepreciationSchedule
-                schedule, created = DepreciationSchedule.objects.get_or_create(
-                    asset=asset,
-                    period_date=run.run_date,
-                    defaults={
-                        'depreciation_amount': detail.period_depreciation,
-                        'is_posted': True,
-                    }
+        try:
+            with transaction.atomic():
+                journal = JournalHeader.objects.create(
+                    posting_date=run.run_date,
+                    description=f"Depreciation Run FY{run.fiscal_year} P{run.period}",
+                    reference_number=f"DEP-{run.fiscal_year}{run.period:02d}-{run.id}",
+                    status='Draft',
+                    source_module='assets.depreciation_run',
+                    source_document_id=run.pk,
                 )
-                if not created:
-                    schedule.depreciation_amount = detail.period_depreciation
-                    schedule.is_posted = True
-                    schedule.save()
+                # Mark as budget-checked: depreciation is a non-cash entry
+                # that doesn't draw appropriation. Mirrors the same flag
+                # used by run_monthly_depreciation.
+                journal._budget_checked = True
 
-                detail.schedule_line_id = schedule.id
-                detail.save()
+                for detail in run.details.all():
+                    if detail.period_depreciation <= 0:
+                        continue
 
-            journal.status = 'Posted'
-            journal.save()
+                    asset = detail.asset
 
-            run.status = 'POSTED'
-            run.posted_at = timezone.now()
-            run.posted_by = user
-            run.journal_id = journal.id
-            run.save()
+                    if asset.depreciation_expense_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=asset.depreciation_expense_account,
+                            debit=detail.period_depreciation,
+                            credit=_D('0.00'),
+                            memo=f"Depreciation: {detail.asset_code}",
+                            asset=asset,
+                        )
+
+                    if asset.accumulated_depreciation_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=asset.accumulated_depreciation_account,
+                            debit=_D('0.00'),
+                            credit=detail.period_depreciation,
+                            memo=f"Accumulated Depreciation: {detail.asset_code}",
+                            asset=asset,
+                        )
+
+                    asset.accumulated_depreciation = detail.accumulated_depreciation_after
+                    asset.save()
+
+                    from accounting.models import DepreciationSchedule
+                    schedule, created = DepreciationSchedule.objects.get_or_create(
+                        asset=asset,
+                        period_date=run.run_date,
+                        defaults={
+                            'depreciation_amount': detail.period_depreciation,
+                            'is_posted': True,
+                        }
+                    )
+                    if not created:
+                        schedule.depreciation_amount = detail.period_depreciation
+                        schedule.is_posted = True
+                        schedule.save()
+
+                    detail.schedule_line_id = schedule.id
+                    detail.save()
+
+                # Canonical post — runs the fiscal-period gate +
+                # validate_journal (balance + postable-account check) +
+                # GL balance updates + audit log + status flip.
+                IPSASJournalService.post_journal(journal, user=user)
+
+                run.status = 'POSTED'
+                run.posted_at = timezone.now()
+                run.posted_by = user
+                run.journal_id = journal.id
+                run.save()
+        except JournalPostingError as e:
+            return False, f"Post failed: {e}", 0
 
         return True, f"Posted depreciation journal {journal.id}", journal.id
 

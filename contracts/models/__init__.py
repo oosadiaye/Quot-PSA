@@ -39,6 +39,9 @@ from contracts.models.audit import (  # noqa: F401
 from contracts.models.deductions import (  # noqa: F401
     VendorStatusVerification,
 )
+from contracts.models.year_plan import (  # noqa: F401
+    ContractYearPlan,
+)
 
 __all__ = [
     # contract.py
@@ -74,4 +77,6 @@ __all__ = [
     "ApprovalObjectType",
     # deductions.py
     "VendorStatusVerification",
+    # year_plan.py
+    "ContractYearPlan",
 ]

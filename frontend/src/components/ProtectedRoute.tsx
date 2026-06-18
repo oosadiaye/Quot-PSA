@@ -1,8 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import LoadingScreen from '../components/common/LoadingScreen';
-import logger from '../utils/logger';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,55 +7,18 @@ interface ProtectedRouteProps {
   requiredRole?: string;
 }
 
+/**
+ * ProtectedRoute — gates child routes on AuthContext state.
+ *
+ * Reads ``isAuthenticated`` from context (derived from React state, not
+ * synchronous storage reads) so a 401-driven logout flushes consumers
+ * within the same render cycle. The previous implementation duplicated
+ * storage probing here and produced a one-render desync where storage
+ * had just been cleared but state hadn't yet flushed.
+ */
 const ProtectedRoute = ({ children, requiredPerm, requiredRole }: ProtectedRouteProps) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const location = useLocation();
-  const { hasPermission, hasRole } = useAuth();
-
-  const checkAuth = () => {
-    try {
-      // Check both storages — sessionStorage for non-remembered sessions
-      const token = localStorage.getItem('authToken') ?? sessionStorage.getItem('authToken');
-      const userRaw = localStorage.getItem('user') ?? sessionStorage.getItem('user');
-      if (userRaw) {
-        JSON.parse(userRaw);
-      }
-      setIsAuthenticated(!!token);
-    } catch (err) {
-      logger.error('Auth check error:', err);
-      const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo', 'tenantPermissions'];
-      for (const key of keys) {
-        localStorage.removeItem(key);
-        sessionStorage.removeItem(key);
-      }
-      setIsAuthenticated(false);
-    }
-  };
-
-  // Check auth on mount and route change
-  useEffect(() => {
-    checkAuth();
-  }, [location.pathname]);
-
-  // Listen for auth-expired events from the API interceptor
-  useEffect(() => {
-    const onAuthExpired = () => setIsAuthenticated(false);
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'authToken' && !e.newValue) {
-        setIsAuthenticated(false);
-      }
-    };
-    window.addEventListener('auth-expired', onAuthExpired);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener('auth-expired', onAuthExpired);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, []);
-
-  if (isAuthenticated === null) {
-    return <LoadingScreen message="Checking authentication..." />;
-  }
+  const { isAuthenticated, hasPermission, hasRole } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

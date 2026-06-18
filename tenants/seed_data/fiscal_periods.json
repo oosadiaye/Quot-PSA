@@ -1,0 +1,14 @@
+[
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 1,  "period_type": "Monthly", "start_date": "{{month_start:1}}",  "end_date": "{{month_end:1}}",  "name": "{{current_fy_year}}-01", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 2,  "period_type": "Monthly", "start_date": "{{month_start:2}}",  "end_date": "{{month_end:2}}",  "name": "{{current_fy_year}}-02", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 3,  "period_type": "Monthly", "start_date": "{{month_start:3}}",  "end_date": "{{month_end:3}}",  "name": "{{current_fy_year}}-03", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 4,  "period_type": "Monthly", "start_date": "{{month_start:4}}",  "end_date": "{{month_end:4}}",  "name": "{{current_fy_year}}-04", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 5,  "period_type": "Monthly", "start_date": "{{month_start:5}}",  "end_date": "{{month_end:5}}",  "name": "{{current_fy_year}}-05", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 6,  "period_type": "Monthly", "start_date": "{{month_start:6}}",  "end_date": "{{month_end:6}}",  "name": "{{current_fy_year}}-06", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 7,  "period_type": "Monthly", "start_date": "{{month_start:7}}",  "end_date": "{{month_end:7}}",  "name": "{{current_fy_year}}-07", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 8,  "period_type": "Monthly", "start_date": "{{month_start:8}}",  "end_date": "{{month_end:8}}",  "name": "{{current_fy_year}}-08", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 9,  "period_type": "Monthly", "start_date": "{{month_start:9}}",  "end_date": "{{month_end:9}}",  "name": "{{current_fy_year}}-09", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 10, "period_type": "Monthly", "start_date": "{{month_start:10}}", "end_date": "{{month_end:10}}", "name": "{{current_fy_year}}-10", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 11, "period_type": "Monthly", "start_date": "{{month_start:11}}", "end_date": "{{month_end:11}}", "name": "{{current_fy_year}}-11", "status": "Open"},
+  {"fiscal_year": "{{current_fy_year}}", "period_number": 12, "period_type": "Monthly", "start_date": "{{month_start:12}}", "end_date": "{{month_end:12}}", "name": "{{current_fy_year}}-12", "status": "Open"}
+]

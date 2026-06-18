@@ -1,0 +1,10 @@
+{
+  "account_number": "DEFAULT-MAIN-TSA",
+  "account_name":   "Main TSA — Default (edit on Day 1)",
+  "bank":           "CBN (edit on Day 1)",
+  "sort_code":      "",
+  "account_type":   "MAIN_TSA",
+  "is_active":      true,
+  "current_balance": "0.00",
+  "description":     "Placeholder TSA seeded on tenant provision so the system can post payments out of the box. Replace account_number / bank with the real CBN-issued TSA before any real payment run."
+}

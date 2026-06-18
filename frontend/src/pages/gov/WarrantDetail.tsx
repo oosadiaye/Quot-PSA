@@ -6,9 +6,9 @@
  * Releasing a warrant triggers notifications to MDA accountant + AG.
  */
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Zap, PauseCircle, FileText, Download } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Zap, PauseCircle, FileText, Download, Printer } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import '../../features/accounting/styles/glassmorphism.css';
@@ -26,10 +26,14 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string }> = {
     RELEASED:  { color: '#166534', bg: '#dcfce7' },
     SUSPENDED: { color: '#dc2626', bg: '#fef2f2' },
     EXHAUSTED: { color: '#64748b', bg: '#f1f5f9' },
+    // Added in migration 0016. Visually distinct from EXHAUSTED
+    // (terminal-by-spend) — EXPIRED is terminal-by-time.
+    EXPIRED:   { color: '#7c2d12', bg: '#fef3c7' },
 };
 
 export default function WarrantDetail() {
     const { id } = useParams<{ id: string }>();
+    const navigate = useNavigate();
     const qc = useQueryClient();
     const [msg, setMsg] = useState('');
     const [err, setErr] = useState('');
@@ -81,7 +85,16 @@ export default function WarrantDetail() {
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <PageHeader
                     title={`Warrant: ${warrant.appropriation_mda}`}
-                    subtitle={`Q${warrant.quarter} — ${warrant.appropriation_account}`}
+                    subtitle={
+                        // Period label prefers the date range; falls back
+                        // to legacy quarter for warrants created before
+                        // the date-range refactor.
+                        (warrant.effective_from && warrant.effective_to)
+                            ? `${warrant.effective_from} → ${warrant.effective_to} — ${warrant.appropriation_account}`
+                            : warrant.quarter
+                                ? `Q${warrant.quarter} — ${warrant.appropriation_account}`
+                                : warrant.appropriation_account
+                    }
                     icon={<FileText size={22} />}
                 />
 
@@ -111,8 +124,14 @@ export default function WarrantDetail() {
                                     <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>{warrant.appropriation_account}</div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Quarter</div>
-                                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>Q{warrant.quarter}</div>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Effective Period</div>
+                                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>
+                                        {(warrant.effective_from && warrant.effective_to)
+                                            ? `${warrant.effective_from} → ${warrant.effective_to}`
+                                            : warrant.quarter
+                                                ? `Q${warrant.quarter}`
+                                                : '—'}
+                                    </div>
                                 </div>
                                 <div>
                                     <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Release Date</div>
@@ -164,12 +183,45 @@ export default function WarrantDetail() {
                             </div>
                         </div>
 
+                        {/* Print Warrant — always available, regardless of status. Composes
+                            the warrant data with WarrantPrintoutSettings (letterhead +
+                            3 signatures) into a print-friendly preview. Configure the
+                            letterhead + signatures at /settings/warrant-printout. */}
+                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
+                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.5rem 0' }}>
+                                Printout
+                            </h3>
+                            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: '0 0 0.75rem 0' }}>
+                                Open the print preview to compose this warrant with the configured
+                                letterhead + signatures. Use Ctrl+P (or Print button) for paper / PDF.
+                            </p>
+                            <button
+                                onClick={() => navigate(`/budget/warrants/${id}/print`)}
+                                style={{
+                                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    padding: '0.625rem 1.25rem', borderRadius: '8px',
+                                    background: 'linear-gradient(135deg, #1e40af, #312e81)',
+                                    color: 'white', fontWeight: 600, fontSize: 'var(--text-sm)',
+                                    border: 'none', cursor: 'pointer',
+                                    boxShadow: '0 4px 10px rgba(30, 64, 175, 0.25)',
+                                }}
+                            >
+                                <Printer size={15} /> Print Warrant
+                            </button>
+                        </div>
+
                         {/* Actions based on status */}
                         {warrant.status === 'PENDING' && (
                             <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
                                 <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>Release Warrant</h3>
                                 <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: '0 0 1rem 0' }}>
-                                    Releasing this warrant authorizes the MDA to spend up to {fmtNGN(warrant.amount_released)} this quarter.
+                                    {/* Period phrasing follows the date-range refactor: prefer the
+                                        explicit window, fall back to legacy quarter for warrants
+                                        created before migration 0016. */}
+                                    Releasing this warrant authorizes the MDA to spend up to {fmtNGN(warrant.amount_released)}
+                                    {warrant.effective_from && warrant.effective_to
+                                        ? ` between ${warrant.effective_from} and ${warrant.effective_to}`
+                                        : warrant.quarter ? ` during Q${warrant.quarter}` : ' for the authorised period'}.
                                     MDA accountant and AG will be notified automatically.
                                 </p>
                                 <button

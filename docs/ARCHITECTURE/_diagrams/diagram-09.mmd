@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Draft : JournalHeader.objects.create()
+    Draft --> Pending : submit_for_approval()
+    Pending --> Approved : workflow approval
+    Approved --> Posted : IPSASJournalService.post_journal()<br/>(DR=CR, NCoA valid, no control-acct,<br/>budget gate via signal)
+    Posted --> Reversed : JournalReversal<br/>(creates mirror journal)
+
+    note right of Posted
+      ImmutableModelMixin
+      blocks any field edits
+      after Posted.
+    end note

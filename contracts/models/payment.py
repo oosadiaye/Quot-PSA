@@ -131,6 +131,43 @@ class MeasurementBook(AuditBaseModel):
         self.total_measured_value = quantize_currency(total)
 
     def save(self, *args, **kwargs) -> None:
+        # ── Lock-after-IPC-citation guard ──────────────────────────────
+        # The three-way match (Contract → MB → IPC) relies on the IPC
+        # certifier seeing the SAME ``total_measured_value`` that gets
+        # recorded against the certificate. Without this guard, an
+        # operator could edit the MB items AFTER an IPC has cited it
+        # — leaving the audit trail showing one MB total today and a
+        # different one tomorrow.
+        #
+        # We refuse any mutation when the MB already has a non-DRAFT
+        # non-REJECTED IPC referencing it. New rows (no pk yet) and
+        # MB-status-only updates the IPC service itself performs
+        # (kwargs['update_fields'] limited to ``status``) are allowed
+        # so the legitimate workflow keeps working.
+        if self.pk is not None:
+            update_fields = kwargs.get('update_fields')
+            # Status-only updates are operator-initiated state
+            # transitions (e.g. operator marks MB as APPROVED). They
+            # don't change the audit-relevant fields (items, total).
+            is_status_only = (
+                update_fields is not None
+                and set(update_fields).issubset({'status', 'updated_at', 'updated_by'})
+            )
+            if not is_status_only:
+                # Late import to avoid circular reference at module
+                # load: this file defines IPCStatus immediately below.
+                cited_by_active_ipc = self.ipcs.exclude(
+                    status__in=('DRAFT', 'REJECTED'),
+                ).exists()
+                if cited_by_active_ipc:
+                    raise ValueError(
+                        f"MeasurementBook {self.mb_number} cannot be edited — "
+                        f"an Interim Payment Certificate has already cited it. "
+                        f"The three-way-match audit trail requires MB content "
+                        f"to remain stable from the moment an IPC is submitted "
+                        f"against it. If a correction is genuinely needed, "
+                        f"reject the citing IPC(s) first or create a new MB row."
+                    )
         self.recompute_total()
         super().save(*args, **kwargs)
 

@@ -141,6 +141,28 @@ class TSABankStatementLine(models.Model):
             models.Index(fields=['statement', 'match_status']),
             models.Index(fields=['reference']),
         ]
+        constraints = [
+            # Defence-in-depth: the auto-matcher's in-memory
+            # ``already_matched_payment_ids`` set guards against the
+            # common case, but two concurrent auto-match runs on
+            # different statements could each pass that check before
+            # either commits. These partial unique indexes force the
+            # database to reject the second write with
+            # ``IntegrityError`` — caught by the matcher and surfaced
+            # as ``skipped``. Conditional on the FK being NOT NULL so
+            # the dominant "many unmatched rows" case stays
+            # unconstrained.
+            models.UniqueConstraint(
+                fields=['matched_payment'],
+                condition=models.Q(matched_payment__isnull=False),
+                name='uniq_tsastmtline_matched_payment',
+            ),
+            models.UniqueConstraint(
+                fields=['matched_revenue'],
+                condition=models.Q(matched_revenue__isnull=False),
+                name='uniq_tsastmtline_matched_revenue',
+            ),
+        ]
 
     def __str__(self):
         direction = '-' if self.debit else '+'

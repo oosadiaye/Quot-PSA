@@ -29,6 +29,10 @@ Grant policy (any of the following satisfies access):
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from rest_framework.permissions import IsAuthenticated
 
 
@@ -73,6 +77,7 @@ def _user_has_oversight_org(user) -> bool:
     return False in that case so the caller falls through to a 403
     rather than a 500.
     """
+    from django.db.utils import ProgrammingError, OperationalError
     try:
         from core.models import UserOrganization
         return (
@@ -83,7 +88,11 @@ def _user_has_oversight_org(user) -> bool:
             ))
             .exists()
         )
-    except Exception:
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning(
+            'Oversight org lookup failed for user %s: %s',
+            getattr(user, 'pk', None), exc,
+        )
         return False
 
 
@@ -176,17 +185,40 @@ class RequiresMFA(IsAuthenticated):
 
 
 def _user_is_mfa_enrolled(user) -> bool:
-    """True if the user has completed MFA enrollment."""
+    """True if the user has completed MFA enrollment.
+
+    Fails CLOSED on errors: the previous implementation returned True
+    (treating every user as enrolled) on any exception. That meant a
+    transient DB hiccup let high-value mutations through unguarded.
+    The only legitimate "table missing" case (pre-migration deploy
+    window) is narrowed to ``ProgrammingError``; everything else
+    propagates so MFA stays a hard gate.
+    """
+    from django.db.utils import ProgrammingError, OperationalError
     try:
         from core.models import UserMFA
         mfa = UserMFA.objects.filter(user=user).first()
         return bool(mfa and mfa.is_enrolled)
-    except Exception:
-        # If the UserMFA table isn't present (migration not yet applied),
-        # fall back to allowing the user through rather than hard-locking
-        # production on a deploy-order problem. This is a deliberate
-        # trade-off: false-accept during rollout > global outage.
-        return True
+    except ProgrammingError:
+        # UserMFA table absent — pre-migration rollout state. Fail
+        # CLOSED: previous behaviour returned True (treating every user
+        # as enrolled) which silently disabled MFA on any DB schema
+        # drift. Apply pending migrations to close this gap.
+        logger.error(
+            'UserMFA table missing for user %s — failing closed. '
+            'Apply pending migrations to close this gap.',
+            getattr(user, 'pk', None),
+        )
+        return False
+    except OperationalError:
+        # DB connection drop, lock timeout — fail CLOSED. The user
+        # retries the request once the DB recovers; better than letting
+        # a privileged action through under degraded conditions.
+        logger.error(
+            'MFA enrollment lookup hit OperationalError for user %s — '
+            'failing closed.', getattr(user, 'pk', None),
+        )
+        return False
 
 
 def _session_mfa_is_fresh(request, max_age_minutes: int) -> bool:
@@ -226,10 +258,13 @@ def _session_mfa_is_fresh(request, max_age_minutes: int) -> bool:
                 age = (now - sess.mfa_verified_at).total_seconds()
                 if age <= threshold_seconds:
                     return True
-        except Exception:
+        except Exception as exc:
             # If UserSession isn't queryable (migration order, schema
             # drift), fall through to the session-cookie check.
-            pass
+            logger.warning(
+                'UserSession MFA freshness lookup failed for token=%s: %s',
+                token_key, exc,
+            )
 
     # Path 2 — Django session cookie (admin / legacy paths).
     session = getattr(request, 'session', None)

@@ -209,20 +209,28 @@ def refresh_appropriation_totals_after_post(sender, instance, created, **kwargs)
         # Mark so re-save events don't re-run the aggregate
         instance._totals_refreshed = True
     except Exception as exc:
-        # Reporting-cache failures must NEVER break the posting path,
-        # but they MUST be loud — the appropriation cache is what every
-        # budget execution report and dashboard reads. If this silently
-        # fails, every budget number on the system is stale. Log at
-        # ``error`` level (not just ``exception``) so monitoring picks
-        # it up; the posting itself still succeeds.
+        # GL ↔ Appropriation cache divergence is more dangerous than a
+        # failed journal post — let it abort and surface. The
+        # appropriation cache is what every budget execution report and
+        # dashboard reads; if this silently fails, every budget number
+        # on the system is stale and every later post relies on those
+        # stale numbers for ceiling checks. Log loudly at ``error``
+        # level so monitoring picks it up, then re-raise so the outer
+        # ``transaction.atomic()`` wrapping the journal post rolls
+        # back. The operator can re-post once the underlying refresh
+        # error (typically a transient DB issue or a corrupt
+        # Appropriation row) is resolved.
         logger.error(
             'CRITICAL: Appropriation totals refresh failed after journal '
-            'post (journal_id=%s document=%s): %s. Run '
-            '`./manage.py resync_appropriation_totals` to recover.',
+            'post (journal_id=%s document=%s): %s. Rolling back the '
+            'journal post to preserve cache integrity. Run '
+            '`./manage.py resync_appropriation_totals` if any stale '
+            'rows remain.',
             getattr(instance, 'pk', None),
             getattr(instance, 'document_number', None),
             exc, exc_info=True,
         )
+        raise
 
 
 def _connect_signals():

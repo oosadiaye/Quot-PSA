@@ -33,6 +33,7 @@ from .views import (
     # Period & Fiscal
     FiscalPeriodViewSet, PeriodCloseCheckViewSet, FiscalYearViewSet, PeriodAccessViewSet,
     PeriodCloseChecklistView,
+    FiscalPeriodReopenApprovalViewSet,
     # Fixed Assets
     AssetClassViewSet, AssetConfigurationViewSet, AssetCategoryViewSet,
     AssetLocationViewSet, AssetInsuranceViewSet, AssetMaintenanceViewSet,
@@ -169,6 +170,13 @@ router.register(r'fiscal-periods', FiscalPeriodViewSet, basename='fiscal-period'
 router.register(r'fiscal-years', FiscalYearViewSet, basename='fiscal-year')
 router.register(r'period-access', PeriodAccessViewSet, basename='period-access')
 router.register(r'period-close-checks', PeriodCloseCheckViewSet, basename='period-close-check')
+# V7 — Two-actor reopen approval queue (decoupled from FiscalPeriod
+# detail URL so an approver can act on the approval id directly).
+router.register(
+    r'reopen-approvals',
+    FiscalPeriodReopenApprovalViewSet,
+    basename='fiscal-period-reopen-approval',
+)
 
 # ─── Recurring & Accrual ─────────────────────────────────────
 router.register(r'recurring-journals', RecurringJournalViewSet, basename='recurring-journal')
@@ -259,6 +267,14 @@ router.register(r'dual-control-overrides', DualControlOverrideViewSet, basename=
 # won't appear in resolved URLs.
 from .views.budget_check_rules import BudgetCheckRuleViewSet
 router.register(r'budget-check-rules', BudgetCheckRuleViewSet, basename='budget-check-rule')
+
+# H2 follow-up (WS6) — payment-cascade reconciliation queue.
+from .views.payment_reconciliation import PaymentCascadeFailureViewSet
+router.register(
+    r'payment-cascade-failures',
+    PaymentCascadeFailureViewSet,
+    basename='payment-cascade-failure',
+)
 
 urlpatterns = [
     path('', include(router.urls)),

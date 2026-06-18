@@ -372,6 +372,591 @@ L'équipe de support QUOT ERP''',
             'footer': 'Veuillez ne pas répondre directement à ce courriel. Utilisez le lien du ticket ci-dessus.',
         },
     },
+    # ── Approval workflow notifications ──────────────────────────────────────
+    'approval_submitted': {
+        'en': {
+            'subject': 'Action Required: Approval Needed for {title}',
+            'greeting': 'Dear {first_name},',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'This is an automated workflow notification. Do not reply to this email.',
+        },
+        'fr': {
+            'subject': 'Action requise : Approbation nécessaire pour {title}',
+            'greeting': 'Cher(e) {first_name},',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
+        },
+        'es': {
+            'subject': 'Acción requerida: Se necesita aprobación para {title}',
+            'greeting': 'Estimado/a {first_name},',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
+        },
+        'de': {
+            'subject': 'Aktion erforderlich: Genehmigung benötigt für {title}',
+            'greeting': 'Sehr geehrte/r {first_name},',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
+        },
+        'pt': {
+            'subject': 'Ação necessária: Aprovação necessária para {title}',
+            'greeting': 'Caro(a) {first_name},',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
+        },
+        'zh': {
+            'subject': '需要操作：{title} 需要您的审批',
+            'greeting': '尊敬的 {first_name}，',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
+        },
+        'ar': {
+            'subject': 'إجراء مطلوب: الموافقة مطلوبة لـ {title}',
+            'greeting': 'عزيزي/عزيزتي {first_name}،',
+            'body': '''A new {document_label} has been submitted and requires your approval.
+
+Document: {title}
+Amount: {amount}
+Submitted By: {requester}
+
+Please review and action this request at your earliest convenience.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
+        },
+    },
+    'approval_step_advanced': {
+        'en': {
+            'subject': 'Approval Required: {title} is ready for your review',
+            'greeting': 'Dear {first_name},',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'This is an automated workflow notification. Do not reply to this email.',
+        },
+        'fr': {
+            'subject': 'Approbation requise : {title} est prêt pour votre examen',
+            'greeting': 'Cher(e) {first_name},',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
+        },
+        'es': {
+            'subject': 'Aprobación requerida: {title} está listo para su revisión',
+            'greeting': 'Estimado/a {first_name},',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
+        },
+        'de': {
+            'subject': 'Genehmigung erforderlich: {title} wartet auf Ihre Überprüfung',
+            'greeting': 'Sehr geehrte/r {first_name},',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
+        },
+        'pt': {
+            'subject': 'Aprovação necessária: {title} está pronto para sua revisão',
+            'greeting': 'Caro(a) {first_name},',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
+        },
+        'zh': {
+            'subject': '需要审批：{title} 已准备好供您审核',
+            'greeting': '尊敬的 {first_name}，',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
+        },
+        'ar': {
+            'subject': 'الموافقة مطلوبة: {title} جاهز لمراجعتك',
+            'greeting': 'عزيزي/عزيزتي {first_name}،',
+            'body': '''An approval request has advanced and is now ready for your review.
+
+Document: {title}
+Type: {document_label}
+
+Please review and take action on this request.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
+        },
+    },
+    'approval_completed': {
+        'en': {
+            'subject': 'Approved: {title} has been fully approved',
+            'greeting': 'Dear {first_name},',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'This is an automated workflow notification. Do not reply to this email.',
+        },
+        'fr': {
+            'subject': 'Approuvé : {title} a été entièrement approuvé',
+            'greeting': 'Cher(e) {first_name},',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
+        },
+        'es': {
+            'subject': 'Aprobado: {title} ha sido completamente aprobado',
+            'greeting': 'Estimado/a {first_name},',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
+        },
+        'de': {
+            'subject': 'Genehmigt: {title} wurde vollständig genehmigt',
+            'greeting': 'Sehr geehrte/r {first_name},',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
+        },
+        'pt': {
+            'subject': 'Aprovado: {title} foi totalmente aprovado',
+            'greeting': 'Caro(a) {first_name},',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
+        },
+        'zh': {
+            'subject': '已批准：{title} 已完全获批',
+            'greeting': '尊敬的 {first_name}，',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
+        },
+        'ar': {
+            'subject': 'تمت الموافقة: تمت الموافقة الكاملة على {title}',
+            'greeting': 'عزيزي/عزيزتي {first_name}،',
+            'body': '''Great news! Your approval request has been fully approved.
+
+Document: {title}
+
+You may now proceed with the next steps for this document.
+
+View Approval: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
+        },
+    },
+    'approval_rejected': {
+        'en': {
+            'subject': 'Rejected: {title} was not approved',
+            'greeting': 'Dear {first_name},',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'This is an automated workflow notification. Do not reply to this email.',
+        },
+        'fr': {
+            'subject': 'Rejeté : {title} n\'a pas été approuvé',
+            'greeting': 'Cher(e) {first_name},',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
+        },
+        'es': {
+            'subject': 'Rechazado: {title} no fue aprobado',
+            'greeting': 'Estimado/a {first_name},',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
+        },
+        'de': {
+            'subject': 'Abgelehnt: {title} wurde nicht genehmigt',
+            'greeting': 'Sehr geehrte/r {first_name},',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
+        },
+        'pt': {
+            'subject': 'Rejeitado: {title} não foi aprovado',
+            'greeting': 'Caro(a) {first_name},',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
+        },
+        'zh': {
+            'subject': '已拒绝：{title} 未获批准',
+            'greeting': '尊敬的 {first_name}，',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
+        },
+        'ar': {
+            'subject': 'مرفوض: لم تتم الموافقة على {title}',
+            'greeting': 'عزيزي/عزيزتي {first_name}،',
+            'body': '''Unfortunately, your approval request has been rejected.
+
+Document: {title}
+Rejected at Step: {step_number}
+Rejected By: {rejector}
+Reason: {comment}
+
+Please review the feedback and take appropriate action.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
+        },
+    },
+    'approval_sla_breach': {
+        'en': {
+            'subject': 'URGENT: Approval Overdue - {title}',
+            'greeting': 'Dear {first_name},',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'This is an automated SLA breach notification. Do not reply to this email.',
+        },
+        'fr': {
+            'subject': 'URGENT : Approbation en retard - {title}',
+            'greeting': 'Cher(e) {first_name},',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': "Ceci est une notification automatique de violation SLA. Ne répondez pas à cet e-mail.",
+        },
+        'es': {
+            'subject': 'URGENTE: Aprobación vencida - {title}',
+            'greeting': 'Estimado/a {first_name},',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta es una notificación automática de incumplimiento de SLA. No responda a este correo electrónico.',
+        },
+        'de': {
+            'subject': 'DRINGEND: Genehmigung überfällig - {title}',
+            'greeting': 'Sehr geehrte/r {first_name},',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Dies ist eine automatische SLA-Verletzungsbenachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
+        },
+        'pt': {
+            'subject': 'URGENTE: Aprovação atrasada - {title}',
+            'greeting': 'Caro(a) {first_name},',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'Esta é uma notificação automática de violação de SLA. Não responda a este e-mail.',
+        },
+        'zh': {
+            'subject': '紧急：审批超期 - {title}',
+            'greeting': '尊敬的 {first_name}，',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': '这是一封自动SLA违规通知邮件，请勿直接回复。',
+        },
+        'ar': {
+            'subject': 'عاجل: الموافقة متأخرة - {title}',
+            'greeting': 'عزيزي/عزيزتي {first_name}،',
+            'body': '''URGENT: An approval request assigned to you is overdue and requires immediate action.
+
+Document: {title}
+Overdue By: {delay_hours} hours
+
+This document has exceeded its SLA deadline. Please action it immediately to avoid further delays.
+
+View Request: {action_url}
+
+Best regards,
+QUOT ERP Workflow''',
+            'footer': 'هذا إشعار تلقائي بانتهاك اتفاقية مستوى الخدمة. يرجى عدم الرد على هذا البريد الإلكتروني.',
+        },
+    },
 }
 
 
@@ -666,3 +1251,85 @@ def send_support_ticket_email(user, ticket_number, subject, priority, status, ti
         context,
         user=user,
     )
+
+
+# ── Approval workflow convenience functions ───────────────────────────────────
+
+def send_approval_submitted_email(user, approval, document_label: str, action_url: str) -> bool:
+    """Notify an approver that a new document has been submitted for their review."""
+    requester = approval.requested_by
+    requester_name = (
+        requester.get_full_name() or requester.username
+        if requester else 'System'
+    )
+    context = {
+        'first_name': user.first_name or user.username,
+        'document_label': document_label,
+        'title': approval.title,
+        'amount': str(approval.amount) if approval.amount else 'N/A',
+        'requester': requester_name,
+        'action_url': action_url,
+    }
+    return send_localized_email('approval_submitted', user.email, context, user=user)
+
+
+def send_approval_completed_email(user, approval, action_url: str) -> bool:
+    """Notify the requester that their approval request has been fully approved."""
+    context = {
+        'first_name': user.first_name or user.username,
+        'title': approval.title,
+        'action_url': action_url,
+    }
+    return send_localized_email('approval_completed', user.email, context, user=user)
+
+
+def send_approval_rejected_email(
+    user,
+    approval,
+    step_number: int,
+    rejector: str,
+    comment: str,
+    action_url: str,
+) -> bool:
+    """Notify the requester that their approval request has been rejected."""
+    context = {
+        'first_name': user.first_name or user.username,
+        'title': approval.title,
+        'step_number': step_number,
+        'rejector': rejector,
+        'comment': comment or 'No reason provided.',
+        'action_url': action_url,
+    }
+    return send_localized_email('approval_rejected', user.email, context, user=user)
+
+
+def send_approval_step_advanced_email(
+    user,
+    approval,
+    document_label: str,
+    action_url: str,
+) -> bool:
+    """Notify an approver that the approval has advanced to their step."""
+    context = {
+        'first_name': user.first_name or user.username,
+        'title': approval.title,
+        'document_label': document_label,
+        'action_url': action_url,
+    }
+    return send_localized_email('approval_step_advanced', user.email, context, user=user)
+
+
+def send_approval_sla_breach_email(
+    user,
+    approval,
+    delay_hours: int,
+    action_url: str,
+) -> bool:
+    """Notify approvers that an approval has exceeded its SLA deadline."""
+    context = {
+        'first_name': user.first_name or user.username,
+        'title': approval.title,
+        'delay_hours': delay_hours,
+        'action_url': action_url,
+    }
+    return send_localized_email('approval_sla_breach', user.email, context, user=user)

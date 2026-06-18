@@ -1,0 +1,8 @@
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> ACTIVATED : ContractActivationService.activate()<br/>+ ContractYearPlan rows<br/>+ ContractBalance row<br/>SoD: activator ≠ creator
+    ACTIVATED --> IN_PROGRESS : first IPC submitted
+    IN_PROGRESS --> PRACTICAL_COMPLETION
+    PRACTICAL_COMPLETION --> DEFECTS_LIABILITY : retention partially released
+    DEFECTS_LIABILITY --> FINAL_COMPLETION : final retention release
+    FINAL_COMPLETION --> CLOSED

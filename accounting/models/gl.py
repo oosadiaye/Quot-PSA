@@ -156,6 +156,38 @@ class Account(models.Model):
         null=True, blank=True, related_name='children',
     )
     is_active = models.BooleanField(default=True, db_index=True)
+
+    # ─── SAP-style header / posting account flag ──────────────────────────
+    # A "Group" (header) account aggregates its children's balances but is
+    # NOT a valid posting target — journals lines, AP invoices, payment
+    # vouchers, etc. cannot reference it directly. Operators must post to
+    # one of its leaf descendants instead. This mirrors SAP's "Block for
+    # Posting" / "Group account" pattern: parent accounts roll up totals,
+    # leaves carry the actual debits and credits.
+    #
+    # Default ``True`` means "this is a posting account" so existing rows
+    # continue to behave exactly as before — only accounts that the user
+    # explicitly converts to headers (or that the data migration flags
+    # because they already have children) become non-postable.
+    #
+    # Enforcement points (defense in depth):
+    #   1. ``Account.clean()`` — guards at form-level save.
+    #   2. ``JournalLine.clean()`` — rejects any line targeting a
+    #      non-postable account.
+    #   3. ``IPSASJournalService.post_journal()`` — final gate before
+    #      ``status='Posted'`` so even raw-SQL inserts can't slip through.
+    is_postable = models.BooleanField(
+        default=True, db_index=True,
+        help_text=(
+            'When False, this account is a header / group account: it '
+            'aggregates the balances of its children but cannot be the '
+            'target of any journal line. Operators must post to a leaf '
+            'descendant. Mirrors SAP\'s "Block for Posting" flag. The '
+            'data migration sets this False for any account that has '
+            'child accounts at upgrade time.'
+        ),
+    )
+
     is_reconciliation = models.BooleanField(default=False)
     reconciliation_type = models.CharField(
         max_length=30, choices=RECONCILIATION_TYPE_CHOICES, blank=True, default='',
@@ -193,6 +225,13 @@ class Account(models.Model):
 
     class Meta:
         ordering = ['code']
+        # V15 — the GL ↔ sub-ledger reconciliation diff exposes Account-
+        # level balances and may signal control-account drift. Anyone who
+        # can view the AR / AP aging report should NOT automatically see
+        # those internal balances; gate them behind a dedicated perm.
+        permissions = (
+            ('view_gl_reconciliation_diff', 'Can view GL reconciliation diff and warnings on aging reports'),
+        )
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -215,6 +254,28 @@ class Account(models.Model):
                 'asset_category':
                     'An Asset Category is required when "Auto-create asset on debit" is enabled.'
             })
+        # Header / group accounts can never carry the auto-capitalisation
+        # behaviour because no journal lines will ever debit them — the
+        # rerouted DR would have no source. Reject the combination at
+        # form-save so the misconfiguration is caught early.
+        if not self.is_postable and self.auto_create_asset:
+            raise ValidationError({
+                'auto_create_asset':
+                    'Auto-create asset cannot be enabled on a header / group '
+                    'account (is_postable=False). Set this on a postable leaf '
+                    'account instead.'
+            })
+
+    def has_children(self) -> bool:
+        """True when at least one child account exists.
+
+        Used by the UI hierarchy view + the data migration that
+        seeds ``is_postable=False`` on accounts with children. Cheap
+        ``.exists()`` query — no need to fetch the relationship.
+        """
+        if not self.pk:
+            return False
+        return self.children.exists()
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -417,6 +478,11 @@ class JournalHeader(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
                             f"Cannot modify posted journal {prior.reference_number}: "
                             f"attempted to change {changed}. Reverse the journal instead."
                         )
+                # The base ``core.models.TransactionBase.save`` enforces a
+                # blanket "no Posted mutation" rule unless ``_allow_status_change``
+                # is passed. We've just run the more granular whitelist
+                # check above, so we explicitly bypass the base block here.
+                kwargs['_allow_status_change'] = True
         return super().save(*args, **kwargs)
 
 
@@ -467,6 +533,21 @@ class JournalLine(models.Model):
             raise ValidationError("A journal line cannot have both debit and credit amounts.")
         if self.debit == 0 and self.credit == 0:
             raise ValidationError("A journal line must have either a debit or credit amount.")
+        # SAP-style header / posting account guard: a journal line cannot
+        # target a non-postable account. Only leaf (postable) descendants
+        # are valid posting destinations. This keeps the trial balance
+        # coherent — header balances are computed by aggregation, not by
+        # direct posting, so a direct DR/CR on a header would create a
+        # discrepancy between the header's posted amount and the sum of
+        # its children's amounts.
+        if self.account_id and self.account and not self.account.is_postable:
+            raise ValidationError({
+                'account': (
+                    f'Account {self.account.code} ({self.account.name}) is a '
+                    f'header / group account and cannot be posted to directly. '
+                    f'Pick one of its leaf descendants instead.'
+                ),
+            })
 
     # ── S1-01 — DB-level amount constraints ───────────────────────────────
     # Enforces the double-entry invariants at the database layer so bulk
