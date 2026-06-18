@@ -4,12 +4,12 @@ Phases:
   1. _dump_database     — pg_dump → workdir/database/<schema>.sql
   2. _collect_media     — iterate FileField rows, copy into workdir/media/
   3. _build_manifest    — code/migration/PII fingerprint → manifest dict
-  4. write manifest.json into workdir
-  5. _encrypt_and_store — tar.gz → AES-GCM → Storage.open_write
+  4+5. _encrypt_and_store — write provisional manifest.json, tar.gz → AES-GCM → Storage.open_write
   6. _mark_succeeded    — atomic DB update; enforce retention
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -22,9 +22,10 @@ from tempfile import TemporaryDirectory
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone as django_timezone
+from django_tenants.utils import get_public_schema_name
 
 from snapshots.models import SnapshotJob
-from snapshots.services.crypto import encrypt_stream
+from snapshots.services.crypto import EnvelopeHeader, encrypt_stream
 from snapshots.services.dump import run_pg_dump
 from snapshots.services.manifest import build_manifest
 from snapshots.services.media import collect_referenced_media
@@ -70,7 +71,8 @@ def _artifact_relpath(schema_name: str, job_id: int) -> str:
 
 class SnapshotService:
     def __init__(self, job: SnapshotJob, storage=None):
-        self.job = job
+        # Re-fetch with select_related so triggered_by.username doesn't fire a 2nd query.
+        self.job = SnapshotJob.objects.select_related('triggered_by').get(pk=job.pk)
         self.storage = storage or LocalFilesystemStorage(
             root=settings.SNAPSHOTS_BACKUP_DIR)
 
@@ -85,28 +87,24 @@ class SnapshotService:
                 media_dir = workdir / 'media'
                 db_sql_path = db_dir / f'{self.job.schema_name}.sql'
 
-                # Phase 1: dump database.
                 self._dump_database(db_sql_path)
-
-                # Phase 2: collect media (skipped for the public schema).
                 self._collect_media(media_dir)
-
-                # Phase 3: build manifest.
                 manifest = self._build_manifest(db_sql_path, media_dir)
 
-                # Phase 4: write manifest.json.
-                (workdir / 'manifest.json').write_text(
-                    json.dumps(manifest, indent=2, sort_keys=True))
+                # Phases 4+5 fused: write a provisional manifest.json,
+                # encrypt the tarball to capture the envelope header, then
+                # re-stamp the manifest dict in memory.
+                artifact_relpath, size_bytes, sha256_hex, header = \
+                    self._encrypt_and_store(workdir, manifest)
 
-                # Phase 5: encrypt + store.
-                artifact_relpath, size_bytes, sha256_hex = self._encrypt_and_store(
-                    workdir, manifest)
+                # Back-fill the encryption envelope on the in-memory manifest
+                # so the SnapshotJob.manifest JSONField records the real values.
+                manifest['encryption']['iv_b64'] = base64.b64encode(header.iv).decode()
+                manifest['encryption']['tag_b64'] = base64.b64encode(header.tag).decode()
+                manifest['encryption']['wrapped_dek_b64'] = base64.b64encode(header.wrapped_dek).decode()
 
-            # Phase 6: mark succeeded + enforce retention.
-            self._mark_succeeded(
-                artifact_relpath, size_bytes, sha256_hex, manifest)
-            RetentionService(storage=self.storage).enforce_for_schema(
-                self.job.schema_name)
+            self._mark_succeeded(artifact_relpath, size_bytes, sha256_hex, manifest)
+            RetentionService(storage=self.storage).enforce_for_schema(self.job.schema_name)
         except Exception as exc:
             self._mark_failed(exc)
             raise
@@ -114,11 +112,20 @@ class SnapshotService:
     # ── phases ─────────────────────────────────────────────────────────
 
     def _transition_running(self) -> None:
-        SnapshotJob.objects.filter(pk=self.job.pk).update(
+        """Atomic QUEUED -> RUNNING. Idempotent: re-delivery of a running job
+        leaves state untouched (zero rows updated)."""
+        updated = SnapshotJob.objects.filter(
+            pk=self.job.pk,
+            status=SnapshotJob.Status.QUEUED,
+        ).update(
             status=SnapshotJob.Status.RUNNING,
             started_at=django_timezone.now(),
         )
         self.job.refresh_from_db()
+        if updated == 0 and self.job.status != SnapshotJob.Status.RUNNING:
+            raise RuntimeError(
+                f'snapshot job {self.job.pk} is in status {self.job.status}; '
+                f'refusing to transition to RUNNING.')
 
     def _dump_database(self, target: Path) -> None:
         run_pg_dump(
@@ -130,7 +137,7 @@ class SnapshotService:
         )
 
     def _collect_media(self, destination: Path) -> None:
-        if self.job.schema_name == 'public':
+        if self.job.schema_name == get_public_schema_name():
             return
         collect_referenced_media(
             schema_name=self.job.schema_name,
@@ -151,18 +158,39 @@ class SnapshotService:
 
     def _encrypt_and_store(
         self, workdir: Path, manifest: dict,
-    ) -> tuple[str, int, str]:
-        """Tar+gzip the workdir, encrypt, write to storage,
-        return (artifact_relpath, size_bytes, sha256_hex)."""
+    ) -> tuple[str, int, str, EnvelopeHeader]:
+        """Phase 4+5: write provisional manifest.json, tar+gz the workdir,
+        encrypt the tarball, write to storage. Returns
+        (artifact_relpath, size_bytes, sha256_hex, envelope_header).
+
+        The provisional manifest.json inside the tarball has null encryption
+        fields. The CALLER back-fills them on the in-memory dict so the
+        SnapshotJob.manifest JSONField records the real envelope. The bytes
+        of the actual envelope header are stored in the artifact's own
+        header (see crypto.py); the manifest sidecar is a forensic
+        convenience, not the authoritative source.
+        """
         kek = _resolve_kek()
+        (workdir / 'manifest.json').write_text(
+            json.dumps(manifest, indent=2, sort_keys=True))
+
         tar_buf = io.BytesIO()
         with tarfile.open(fileobj=tar_buf, mode='w:gz') as tar:
             tar.add(str(workdir), arcname=f'snapshot-{self.job.pk}')
         tar_buf.seek(0)
 
+        # SIZE GUARD: refuse to buffer an oversized tarball to protect worker RAM.
+        tar_size = tar_buf.getbuffer().nbytes
+        max_gb = int(getattr(settings, 'SNAPSHOTS_MAX_BUFFER_GB', 8))
+        max_bytes = max_gb * (1024 ** 3)
+        if tar_size > max_bytes:
+            raise RuntimeError(
+                f'Snapshot tarball {tar_size} bytes exceeds '
+                f'SNAPSHOTS_MAX_BUFFER_GB={max_gb} GiB — aborting to protect worker RAM.')
+
         artifact_relpath = _artifact_relpath(self.job.schema_name, self.job.pk)
         buffered = io.BytesIO()
-        encrypt_stream(
+        header = encrypt_stream(
             tar_buf, buffered,
             kek=kek, kek_id=settings.SNAPSHOTS_KEK_ID,
         )
@@ -171,7 +199,7 @@ class SnapshotService:
         size = len(ciphertext)
         with self.storage.open_write(artifact_relpath) as out_fh:
             out_fh.write(ciphertext)
-        return artifact_relpath, size, sha.hexdigest()
+        return artifact_relpath, size, sha.hexdigest(), header
 
     def _mark_succeeded(
         self, artifact_relpath: str, size_bytes: int, sha256_hex: str,

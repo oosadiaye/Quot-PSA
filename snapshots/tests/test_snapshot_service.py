@@ -102,3 +102,26 @@ def test_execute_marks_failed_on_pg_dump_error(
     assert queued_job.status == SnapshotJob.Status.FAILED
     assert queued_job.error_class == 'PgDumpError'
     assert 'fatal: bad role' in queued_job.error_message
+
+
+@pytest.mark.integration
+def test_manifest_records_encryption_envelope(
+    queued_job, configured_settings,
+):
+    """SnapshotJob.manifest must have non-null iv_b64/tag_b64/wrapped_dek_b64."""
+    def fake_run_pg_dump(*, schema, dsn, target, pg_dump_bin, timeout_sec=None):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b'-- fake\n')
+
+    with patch('snapshots.services.snapshot_service.run_pg_dump',
+               side_effect=fake_run_pg_dump):
+        with patch('snapshots.services.snapshot_service.collect_referenced_media',
+                   return_value=[]):
+            svc = SnapshotService(queued_job)
+            svc.execute()
+
+    queued_job.refresh_from_db()
+    enc = queued_job.manifest.get('encryption', {})
+    assert enc.get('iv_b64'), 'iv_b64 must be filled after _encrypt_and_store'
+    assert enc.get('tag_b64'), 'tag_b64 must be filled'
+    assert enc.get('wrapped_dek_b64'), 'wrapped_dek_b64 must be filled'
