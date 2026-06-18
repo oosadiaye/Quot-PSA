@@ -9,8 +9,9 @@ import { test, expect } from '../fixtures/auth';
  * expected to have the `admin` role on the first tenant, giving access to
  * the ProtectedRoute that guards /settings/backups.
  *
- * Delete is a hard DELETE: after success the query is invalidated and the
- * row disappears from the list (the API does not return soft-deleted rows).
+ * Delete is a soft delete (Task 16): the backend transitions the row to
+ * status=EXPIRED and returns 204.  After query invalidation the row remains
+ * visible in the table with an "Expired" status pill.
  */
 test.describe('Snapshots E2E', () => {
   const LABEL = `e2e-snapshot-${Date.now()}`;
@@ -51,7 +52,13 @@ test.describe('Snapshots E2E', () => {
     page.once('dialog', (dialog) => dialog.accept());
     await newRow.locator('button[title="Delete"]').click();
 
-    // Hard delete — the row is removed from the list after query invalidation.
-    await expect(newRow).toHaveCount(0, { timeout: 15_000 });
+    // Soft delete — the row stays in the list but its status pill becomes
+    // "Expired" (backend: status=EXPIRED, artifact_path='', returns 204).
+    await expect(
+      page
+        .locator('table tbody tr')
+        .filter({ hasText: LABEL })
+        .filter({ hasText: /expired/i }),
+    ).toBeVisible({ timeout: 15_000 });
   });
 });
