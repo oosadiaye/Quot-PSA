@@ -23,6 +23,15 @@ class GlobalApprovalSettings(AuditBaseModel):
         ('RevenueWriteOff', 'Revenue Write-Offs'),
         ('AssetDisposal', 'Asset Disposals'),
         ('Budget', 'Budgets'),
+        # ── Contract management (covers IPCs, Mobilisation, Retention, etc.) ──
+        # One module key for the entire contract chain so a single
+        # GlobalApprovalSettings row controls all contract-side documents.
+        ('Contract', 'Contracts (IPCs · Variations · Mobilisation · Retention)'),
+        # ── Accounting AP / AR / Treasury subledger ───────────────────────────
+        ('VendorInvoice', 'Vendor Invoices (AP)'),
+        ('RevenueCollection', 'Revenue Collections (IGR)'),
+        ('BankReconciliation', 'TSA Bank Reconciliations'),
+        # ── GL / HR ──────────────────────────────────────────────────────────
         ('JournalEntry', 'Journal Entries'),
         ('LeaveRequest', 'Leave Requests'),
         ('PayrollRun', 'Payroll Runs'),
@@ -76,10 +85,37 @@ class GlobalApprovalSettings(AuditBaseModel):
 
 
 class ApprovalGroup(AuditBaseModel):
-    """Group of approvers for a specific approval level."""
+    """Group of approvers for a specific approval level.
+
+    Members may be added two ways:
+      * Directly, via ``members`` M2M to ``auth.User``.
+      * Indirectly, via ``roles`` M2M to ``core.Role`` — any user with
+        an active ``RoleAssignment`` for any role in this list is an
+        effective member. This lets admins manage approver eligibility
+        at the role level (e.g. "anyone holding 'Finance Manager'")
+        without enumerating users — onboarding/offboarding flows
+        automatically pick up / drop access as RoleAssignments change.
+
+    Eligibility resolver: see :meth:`effective_user_ids` — used by
+    ``ApprovalStepSerializer.validate`` to confirm an approver is
+    authorised to act on this group's step.
+    """
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
-    members = models.ManyToManyField('auth.User', related_name='approval_groups')
+    members = models.ManyToManyField('auth.User', related_name='approval_groups', blank=True)
+
+    # Role-based membership — any user with an active assignment to
+    # any of these roles is an effective member of the group. ``blank=True``
+    # because groups can be members-only, roles-only, or both.
+    roles = models.ManyToManyField(
+        'core.Role', related_name='approval_groups',
+        blank=True,
+        help_text=(
+            "Indirect membership via curated roles. Users with an active "
+            "RoleAssignment to any of these roles can act on this group's "
+            "approval steps."
+        ),
+    )
 
     # MDA-scoped: null = global group, set = MDA-specific approver group
     organization = models.ForeignKey(
@@ -111,6 +147,37 @@ class ApprovalGroup(AuditBaseModel):
 
     def __str__(self):
         return self.name
+
+    def effective_user_ids(self):
+        """Return the set of user PKs eligible to act on this group's steps.
+
+        Effective = direct ``members`` ∪ users with an active
+        ``RoleAssignment`` for any role in ``roles``. Used by:
+
+          * ``ApprovalStepSerializer.validate`` — eligibility gate
+            when an approver tries to advance a step.
+          * Dashboards / pending-approvals queries that need to ask
+            "which users have something pending on this group?"
+
+        Returns a Python ``set`` of integer PKs. Lazy import on
+        ``RoleAssignment`` because ``core`` and ``workflow`` are both
+        in TENANT_APPS and we don't want to materialise it at module
+        import time (circular risk during migrations).
+        """
+        direct_ids = set(self.members.values_list('pk', flat=True))
+        try:
+            from core.models import RoleAssignment
+        except Exception:
+            return direct_ids
+        role_ids = list(self.roles.values_list('pk', flat=True))
+        if not role_ids:
+            return direct_ids
+        role_user_ids = set(
+            RoleAssignment.objects
+            .filter(role_id__in=role_ids, is_active=True)
+            .values_list('user_id', flat=True)
+        )
+        return direct_ids | role_user_ids
 
 
 class ApprovalTemplate(AuditBaseModel):

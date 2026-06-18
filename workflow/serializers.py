@@ -8,15 +8,33 @@ from django.contrib.contenttypes.models import ContentType
 
 class ApprovalGroupSerializer(serializers.ModelSerializer):
     member_names = serializers.SerializerMethodField()
+    members_count = serializers.SerializerMethodField()
+    # Role-based indirect membership — surfaced as a writable PK list
+    # plus read-only ``role_names`` (gated, like ``member_names``) and
+    # ``effective_members_count`` (members ∪ users with active role
+    # assignments to any role in this group). The card UI uses the
+    # effective count to communicate the true approver pool size.
+    role_names = serializers.SerializerMethodField()
+    roles_count = serializers.SerializerMethodField()
+    effective_members_count = serializers.SerializerMethodField()
+    templates_count = serializers.SerializerMethodField()
+    templates_using = serializers.SerializerMethodField()
 
     class Meta:
         model = ApprovalGroup
         fields = [
-            'id', 'name', 'description', 'members', 'member_names',
+            'id', 'name', 'description', 'members', 'member_names', 'members_count',
+            'roles', 'role_names', 'roles_count', 'effective_members_count',
+            'templates_count', 'templates_using',
             'min_amount', 'max_amount', 'is_active',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'created_by', 'updated_by',
+            'members_count', 'role_names', 'roles_count',
+            'effective_members_count',
+            'templates_count', 'templates_using',
+        ]
 
     def get_member_names(self, obj):
         """Return up to 5 member usernames — gated by staff/superuser.
@@ -33,6 +51,57 @@ class ApprovalGroupSerializer(serializers.ModelSerializer):
         if not (user and (user.is_staff or user.is_superuser)):
             return []
         return [u.username for u in obj.members.all()[:5]]
+
+    def get_members_count(self, obj):
+        """Direct-member count — safe to expose to all authenticated
+        readers (just a number, no identifying info)."""
+        return obj.members.count()
+
+    def get_role_names(self, obj):
+        """Role display names (max 5) — staff-gated like member_names."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and (user.is_staff or user.is_superuser)):
+            return []
+        return list(obj.roles.values_list('name', flat=True)[:5])
+
+    def get_roles_count(self, obj):
+        """Number of curated roles attached — safe count, no identity."""
+        return obj.roles.count()
+
+    def get_effective_members_count(self, obj):
+        """Direct members ∪ users with active assignments to any
+        attached role. The dashboard ``approver pool size`` figure.
+
+        Cheap: two scalar queries + set union in Python. Falls back to
+        the direct count if RoleAssignment can't be imported for any
+        reason (unlikely; both apps in TENANT_APPS).
+        """
+        return len(obj.effective_user_ids())
+
+    def get_templates_count(self, obj):
+        """How many approval templates reference this group as a step.
+
+        Drives the "Used in N workflows" usage badge on the Groups list
+        UI so operators can spot orphaned groups (templates_count == 0
+        means it's safe to delete). The reverse relation goes through
+        the ``ApprovalTemplateStep`` join table.
+        """
+        return ApprovalTemplateStep.objects.filter(group=obj).values('template_id').distinct().count()
+
+    def get_templates_using(self, obj):
+        """Names of templates referencing this group — used by the
+        Edit modal so the operator can see exactly which workflows
+        would be affected by a membership change. Gated by staff/super
+        for the same reason member_names is."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and (user.is_staff or user.is_superuser)):
+            return []
+        names = ApprovalTemplateStep.objects.filter(
+            group=obj,
+        ).select_related('template').values_list('template__name', flat=True).distinct()
+        return list(names)[:10]
 
 
 class ApprovalTemplateStepSerializer(serializers.ModelSerializer):
@@ -116,13 +185,21 @@ class ApprovalStepSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']
 
     def validate(self, data):
-        """Reject an ``approver`` who isn't a member of ``approver_group``.
+        """Reject an ``approver`` who isn't an effective member of
+        ``approver_group``.
 
-        The two fields are independent today, so it's possible to assign
-        a step to "Director Finance" group but record an approval by a
-        user who isn't in that group — defeating the SOD point of the
-        group abstraction. Allow it only when the user is staff/super
-        (platform admin override, e.g. break-glass approval).
+        Effective membership = direct ``members`` ∪ users with an
+        active ``RoleAssignment`` for any role in the group's ``roles``.
+        Using effective membership (not just direct) lets admins manage
+        approval eligibility at the role level — e.g. "anyone holding
+        the Finance Manager role can act on this step" — without
+        enumerating each user in the group's ``members``.
+
+        Staff / superusers still bypass (platform admin override, e.g.
+        break-glass approval). Every bypass is captured by the
+        ``ApprovalLog`` row that the action endpoint writes alongside
+        the step transition, so the audit trail records who used the
+        override and when.
         """
         approver = data.get('approver') or getattr(self.instance, 'approver', None)
         group = data.get('approver_group') or getattr(self.instance, 'approver_group', None)
@@ -130,11 +207,13 @@ class ApprovalStepSerializer(serializers.ModelSerializer):
             request = self.context.get('request')
             actor = getattr(request, 'user', None)
             if not (actor and (actor.is_staff or actor.is_superuser)):
-                if not group.members.filter(pk=approver.pk).exists():
+                if approver.pk not in group.effective_user_ids():
                     raise serializers.ValidationError({
                         'approver': (
-                            f"User '{approver}' is not a member of "
-                            f"approver group '{group.name}'."
+                            f"User '{approver}' is not an effective member of "
+                            f"approver group '{group.name}' (neither a direct "
+                            f"member nor a holder of any role attached to "
+                            f"this group)."
                         ),
                     })
         return data

@@ -17,6 +17,10 @@ Bypass paths (any one is enough):
   3. ``has_perm('contracts.bypass_sod')`` — explicit per-user/group grant
   4. ``UserTenantRole(role='admin')`` for the active tenant — the
      project's native "Tenant Admin" signal
+  5. Active assignment to the curated 'All Access' ``core.Role`` —
+     the SAP PFCG-style "do anything" role granted by tenant admins
+     for break-glass or business-driven SoD overrides. Seeded by
+     migration ``core.0016_seed_all_access_role``.
 
 Every bypass is still written to the ContractApprovalStep audit trail
 by the calling service so auditors see exactly when and by whom SoD
@@ -38,7 +42,27 @@ def actor_can_bypass_sod(actor) -> bool:
         return True
     if _actor_is_tenant_admin(actor):
         return True
+    if _actor_has_all_access_role(actor):
+        return True
     return False
+
+
+def _actor_has_all_access_role(actor) -> bool:
+    """True if ``actor`` holds an active assignment to the 'All Access'
+    ``core.Role`` (code='all_access').
+
+    Delegates to the canonical resolver in ``core.permissions`` so the
+    SoD bypass and the permission-grant pathway agree by construction.
+    Any DB / import failure falls through to False so the other bypass
+    paths still get a shot.
+    """
+    if actor is None:
+        return False
+    try:
+        from core.permissions import _user_has_all_access
+        return _user_has_all_access(actor)
+    except Exception:
+        return False
 
 
 def _actor_is_tenant_admin(actor) -> bool:
