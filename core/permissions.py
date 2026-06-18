@@ -30,6 +30,35 @@ def _get_tenant_role(user, tenant):
     return utr
 
 
+def _user_has_all_access(user):
+    """True if ``user`` holds an active assignment to the canonical
+    'All Access' Role.
+
+    All Access is a curated ``core.Role`` row (code='all_access',
+    seeded via migration ``core.0016_seed_all_access_role``) granting
+    every module permission flag. A user with an active assignment to
+    this role:
+
+      * Gets ``{'__all__'}`` from ``_get_tenant_permissions`` —
+        unlocks every permission gate that reads tenant perms.
+      * Returns True from ``contracts.services.sod.actor_can_bypass_sod``
+        — bypasses SoD enforcement in contract services.
+
+    Lazy import on ``RoleAssignment`` to avoid the module-import
+    circular risk (core ↔ workflow both in TENANT_APPS).
+    """
+    try:
+        from core.models import RoleAssignment
+    except Exception:
+        return False
+    return RoleAssignment.objects.filter(
+        user_id=user.pk,
+        role__code='all_access',
+        role__is_active=True,
+        is_active=True,
+    ).exists()
+
+
 def _get_tenant_permissions(user, tenant):
     """Get all permission strings for a user in a specific tenant, with caching."""
     # Handle None tenant case
@@ -42,6 +71,15 @@ def _get_tenant_permissions(user, tenant):
     # Return empty set for None tenant
     if tenant is None:
         return set()
+
+    # All Access role — single short-circuit before any other check.
+    # See ``_user_has_all_access``. Cached like the rest of the
+    # function's output; ``invalidate_permission_cache`` busts it when
+    # a role assignment changes (signal in ``core.signals``).
+    if _user_has_all_access(user):
+        perms = {'__all__'}
+        cache.set(cache_key, perms, timeout=300)
+        return perms
 
     utr = _get_tenant_role(user, tenant)
     if not utr:
@@ -58,28 +96,6 @@ def _get_tenant_permissions(user, tenant):
 def invalidate_permission_cache(user_id, tenant_id):
     """Call this when a user's role or groups change."""
     cache.delete(f"utr:{user_id}:{tenant_id}")
-
-
-def _user_has_all_access(user) -> bool:
-    """True iff user holds an active assignment to the canonical 'all_access' Role.
-
-    Tenant-scoped: must be called inside ``schema_context`` for the tenant in
-    question, because ``core.RoleAssignment`` lives in TENANT_APPS. Returns
-    False on any error so callers default to deny.
-    """
-    if not user or not getattr(user, 'is_authenticated', False):
-        return False
-    try:
-        from core.models import RoleAssignment
-        return RoleAssignment.objects.filter(
-            user_id=user.pk,
-            role__code='all_access',
-            role__is_active=True,
-            is_active=True,
-        ).exists()
-    except Exception:
-        logger.exception('core.permissions: _user_has_all_access lookup failed')
-        return False
     cache.delete(f"tenant_perms:{user_id}:{tenant_id}")
 
 
