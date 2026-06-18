@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from snapshots.models import SnapshotJob
 from snapshots.tasks import (
+    _run_snapshot_job,
     enforce_retention_all,
     reap_stale_jobs,
     run_snapshot_job,
@@ -27,7 +28,7 @@ def actor(db):
 
 @pytest.mark.integration
 def test_run_snapshot_job_delegates_to_service(actor):
-    """run_snapshot_job(job_id) re-loads the job and calls execute()."""
+    """_run_snapshot_job(job_id) re-loads the job and calls execute()."""
     job = SnapshotJob.objects.create(
         schema_name='delta_state', triggered_by=actor,
         status=SnapshotJob.Status.QUEUED)
@@ -41,7 +42,7 @@ def test_run_snapshot_job_delegates_to_service(actor):
             calls['execute'] += 1
 
     with patch('snapshots.tasks.SnapshotService', FakeSvc):
-        run_snapshot_job(job.pk)
+        _run_snapshot_job(job.pk)
 
     assert calls['execute'] == 1
     assert calls['received_pk'] == job.pk
@@ -51,7 +52,7 @@ def test_run_snapshot_job_delegates_to_service(actor):
 def test_run_snapshot_job_missing_id_is_noop(actor):
     """If the job_id doesn't exist (deleted between enqueue and run), no raise."""
     # Should not raise.
-    run_snapshot_job(999_999_999)
+    _run_snapshot_job(999_999_999)
 
 
 @pytest.mark.integration
@@ -82,14 +83,17 @@ def test_enforce_retention_all_visits_each_schema(actor):
 
 
 @pytest.mark.integration
-@override_settings(SNAPSHOTS_HARD_TIME_LIMIT_SEC=60)
+@override_settings(
+    SNAPSHOTS_HARD_TIME_LIMIT_SEC=60,
+    SNAPSHOTS_REAPER_BUFFER_SEC=300,
+)
 def test_reap_stale_jobs_marks_long_running_failed(actor):
-    """A job stuck in RUNNING past hard limit + 5 min buffer becomes FAILED."""
+    """A job stuck in RUNNING past hard limit + buffer becomes FAILED."""
     stale = SnapshotJob.objects.create(
         schema_name='delta', triggered_by=actor,
         status=SnapshotJob.Status.RUNNING)
     SnapshotJob.objects.filter(pk=stale.pk).update(
-        started_at=timezone.now() - timedelta(seconds=60 + 600),  # 10 min past
+        started_at=timezone.now() - timedelta(seconds=60 + 300 + 60),  # past boundary
     )
 
     fresh = SnapshotJob.objects.create(
@@ -106,3 +110,29 @@ def test_reap_stale_jobs_marks_long_running_failed(actor):
     assert stale.status == SnapshotJob.Status.FAILED
     assert stale.error_class == 'WorkerCrashOrTimeout'
     assert fresh.status == SnapshotJob.Status.RUNNING  # untouched
+
+
+@pytest.mark.integration
+def test_enforce_retention_all_continues_after_per_schema_error(actor):
+    """If RetentionService raises for one schema, the task still processes others."""
+    SnapshotJob.objects.create(
+        schema_name='a', triggered_by=actor,
+        status=SnapshotJob.Status.SUCCEEDED)
+    SnapshotJob.objects.create(
+        schema_name='b', triggered_by=actor,
+        status=SnapshotJob.Status.SUCCEEDED)
+
+    visited = []
+
+    class FakeRetention:
+        def __init__(self, storage=None):
+            pass
+        def enforce_for_schema(self, schema_name):
+            if schema_name == 'a':
+                raise RuntimeError('boom')
+            visited.append(schema_name)
+
+    with patch('snapshots.tasks.RetentionService', FakeRetention):
+        enforce_retention_all()   # must not raise
+
+    assert visited == ['b']
