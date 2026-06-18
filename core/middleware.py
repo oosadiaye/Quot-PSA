@@ -62,6 +62,10 @@ PUBLIC_PATHS_PREFIX = (
     '/api/superadmin/',
     '/admin/',
     '/api/v1/core/auth/reset-password/',  # reset-password/<uid>/<token>/
+    # Snapshots API lives in the public schema — cross-tenant by design.
+    # No tenant domain header or hostname resolution is needed.
+    '/api/v1/snapshots/',
+    '/api/snapshots/',
 )
 
 
@@ -106,9 +110,13 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
     def __call__(self, request):
         path = request.path_info
 
-        # Let public paths pass through without tenant resolution
+        # Public paths run in the public schema — bypass hostname-based
+        # tenant resolution entirely so these endpoints work without a valid
+        # domain record (e.g. superadmin console, snapshots API, auth login).
         if _is_public_path(path):
-            return super().__call__(request)
+            from django.db import connection as _db_conn
+            _db_conn.set_schema_to_public()
+            return self.get_response(request)
 
         tenant_domain = request.META.get('HTTP_X_TENANT_DOMAIN')
 

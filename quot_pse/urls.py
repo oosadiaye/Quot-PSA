@@ -32,6 +32,7 @@ v1_patterns = [
     path('tenants/', include('tenants.urls')),
     path('superadmin/', include('superadmin.urls')),
     path('contracts/', include('contracts.urls', namespace='contracts')),
+    path('', include('snapshots.urls')),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3
