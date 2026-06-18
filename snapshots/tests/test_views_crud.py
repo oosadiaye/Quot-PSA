@@ -66,6 +66,7 @@ def test_anonymous_returns_401(api_client):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
 def test_authenticated_superadmin_lists_all_jobs(superuser, tenant_admin, api_client):
     SnapshotJob.objects.create(
         schema_name='a', triggered_by=tenant_admin,
@@ -84,6 +85,7 @@ def test_authenticated_superadmin_lists_all_jobs(superuser, tenant_admin, api_cl
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
 def test_tenant_admin_lists_only_own_schema_jobs(tenant_admin, api_client):
     SnapshotJob.objects.create(
         schema_name='mine', triggered_by=tenant_admin,
@@ -103,6 +105,7 @@ def test_tenant_admin_lists_only_own_schema_jobs(tenant_admin, api_client):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_create_as_tenant_admin_for_own_schema_succeeds(tenant_admin, api_client):
     mock_task = _mock_task()
     api_client.force_authenticate(user=tenant_admin)
@@ -124,6 +127,7 @@ def test_create_as_tenant_admin_for_own_schema_succeeds(tenant_admin, api_client
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
 def test_create_as_tenant_admin_for_other_schema_returns_403(tenant_admin, api_client):
     api_client.force_authenticate(user=tenant_admin)
     with patch('snapshots.permissions.is_tenant_admin_of', return_value=False):
@@ -134,6 +138,7 @@ def test_create_as_tenant_admin_for_other_schema_returns_403(tenant_admin, api_c
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 def test_create_enqueues_celery_task(tenant_admin, api_client):
     mock_task = _mock_task()
     api_client.force_authenticate(user=tenant_admin)
@@ -147,6 +152,7 @@ def test_create_enqueues_celery_task(tenant_admin, api_client):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
 def test_create_emits_audit(tenant_admin, api_client):
     mock_task = _mock_task()
     api_client.force_authenticate(user=tenant_admin)
@@ -160,6 +166,7 @@ def test_create_emits_audit(tenant_admin, api_client):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
 def test_put_method_not_allowed(tenant_admin, api_client):
     job = SnapshotJob.objects.create(
         schema_name='mine', triggered_by=tenant_admin,

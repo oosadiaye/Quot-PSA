@@ -9,8 +9,10 @@ Defense-in-depth:
 """
 from __future__ import annotations
 
+from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 
 from snapshots import audit
 from snapshots.models import SnapshotJob
@@ -18,7 +20,6 @@ from snapshots.permissions import (
     CanAccessSnapshot,
     CanCreateSnapshot,
     is_platform_superadmin,
-    is_tenant_admin_of,
     tenant_schemas_with_all_access,
 )
 from snapshots.serializers import SnapshotJobSerializer
@@ -39,9 +40,14 @@ class SnapshotJobViewSet(viewsets.ModelViewSet):
     """
     serializer_class = SnapshotJobSerializer
     permission_classes = [IsAuthenticated, CanCreateSnapshot, CanAccessSnapshot]
-    throttle_scope = 'snapshot_create'
     # Exclude PUT/PATCH — snapshots are immutable once created.
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
+
+    def get_throttles(self):
+        if self.action == 'create':
+            self.throttle_scope = 'snapshot_create'
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         qs = SnapshotJob.objects.select_related('triggered_by').all()
@@ -54,4 +60,4 @@ class SnapshotJobViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         job = serializer.save(triggered_by=self.request.user)
         audit.record_created(self.request.user, job)
-        run_snapshot_job.delay(job.pk)
+        transaction.on_commit(lambda: run_snapshot_job.delay(job.pk))

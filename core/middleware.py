@@ -238,7 +238,10 @@ class TenantAccessMiddleware:
     def __call__(self, request):
         path = request.path_info
 
-        if _is_public_path(path):
+        # Snapshot paths live in the public schema and have no tenant binding.
+        # Explicit bypass; do not depend on tenant=None falling through the
+        # subsequent block.
+        if _is_public_path(path) or _is_snapshot_path(path):
             return self.get_response(request)
 
         user = getattr(request, 'user', None)
