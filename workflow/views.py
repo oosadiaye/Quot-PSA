@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
+from workflow.tasks import enqueue_approval_notification
+
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import transaction
@@ -54,6 +56,7 @@ APPROVABLE_MODELS = [
     'purchasereturn',
     # ── Public-sector IFMIS workflows ─────────────────────────────────────
     'paymentvoucher',        # PV — TSA disbursement authorisation
+    'paymentvouchergov',     # accounting.PaymentVoucherGov — government PV variant
     'appropriation',         # Budget Appropriation (create + activate)
     'warrant',               # AIE / Cash Release Warrant
     'appropriationvirement', # Virement between economic lines
@@ -61,6 +64,19 @@ APPROVABLE_MODELS = [
     'baddebtwriteoff',       # Revenue / bad-debt write-off (Accountant-General + FC)
     'assetdisposal',         # Fixed asset disposal
     'fixedasset',            # Fixed asset creation / capitalisation
+    # ── Contract management & IPC chain ───────────────────────────────────
+    'contract',                       # Contract activation / closure
+    'interimpaymentcertificate',      # IPC — interim payment certificate approval
+    'contractvariation',              # Variation / write-up approval
+    'milestoneschedule',              # Milestone approval (work physically complete)
+    'mobilizationpayment',            # Mobilization advance approve / schedule
+    'retentionrelease',               # Retention release (50% practical + 50% final)
+    # ── Accounting AP / AR / Treasury subledger documents ─────────────────
+    'vendorinvoice',                  # AP invoice approval before posting
+    'payment',                        # Outgoing payment posting (cash-out gate)
+    'revenuecollection',              # IGR receipt confirmation & posting
+    'vendoradvance',                  # Special-GL advance recovery / clearance
+    'tsareconciliation',              # Bank-rec sign-off (Treasury → AG)
     # ── GL / HR ──────────────────────────────────────────────────────────
     'journalheader',
     'leaverequest',
@@ -68,22 +84,37 @@ APPROVABLE_MODELS = [
 ]
 
 APPROVABLE_LABELS = {
-    'purchaserequest':        'Purchase Request',
-    'purchaseorder':          'Purchase Order',
-    'goodsreceivednote':      'Goods Received Note',
-    'invoicematching':        'Invoice Verification',
-    'purchasereturn':         'Purchase Return',
-    'paymentvoucher':         'Payment Voucher',
-    'appropriation':          'Budget Appropriation',
-    'warrant':                'Cash Release Warrant (AIE)',
-    'appropriationvirement':  'Budget Virement',
-    'revenuebudget':          'Revenue Budget',
-    'baddebtwriteoff':        'Revenue Write-Off',
-    'assetdisposal':          'Asset Disposal',
-    'fixedasset':             'Fixed Asset Capitalisation',
-    'journalheader':          'Journal Entry',
-    'leaverequest':           'Leave Request',
-    'payrollrun':             'Payroll Run',
+    'purchaserequest':            'Purchase Request',
+    'purchaseorder':              'Purchase Order',
+    'goodsreceivednote':          'Goods Received Note',
+    'invoicematching':            'Invoice Verification',
+    'purchasereturn':             'Purchase Return',
+    'paymentvoucher':             'Payment Voucher',
+    'paymentvouchergov':          'Payment Voucher (Government)',
+    'appropriation':              'Budget Appropriation',
+    'warrant':                    'Cash Release Warrant (AIE)',
+    'appropriationvirement':      'Budget Virement',
+    'revenuebudget':              'Revenue Budget',
+    'baddebtwriteoff':            'Revenue Write-Off',
+    'assetdisposal':              'Asset Disposal',
+    'fixedasset':                 'Fixed Asset Capitalisation',
+    # Contracts module
+    'contract':                   'Contract Activation',
+    'interimpaymentcertificate':  'Interim Payment Certificate (IPC)',
+    'contractvariation':          'Contract Variation / Write-Up',
+    'milestoneschedule':          'Milestone Completion',
+    'mobilizationpayment':        'Mobilization Advance',
+    'retentionrelease':           'Retention Release',
+    # Accounting subledger
+    'vendorinvoice':              'Vendor Invoice (AP)',
+    'payment':                    'Outgoing Payment',
+    'revenuecollection':          'Revenue Collection (IGR)',
+    'vendoradvance':              'Vendor Advance (Special-GL)',
+    'tsareconciliation':          'TSA Bank Reconciliation',
+    # GL / HR
+    'journalheader':              'Journal Entry',
+    'leaverequest':               'Leave Request',
+    'payrollrun':                 'Payroll Run',
 }
 
 
@@ -91,22 +122,39 @@ APPROVABLE_LABELS = {
 # .capitalize() breaks for multi-word model names like 'invoicematching' → 'Invoicematching'
 # which doesn't match the MODULE_CHOICES value 'InvoiceVerification'.
 _MODEL_TO_MODULE_KEY = {
-    'purchaserequest':        'PurchaseRequest',
-    'purchaseorder':          'PurchaseOrder',
-    'goodsreceivednote':      'GoodsReceivedNote',
-    'invoicematching':        'InvoiceVerification',   # BUG-2 fix: was 'Invoicematching'
-    'purchasereturn':         'PurchaseReturn',
-    'paymentvoucher':         'PaymentVoucher',
-    'appropriation':          'Appropriation',
-    'warrant':                'Warrant',
-    'appropriationvirement':  'Appropriation',
-    'revenuebudget':          'Budget',
-    'baddebtwriteoff':        'RevenueWriteOff',
-    'assetdisposal':          'AssetDisposal',
-    'fixedasset':             'Budget',
-    'journalheader':          'JournalEntry',
-    'leaverequest':           'LeaveRequest',
-    'payrollrun':             'PayrollRun',
+    'purchaserequest':            'PurchaseRequest',
+    'purchaseorder':              'PurchaseOrder',
+    'goodsreceivednote':          'GoodsReceivedNote',
+    'invoicematching':            'InvoiceVerification',   # BUG-2 fix: was 'Invoicematching'
+    'purchasereturn':             'PurchaseReturn',
+    'paymentvoucher':             'PaymentVoucher',
+    'paymentvouchergov':          'PaymentVoucher',
+    'appropriation':              'Appropriation',
+    'warrant':                    'Warrant',
+    'appropriationvirement':      'Appropriation',
+    'revenuebudget':              'Budget',
+    'baddebtwriteoff':            'RevenueWriteOff',
+    'assetdisposal':              'AssetDisposal',
+    'fixedasset':                 'Budget',
+    # Contracts module → all funnel through the Contract module setting
+    # so the operator only manages a single approval-mode entry per
+    # business area rather than 6 redundant ones.
+    'contract':                   'Contract',
+    'interimpaymentcertificate':  'Contract',
+    'contractvariation':          'Contract',
+    'milestoneschedule':          'Contract',
+    'mobilizationpayment':        'Contract',
+    'retentionrelease':           'Contract',
+    # Accounting subledger documents
+    'vendorinvoice':              'VendorInvoice',
+    'payment':                    'PaymentVoucher',         # routed through PV mode
+    'revenuecollection':          'RevenueCollection',
+    'vendoradvance':              'VendorInvoice',          # subledger AP grouping
+    'tsareconciliation':          'BankReconciliation',
+    # GL / HR
+    'journalheader':              'JournalEntry',
+    'leaverequest':               'LeaveRequest',
+    'payrollrun':                 'PayrollRun',
 }
 
 
@@ -228,6 +276,8 @@ def auto_route_approval(obj, model_name, request, title=None, amount=None):
             comment='',
             user=request.user,
         )
+
+    enqueue_approval_notification('submitted', approval_obj.pk)
 
     return {
         'approval_required': True,
@@ -729,9 +779,13 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 # This save is inside the atomic block — if it raises, the
                 # step and approval status changes are both rolled back.
                 self._trigger_document_action(approval, 'approve')
+                enqueue_approval_notification('completed', approval.pk)
             else:
                 approval.current_step += 1
                 approval.save()
+                enqueue_approval_notification(
+                    'step_advanced', approval.pk, new_step_number=approval.current_step
+                )
 
             ApprovalLog.objects.create(
                 approval=approval,
@@ -803,6 +857,11 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                 comment=comment,
                 user=request.user,
             )
+            enqueue_approval_notification(
+                'rejected',
+                approval.pk,
+                rejecting_step_number=current_step.step_number if current_step else 0,
+            )
 
         return Response(ApprovalSerializer(approval).data)
 
@@ -830,14 +889,15 @@ class ApprovalViewSet(viewsets.ModelViewSet):
 
         approval.status = 'Cancelled'
         approval.save()
-        
+
         ApprovalLog.objects.create(
             approval=approval,
             action='Cancel',
             comment=request.data.get('comment', ''),
             user=request.user
         )
-        
+        enqueue_approval_notification('cancelled', approval.pk)
+
         return Response(ApprovalSerializer(approval).data)
 
     @action(detail=False, methods=['get'])
@@ -1009,6 +1069,7 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             comment=request.data.get('comment', ''),
             user=request.user,
         )
+        enqueue_approval_notification('submitted', approval_obj.pk)
 
         return Response(ApprovalSerializer(approval_obj).data, status=status.HTTP_201_CREATED)
 
