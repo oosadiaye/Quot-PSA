@@ -16,6 +16,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from core.security.client_ip import get_trusted_client_ip
@@ -73,6 +74,36 @@ class SnapshotJobViewSet(viewsets.ModelViewSet):
         job = serializer.save(triggered_by=self.request.user)
         audit.record_created(self.request.user, job)
         transaction.on_commit(lambda: run_snapshot_job.delay(job.pk))
+
+    def destroy(self, request, *args, **kwargs):
+        """Non-destructive delete: transitions row to EXPIRED, unlinks artifact.
+
+        Audit row is preserved. Re-delete is idempotent (returns 204 without
+        further action).
+        """
+        job = self.get_object()  # permission + queryset filter applied
+
+        if job.status == SnapshotJob.Status.EXPIRED:
+            # Already expired; idempotent.
+            return Response(status=204)
+
+        old_path = job.artifact_path
+        with transaction.atomic():
+            SnapshotJob.objects.filter(pk=job.pk).update(
+                status=SnapshotJob.Status.EXPIRED,
+                artifact_path='',
+            )
+
+        if old_path:
+            try:
+                storage = LocalFilesystemStorage(root=settings.SNAPSHOTS_BACKUP_DIR)
+                storage.delete(old_path)
+            except Exception:
+                logger.exception(
+                    'snapshots: failed to delete artifact for job_id=%s', job.pk)
+
+        audit.record_deleted(actor=request.user, job=job)
+        return Response(status=204)
 
     @action(detail=True, methods=['GET'], url_path='download')
     def download(self, request, pk=None):
