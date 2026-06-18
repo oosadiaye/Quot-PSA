@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # AuditLog ACTION_CHOICES don't include domain-specific verbs, so we map
 # snapshot events to the closest generic action code supported by the model.
+# NOTE: 'snapshot.started', 'snapshot.succeeded', and 'snapshot.expired' all
+# map to 'UPDATE' because ACTION_CHOICES has no finer-grained status codes.
+# To distinguish them in DB queries, filter on description='snapshot.<event>'.
 _ACTION_MAP: dict[str, str] = {
     'snapshot.created':    'CREATE',
     'snapshot.started':    'UPDATE',
@@ -53,15 +56,28 @@ def _actor_id(actor: Any) -> int | None:
 
 def _emit(action: str, actor: Any = None, job: Any = None, **extras: Any) -> None:
     """Emit a structured log line; then attempt a best-effort DB write."""
+    actor_id = _actor_id(actor)
+    job_id = _job_pk(job)
+
     extra_payload: dict[str, Any] = {
         'action': action,
-        'actor_id': _actor_id(actor),
-        'job_id': _job_pk(job),
+        'actor_id': actor_id,
+        'job_id': job_id,
         **extras,
     }
 
     # Structured log line — key=value pairs for log-aggregation pipelines.
-    kv_pairs = ' '.join(f'{k}={v}' for k, v in extra_payload.items())
+    # - 'action' is excluded from kv_pairs as it already appears in the format
+    #   prefix, preventing a duplicate action=foo action=foo pattern.
+    # - Structural fields (actor_id, job_id) are always included so system-
+    #   triggered events are clearly identified by actor_id=None.
+    # - Optional extras with falsy values (e.g. ip_address=None/'') are omitted
+    #   to keep log lines clean.
+    _STRUCTURAL_KEYS = frozenset({'actor_id', 'job_id'})
+    kv_pairs = ' '.join(
+        f'{k}={v}' for k, v in extra_payload.items()
+        if k != 'action' and (k in _STRUCTURAL_KEYS or v not in (None, ''))
+    )
     logger.info(
         'snapshots.audit action=%s %s',
         action,
@@ -71,7 +87,7 @@ def _emit(action: str, actor: Any = None, job: Any = None, **extras: Any) -> Non
 
     # Best-effort DB write — never raise on failure.
     try:
-        _write_audit_row(action=action, actor=actor, job=job, extras=extra_payload)
+        _write_audit_row(action=action, actor=actor, job=job, extras=extras)
     except Exception:
         logger.warning(
             'snapshots.audit: DB write failed for action=%s',
@@ -96,16 +112,26 @@ def _write_audit_row(
     db_action = _ACTION_MAP.get(action, 'UPDATE')
     job_pk = _job_pk(job)
 
-    AuditLog.log_action(
-        user=actor,
-        action=db_action,
-        instance=job,
-        object_id=job_pk,
-        object_repr=str(job) if job is not None else '',
-        object_key=f'SnapshotJob:{job_pk}' if job_pk is not None else '',
-        description=action,
-        ip_address=extras.get('ip_address') or None,
-    )
+    kwargs: dict[str, Any] = {
+        'user': actor,
+        'action': db_action,
+        'instance': job,
+        'object_id': job_pk,
+        'object_repr': str(job) if job is not None else '',
+        'object_key': f'SnapshotJob:{job_pk}' if job_pk is not None else '',
+        'description': action,
+        'ip_address': extras.get('ip_address') or None,
+    }
+
+    if action == 'snapshot.failed':
+        # Persist error context in the changes field so failed-snapshot rows
+        # are queryable by error class/message without parsing log lines.
+        kwargs['changes'] = {
+            'error_class': extras.get('error_class', ''),
+            'error_message': extras.get('error_message', ''),
+        }
+
+    AuditLog.log_action(**kwargs)
 
 
 # ── Public recorders ────────────────────────────────────────────────────────
@@ -160,7 +186,7 @@ def record_downloaded(actor: Any, job: Any, ip_address: str | None = None) -> No
         actor=actor,
         job=job,
         schema_name=getattr(job, 'schema_name', ''),
-        ip_address=ip_address or '',
+        ip_address=ip_address or None,
     )
 
 

@@ -8,8 +8,6 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # ── Helpers / shared fixtures ───────────────────────────────────────────────
 
@@ -157,3 +155,21 @@ def test_audit_db_write_failure_does_not_raise(caplog):
     assert any('DB write failed' in msg for msg in warning_messages), (
         f"Expected a 'DB write failed' warning; got: {warning_messages}"
     )
+
+
+# ── Test 8: record_started emits a log with action='snapshot.started' ───────
+
+def test_record_started_emits_log(caplog):
+    """record_started fires on every RUNNING transition — must be covered."""
+    from snapshots.audit import record_started
+
+    job = _make_job(pk=99, schema_name='delta_state')
+
+    with caplog.at_level(logging.INFO, logger='snapshots.audit'):
+        with patch('snapshots.audit._write_audit_row'):
+            record_started(job)
+
+    assert any(
+        getattr(r, 'action', '') == 'snapshot.started'
+        for r in caplog.records
+    ), f"Expected action='snapshot.started' in log records; got: {[r.message for r in caplog.records]}"
