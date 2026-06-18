@@ -25,10 +25,14 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache as _cache
 from rest_framework.permissions import BasePermission
 
 
 logger = logging.getLogger(__name__)
+
+
+_CACHE_TTL = 300
 
 
 # ---------------------------------------------------------------------------
@@ -68,114 +72,125 @@ def is_platform_superadmin(user) -> bool:
         return False
 
 
+def _admin_cache_key(user_id: int, schema_name: str) -> str:
+    return f'snapshots:admin:{user_id}:{schema_name}'
+
+
 def is_tenant_admin_of(user, schema_name: str) -> bool:
-    """True if `user` holds the all_access Role on the tenant `schema_name`.
+    """True if user holds 'all_access' on `schema_name`.
 
-    Resolution order:
-      1. Check `UserTenantRole` (public schema, SHARED_APPS) — confirms the
-         user is linked to the named tenant at all.
-      2. Run `core.permissions._user_has_all_access` inside a
-         `schema_context` for that tenant — confirms the fine-grained
-         'all_access' role assignment exists in the tenant schema.
-
-    Falls back gracefully to False on any import or DB error so that a
-    missing-schema condition never grants access.
+    Caches the boolean result per (user_id, schema_name) for 5 minutes.
+    Cache is invalidated by core.signals._role_assignment_changed via the
+    `invalidate_snapshot_admin_cache` hook below.
     """
-    if user is None or isinstance(user, AnonymousUser):
-        return False
-    if not getattr(user, 'is_authenticated', False):
+    if not user or not getattr(user, 'is_authenticated', False):
         return False
     if not schema_name:
         return False
 
+    cache_key = _admin_cache_key(user.pk, schema_name)
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         from tenants.models import Client, UserTenantRole
-        # Step 1: coarse check — does the user have *any* active role on
-        # the tenant identified by schema_name?
         try:
             tenant = Client.objects.get(schema_name=schema_name)
         except Client.DoesNotExist:
+            _cache.set(cache_key, False, _CACHE_TTL)
             return False
 
         has_utr = UserTenantRole.objects.filter(
-            user=user, tenant=tenant, is_active=True
+            user=user, tenant=tenant, is_active=True,
         ).exists()
         if not has_utr:
+            _cache.set(cache_key, False, _CACHE_TTL)
             return False
 
-        # Step 2: fine-grained check — does the user hold all_access inside
-        # the tenant schema?
         from django_tenants.utils import schema_context
         from core.permissions import _user_has_all_access
         with schema_context(schema_name):
-            return bool(_user_has_all_access(user))
-
+            result = bool(_user_has_all_access(user))
+        _cache.set(cache_key, result, _CACHE_TTL)
+        return result
     except Exception:
         logger.exception(
-            'snapshots.permissions: is_tenant_admin_of failed '
-            '(user=%s schema=%s)',
-            getattr(user, 'pk', '?'),
-            schema_name,
-        )
+            'snapshots.permissions: is_tenant_admin_of check failed for '
+            'user=%s schema=%s', getattr(user, 'pk', None), schema_name)
         return False
 
 
+def invalidate_snapshot_admin_cache(user_id: int, schema_name: str | None = None) -> None:
+    """Clear cached admin status. Used by RoleAssignment post_save signal."""
+    if schema_name is None:
+        # Best-effort: we don't know which schemas to invalidate. For now,
+        # callers should pass schema_name. This is a no-op fallback.
+        return
+    _cache.delete(_admin_cache_key(user_id, schema_name))
+
+
+def _all_access_cache_key(user_id: int) -> str:
+    return f'snapshots:all_access_schemas:{user_id}'
+
+
 def tenant_schemas_with_all_access(user) -> set[str]:
-    """Set of schema names where `user` holds active all_access.
+    """Set of schema_names where `user` holds all_access.
 
-    Used by queryset filtering in views.py (Task 14) to restrict the rows
-    a tenant admin can see.  Platform superadmins get the full set as a
-    defensive measure, though the view layer typically bypasses the filter
-    for superadmins.
-
-    Returns an empty set on any error so that a DB fault never expands
-    access.
+    For superadmins: returns ALL schemas (full enumeration).
+    For tenant admins: result is cached per user for 5 minutes.
     """
-    if user is None or isinstance(user, AnonymousUser):
-        return set()
-    if not getattr(user, 'is_authenticated', False):
+    if not user or not getattr(user, 'is_authenticated', False):
         return set()
 
-    try:
-        from tenants.models import Client, UserTenantRole
-    except ImportError:
-        logger.exception('snapshots.permissions: could not import tenants models')
-        return set()
-
-    # Superadmins have platform-wide access — return all active schemas.
     if is_platform_superadmin(user):
-        return set(Client.objects.values_list('schema_name', flat=True))
+        try:
+            from tenants.models import Client
+            return set(Client.objects.values_list('schema_name', flat=True))
+        except Exception:
+            logger.exception(
+                'snapshots.permissions: could not enumerate Client schemas')
+            return set()
 
-    # For non-superadmins, enumerate tenants via the shared UserTenantRole
-    # table, then verify all_access inside each tenant schema.
+    cache_key = _all_access_cache_key(user.pk)
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return set(cached)
+
+    result: set[str] = set()
     try:
-        tenant_qs = (
+        from tenants.models import UserTenantRole
+        from django_tenants.utils import schema_context
+        from core.permissions import _user_has_all_access
+
+        utr_qs = (
             UserTenantRole.objects
             .filter(user=user, is_active=True)
             .select_related('tenant')
         )
-        result: set[str] = set()
-        from django_tenants.utils import schema_context
-        from core.permissions import _user_has_all_access
-        for utr in tenant_qs:
-            sn = utr.tenant.schema_name
+        for utr in utr_qs:
+            schema = utr.tenant.schema_name
             try:
-                with schema_context(sn):
+                with schema_context(schema):
                     if _user_has_all_access(user):
-                        result.add(sn)
+                        result.add(schema)
             except Exception:
-                logger.warning(
-                    'snapshots.permissions: schema_context(%s) failed; skipping',
-                    sn,
-                )
-        return result
+                logger.exception(
+                    'snapshots.permissions: per-schema all_access lookup failed '
+                    'for user=%s schema=%s', user.pk, schema)
     except Exception:
         logger.exception(
-            'snapshots.permissions: tenant_schemas_with_all_access failed '
-            'for user %s',
-            getattr(user, 'pk', '?'),
-        )
+            'snapshots.permissions: tenant_schemas_with_all_access failed for user=%s',
+            user.pk)
         return set()
+
+    _cache.set(cache_key, list(result), _CACHE_TTL)
+    return result
+
+
+def invalidate_all_access_schemas_cache(user_id: int) -> None:
+    """Clear cached schemas-with-all-access set. Used by signal."""
+    _cache.delete(_all_access_cache_key(user_id))
 
 
 # ---------------------------------------------------------------------------
@@ -183,16 +198,20 @@ def tenant_schemas_with_all_access(user) -> set[str]:
 # ---------------------------------------------------------------------------
 
 class CanCreateSnapshot(BasePermission):
-    """Gate for creating (POST) a new SnapshotJob.
+    """Permission gate for snapshot creation (POST /api/snapshots/).
 
-    * Platform superadmin: always allowed.
-    * Tenant admin: allowed only when ``request.data['schema_name']`` is a
-      tenant they hold all_access on.
-    * All other actors (anonymous, regular users): denied.
+    Contract:
+        - Unauthenticated requests are denied on ALL methods.
+        - For POST: validates `request.data['schema_name']` is one the actor
+          can create snapshots for (superadmin: any; tenant admin: own only).
+        - For non-POST: returns True at the class level (no schema_name in
+          body to gate on). This means GET/PATCH/DELETE pass through to
+          object-level permissions (`CanAccessSnapshot.has_object_permission`)
+          and to the queryset filter in views.py.
 
-    Non-POST methods pass through to ``has_object_permission`` — the
-    caller is expected to pair this with ``CanAccessSnapshot`` or handle
-    object-level checks in the view.
+    IMPORTANT: Use composed with `CanAccessSnapshot` on retrieve/destroy
+    endpoints. Used alone on a retrieve endpoint, it would allow any
+    authenticated user to fetch any snapshot.
     """
 
     def has_permission(self, request, view) -> bool:

@@ -45,12 +45,6 @@ def tenant_admin(db):
 
 
 @pytest.fixture
-def stranger(db):
-    """Ordinary user with no tenant access."""
-    return User.objects.create_user(username='alice', password='x')
-
-
-@pytest.fixture
 def snapshot_job(db, tenant_admin):
     """A succeeded SnapshotJob in 'delta_state' schema."""
     return SnapshotJob.objects.create(
@@ -79,21 +73,23 @@ def test_is_platform_superadmin_true_for_is_superuser(superuser):
 
 
 @pytest.mark.integration
-def test_is_platform_superadmin_false_for_regular_user(tenant_admin):
-    # Regular user without is_superuser and no SuperAdminProfile.
-    # We patch the profile lookup so it doesn't need a real public schema.
-    with patch(
-        'snapshots.permissions.SuperAdminProfile',
-        create=True,
-    ):
-        with patch(
-            'snapshots.permissions.schema_context',
-            create=True,
-        ):
-            # Fallback: just ensure it doesn't crash and returns False.
-            result = is_platform_superadmin(tenant_admin)
-            # Result depends on the mock; the important thing is no exception.
-            assert isinstance(result, bool)
+def test_is_platform_superadmin_false_when_no_superuser_and_no_profile(tenant_admin):
+    """Regular user (not is_superuser AND no SuperAdminProfile) returns False."""
+    # tenant_admin has is_superuser=False by default; SuperAdminProfile lookup
+    # will return no rows because no profile was created for this user.
+    assert is_platform_superadmin(tenant_admin) is False
+
+
+@pytest.mark.integration
+def test_is_platform_superadmin_true_via_is_superuser_flag(superuser):
+    """Fast path: is_superuser=True returns True without DB lookup."""
+    assert is_platform_superadmin(superuser) is True
+
+
+@pytest.mark.integration
+def test_is_platform_superadmin_false_for_anonymous_or_none():
+    assert is_platform_superadmin(None) is False
+    assert is_platform_superadmin(MagicMock(is_authenticated=False)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +246,10 @@ def test_tenant_schemas_with_all_access_returns_correct_set(tenant_admin):
         patch('tenants.models.UserTenantRole', mock_utr_model),
         patch('django_tenants.utils.schema_context', mock_ctx),
         patch('core.permissions._user_has_all_access', return_value=True),
+        # Bypass the cache so the mock is always hit
+        patch('snapshots.permissions._cache') as mock_cache,
     ):
+        mock_cache.get.return_value = None
         result = tenant_schemas_with_all_access(tenant_admin)
 
     assert 'alpha_state' in result
@@ -276,3 +275,61 @@ def test_superadmin_tenant_schemas_returns_all(superuser):
         result = tenant_schemas_with_all_access(superuser)
 
     assert result == set(fake_schemas)
+
+
+# ---------------------------------------------------------------------------
+# is_tenant_admin_of — direct resolver tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_is_tenant_admin_of_returns_false_when_schema_missing(tenant_admin):
+    """Unknown schema_name → False (Client.DoesNotExist)."""
+    from snapshots.permissions import is_tenant_admin_of, invalidate_snapshot_admin_cache
+    invalidate_snapshot_admin_cache(tenant_admin.pk, 'nonexistent_schema')
+    assert is_tenant_admin_of(tenant_admin, 'nonexistent_schema') is False
+
+
+@pytest.mark.integration
+def test_is_tenant_admin_of_returns_false_when_no_utr(tenant_admin):
+    """User with no UserTenantRole for the tenant → False."""
+    from tenants.models import Client
+    from snapshots.permissions import is_tenant_admin_of, invalidate_snapshot_admin_cache
+    # Create a tenant the user does NOT have a UTR for
+    try:
+        client = Client.objects.create(
+            schema_name='nope_tenant', name='Nope', paid_until=None)
+    except Exception:
+        pytest.skip('Cannot create tenant in test (django-tenants setup)')
+    invalidate_snapshot_admin_cache(tenant_admin.pk, 'nope_tenant')
+    assert is_tenant_admin_of(tenant_admin, 'nope_tenant') is False
+
+
+@pytest.mark.integration
+def test_is_tenant_admin_of_uses_cache(tenant_admin, monkeypatch):
+    """Second call within TTL hits cache, not DB."""
+    from snapshots.permissions import (
+        is_tenant_admin_of, invalidate_snapshot_admin_cache,
+    )
+    call_count = {'n': 0}
+
+    # Patch the inner Client.objects.get to count invocations.
+    from tenants.models import Client
+    original_get = Client.objects.get
+
+    def counting_get(*args, **kwargs):
+        call_count['n'] += 1
+        raise Client.DoesNotExist()  # forces False return path
+
+    monkeypatch.setattr(Client.objects, 'get', counting_get)
+
+    # Cold cache
+    invalidate_snapshot_admin_cache(tenant_admin.pk, 'some_schema')
+    is_tenant_admin_of(tenant_admin, 'some_schema')
+    first = call_count['n']
+
+    # Second call should hit cache (no Client.objects.get invocation)
+    is_tenant_admin_of(tenant_admin, 'some_schema')
+    second = call_count['n']
+
+    assert first == 1
+    assert second == 1, 'Second call should be cached'

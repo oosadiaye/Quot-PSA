@@ -136,9 +136,53 @@ def _permission_catalogue_changed(sender, instance, **kwargs):
     _invalidate_all_active_users()
 
 
+# ─── RoleAssignment changes ──────────────────────────────────────────
+# When an admin grants / revokes a Role (including 'All Access') to a
+# specific user, that user's tenant_perms cache must be busted
+# immediately — otherwise the change wouldn't take effect for up to
+# the cache TTL (5 min). Without this, granting All Access wouldn't
+# unlock the user's permissions until they re-login or the cache
+# expired naturally. Cheap: one cache key per affected user.
+
+def _role_assignment_changed(sender, instance, **kwargs):
+    """Invalidate the affected user's tenant_perms cache."""
+    try:
+        from core.permissions import invalidate_permission_cache
+        from django.db import connection
+
+        tenant = getattr(connection, 'tenant', None)
+        tenant_id = getattr(tenant, 'pk', None) or getattr(tenant, 'id', None)
+        if tenant_id is None or instance.user_id is None:
+            return
+
+        invalidate_permission_cache(instance.user_id, tenant_id)
+        logger.info(
+            'rbac: invalidated permission cache for user %s after '
+            'role assignment (role=%s) change',
+            instance.user_id, getattr(instance.role, 'code', '?'),
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning('rbac: role-assignment invalidation failed: %s', exc)
+
+    # Invalidate snapshots admin-check cache for this user. We don't have
+    # the tenant schema_name available here from RoleAssignment alone, so we
+    # clear the all_access_schemas set; the per-schema key will expire via TTL
+    # or be cleared on the next targeted call.
+    try:
+        from snapshots.permissions import (
+            invalidate_snapshot_admin_cache,
+            invalidate_all_access_schemas_cache,
+        )
+        invalidate_all_access_schemas_cache(instance.user_id)
+        # We don't know the tenant schema_name from RoleAssignment here;
+        # rely on the next read to refresh via cache miss.
+    except ImportError:
+        pass
+
+
 def connect_rbac_signals():
     """Wire all RBAC + SoD signal handlers. Called from CoreConfig.ready()."""
-    from core.models import PermissionDefinition, Role, SoDRule
+    from core.models import PermissionDefinition, Role, RoleAssignment, SoDRule
 
     post_save.connect(
         _role_post_save, sender=Role,
@@ -168,5 +212,13 @@ def connect_rbac_signals():
     post_delete.connect(
         _permission_catalogue_changed, sender=PermissionDefinition,
         dispatch_uid='core_perm_def_post_delete_perm_invalidation',
+    )
+    post_save.connect(
+        _role_assignment_changed, sender=RoleAssignment,
+        dispatch_uid='core_role_assignment_post_save_perm_invalidation',
+    )
+    post_delete.connect(
+        _role_assignment_changed, sender=RoleAssignment,
+        dispatch_uid='core_role_assignment_post_delete_perm_invalidation',
     )
     logger.debug('core: RBAC + SoD cache-invalidation signals connected')
