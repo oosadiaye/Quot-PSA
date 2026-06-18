@@ -1,6 +1,7 @@
 import logging
 
 from django.core.cache import caches
+from django.db import connection as _db_conn
 from django.http import JsonResponse
 from django.utils.translation import activate
 
@@ -62,11 +63,21 @@ PUBLIC_PATHS_PREFIX = (
     '/api/superadmin/',
     '/admin/',
     '/api/v1/core/auth/reset-password/',  # reset-password/<uid>/<token>/
-    # Snapshots API lives in the public schema — cross-tenant by design.
-    # No tenant domain header or hostname resolution is needed.
-    '/api/v1/snapshots/',
-    '/api/snapshots/',
 )
+
+# Snapshot paths bypass the tenant resolver because SnapshotJob lives in
+# the public schema and the API is mounted at the bare /api/snapshots/
+# path with no tenant subdomain. We pin the connection to public schema
+# and short-circuit the middleware chain to avoid TenantMainMiddleware's
+# domain-based resolution (which would 404 because there's no tenant).
+_SNAPSHOT_PATH_PREFIXES = (
+    '/api/snapshots/',
+    '/api/v1/snapshots/',
+)
+
+
+def _is_snapshot_path(path: str) -> bool:
+    return any(path.startswith(p) for p in _SNAPSHOT_PATH_PREFIXES)
 
 
 def _is_public_path(path):
@@ -110,13 +121,20 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
     def __call__(self, request):
         path = request.path_info
 
-        # Public paths run in the public schema — bypass hostname-based
-        # tenant resolution entirely so these endpoints work without a valid
-        # domain record (e.g. superadmin console, snapshots API, auth login).
-        if _is_public_path(path):
-            from django.db import connection as _db_conn
+        # Snapshot paths: pin to public schema and short-circuit the middleware
+        # chain entirely. SnapshotJob lives in the public schema; there is no
+        # tenant domain to resolve, so TenantMainMiddleware's hostname-based
+        # resolution would 404. Handle these before the general public-path
+        # check so they never reach super().__call__().
+        if _is_snapshot_path(path):
             _db_conn.set_schema_to_public()
             return self.get_response(request)
+
+        # Other public paths (auth, admin, superadmin): delegate to
+        # TenantMainMiddleware as before so its schema/session handling runs
+        # normally. Do NOT pin the schema here — let the parent handle it.
+        if _is_public_path(path):
+            return super().__call__(request)
 
         tenant_domain = request.META.get('HTTP_X_TENANT_DOMAIN')
 
