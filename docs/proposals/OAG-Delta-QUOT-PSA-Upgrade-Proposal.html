@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>OAG Delta — QUOT PSA Upgrade Proposal</title>
+  <style>
+
+html {
+color: #1a1a1a;
+background-color: #fdfdfd;
+}
+body {
+margin: 0 auto;
+max-width: 36em;
+padding-left: 50px;
+padding-right: 50px;
+padding-top: 50px;
+padding-bottom: 50px;
+hyphens: auto;
+overflow-wrap: break-word;
+text-rendering: optimizeLegibility;
+font-kerning: normal;
+}
+@media (max-width: 600px) {
+body {
+font-size: 0.9em;
+padding: 12px;
+}
+h1 {
+font-size: 1.8em;
+}
+}
+@media print {
+html {
+background-color: white;
+}
+body {
+background-color: transparent;
+color: black;
+font-size: 12pt;
+}
+p, h2, h3 {
+orphans: 3;
+widows: 3;
+}
+h2, h3, h4 {
+page-break-after: avoid;
+}
+}
+p {
+margin: 1em 0;
+}
+a {
+color: #1a1a1a;
+}
+a:visited {
+color: #1a1a1a;
+}
+img {
+max-width: 100%;
+}
+svg {
+height: auto;
+max-width: 100%;
+}
+h1, h2, h3, h4, h5, h6 {
+margin-top: 1.4em;
+}
+h5, h6 {
+font-size: 1em;
+font-style: italic;
+}
+h6 {
+font-weight: normal;
+}
+ol, ul {
+padding-left: 1.7em;
+margin-top: 1em;
+}
+li > ol, li > ul {
+margin-top: 0;
+}
+blockquote {
+margin: 1em 0 1em 1.7em;
+padding-left: 1em;
+border-left: 2px solid #e6e6e6;
+color: #606060;
+}
+code {
+white-space: pre-wrap;
+font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+font-size: 85%;
+margin: 0;
+hyphens: manual;
+}
+pre {
+margin: 1em 0;
+overflow: auto;
+}
+pre code {
+padding: 0;
+overflow: visible;
+overflow-wrap: normal;
+}
+.sourceCode {
+background-color: transparent;
+overflow: visible;
+}
+hr {
+border: none;
+border-top: 1px solid #1a1a1a;
+height: 1px;
+margin: 1em 0;
+}
+table {
+margin: 1em 0;
+border-collapse: collapse;
+width: 100%;
+overflow-x: auto;
+display: block;
+font-variant-numeric: lining-nums tabular-nums;
+}
+table caption {
+margin-bottom: 0.75em;
+}
+tbody {
+margin-top: 0.5em;
+border-top: 1px solid #1a1a1a;
+border-bottom: 1px solid #1a1a1a;
+}
+th {
+border-top: 1px solid #1a1a1a;
+padding: 0.25em 0.5em 0.25em 0.5em;
+}
+td {
+padding: 0.125em 0.5em 0.25em 0.5em;
+}
+header {
+margin-bottom: 4em;
+text-align: center;
+}
+#TOC li {
+list-style: none;
+}
+#TOC ul {
+padding-left: 1.3em;
+}
+#TOC > ul {
+padding-left: 0;
+}
+#TOC a:not(:hover) {
+text-decoration: none;
+}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">OAG Delta — QUOT PSA Upgrade Proposal</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#proposal-upgrade-of-the-oag-accounting-solution-from-odoo-to-quot-psa" id="toc-proposal-upgrade-of-the-oag-accounting-solution-from-odoo-to-quot-psa">Proposal
+— Upgrade of the OAG Accounting Solution from Odoo to QUOT PSA</a>
+<ul>
+<li><a href="#executive-summary" id="toc-executive-summary">1. Executive
+Summary</a></li>
+<li><a href="#background-current-state" id="toc-background-current-state">2. Background &amp; Current
+State</a></li>
+<li><a href="#functional-scope-what-quot-psa-delivers-to-oag" id="toc-functional-scope-what-quot-psa-delivers-to-oag">3. Functional
+Scope (What QUOT PSA Delivers to OAG)</a></li>
+<li><a href="#technical-architecture-summary" id="toc-technical-architecture-summary">4. Technical Architecture
+(Summary)</a></li>
+<li><a href="#deployment-options-pros-cons" id="toc-deployment-options-pros-cons">5. Deployment Options — Pros &amp;
+Cons</a></li>
+<li><a href="#recommended-infrastructure-specifications" id="toc-recommended-infrastructure-specifications">6. Recommended
+Infrastructure Specifications</a></li>
+<li><a href="#bestfit-deployment-scenarios-recommendation" id="toc-bestfit-deployment-scenarios-recommendation">7. Best‑Fit
+Deployment Scenarios (Recommendation)</a></li>
+<li><a href="#security-compliance-controls" id="toc-security-compliance-controls">8. Security, Compliance &amp;
+Controls</a></li>
+<li><a href="#migration-approach-odoo-quot-psa" id="toc-migration-approach-odoo-quot-psa">9. Migration Approach (Odoo →
+QUOT PSA)</a></li>
+<li><a href="#indicative-implementation-phases" id="toc-indicative-implementation-phases">10. Indicative Implementation
+Phases</a></li>
+<li><a href="#backup-disaster-recovery" id="toc-backup-disaster-recovery">11. Backup &amp; Disaster
+Recovery</a></li>
+<li><a href="#key-risks-mitigations" id="toc-key-risks-mitigations">12.
+Key Risks &amp; Mitigations</a></li>
+<li><a href="#recommended-next-steps" id="toc-recommended-next-steps">13. Recommended Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="proposal-upgrade-of-the-oag-accounting-solution-from-odoo-to-quot-psa">Proposal
+— Upgrade of the OAG Accounting Solution from Odoo to QUOT PSA</h1>
+<p><strong>Prepared for:</strong> Office of the Accountant‑General
+(OAG), Delta State <strong>Subject:</strong> Replacement/upgrade of the
+existing Odoo accounting deployment with <strong>QUOT PSA</strong>
+(Public‑Sector Accounting platform) <strong>Date:</strong> 07/06/2026
+<strong>Status:</strong> Draft for review</p>
+<hr />
+<h2 id="executive-summary">1. Executive Summary</h2>
+<p>The OAG currently runs <strong>Odoo</strong> for accounting in a
+<strong>single office (final reporting only)</strong>. This proposal
+covers upgrading to <strong>QUOT PSA</strong>, a purpose‑built,
+IPSAS‑compliant, GIFMIS‑aligned public‑sector accounting platform, and
+extending it across the OAG to cover <strong>four operating functions in
+one integrated system</strong>:</p>
+<ol type="1">
+<li><strong>Management Accounting</strong></li>
+<li><strong>Treasury</strong></li>
+<li><strong>Final Reporting</strong></li>
+<li><strong>Document Control</strong></li>
+</ol>
+<p><strong>In scope:</strong> General Ledger &amp; Chart of Accounts
+(NCoA), Budget &amp; Appropriation, <strong>Warrant (AIE)</strong>
+controls, Treasury &amp; Banking, Accounts Payable/Receivable and
+<strong>all payment processing</strong>, <strong>Contract Management
+(with all features — mobilization, retention, IPC/valuations,
+variations)</strong>, <strong>Fixed Assets</strong>, and <strong>all
+IPSAS compliance reports</strong>.</p>
+<p><strong>Explicitly out of scope (this phase):</strong>
+<strong>Procurement / Purchase Orders (PO)</strong> and <strong>Human
+Resources / Payroll (HR)</strong>.</p>
+<p>This document also analyses three deployment models — <strong>online
+(VPS/cloud)</strong>, <strong>on‑premise (local server)</strong>, and
+<strong>hybrid</strong> (deploy online + run on‑premise, or deploy
+on‑premise + back up online) — with pros/cons, recommended server and
+cloud specifications, and a <strong>recommended best‑fit
+scenario</strong> tuned to Nigerian public‑sector realities (data
+sovereignty, power, and connectivity).</p>
+<blockquote>
+<p><strong>Bottom line recommendation:</strong> <strong>On‑premise
+primary at OAG + automated encrypted online (Nigerian Tier‑III)
+Disaster‑Recovery backup</strong> — the hybrid model that maximises data
+sovereignty and LAN speed while eliminating the single‑site disaster
+risk of a pure on‑premise deployment. A fully <strong>Nigerian
+sovereign‑cloud‑primary</strong> model is the recommended fallback if
+OAG’s server‑room/power readiness is not yet in place.</p>
+</blockquote>
+<hr />
+<h2 id="background-current-state">2. Background &amp; Current State</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Item</th>
+<th>Current (Odoo)</th>
+<th>Target (QUOT PSA)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Footprint</td>
+<td>One office — <strong>final reporting</strong> only</td>
+<td>OAG‑wide: <strong>Management Accounting, Treasury, Final Reporting,
+Document Control</strong></td>
+</tr>
+<tr>
+<td>Domain fit</td>
+<td>General‑purpose commercial ERP, localised</td>
+<td><strong>Public‑sector‑native</strong> (NCoA, MDA structure,
+Appropriation, Warrant/AIE, TSA, IPSAS)</td>
+</tr>
+<tr>
+<td>Budget control</td>
+<td>Limited / add‑on</td>
+<td><strong>Native appropriation + warrant ceiling enforcement</strong>
+at commitment and payment stages</td>
+</tr>
+<tr>
+<td>Contracts</td>
+<td>Generic</td>
+<td><strong>FIDIC/Delta‑WORKS contract lifecycle</strong> (mobilization,
+retention, IPC)</td>
+</tr>
+<tr>
+<td>Reporting</td>
+<td>Commercial financials</td>
+<td><strong>Full IPSAS suite + budget‑performance reports</strong></td>
+</tr>
+<tr>
+<td>Multi‑office</td>
+<td>Single instance</td>
+<td><strong>Multi‑department, role‑segregated,
+audit‑trailed</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why upgrade:</strong> Odoo was adequate for a single
+final‑reporting office but does not natively model the <strong>Nigerian
+public‑finance control chain</strong> (Appropriation → Warrant/AIE →
+Commitment → Payment → IPSAS reporting), nor the <strong>contract
+certification/mobilization/retention</strong> workflow, nor segregation
+of duties across treasury vs. reporting vs. management accounting. QUOT
+PSA is built specifically for these.</p>
+<hr />
+<h2 id="functional-scope-what-quot-psa-delivers-to-oag">3. Functional
+Scope (What QUOT PSA Delivers to OAG)</h2>
+<h3 id="in-scope">3.1 In Scope</h3>
+<p><strong>A. General Ledger &amp; Chart of Accounts</strong> -
+Multi‑dimensional <strong>National Chart of Accounts (NCoA)</strong>:
+Administrative (MDA), Economic, Fund, Functional, Programme, and
+Geographic segments. - Journal entries with auto‑numbered vouchers
+(JV‑####), multi‑dimensional posting, draft → posted controls,
+reversals, and <strong>drill‑down from any GL balance to the originating
+document and its double‑entry</strong>. - Period control and
+<strong>year‑end close</strong>.</p>
+<p><strong>B. Budget &amp; Appropriation</strong> - Appropriation
+capture (original + supplementary), <strong>virement/transfer</strong>
+between lines. - <strong>Budget‑check rules</strong> (NONE / WARNING /
+HARD‑STOP) per GL series. - Budget vs. Actual, commitment, and execution
+tracking.</p>
+<p><strong>C. Warrant (AIE) Controls</strong> <em>(a core
+differentiator)</em> - <strong>Authority to Incur Expenditure
+(AIE)/Warrant</strong> release against appropriations
+(quarterly/periodic cash release). - <strong>Warrant‑ceiling
+enforcement</strong> so cash cannot leave the Treasury Single Account
+beyond released warrants — enforced at <strong>AP‑invoice posting,
+outgoing payment, vendor down‑payment, and contract
+mobilization</strong> stages, with a single tenant‑level master switch
+(GIFMIS‑compliant by default). - Warrant expiry/lifecycle
+management.</p>
+<p><strong>D. Treasury &amp; Banking</strong> - <strong>Treasury Single
+Account (TSA)</strong> management, TSA transfers, cash position. -
+<strong>Payment Vouchers (PV)</strong> with the full authority‑to‑pay
+workflow. - <strong>All outgoing payments</strong> (vendor payments,
+advances/down‑payments, mobilization disbursements), payment
+allocation/matching, and <strong>bank reconciliation</strong>.</p>
+<p><strong>E. Accounts Payable / Receivable &amp; All Payments</strong>
+- Vendor invoices, customer invoices, payments, <strong>allocation to
+outstanding invoices</strong>, vendor advances (F‑48) and clearing
+(F‑54). - Supplier account/transaction history with cleared/outstanding
+visibility and Excel export.</p>
+<p><strong>F. Contract Management (all features)</strong> - Contract
+register and activation; <strong>mobilization advances with FIDIC
+pro‑rata recovery</strong>; <strong>retention (lump‑sum reserve
+model)</strong>; <strong>Interim Payment Certificates
+(IPC)/valuations</strong>; variations; segregation‑of‑duties on
+certify/approve/pay. - Appropriation + warrant validation on
+mobilization and certified payments.</p>
+<p><strong>G. Fixed Assets</strong> - Capitalisation, depreciation runs,
+disposal, and revaluation with automatic GL posting.</p>
+<p><strong>H. IPSAS Compliance Reporting (full suite)</strong> -
+Statement of Financial Position, Statement of Financial Performance,
+<strong>Cash Flow Statement</strong>, Statement of Changes in Net
+Assets, <strong>Notes to the Financial Statements</strong>. -
+Budget‑performance suite: Budget vs. Actual, Execution, Variance
+Analysis, Revenue Performance, and Programme/Functional/Fund/Geographic
+performance. - One‑click <strong>Excel/PDF export</strong> on reports
+and ledgers.</p>
+<p><strong>I. Document Control</strong> - Attachment management on
+source documents (invoices, vouchers, contracts, IPCs), with controlled
+storage and retrieval — supported by <strong>S3‑compatible object
+storage</strong> (on‑prem MinIO or cloud bucket).</p>
+<p><strong>J. Platform Controls (cross‑cutting)</strong> -
+<strong>Role‑Based Access Control (RBAC)</strong> + <strong>Segregation
+of Duties (SoD)</strong> (e.g., the staff who create invoices cannot
+release funds). - <strong>Approval workflows</strong>, full
+<strong>audit trail</strong>, and multi‑department isolation.</p>
+<h3 id="out-of-scope-this-phase">3.2 Out of Scope (this phase)</h3>
+<ul>
+<li><strong>Procurement / Purchase Orders (PO)</strong> — vendors and
+direct invoices are supported, but the PO/requisition/GRN procurement
+chain is excluded.</li>
+<li><strong>Human Resources / Payroll (HR)</strong>.</li>
+</ul>
+<blockquote>
+<p>These can be activated in a later phase; the platform already
+contains the modules, so enabling them is a configuration/rollout
+exercise rather than new development.</p>
+</blockquote>
+<hr />
+<h2 id="technical-architecture-summary">4. Technical Architecture
+(Summary)</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frontend</td>
+<td>React + Vite (TypeScript)</td>
+<td>SPA; route‑level code‑splitting for fast page loads</td>
+</tr>
+<tr>
+<td>Application</td>
+<td>Django + Django REST Framework (Python)</td>
+<td>Business logic, IPSAS engine, warrant/budget controls</td>
+</tr>
+<tr>
+<td>Background jobs</td>
+<td>Celery + Redis</td>
+<td>Warrant expiry, depreciation runs, scheduled postings,
+notifications</td>
+</tr>
+<tr>
+<td>Database</td>
+<td><strong>PostgreSQL</strong> (schema‑per‑tenant / department
+isolation)</td>
+<td>The performance‑critical component</td>
+</tr>
+<tr>
+<td>Cache/queue</td>
+<td>Redis</td>
+<td>Sessions, caching, task broker</td>
+</tr>
+<tr>
+<td>Object storage</td>
+<td>S3‑compatible (MinIO on‑prem / cloud bucket)</td>
+<td>Document control attachments</td>
+</tr>
+<tr>
+<td>Web/Proxy</td>
+<td>Nginx</td>
+<td>TLS termination, static serving, reverse proxy</td>
+</tr>
+</tbody>
+</table>
+<p>This is a standard, well‑understood stack that runs equally well
+<strong>on‑premise</strong> or in a <strong>VPS/cloud</strong>, which is
+what makes the hybrid options below practical.</p>
+<hr />
+<h2 id="deployment-options-pros-cons">5. Deployment Options — Pros &amp;
+Cons</h2>
+<h3 id="option-a-online-vps-cloud">5.1 Option A — Online (VPS /
+Cloud)</h3>
+<p><strong>Best when:</strong> OAG lacks a data‑center‑grade server
+room, reliable power, or in‑house infrastructure staff; or wants fastest
+time‑to‑deploy and built‑in resilience.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Pros</th>
+<th>Cons</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No large upfront hardware capex (OpEx model)</td>
+<td>Recurring monthly/annual cost indefinitely</td>
+</tr>
+<tr>
+<td>Professional data‑center power, cooling, network, physical
+security</td>
+<td><strong>Dependent on internet</strong> — an OAG link outage blocks
+all users (mitigate with dual ISP)</td>
+</tr>
+<tr>
+<td>Built‑in snapshots, backups, and easy scaling (add vCPU/RAM on
+demand)</td>
+<td><strong>Data‑sovereignty/control</strong> concerns if hosted
+offshore (mitigate by hosting <strong>in Nigeria</strong>)</td>
+</tr>
+<tr>
+<td>Fast provisioning; deploy in days, not weeks</td>
+<td>Less direct physical control of the hardware</td>
+</tr>
+<tr>
+<td>Easier secure remote access for distributed users</td>
+<td>Performance depends on provider not over‑subscribing the VPS</td>
+</tr>
+<tr>
+<td>DDoS protection, managed firewalling available</td>
+<td>Long‑term TCO can exceed on‑prem over 4–5 years</td>
+</tr>
+</tbody>
+</table>
+<h3 id="option-b-onpremise-local-server-at-oag">5.2 Option B —
+On‑Premise (Local Server at OAG)</h3>
+<p><strong>Best when:</strong> Data sovereignty is paramount (it is, for
+state finance data), OAG has/will build a secure server room with
+redundant power, and most users are on the OAG LAN/WAN.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Pros</th>
+<th>Cons</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Full data sovereignty &amp; control</strong> — data never
+leaves OAG (strong NDPA 2023 alignment)</td>
+<td><strong>Upfront capital cost</strong> for server, UPS, generator,
+network gear</td>
+</tr>
+<tr>
+<td><strong>LAN‑speed performance</strong> — no internet round‑trip for
+in‑office users</td>
+<td><strong>Power risk</strong> in Nigeria — mandatory UPS + generator +
+change‑over</td>
+</tr>
+<tr>
+<td>Works during internet outages (LAN keeps running)</td>
+<td><strong>Single‑site disaster risk</strong> (fire/theft/flood) unless
+backed up offsite</td>
+</tr>
+<tr>
+<td>One‑time capex; predictable long‑term cost</td>
+<td>Requires in‑house/contracted IT for patching, monitoring,
+backups</td>
+</tr>
+<tr>
+<td>No dependence on a third‑party provider’s SLA</td>
+<td>Remote access needs a VPN you operate; harder for off‑site
+users</td>
+</tr>
+</tbody>
+</table>
+<h3 id="hybrid-options">5.3 Hybrid Options</h3>
+<p><strong>Option C — Deploy Online (primary) + Run On‑Premise (local
+node).</strong> Primary in a Nigerian cloud, with an <strong>on‑premise
+read replica/cache</strong> (and/or local app node) so the office keeps
+working at LAN speed and survives short internet outages. -
+<em>Pros:</em> cloud resilience + local speed; remote access easy. -
+<em>Cons:</em> most complex to operate; needs reliable replication and
+conflict handling; two environments to maintain.</p>
+<p><strong>Option D — Deploy On‑Premise (primary) + Back Up Online
+(DR).</strong> ⭐ <em>recommended</em> Primary runs on a hardened OAG
+server (sovereignty + LAN speed + offline resilience);
+<strong>automated, encrypted backups and a warm standby replicate
+continuously to a Nigerian Tier‑III cloud</strong> for disaster recovery
+and optional secure remote access. - <em>Pros:</em> best balance —
+sovereignty, performance, <strong>and</strong> offsite DR; clear
+primary; simpler than active‑active. - <em>Cons:</em> needs the OAG
+server room + a modest cloud DR subscription; failover is warm
+(minutes), not instant.</p>
+<hr />
+<h2 id="recommended-infrastructure-specifications">6. Recommended
+Infrastructure Specifications</h2>
+<blockquote>
+<p>Sized for an OAG deployment of roughly <strong>50–200 named
+users</strong> across the four functions, with headroom. Scale RAM/vCPU
+up for higher concurrency or heavy month‑end/year‑end reporting
+peaks.</p>
+</blockquote>
+<h3 id="onpremise-server-for-speed-reliability">6.1 On‑Premise Server
+(for speed &amp; reliability)</h3>
+<p><strong>Form factor:</strong> Enterprise rack server —
+e.g. <strong>Dell PowerEdge R760/R660</strong>, <strong>HPE ProLiant
+DL380 Gen11</strong>, or <strong>Lenovo ThinkSystem SR650
+V3</strong>.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Component</th>
+<th>Recommended</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CPU</strong></td>
+<td>1× (or 2× for HA headroom) <strong>Intel Xeon Gold</strong>
+(e.g. Gold 5418Y, 24‑core) or <strong>AMD EPYC 9004</strong>; favour
+<strong>high clock speed</strong></td>
+<td>Django request handling and PostgreSQL benefit from strong
+single‑thread performance</td>
+</tr>
+<tr>
+<td><strong>RAM</strong></td>
+<td><strong>128 GB ECC DDR5</strong> (minimum 64 GB)</td>
+<td>PostgreSQL caches working set in RAM → biggest single speed
+lever</td>
+</tr>
+<tr>
+<td><strong>Storage (DB)</strong></td>
+<td><strong>Enterprise/datacenter NVMe SSD in RAID 10</strong> (e.g. 2–4
+× 1.92 TB, Micron 7450 / Samsung PM9A3)</td>
+<td><strong>NVMe is critical</strong> for transaction throughput and
+report queries; RAID 10 = speed + redundancy</td>
+</tr>
+<tr>
+<td><strong>Storage (OS/app)</strong></td>
+<td>2 × 960 GB NVMe <strong>RAID 1</strong></td>
+<td>Isolates OS/app I/O from the DB</td>
+</tr>
+<tr>
+<td><strong>RAID</strong></td>
+<td>Hardware RAID controller with cache + battery/flash backup</td>
+<td>Write‑back cache safety</td>
+</tr>
+<tr>
+<td><strong>Network</strong></td>
+<td>Dual <strong>10 GbE</strong> NIC (bonded)</td>
+<td>LAN throughput for concurrent users</td>
+</tr>
+<tr>
+<td><strong>Power</strong></td>
+<td><strong>Redundant hot‑swap PSUs</strong></td>
+<td>No single power‑supply failure</td>
+</tr>
+<tr>
+<td><strong>Remote mgmt</strong></td>
+<td>iDRAC (Dell) / iLO (HPE)</td>
+<td>Out‑of‑band administration</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Supporting room infrastructure (mandatory in
+Nigeria):</strong> - <strong>Online (double‑conversion) UPS</strong>
+sized for 30–60 min (e.g. APC Smart‑UPS SRT 3–6 kVA) <strong>+ standby
+generator with automatic change‑over (ATS)</strong>. - <strong>Local
+backup NAS</strong> (e.g. Synology/QNAP, RAID, ≥8 TB usable) for nightly
+backups, separate from the server. - <strong>Firewall/UTM</strong>
+(FortiGate / Sophos / pfSense), managed switch, <strong>VLAN
+segmentation</strong>, and <strong>air‑conditioned,
+access‑controlled</strong> server room.</p>
+<h3 id="vps-cloud-specification">6.2 VPS / Cloud Specification</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Spec</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>App server</td>
+<td><strong>8 vCPU / 32 GB RAM / 100 GB NVMe</strong> (scale to
+16/64)</td>
+<td>Gunicorn/Uvicorn + Nginx</td>
+</tr>
+<tr>
+<td>Database</td>
+<td><strong>8 vCPU / 32 GB RAM / 500 GB NVMe</strong> (dedicated or
+managed PostgreSQL)</td>
+<td>NVMe‑backed; daily snapshots + PITR</td>
+</tr>
+<tr>
+<td>Cache/jobs</td>
+<td>2 vCPU / 4 GB (Redis + Celery worker)</td>
+<td>Background processing</td>
+</tr>
+<tr>
+<td>Object storage</td>
+<td>S3‑compatible bucket (start ~250–500 GB, grows)</td>
+<td>Document Control attachments</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>≥99.9% SLA, dual‑homed; <strong>dual ISP at OAG</strong> for client
+side</td>
+<td>Avoid single connectivity point</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Insist on:</strong> <strong>dedicated/reserved vCPU (not
+over‑subscribed shared)</strong>, <strong>NVMe</strong> storage,
+automated snapshots + off‑node backups, and a documented <strong>SLA
+(≥99.9%)</strong>.</p>
+<h3 id="recommended-vps-cloud-type">6.3 Recommended VPS Cloud Type</h3>
+<p>For <strong>state government financial data</strong>, prioritise
+<strong>data sovereignty (NDPA 2023)</strong> and <strong>low latency to
+Nigeria</strong>:</p>
+<ol type="1">
+<li><strong>Nigerian / sovereign cloud (preferred):</strong>
+<ul>
+<li><strong>Galaxy Backbone</strong> (the Federal Government’s own
+cloud/ICT infrastructure provider — strongest sovereignty fit for
+government workloads).</li>
+<li><strong>Rack Centre (Lagos, Tier III, carrier‑neutral)</strong>,
+<strong>Open Access Data Centres (OADC)</strong>,
+<strong>MainOne/Equinix LG1</strong>, <strong>Layer3 Cloud</strong>,
+<strong>Suburban</strong> — Tier III Nigerian data centres offering
+VPS/private cloud.</li>
+</ul></li>
+<li><strong>Africa‑region hyperscaler (alternative):</strong> AWS
+<strong>af‑south‑1 (Cape Town)</strong> or Azure <strong>South Africa
+North (Johannesburg)</strong> — lower latency than EU/US, but
+<strong>offshore</strong>, so confirm it satisfies OAG/State
+data‑residency policy before use.</li>
+</ol>
+<blockquote>
+<p><strong>Recommendation:</strong> a <strong>VPS / private
+(single‑tenant) cloud in a Tier‑III Nigerian data centre</strong>,
+ideally <strong>Galaxy Backbone or Rack Centre</strong>, with reserved
+NVMe compute and a ≥99.9 % SLA. This keeps sovereign data in‑country
+while giving data‑centre‑grade power, cooling, and network.</p>
+</blockquote>
+<hr />
+<h2 id="bestfit-deployment-scenarios-recommendation">7. Best‑Fit
+Deployment Scenarios (Recommendation)</h2>
+<h3 id="scenario-1-recommended-onpremise-primary-online-nigerian-dr-backup-option-d">🥇
+Scenario 1 (Recommended) — On‑Premise Primary + Online (Nigerian) DR
+Backup <em>(Option D)</em></h3>
+<ul>
+<li><strong>Primary:</strong> hardened OAG on‑premise server (§6.1) —
+sovereignty, LAN speed, works offline.</li>
+<li><strong>DR:</strong> continuous <strong>encrypted backup + warm
+standby</strong> to a Nigerian Tier‑III cloud (§6.3); restore/failover
+in minutes; doubles as a secure remote‑access entry point over VPN.</li>
+<li><strong>Why best:</strong> maximises sovereignty and in‑office
+performance <strong>and</strong> removes the single‑site disaster risk —
+the classic government best practice.</li>
+<li><strong>Prerequisite:</strong> OAG server room with redundant power
+(UPS + generator) and basic IT support.</li>
+</ul>
+<h3 id="scenario-2-fallback-nigerian-sovereigncloud-primary-onpremise-local-backupcache-option-c-simplified">🥈
+Scenario 2 (Fallback) — Nigerian Sovereign‑Cloud Primary + On‑Premise
+Local Backup/Cache <em>(Option C, simplified)</em></h3>
+<ul>
+<li><strong>Primary:</strong> VPS/private cloud in a Nigerian Tier‑III
+DC; <strong>local on‑prem backup</strong> (NAS) + optional read cache
+for offline resilience.</li>
+<li><strong>Why:</strong> best when OAG’s server‑room/power readiness is
+not yet in place; data stays in Nigeria; fastest to stand up.</li>
+<li><strong>Watch‑out:</strong> require <strong>dual ISP</strong> at OAG
+so a single link failure doesn’t stop work.</li>
+</ul>
+<h3 id="scenario-3-advancedfuture-activeactive-onprem-cloud-ha">🥉
+Scenario 3 (Advanced/Future) — Active‑Active On‑Prem + Cloud (HA)</h3>
+<ul>
+<li>Both sites live with load balancing/replication for near‑zero
+downtime. Highest resilience, highest operational complexity and cost —
+consider only once volumes/criticality justify it.</li>
+</ul>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Sc.1 On‑prem+Cloud DR</th>
+<th>Sc.2 Cloud‑primary+local backup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Data sovereignty</td>
+<td>★★★★★</td>
+<td>★★★★☆ (in‑country)</td>
+</tr>
+<tr>
+<td>In‑office speed</td>
+<td>★★★★★ (LAN)</td>
+<td>★★★★☆ (depends on link)</td>
+</tr>
+<tr>
+<td>Resilience to internet outage</td>
+<td>★★★★★</td>
+<td>★★☆☆☆ (needs dual ISP)</td>
+</tr>
+<tr>
+<td>Disaster recovery</td>
+<td>★★★★★</td>
+<td>★★★★☆</td>
+</tr>
+<tr>
+<td>Upfront cost</td>
+<td>Higher (hardware)</td>
+<td>Lower</td>
+</tr>
+<tr>
+<td>Ongoing cost</td>
+<td>Lower</td>
+<td>Higher (recurring)</td>
+</tr>
+<tr>
+<td>Setup time</td>
+<td>Longer (room + hardware)</td>
+<td>Shortest</td>
+</tr>
+<tr>
+<td>Best if…</td>
+<td>OAG has a proper server room + power</td>
+<td>Facility/power not yet ready</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="security-compliance-controls">8. Security, Compliance &amp;
+Controls</h2>
+<ul>
+<li><strong>NDPA 2023</strong> alignment via in‑country hosting,
+encryption <strong>in transit (TLS)</strong> and <strong>at
+rest</strong>, and least‑privilege access.</li>
+<li><strong>RBAC + Segregation of Duties</strong> enforced in the
+application (create vs. approve vs. pay).</li>
+<li><strong>Full audit trail</strong> of every posting, approval, and
+master‑data change.</li>
+<li><strong>IPSAS</strong> accrual reporting +
+<strong>GIFMIS‑aligned</strong> budget/warrant control out of the
+box.</li>
+<li>Hardened deployment: firewall/UTM, VLAN segmentation, VPN‑only
+remote access, regular patching, and tested restores.</li>
+</ul>
+<h2 id="migration-approach-odoo-quot-psa">9. Migration Approach (Odoo →
+QUOT PSA)</h2>
+<ol type="1">
+<li><strong>Discovery &amp; mapping</strong> — map Odoo chart of
+accounts to the <strong>NCoA</strong> segments; inventory open
+items.</li>
+<li><strong>Extract</strong> — Odoo COA, balances, vendors/customers,
+open invoices/payments, contracts, and GL history.</li>
+<li><strong>Transform &amp; validate</strong> — segment mapping,
+opening‑balance trial‑balance reconciliation (debits = credits).</li>
+<li><strong>Load</strong> — into QUOT PSA per department/schema; verify
+control totals.</li>
+<li><strong>Parallel run</strong> — run final reporting in both systems
+for 1–2 periods; reconcile.</li>
+<li><strong>Cutover</strong> — freeze Odoo, go live on QUOT PSA, retain
+Odoo read‑only for history.</li>
+</ol>
+<h2 id="indicative-implementation-phases">10. Indicative Implementation
+Phases</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Focus</th>
+<th>Indicative duration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Mobilisation, infrastructure provisioning, server‑room/cloud
+readiness</td>
+<td>2–4 weeks</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Core GL/NCoA, Budget &amp; Appropriation, Warrant/AIE config</td>
+<td>3–5 weeks</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Treasury (TSA, PV, payments), AP/AR</td>
+<td>3–5 weeks</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Contract Management, Fixed Assets, Document Control</td>
+<td>3–4 weeks</td>
+</tr>
+<tr>
+<td>4</td>
+<td>IPSAS &amp; budget‑performance reporting, data migration, parallel
+run</td>
+<td>3–5 weeks</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Training (4 functions), UAT, go‑live, hypercare</td>
+<td>3–4 weeks</td>
+</tr>
+</tbody>
+</table>
+<p><em>(Phases overlap; total typically 4–6 months depending on data
+quality and readiness.)</em></p>
+<h2 id="backup-disaster-recovery">11. Backup &amp; Disaster
+Recovery</h2>
+<ul>
+<li><strong>3‑2‑1 rule:</strong> 3 copies, 2 media, 1 offsite —
+satisfied natively by Scenario 1/2.</li>
+<li>Automated <strong>nightly full + frequent incremental</strong>
+PostgreSQL backups with <strong>Point‑in‑Time Recovery (PITR)</strong>;
+document‑store (object) backups; <strong>encrypted</strong> at rest and
+in transit.</li>
+<li><strong>Quarterly restore drills</strong> to prove recoverability
+(RPO target ≤ 24 h, ideally ≤ 1 h with PITR; RTO target a few
+hours).</li>
+</ul>
+<h2 id="key-risks-mitigations">12. Key Risks &amp; Mitigations</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Power instability (on‑prem)</td>
+<td>Online UPS + generator + ATS; cloud DR as fallback</td>
+</tr>
+<tr>
+<td>Internet outage (cloud‑primary)</td>
+<td>Dual ISP; on‑prem cache/backup; on‑prem primary (Scenario 1)</td>
+</tr>
+<tr>
+<td>Data sovereignty</td>
+<td>In‑country (Nigerian Tier‑III) hosting only</td>
+</tr>
+<tr>
+<td>Data‑migration errors</td>
+<td>Trial‑balance reconciliation + parallel run before cutover</td>
+</tr>
+<tr>
+<td>Skills/operations</td>
+<td>Admin training + support/maintenance contract</td>
+</tr>
+<tr>
+<td>Single‑site loss</td>
+<td>Offsite encrypted DR (Scenario 1/2)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="recommended-next-steps">13. Recommended Next Steps</h2>
+<ol type="1">
+<li>Confirm <strong>user counts</strong> per function and peak
+concurrency (to finalise sizing).</li>
+<li>Assess <strong>OAG server‑room &amp; power readiness</strong> →
+decide Scenario 1 vs. Scenario 2.</li>
+<li>Confirm <strong>hosting choice</strong> (Galaxy Backbone / Rack
+Centre / other) and data‑residency policy.</li>
+<li>Approve scope (this phase: <strong>no PO, no HR</strong>) and
+migration plan.</li>
+<li>Finalise commercials (licence + implementation + hosting/hardware +
+support) and project schedule.</li>
+</ol>
+<hr />
+<p><em>Prepared as a working draft for OAG Delta State. Figures (server
+sizing, durations) are indicative and will be confirmed during the
+discovery phase against actual user counts, data volumes, and facility
+readiness.</em></p>
+</body>
+</html>
