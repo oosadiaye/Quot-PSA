@@ -711,19 +711,41 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'error': str(exc),
             })
 
-        # 4. Direct Journal Entries (manual JVs)
+        # 4. Direct Journal Entries (manual JVs, plus every funneled
+        # GL-writer that WS6 G-A stamps with a non-empty source_module
+        # — gl.manual_je, workflow.credit_note, workflow.debit_note,
+        # workflow.bad_debt_*, workflow.petty_cash_*, assets.* etc.).
+        # See ``budget/models.py::_compute_direct_disbursements`` for
+        # the long-form rationale — the rule must mirror the rollup
+        # exactly, otherwise the drill-down's transactions list won't
+        # match the appropriation's cached totals.
         try:
             if admin_legacy and fund_legacy and legacy_accounts:
                 from accounting.models.gl import JournalLine
-                from django.db.models import Q
                 je_q = JournalLine.objects.filter(
                     header__status='Posted',
                     header__mda=admin_legacy,
                     header__fund=fund_legacy,
                     account_id__in=legacy_accounts,
-                ).filter(
-                    Q(header__source_module__isnull=True)
-                    | Q(header__source_module='')
+                ).exclude(
+                    # Already enumerated via the AP_INVOICE source above.
+                    header__source_module='ap.vendor_invoice',
+                ).exclude(
+                    # Already enumerated via the PV source above.
+                    header__source_module='ap.payment_voucher',
+                ).exclude(
+                    # AR side — credits Revenue. Wouldn't normally match
+                    # an Expense appropriation's account chain anyway,
+                    # but explicit exclusion documents the intent.
+                    header__source_module__in=(
+                        'ar.invoice', 'ar.credit_memo', 'ar.receipt',
+                    ),
+                ).exclude(
+                    # Closing + opening BBF journals must NOT count as
+                    # current-year expense — they roll nominals to equity.
+                    header__source_module__in=(
+                        'year_end_close', 'year_end_close.opening',
+                    ),
                 ).select_related('header', 'account')
                 if fy_start and fy_end:
                     je_q = je_q.filter(

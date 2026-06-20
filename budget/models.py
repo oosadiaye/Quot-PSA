@@ -1203,18 +1203,48 @@ class Appropriation(AuditBaseModel):
         # ── 3. Direct Journal Entry expense ───────────────────────────
         # Sum DR on appropriation's GL minus reversal CRs (no asset FK)
         # but EXCLUDING capitalisation contras (CR with asset FK set).
-        # ``source_module`` filter prevents double-counting: AP/PO/PV
-        # subsystems already produce their own appropriation rollups
-        # via sources 1+2. Only manual JVs (empty source_module) are
-        # counted here.
+        #
+        # Source-module filter prevents double-counting. Pre-WS6 the
+        # rule was "only empty source_module counts" — but the WS6 G-A
+        # posting funnel now stamps a non-empty ``source_module`` on
+        # every funneled write (manual JE, AR invoice/CM/receipt,
+        # workflow CN/DN/BadDebt/PettyCash, depreciation, year-end).
+        # Keeping the old include-list silently dropped every funneled
+        # path from the rollup, so a manual JE posted to an expense
+        # GL left ``cached_total_expended`` at 0 — the exact symptom
+        # users see ("posted a journal, appropriation didn't update").
+        #
+        # The new rule is EXCLUDE-list semantics: every Posted line on
+        # this MDA/Fund/account counts toward direct expenditure EXCEPT
+        # the source modules whose appropriation impact is already
+        # captured by sources 1 + 2 + the commitments rollup, plus the
+        # year-end close journals which legitimately should NOT count
+        # toward current-year expense (they roll nominals to equity).
         je_q = JournalLine.objects.filter(
             header__status='Posted',
             header__mda=admin_legacy,
             header__fund=fund_legacy,
             account_id__in=legacy_accounts,
-        ).filter(
-            Q(header__source_module__isnull=True)
-            | Q(header__source_module='')
+        ).exclude(
+            # Already counted via direct_ap (VendorInvoice rollup) at
+            # the top of this method.
+            header__source_module='ap.vendor_invoice',
+        ).exclude(
+            # Already counted via direct_pv (payment_vouchers rollup).
+            header__source_module='ap.payment_voucher',
+        ).exclude(
+            # AR side — credits Revenue, debits AR. Wouldn't normally
+            # match an Expense appropriation's account chain anyway,
+            # but explicit exclusion documents the intent.
+            header__source_module__in=(
+                'ar.invoice', 'ar.credit_memo', 'ar.receipt',
+            ),
+        ).exclude(
+            # Closing + opening journals roll nominals to equity / open
+            # next-year balance sheet. Must NOT count toward FY expense.
+            header__source_module__in=(
+                'year_end_close', 'year_end_close.opening',
+            ),
         )
         if fy_start and fy_end:
             je_q = je_q.filter(

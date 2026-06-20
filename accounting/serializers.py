@@ -670,6 +670,12 @@ class PaymentSerializer(serializers.ModelSerializer):
     # Read-only denormalisations that help the Outgoing Payment list show
     # "Payment #123 (PV-2026-0004)" without an extra lookup.
     payment_voucher_number = serializers.CharField(source='payment_voucher.voucher_number', read_only=True, default='')
+    # When ``is_advance=True`` and the Payment has been posted, this is
+    # the id of the linked VendorAdvance Special-GL ledger row. The
+    # frontend uses it to call the F-54 ``/clear/`` endpoint without a
+    # second lookup. Returns null for non-advance payments or
+    # advance payments that haven't been posted yet.
+    linked_vendor_advance_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
@@ -679,10 +685,26 @@ class PaymentSerializer(serializers.ModelSerializer):
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
             'vendor', 'vendor_name', 'is_advance', 'advance_type', 'advance_remaining',
             'payment_voucher', 'payment_voucher_number',
+            'linked_vendor_advance_id',
             'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id']
+
+    def get_linked_vendor_advance_id(self, obj):
+        if not obj.is_advance:
+            return None
+        try:
+            from accounting.models.vendor_advance import (
+                VendorAdvance, VendorAdvanceSource,
+            )
+            advance = VendorAdvance.objects.filter(
+                source_type=VendorAdvanceSource.AP_DOWNPAYMENT,
+                source_id=obj.pk,
+            ).first()
+            return advance.pk if advance else None
+        except Exception:
+            return None
 
     def validate(self, attrs):
         """Enforce `require_pv_before_payment` gate.

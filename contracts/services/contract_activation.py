@@ -136,7 +136,15 @@ class ContractActivationService:
         # 5. Create or refresh the ContractBalance row.
         # NOTE: using get_or_create so re-running activation is idempotent
         # for the balance creation — important during manual recoveries.
+        #
+        # ``retention_held`` is SEEDED with the upfront retention reserve.
+        # Lump-sum retention model: original_sum × retention_rate / 100
+        # is held back from activation and released at completion. The
+        # contract_ceiling property (which is what IPC validation
+        # compares against) is already reduced by this reserve, so
+        # IPCs together cannot exceed the available payable amount.
         ceiling = contract.contract_ceiling
+        retention_reserve = contract.retention_reserve
         balance, created = ContractBalance.objects.get_or_create(
             contract=contract,
             defaults={
@@ -146,18 +154,27 @@ class ContractActivationService:
                 "cumulative_gross_paid":       Decimal("0.00"),
                 "mobilization_paid":           Decimal("0.00"),
                 "mobilization_recovered":      Decimal("0.00"),
-                "retention_held":              Decimal("0.00"),
+                "retention_held":              retention_reserve,
                 "retention_released":          Decimal("0.00"),
                 "version":                     1,
             },
         )
         if not created:
-            # Keep the ceiling in sync if variations were approved before activation.
-            # H6 fix: F('version')+1 server-side increment.
-            if balance.contract_ceiling != ceiling:
+            # Keep ceiling AND retention reserve in sync with the live
+            # contract values — handles the path where a variation was
+            # approved before activation (ceiling changed) or where a
+            # prior failed activation left ``retention_held`` at 0
+            # (manual recovery). Both writes go through the same
+            # version-bumped update so concurrent edits are detected.
+            needs_update = (
+                balance.contract_ceiling != ceiling
+                or balance.retention_held != retention_reserve
+            )
+            if needs_update:
                 try:
                     ContractBalance.objects.filter(pk=balance.pk).update(
                         contract_ceiling=ceiling,
+                        retention_held=retention_reserve,
                         version=F('version') + 1,
                         updated_at=timezone.now(),
                     )

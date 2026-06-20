@@ -197,6 +197,31 @@ def is_warrant_pre_payment_enforced() -> bool:
     return str(stage).lower() != 'payment'
 
 
+def warrant_enforcement_enabled() -> bool:
+    """Whether this tenant requires a released Warrant (AIE) before cash
+    leaves the TSA.
+
+    Reads the per-tenant ``AccountingSettings.require_warrant_before_payment``
+    toggle (singleton per schema). This is the *master enable* for every
+    warrant-ceiling gate — outgoing payments, AP-invoice posting, vendor
+    down-payments, and contract mobilization advances all consult it so
+    the operator has one switch, not four.
+
+    Fail-CLOSED: if the settings row can't be read we still enforce,
+    because silently letting cash out of the consolidated account is the
+    dangerous failure mode. The same defensive default lived (copy-pasted)
+    at every call site before this helper consolidated it.
+    """
+    try:
+        from accounting.models.advanced import AccountingSettings
+        settings_row = AccountingSettings.objects.first()
+        if settings_row is None:
+            return True
+        return bool(getattr(settings_row, 'require_warrant_before_payment', True))
+    except Exception:
+        return True
+
+
 def check_warrant_availability(
     *, dimensions, account, amount, exclude_po=None, strict: bool = True,
 ):

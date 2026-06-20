@@ -922,7 +922,35 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='import-template')
     def import_template(self, request):
-        """Download CSV template for bulk revenue collection import."""
+        """Download CSV template for bulk revenue collection import.
+
+        Column set mirrors the live ``RevenueCollectionForm`` UI so an
+        operator can import the same fact set they would otherwise key
+        in by hand:
+
+        REQUIRED — every row needs these
+            collection_date     YYYY-MM-DD
+            mda_code            NCoA Administrative segment code
+            gl_account_code     credit-leg GL account code (same as the
+                                NCoA Economic segment code in this CoA)
+            functional_code     NCoA Functional (COFOG) segment
+            programme_code      NCoA Programme segment
+            fund_code           NCoA Fund segment
+            geo_code            NCoA Geographic segment
+            tsa_account_number  TreasuryAccount.account_number (cash leg)
+            amount              receipt amount (NGN, > 0)
+            description         narration / purpose
+
+        OPTIONAL — sensible defaults applied when blank
+            payer_name          defaults to "Walk-in Payer"
+            payer_tin
+            payer_phone
+            payer_address
+            payment_reference   auto-generated PR-NNNNNNNN when blank
+            rrr                 Remita Retrieval Reference
+            collection_channel  one of BANK / ONLINE / USSD / AGENT /
+                                COUNTER / POS — defaults to BANK
+        """
         import io
         import csv
         from django.http import HttpResponse
@@ -930,17 +958,29 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            'revenue_head_code', 'payer_name', 'payer_tin', 'amount',
-            'collection_date', 'collection_channel', 'payment_reference',
-            'rrr', 'description',
+            # required columns first — easier to scan
+            'collection_date', 'mda_code', 'gl_account_code',
+            'functional_code', 'programme_code', 'fund_code', 'geo_code',
+            'tsa_account_number', 'amount', 'description',
+            # optional columns
+            'payer_name', 'payer_tin', 'payer_phone', 'payer_address',
+            'payment_reference', 'rrr', 'collection_channel',
         ])
+        # Realistic example row 1 — PAYE collection by Ministry of Finance
         writer.writerow([
-            'IGR-PAYE', 'Acme Nigeria Ltd', 'TIN-00123456', '150000.00',
-            '2026-01-15', 'BANK', 'TELLER-001', 'RRR-12345', 'January PAYE',
+            '2026-01-15', '011000000000', '12010101',
+            '70112', '10000001', '02101', '51010101',
+            '1234567890', '150000.00', 'January PAYE remittance',
+            'Acme Nigeria Ltd', 'TIN-00123456', '08012345678', '12 Lagos Rd',
+            'TELLER-001', 'RRR-12345', 'BANK',
         ])
+        # Realistic example row 2 — anonymous walk-in fee (payer + ref blank)
         writer.writerow([
-            'IGR-FEES', 'John Doe', '', '25000.00',
-            '2026-01-15', 'ONLINE', 'REF-002', '', 'Business registration fee',
+            '2026-01-15', '015000000000', '12020708',
+            '70111', '10000001', '02101', '51010108',
+            '1234567890', '25000.00', 'Business registration fee',
+            '', '', '', '',
+            '', '', 'ONLINE',
         ])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
@@ -949,9 +989,28 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='bulk-import')
     def bulk_import(self, request):
-        """Bulk import revenue collections from CSV/Excel."""
+        """Bulk import revenue collections from CSV/Excel.
+
+        Validates and persists each row in line with the new IGR form
+        contract:
+          - ``gl_account_code`` IS the NCoA economic IS the revenue
+            head identity. RevenueHead is resolved (or materialised)
+            from the matching EconomicSegment.
+          - NCoACode is resolved from the 6 NCoA segment codes via
+            ``NCoAService.resolve_code``.
+          - ``tsa_account`` is resolved by ``account_number``.
+          - ``payer_name`` defaults to "Walk-in Payer" when blank.
+          - ``payment_reference`` is auto-generated from
+            ``TransactionSequence`` when blank.
+        """
         import pandas as pd
         from accounting.models.revenue import RevenueHead
+        from accounting.models.ncoa import EconomicSegment, NCoACode
+        from accounting.models.treasury import TreasuryAccount
+        from accounting.models.gl import TransactionSequence
+        from accounting.services.ncoa_service import (
+            NCoAService, NCoAResolutionError,
+        )
 
         file = request.FILES.get('file')
         if not file:
@@ -965,47 +1024,130 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return Response({'error': f'Failed to parse: {e}'}, status=status.HTTP_400_BAD_REQUEST)
 
         df.columns = df.columns.str.strip().str.lower()
-        required = {'revenue_head_code', 'payer_name', 'amount', 'collection_date'}
+        required = {
+            'collection_date', 'mda_code', 'gl_account_code',
+            'functional_code', 'programme_code', 'fund_code', 'geo_code',
+            'tsa_account_number', 'amount', 'description',
+        }
         missing = required - set(df.columns)
         if missing:
-            return Response({'error': f'Missing columns: {", ".join(missing)}'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': f'Missing columns: {", ".join(sorted(missing))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        head_lookup = {h.code: h for h in RevenueHead.objects.all()}
+        # Pre-load small lookup tables to avoid one DB hit per row.
+        # EconomicSegments are keyed by code; ditto TSA accounts.
+        eco_by_code = {e.code: e for e in EconomicSegment.objects.all()}
+        tsa_by_number = {t.account_number: t for t in TreasuryAccount.objects.all()}
+
+        # Cell coercion helper — pandas hands back NaN for blanks, which
+        # would survive `str()` as the literal string "nan". Strip
+        # everything down to a clean string up front so downstream code
+        # can treat "blank" uniformly as falsy.
+        def cell(row, key, default=''):
+            v = row.get(key, default)
+            if pd.isna(v):
+                return default
+            return str(v).strip()
+
         created, skipped, errors = 0, 0, []
 
         for idx, row in df.iterrows():
-            row_num = idx + 2
+            row_num = idx + 2  # +1 for 0-index, +1 for header row
             try:
-                head_code = str(row['revenue_head_code']).strip()
-                head = head_lookup.get(head_code)
+                # ── Amount sanity check ──────────────────────────
+                amt_raw = row.get('amount', 0)
+                if pd.isna(amt_raw) or float(amt_raw) <= 0:
+                    errors.append(f'Row {row_num}: Invalid or non-positive amount')
+                    continue
+                amount = float(amt_raw)
+
+                # ── Resolve RevenueHead from the GL account code ──
+                # GL account code == EconomicSegment.code in this CoA,
+                # and RevenueHead lives 1:1 with revenue-side economic
+                # segments. Mirror the EconomicSegment into a
+                # RevenueHead row on first use (same canonical write
+                # path as the serializer's _resolve_revenue_head).
+                gl_code = cell(row, 'gl_account_code')
+                economic = eco_by_code.get(gl_code)
+                if not economic:
+                    errors.append(
+                        f'Row {row_num}: GL account / Economic code '
+                        f'"{gl_code}" not found in NCoA Economic registry'
+                    )
+                    continue
+                head = RevenueHead.objects.filter(
+                    economic_segment=economic,
+                ).first()
                 if not head:
-                    errors.append(f'Row {row_num}: Revenue head "{head_code}" not found')
+                    head = RevenueHead.objects.create(
+                        code=economic.code,
+                        name=economic.name,
+                        economic_segment=economic,
+                        revenue_type='OTHER',
+                    )
+
+                # ── Resolve NCoA composite code from 6 segments ──
+                try:
+                    ncoa = NCoAService.resolve_code(
+                        admin_code=cell(row, 'mda_code'),
+                        economic_code=gl_code,
+                        functional_code=cell(row, 'functional_code'),
+                        programme_code=cell(row, 'programme_code'),
+                        fund_code=cell(row, 'fund_code'),
+                        geo_code=cell(row, 'geo_code'),
+                    )
+                except NCoAResolutionError as e:
+                    errors.append(f'Row {row_num}: NCoA resolution failed — {e}')
                     continue
 
-                amt = row.get('amount', 0)
-                if pd.isna(amt) or float(amt) <= 0:
-                    errors.append(f'Row {row_num}: Invalid amount')
+                # ── Resolve TSA account (cash leg) ──────────────
+                tsa_number = cell(row, 'tsa_account_number')
+                tsa = tsa_by_number.get(tsa_number)
+                if not tsa:
+                    errors.append(
+                        f'Row {row_num}: TSA account number '
+                        f'"{tsa_number}" not found'
+                    )
                     continue
 
-                channel = str(row.get('collection_channel', 'BANK')).strip().upper()
+                # ── Collection channel (default BANK) ───────────
+                channel = cell(row, 'collection_channel', 'BANK').upper()
                 if channel not in ('BANK', 'ONLINE', 'USSD', 'AGENT', 'COUNTER', 'POS'):
                     channel = 'BANK'
 
-                ref = str(row.get('payment_reference', '')).strip()
+                # ── Payment reference — auto-generate when blank.
+                # Skip duplicates (model has unique=True so a clash
+                # would raise IntegrityError; we surface it as skipped
+                # rather than letting the row fail outright).
+                ref = cell(row, 'payment_reference')
                 if ref and RevenueCollection.objects.filter(payment_reference=ref).exists():
                     skipped += 1
                     continue
+                if not ref:
+                    ref = TransactionSequence.get_next(
+                        'payment_ref', prefix='PR-',
+                    )
+
+                # ── Payer fields — default name when blank ──────
+                payer_name = cell(row, 'payer_name') or 'Walk-in Payer'
 
                 RevenueCollection.objects.create(
                     revenue_head=head,
-                    payer_name=str(row['payer_name']).strip(),
-                    payer_tin=str(row.get('payer_tin', '')).strip() if not pd.isna(row.get('payer_tin')) else '',
-                    amount=float(amt),
-                    collection_date=str(row['collection_date']).strip()[:10],
+                    ncoa_code=ncoa,
+                    tsa_account=tsa,
+                    collecting_mda=ncoa.administrative,
+                    payer_name=payer_name,
+                    payer_tin=cell(row, 'payer_tin'),
+                    payer_phone=cell(row, 'payer_phone'),
+                    payer_address=cell(row, 'payer_address'),
+                    amount=amount,
+                    collection_date=cell(row, 'collection_date')[:10],
                     collection_channel=channel,
-                    payment_reference=ref or None,
-                    rrr=str(row.get('rrr', '')).strip() if not pd.isna(row.get('rrr')) else '',
-                    description=str(row.get('description', '')).strip() if not pd.isna(row.get('description')) else '',
+                    payment_reference=ref,
+                    rrr=cell(row, 'rrr'),
+                    description=cell(row, 'description'),
                 )
                 created += 1
             except Exception as e:

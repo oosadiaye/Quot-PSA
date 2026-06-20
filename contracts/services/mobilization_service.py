@@ -261,6 +261,311 @@ class MobilizationService:
                 },
             )
 
+        # ── Warrant (AIE) cash gate ───────────────────────────────────
+        # The appropriation check above is the budget-authority layer;
+        # the warrant is the cash-release layer. A mobilization advance is
+        # cash leaving the TSA, so when the tenant operates warrant-based
+        # control it must also fit within the released-warrant headroom
+        # for this appropriation:
+        #     headroom = total_warrants_released − (committed + expended)
+        # and (committed + expended) == amount_approved − available_balance
+        # (see Appropriation.available_balance). Computed on the row we
+        # already locked above, so no extra query and no NCoA bridge.
+        from accounting.budget_logic import warrant_enforcement_enabled
+        if warrant_enforcement_enabled():
+            released = Decimal(str(appr.total_warrants_released or 0))
+            consumed = Decimal(str(appr.amount_approved or 0)) - available
+            warrant_headroom = released - consumed
+            if required > warrant_headroom:
+                raise InvalidTransitionError(
+                    f"Insufficient released Warrant (AIE). Required "
+                    f"NGN {required:,.2f}; warrant headroom NGN "
+                    f"{warrant_headroom:,.2f} (released NGN {released:,.2f} "
+                    f"− consumed NGN {consumed:,.2f}). Release a Warrant for "
+                    f"this appropriation before issuing the mobilization "
+                    f"advance.",
+                    context={
+                        "appropriation_id":  appr.pk,
+                        "required":          str(required),
+                        "warrants_released": str(released),
+                        "warrant_headroom":  str(warrant_headroom),
+                    },
+                )
+
+    # ── Approval (PENDING → APPROVED) ─────────────────────────────────
+
+    @classmethod
+    @transaction.atomic
+    def approve(
+        cls,
+        *,
+        payment: MobilizationPayment,
+        actor: "AbstractUser",
+        notes: str = "",
+    ) -> MobilizationPayment:
+        """Move a PENDING mobilization advance to APPROVED.
+
+        Pre-requisite governance gate before treasury raises a PV.
+        Mirrors the Retention release approve pattern: approver
+        cannot be the user who issued the advance (SoD), unless the
+        actor holds explicit ``contracts.bypass_sod`` permission or
+        is a superuser. Every approval writes a
+        ``ContractApprovalStep`` audit row.
+
+        Raises:
+            InvalidTransitionError — if the payment is not PENDING.
+            SegregationOfDutiesError — if approver == issuer.
+        """
+        if payment.status != MobilizationPaymentStatus.PENDING:
+            raise InvalidTransitionError(
+                f"Mobilization payment must be PENDING to approve "
+                f"(currently {payment.status}).",
+                context={
+                    "payment_id": payment.pk,
+                    "current_status": payment.status,
+                },
+            )
+
+        # SoD: approver ≠ issuer (created_by). Same governance shape as
+        # ``RetentionService.approve``. ``actor_can_bypass_sod`` covers
+        # superusers and tenant admins with the explicit bypass perm.
+        if (
+            payment.created_by_id
+            and payment.created_by_id == getattr(actor, "pk", None)
+            and not actor_can_bypass_sod(actor)
+        ):
+            raise SegregationOfDutiesError(
+                "Segregation of duties: the user who issued the "
+                "mobilisation advance cannot also approve it. Have a "
+                "different officer approve before treasury raises the PV.",
+                context={
+                    "payment_id":   payment.pk,
+                    "issuer_id":    payment.created_by_id,
+                    "actor_id":     getattr(actor, "pk", None),
+                },
+            )
+
+        payment.status     = MobilizationPaymentStatus.APPROVED
+        payment.updated_by = actor
+        payment.save(update_fields=["status", "updated_by", "updated_at"])
+
+        # Audit row on ContractApprovalStep so the contract's full
+        # approval ledger surfaces this signoff alongside contract
+        # activation, IPC approvals, retention releases, etc.
+        from contracts.models import (
+            ContractApprovalStep, ApprovalAction, ApprovalObjectType,
+        )
+        next_step = (
+            ContractApprovalStep.objects.filter(
+                object_type=ApprovalObjectType.MOBILIZATION,
+                object_id=payment.pk,
+            ).count()
+            + 1
+        )
+        ContractApprovalStep.objects.create(
+            object_type=ApprovalObjectType.MOBILIZATION,
+            object_id=payment.pk,
+            contract=payment.contract,
+            step_number=next_step,
+            role_required="contracts.approve_mobilization",
+            assigned_to=actor,
+            action=ApprovalAction.APPROVE,
+            action_by=actor,
+            notes=notes or "Mobilization advance approved for payment.",
+        )
+
+        return payment
+
+    # ── Cancel (PENDING/APPROVED → CANCELLED) ──────────────────────
+
+    @classmethod
+    @transaction.atomic
+    def cancel(
+        cls,
+        *,
+        payment: MobilizationPayment,
+        actor: "AbstractUser",
+        notes: str = "",
+    ) -> MobilizationPayment:
+        """Cancel a mobilisation advance before disbursement.
+
+        Allowed from PENDING or APPROVED. Blocked once the advance is
+        PAID (use a reversal at that point — cancellation can't undo
+        a journal that's already posted).
+
+        Writes an audit step recording who cancelled and why.
+        """
+        # Lock to prevent concurrent cancel + schedule-payment races.
+        payment = MobilizationPayment.objects.select_for_update().get(pk=payment.pk)
+
+        if payment.status not in (
+            MobilizationPaymentStatus.PENDING,
+            MobilizationPaymentStatus.APPROVED,
+        ):
+            raise InvalidTransitionError(
+                f"Mobilization payment must be PENDING or APPROVED to "
+                f"cancel (currently {payment.status}). Already-paid "
+                f"advances require a reversal, not a cancellation.",
+                context={
+                    "payment_id": payment.pk,
+                    "current_status": payment.status,
+                },
+            )
+
+        payment.status     = MobilizationPaymentStatus.CANCELLED
+        payment.updated_by = actor
+        payment.save(update_fields=["status", "updated_by", "updated_at"])
+
+        # Audit on ContractApprovalStep so the contract's full ledger
+        # surfaces this action alongside the original approval (if
+        # one happened before cancellation).
+        from contracts.models import (
+            ContractApprovalStep, ApprovalAction, ApprovalObjectType,
+        )
+        next_step = (
+            ContractApprovalStep.objects.filter(
+                object_type=ApprovalObjectType.MOBILIZATION,
+                object_id=payment.pk,
+            ).count()
+            + 1
+        )
+        ContractApprovalStep.objects.create(
+            object_type=ApprovalObjectType.MOBILIZATION,
+            object_id=payment.pk,
+            contract=payment.contract,
+            step_number=next_step,
+            role_required="contracts.approve_mobilization",
+            assigned_to=actor,
+            action=ApprovalAction.REJECT,
+            action_by=actor,
+            notes=notes or "Mobilization advance cancelled.",
+        )
+
+        return payment
+
+    # ── Schedule for payment (APPROVED → draft PV created) ──────────
+
+    @classmethod
+    @transaction.atomic
+    def schedule_payment(
+        cls,
+        *,
+        payment: MobilizationPayment,
+        actor: "AbstractUser",
+        notes: str = "",
+    ):
+        """Create a DRAFT PaymentVoucher AND a DRAFT Payment for an
+        APPROVED mobilisation advance, linking both. Returns
+        ``(payment, pv, draft_payment)``.
+
+        Two records get created so the advance surfaces in BOTH the
+        Payment Vouchers list (the document) and the Outgoing Payments
+        page (the cash event). Treasury can then review and post the
+        Payment via the normal AP cascade.
+
+        IDEMPOTENCY — defended at multiple layers so duplicate posts
+        from network retries / double-clicks / concurrent calls cannot
+        happen:
+          1. ``SELECT FOR UPDATE`` on this MobilizationPayment row
+             serialises concurrent schedule_payment calls.
+          2. The PV factory short-circuits on existing
+             ``payment.payment_voucher_id`` linkage.
+          3. The Payment lookup uses ``payment.reference_number`` as
+             the deterministic key — a second call finds the existing
+             draft and returns it instead of minting a new one.
+
+        Raises:
+            InvalidTransitionError — if payment is not APPROVED/PENDING.
+            PVFactoryError — vendor / NCoA / TSA missing.
+        """
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_mobilization,
+        )
+
+        # Lock the row to serialise concurrent schedule_payment calls.
+        # Without this, two simultaneous calls would both read
+        # ``payment_voucher_id=None`` and both create distinct PVs —
+        # one of which would be orphaned (paid by nothing, but still
+        # consuming a sequence-allocated voucher number).
+        payment = MobilizationPayment.objects.select_for_update().get(pk=payment.pk)
+
+        # Allow either APPROVED (canonical path) or PENDING (legacy
+        # advances created before the APPROVED status existed —
+        # treasury still needs a PV to disburse them).
+        if payment.status not in (
+            MobilizationPaymentStatus.APPROVED,
+            MobilizationPaymentStatus.PENDING,
+        ):
+            raise InvalidTransitionError(
+                f"Mobilization payment must be APPROVED or PENDING to "
+                f"schedule for payment (currently {payment.status}).",
+                context={
+                    "payment_id": payment.pk,
+                    "current_status": payment.status,
+                },
+            )
+
+        pv = create_draft_voucher_from_mobilization(
+            payment=payment, actor=actor, notes=notes,
+        )
+
+        # Link back so the next call is a no-op (idempotent) and the
+        # frontend can show the PV number on the mobilization row.
+        if payment.payment_voucher_id != pv.pk:
+            payment.payment_voucher = pv
+            payment.updated_by = actor
+            payment.save(update_fields=["payment_voucher", "updated_by", "updated_at"])
+
+        draft_payment = cls._ensure_draft_payment(payment=payment, pv=pv, actor=actor)
+        return payment, pv, draft_payment
+
+    @classmethod
+    def _ensure_draft_payment(cls, *, payment, pv, actor):
+        """Lookup-or-create the AP cash Payment row that materialises
+        this mobilization in the Outgoing Payments page.
+
+        Idempotent by ``Payment.reference_number == payment.reference_number``.
+        The two-step (lookup → create) is safe under the
+        ``select_for_update`` lock acquired in ``schedule_payment``
+        — two concurrent calls would block at the lock, then the
+        second one sees the existing row and returns it.
+        """
+        from accounting.models.receivables import Payment
+        from accounting.models.gl import TransactionSequence
+        from datetime import date as _date
+
+        ref = payment.reference_number
+
+        # Lookup includes soft-deleted via ``all_objects`` so a
+        # previously-cancelled draft can't be re-created on top of
+        # itself (operator would need to undelete first).
+        existing = Payment.all_objects.filter(reference_number=ref).first()
+        if existing is not None:
+            return existing
+
+        payment_number = TransactionSequence.get_next("payment", "PAY-")
+        vendor = payment.contract.vendor if payment.contract else None
+        return Payment.objects.create(
+            payment_number=payment_number,
+            payment_date=_date.today(),
+            payment_method="Wire",
+            # Canonical reference — this is the IDEMPOTENCY KEY. Any
+            # future schedule_payment call for this MobilizationPayment
+            # finds this row via filter(reference_number=ref) and
+            # returns it unchanged.
+            reference_number=ref,
+            total_amount=payment.amount,
+            status="Draft",
+            payment_voucher=pv,
+            vendor=vendor,
+            is_advance=True,
+            advance_type="Supplier Advance",
+            advance_remaining=payment.amount,
+            document_number=payment_number,
+            created_by=actor,
+            updated_by=actor,
+        )
+
     @classmethod
     @transaction.atomic
     def mark_paid(
@@ -285,9 +590,26 @@ class MobilizationService:
         Called by the payment-voucher / treasury workflow when the PV
         actually disburses. Wrapped in SELECT FOR UPDATE on the balance.
         """
-        if payment.status != MobilizationPaymentStatus.PENDING:
+        # Accept PENDING for backward-compat with mobilization rows
+        # created before the APPROVED status was introduced (legacy
+        # records sit at PENDING but the cash event genuinely
+        # happened). New advances should go via APPROVED — the
+        # frontend gates the Approve button on PENDING and the PV
+        # creation pathway encourages the approval step, but we
+        # don't hard-block the cash transition here.
+        valid_pre_states = (
+            MobilizationPaymentStatus.PENDING,
+            MobilizationPaymentStatus.APPROVED,
+        )
+        if payment.status not in valid_pre_states:
             raise InvalidTransitionError(
-                f"Mobilization payment is already {payment.status}.",
+                f"Mobilization payment must be PENDING or APPROVED to "
+                f"mark paid (currently {payment.status}).",
+                context={
+                    "payment_id":   payment.pk,
+                    "current_status": payment.status,
+                    "valid_states": [s.value for s in valid_pre_states],
+                },
             )
 
         # Update the balance under row lock
@@ -341,10 +663,17 @@ class MobilizationService:
             amount=payment.amount,
             source_type="MOBILIZATION",
             source_id=payment.pk,
-            reference=(
-                f"{contract.contract_number or f'CONTRACT-{contract.pk}'}"
-                f"-MOB"
-            ),
+            # ``payment.reference_number`` is the canonical idempotency
+            # key (e.g. MOB-DSG/WORKS/2026/003) — same reference is
+            # used by the PV (source_document), the AP Payment
+            # (reference_number), and now the GL disbursement journal.
+            # JournalHeader.reference_number is uniquely indexed, so a
+            # retry of mark_paid against the same advance trips the
+            # IntegrityError instead of silently creating a duplicate
+            # DR/CR pair. (VendorAdvanceService.disburse also has its
+            # own (source_type, source_id) idempotency guard above
+            # this — defence in depth.)
+            reference=payment.reference_number,
             posting_date=payment_date,
             actor=actor,
             notes=(

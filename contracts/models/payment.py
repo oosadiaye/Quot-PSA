@@ -442,10 +442,24 @@ class InterimPaymentCertificate(AuditBaseModel):
 # ── MobilizationPayment ────────────────────────────────────────────────
 
 class MobilizationPaymentStatus(models.TextChoices):
-    PENDING           = "PENDING",           "Pending Disbursement"
-    PAID              = "PAID",              "Paid"
+    # Lifecycle:
+    #   PENDING  → just issued by the contract officer; no governance
+    #              signoff yet. Treasury should NOT raise a PV at this
+    #              stage on new advances (legacy PENDING rows in the
+    #              DB are still acceptable to ``mark_paid`` for
+    #              migration safety).
+    #   APPROVED → explicit governance signoff via
+    #              ``MobilizationService.approve``. The approver must
+    #              be different from the issuer (SoD). Treasury can
+    #              now raise the PV.
+    #   PAID, PARTIALLY_RECOVERED, FULLY_RECOVERED → IPC clawback states,
+    #              unchanged from before.
+    PENDING             = "PENDING",             "Pending Approval"
+    APPROVED            = "APPROVED",            "Approved for Payment"
+    CANCELLED           = "CANCELLED",           "Cancelled"
+    PAID                = "PAID",                "Paid"
     PARTIALLY_RECOVERED = "PARTIALLY_RECOVERED", "Partially Recovered"
-    FULLY_RECOVERED   = "FULLY_RECOVERED",   "Fully Recovered"
+    FULLY_RECOVERED     = "FULLY_RECOVERED",     "Fully Recovered"
 
 
 class MobilizationPayment(AuditBaseModel):
@@ -488,6 +502,35 @@ class MobilizationPayment(AuditBaseModel):
 
     def __str__(self) -> str:
         return f"Mobilization {self.contract.contract_number} — ₦{self.amount:,.2f}"
+
+    @property
+    def reference_number(self) -> str:
+        """Deterministic cross-document reference for idempotency.
+
+        Used as the SINGLE idempotency key across:
+          • ``PaymentVoucherGov.source_document`` — the disbursement PV
+          • ``Payment.reference_number`` — the AP cash-event row
+          • ``JournalHeader.reference_number`` — the GL disbursement entry
+
+        Because :class:`MobilizationPayment` is OneToOne with Contract,
+        and ``contract_number`` is system-wide unique, this reference
+        is naturally unique. Any downstream consumer can safely
+        ``filter(reference_number=payment.reference_number).first()``
+        as a lookup-or-create gate, preventing duplicate downstream
+        rows even under concurrent calls or retries.
+
+        Format: ``MOB-<contract_number>`` (e.g. ``MOB-DSG/WORKS/2026/003``).
+        Falls back to ``MOB-CONTRACT-<id>`` for contracts that haven't
+        been activated yet (no contract_number assigned).
+        """
+        contract_ref = (
+            self.contract.contract_number
+            or f"CONTRACT-{self.contract_id}"
+        )
+        # Hard-truncate at 90 chars so the resulting reference fits
+        # the strictest downstream column (PaymentVoucherGov.source_document
+        # is max_length=100, JournalHeader.reference_number is also 100).
+        return f"MOB-{contract_ref}"[:90]
 
 
 # ── RetentionRelease ───────────────────────────────────────────────────

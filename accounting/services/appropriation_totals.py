@@ -29,15 +29,34 @@ from django.utils import timezone
 
 
 def _compute_committed(appropriation) -> Decimal:
-    """Mirror ``Appropriation.total_committed`` live-path (open PO + direct).
+    """Mirror ``Appropriation.total_committed`` — OPEN PO commitments only.
 
-    Keep this in sync with the property so the cache and live read agree.
+    In standard public-sector accounting (Nigeria IFMIS / IPSAS) the
+    appropriation execution stages are mutually exclusive on the same
+    money: a given ₦100 is either Committed (reserved by a PO/contract
+    pending invoice verification) OR Expended (recognised as actual
+    spend). The same amount must NEVER appear in both columns,
+    otherwise ``available_balance = approved - committed - expended``
+    deducts it twice and AVAILABLE goes negative even when the
+    appropriation is actually under-spent.
+
+    Direct disbursements (manual JEs, AP invoices with no PO, PVs paid
+    without a source document) skip the commitment stage by design —
+    the act of posting IS the act of expending. They belong in
+    ``_compute_expended`` only, NOT here. The model property
+    ``Appropriation.total_committed`` already encodes this rule
+    (queries ACTIVE+INVOICED PO commitments only, with no ``+ direct``
+    addition); this cache-writer was inconsistent with the property
+    and produced inflated COMMITTED values + negative AVAILABLE on
+    every appropriation with direct activity.
+
+    Keep this in sync with the property so the cache and live read
+    agree on the meaning of "committed".
     """
     open_po = appropriation.commitments.filter(
         status__in=['ACTIVE', 'INVOICED'],
     ).aggregate(t=Sum('committed_amount'))['t'] or Decimal('0')
-    direct = appropriation._compute_direct_disbursements()
-    return open_po + direct
+    return open_po
 
 
 def _compute_expended(appropriation) -> Decimal:
@@ -45,6 +64,13 @@ def _compute_expended(appropriation) -> Decimal:
 
     Mirrors ``Appropriation.total_expended`` without touching the cache
     property (which would read itself recursively).
+
+    Direct disbursements (manual JEs, AP-no-PO invoices, direct PVs)
+    are intentionally counted ONLY here — never in ``_compute_committed``
+    above — because posting a direct expense recognises the spend
+    immediately without an intermediate commitment stage. The PO
+    flow goes Committed (ACTIVE/INVOICED) → Expended (CLOSED); the
+    direct flow goes straight to Expended.
     """
     closed = appropriation.commitments.filter(status='CLOSED').aggregate(
         t=Sum('committed_amount'),

@@ -207,8 +207,21 @@ class IPCService:
         # Path 2 — derive from contract's NCoA + MDA, lookup against register.
         if appropriation is None:
             ncoa = contract.ncoa_code
+            # ``Contract.mda`` is a FK to ``accounting.AdministrativeSegment``
+            # (the NCoA Segment 1), but ``budget.Appropriation.mda`` is a
+            # FK to ``accounting.MDA`` (the legacy ministry table). Walk
+            # the ``AdministrativeSegment.legacy_mda`` 1:1 bridge to get
+            # the right type — passing the AdministrativeSegment directly
+            # would crash ``find_matching_appropriation``'s ``filter(mda=…)``
+            # with ``ValueError: Must be 'MDA' instance``. Falls through
+            # to the NCoA path on the same bridge.
+            contract_mda_seg = getattr(contract, 'mda', None)
+            contract_legacy_mda = (
+                getattr(contract_mda_seg, 'legacy_mda', None)
+                if contract_mda_seg else None
+            )
             mda = (
-                getattr(contract, 'mda', None)
+                contract_legacy_mda
                 or getattr(getattr(ncoa, 'administrative', None), 'legacy_mda', None)
             )
             fund = getattr(getattr(ncoa, 'fund', None), 'legacy_fund', None)
@@ -418,6 +431,142 @@ class IPCService:
         # Pin it to the IPC for audit + UI display.
         ipc.accrual_journal = journal
         return journal
+
+    # ── AP subledger materialisation (every approved IPC → VendorInvoice) ──
+
+    @classmethod
+    def _ensure_vendor_invoice(cls, ipc, journal, actor):
+        """Materialise the AP subledger document for an approved IPC.
+
+        Every IPC that reaches APPROVED produces a ``VendorInvoice``
+        row referencing the IPC's accrual journal. Why this matters:
+
+          • The accrual journal posts ``DR Expense / CR Vendor-AP-Recon``
+            against the GL control account. That's correct general-
+            ledger behaviour but it gives the AP module no per-vendor /
+            per-invoice document to age, match, or pay against.
+          • The VendorInvoice IS the AP subledger document. It points
+            at the SAME journal (via ``journal_entry``), so the GL
+            and AP subledger never disagree — there's only one
+            posting, but two documents reference it (the IPC and the
+            VendorInvoice).
+          • Downstream effects:
+              - AP aging reports include this invoice automatically.
+              - Outgoing Payments can allocate against it
+                (``PaymentAllocation`` FK).
+              - The vendor's AP statement shows it as an open item.
+              - Bank reconciliation correctly attributes the payment
+                clearing.
+
+        Idempotent — short-circuits if a VendorInvoice with the IPC
+        number already exists (e.g., approve() retried after a network
+        blip). ``status='Posted'`` because the journal is already on
+        the GL via ``_post_accrual_journal``; the invoice doesn't
+        re-post anything, it just adds the AP subledger view of it.
+
+        Amounts mirror the journal's AP credit (gross − mob recovery
+        − retention) so the invoice ``total_amount`` matches the
+        actual AP balance impact, not the contract face value. The
+        description carries the full breakdown so the operator can
+        still see gross / retention / mob recovery without leaving
+        the invoice detail page.
+        """
+        from decimal import Decimal as _D
+        from accounting.models import VendorInvoice
+
+        contract = ipc.contract
+        ipc_ref = ipc.ipc_number or f"IPC-{ipc.pk}"
+
+        # Idempotency guard. We check ``all_objects`` so a soft-deleted
+        # row from a prior approval doesn't get re-created with a
+        # unique-constraint violation; the operator would need to
+        # restore or hard-delete it before the retry would create a
+        # fresh one.
+        existing = VendorInvoice.all_objects.filter(
+            invoice_number=ipc_ref,
+        ).first()
+        if existing is not None:
+            return existing
+
+        # Re-derive amounts using the same source values the accrual
+        # journal used. (We could pull these off the journal lines but
+        # re-reading from the IPC fields is cheaper and matches what
+        # the user sees in the IPC review screen.)
+        gross = _D(str(ipc.this_certificate_gross or 0))
+        mob_recovery = _D(str(ipc.mobilization_recovery_this_cert or 0))
+        retention = _D(str(ipc.retention_deduction_this_cert or 0))
+        ap_credit = quantize_currency(gross - mob_recovery - retention)
+
+        # Re-resolve the expense account through the same NCoA→GL
+        # bridge the journal posting used. Failing to resolve here
+        # would be unusual — the journal posting already succeeded
+        # before this method was called — but we fall back to the
+        # journal's first DR line account as a safety net.
+        ncoa = contract.ncoa_code
+        expense_account = (
+            getattr(ncoa.economic, 'legacy_account', None)
+            if ncoa and ncoa.economic else None
+        )
+        if expense_account is None:
+            # Fall back to the journal's DR-side account so the
+            # invoice still has an ``account`` FK (required for AP
+            # reporting). Loops once to find the first debit line.
+            for line in journal.lines.all():
+                if (line.debit or 0) > 0:
+                    expense_account = line.account
+                    break
+
+        # Build a description that surfaces the GL breakdown so an
+        # operator reading the AP invoice detail page sees how the
+        # ``total_amount`` was computed without having to walk the
+        # journal lines manually.
+        description_parts = [
+            f"IPC accrual — {ipc_ref}",
+            f"Contract {contract.contract_number or '—'}",
+            f"Gross ₦{gross:,.2f}",
+        ]
+        if mob_recovery > 0:
+            description_parts.append(f"Mob recovery ₦{mob_recovery:,.2f}")
+        if retention > 0:
+            description_parts.append(f"Retention ₦{retention:,.2f}")
+        description_parts.append(f"Net to AP ₦{ap_credit:,.2f}")
+
+        invoice = VendorInvoice.objects.create(
+            invoice_number=ipc_ref,
+            reference=contract.contract_number or '',
+            description=" · ".join(description_parts),
+            vendor=contract.vendor,
+            invoice_date=ipc.posting_date,
+            due_date=ipc.posting_date,
+            account=expense_account,
+            # Legacy dimension FKs — copy from the journal so the
+            # invoice carries the same MDA/Fund/Function/Program/Geo
+            # coding for cross-reference reports.
+            mda=journal.mda,
+            fund=journal.fund,
+            function=journal.function,
+            program=journal.program,
+            geo=journal.geo,
+            # ``subtotal`` + ``tax_amount`` = ``total_amount`` is the
+            # invariant the AP module expects. Taxes are recognised
+            # at PV time on cash-basis, so tax_amount stays 0 here.
+            subtotal=ap_credit,
+            tax_amount=Decimal('0.00'),
+            total_amount=ap_credit,
+            # ``Posted`` — the GL journal already posted in
+            # ``_post_accrual_journal``; the invoice document is a
+            # subledger view of that posting, not a separate
+            # posting trigger. Skipping Draft + Approved states is
+            # intentional: an approved-IPC-driven invoice has
+            # already cleared the approval workflow on the IPC side.
+            status='Posted',
+            journal_entry=journal,
+            document_number=ipc_ref,
+            document_type='Invoice',
+            created_by=actor,
+            updated_by=actor,
+        )
+        return invoice
 
     # ── Tax auto-derivation (cash-basis recognition) ──────────────────
 
@@ -1014,7 +1163,21 @@ class IPCService:
         # reported the expense. Operators must now resolve the
         # underlying CoA gap (missing account, no NCoA bridge, etc.)
         # before the IPC can transition to APPROVED.
-        cls._post_accrual_journal(ipc, actor)
+        journal = cls._post_accrual_journal(ipc, actor)
+
+        # ── AP subledger materialisation ──────────────────────────────
+        # Every approved IPC produces a ``VendorInvoice`` document
+        # so the AP module can age, match, and pay against it. The
+        # invoice references the SAME journal we just posted (single
+        # source of truth for the GL), so GL and AP subledger stay
+        # in sync by construction. Idempotent — see
+        # ``_ensure_vendor_invoice``.
+        #
+        # Inside the surrounding ``@transaction.atomic``: if invoice
+        # creation fails for any reason (CoA gap, vendor mismatch,
+        # etc.), the whole IPC approval rolls back. Operators must
+        # then fix the underlying issue before re-approving.
+        cls._ensure_vendor_invoice(ipc, journal, actor)
 
         ipc.transition_to(IPCStatus.APPROVED)
         # ``transition_to`` saved status+updated_at; persist the

@@ -260,9 +260,44 @@ class Contract(AuditBaseModel):
         return quantize_currency(result or ZERO)
 
     @property
+    def retention_reserve(self) -> Decimal:
+        """Lump-sum retention reserved upfront off the contract sum.
+
+        Computed as ``original_sum × retention_rate / 100``. This amount
+        is held back from the start of the contract — NOT deducted on a
+        per-IPC basis (which would be the FIDIC pattern). See
+        :class:`RetentionService` for the historical per-IPC formula
+        (now deprecated; ``compute_deduction`` always returns 0).
+
+        Variations don't add retention. If a variation needs its own
+        retention, raise a separate contract amendment that adjusts
+        ``retention_rate`` — keeping the reserve tied to ``original_sum``
+        means the reserved amount is fixed at activation and doesn't
+        silently grow as variations land mid-flight (which would force
+        retroactive balance updates).
+        """
+        rate = self.retention_rate or Decimal("0")
+        return quantize_currency(
+            (self.original_sum or Decimal("0")) * rate / Decimal("100")
+        )
+
+    @property
     def contract_ceiling(self) -> Decimal:
-        """Hard payment ceiling = original_sum + approved variations."""
-        return quantize_currency(self.original_sum + self.approved_variations_total)
+        """Hard IPC payment ceiling.
+
+        = original_sum + approved variations − retention_reserve
+
+        The retention reserve is held back UPFRONT (lump-sum model),
+        so IPCs together cannot exceed the reduced ceiling. Example:
+        a ₦100,000 contract at 5% retention has a ₦95,000 IPC ceiling
+        and a ₦5,000 reserve sitting in ``balance.retention_held``
+        from activation, released at Practical / Final Completion.
+        """
+        gross = (
+            (self.original_sum or Decimal("0"))
+            + self.approved_variations_total
+        )
+        return quantize_currency(gross - self.retention_reserve)
 
     # ── Status transition ───────────────────────────────────────────────
 

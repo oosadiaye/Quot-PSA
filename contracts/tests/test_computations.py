@@ -22,7 +22,14 @@ from contracts.services.retention_service import RetentionService
 
 class TestMobilizationRecovery:
 
-    def test_zero_rate_returns_zero(self, stub_contract, stub_balance):
+    def test_recovery_is_paid_based_not_rate_based(self, stub_contract, stub_balance):
+        """Recovery follows the advance actually PAID (canonical FIDIC /
+        the M2 fix), NOT the contract's ``mobilization_rate``. So a 0% rate
+        with a non-zero advance still recovers pro-rata:
+        1,500,000 × 1,000,000 / 10,000,000 = 150,000.
+
+        The genuine 'no recovery' invariant is ``mobilization_paid == 0``
+        — covered by ``test_no_advance_paid_returns_zero``."""
         contract = stub_contract(mobilization_rate=Decimal("0.00"))
         balance = stub_balance(mobilization_paid=Decimal("1500000"))
         got = MobilizationService.compute_recovery(
@@ -30,7 +37,7 @@ class TestMobilizationRecovery:
             balance=balance,
             this_certificate_gross=Decimal("1000000"),
         )
-        assert got == Decimal("0.00")
+        assert got == Decimal("150000.00")
 
     def test_no_advance_paid_returns_zero(self, stub_contract, stub_balance):
         contract = stub_contract(mobilization_rate=Decimal("15.00"))
@@ -87,7 +94,13 @@ class TestMobilizationRecovery:
         assert got == Decimal("0.00")
 
 
-# ── RetentionService.compute_deduction ────────────────────────────────
+# ── RetentionService.compute_deduction (LUMP-SUM model) ────────────────
+# Retention moved from a per-IPC deduction to a LUMP-SUM / upfront model:
+# the full reserve (original_sum × retention_rate / 100) is held back from
+# the contract ceiling at activation (ContractActivationService.activate
+# seeds ``retention_held``; see ``Contract.retention_reserve``). The per-IPC
+# ``compute_deduction`` is therefore a stub that returns 0 for ANY rate, and
+# new IPCs write 0 to ``retention_deduction_this_cert``.
 
 class TestRetentionDeduction:
 
@@ -95,30 +108,23 @@ class TestRetentionDeduction:
         contract = stub_contract(retention_rate=Decimal("0.00"))
         got = RetentionService.compute_deduction(
             contract=contract,
-            balance=None,  # unused when rate is 0
+            balance=None,
             this_certificate_gross=Decimal("1000000"),
         )
         assert got == Decimal("0.00")
 
-    def test_five_percent_deduction(self, stub_contract):
-        contract = stub_contract(retention_rate=Decimal("5.00"))
-        got = RetentionService.compute_deduction(
-            contract=contract,
-            balance=None,
-            this_certificate_gross=Decimal("1000000"),
-        )
-        assert got == Decimal("50000.00")
-
-    def test_respects_max_rate(self, stub_contract):
-        """DB constraint caps retention_rate at 20% but the method itself
-        honours whatever rate is on the contract."""
-        contract = stub_contract(retention_rate=Decimal("20.00"))
-        got = RetentionService.compute_deduction(
-            contract=contract,
-            balance=None,
-            this_certificate_gross=Decimal("1000000"),
-        )
-        assert got == Decimal("200000.00")
+    def test_per_ipc_deduction_is_zero_under_lump_sum(self, stub_contract):
+        """Under the lump-sum model the per-IPC deduction is 0 for ANY rate
+        — the reserve is taken upfront at activation, not certificate by
+        certificate. (The old per-IPC formula returned rate × gross.)"""
+        for rate in (Decimal("5.00"), Decimal("20.00")):
+            contract = stub_contract(retention_rate=rate)
+            got = RetentionService.compute_deduction(
+                contract=contract,
+                balance=None,
+                this_certificate_gross=Decimal("1000000"),
+            )
+            assert got == Decimal("0.00"), f"rate {rate}% must still deduct 0 per IPC"
 
 
 # ── RetentionService.apply_deduction ──────────────────────────────────

@@ -15,6 +15,7 @@ import datetime
 
 from django.http import HttpResponse
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounting.permissions import CanViewFinancialStatements
@@ -214,6 +215,11 @@ class _MonthlyScheduleView(APIView):
     snapshot wiring) DRY across the monthly-filing regulators.
     """
     permission_classes = [CanViewFinancialStatements]
+    # G-A4: scoped throttle for the heavy CSV/JSON statutory exporters
+    # (OAGF MFR, FIRS VAT, PENCOM, NSITF, NHIA). Env-overridable via
+    # EXPORTS_THROTTLE_RATE; covers the monthly-schedule subclasses.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'exports'
     exporter = None         # type: ignore[assignment]
     filename_stem = ''      # e.g. 'pencom', 'nsitf', 'nhia'
     report_type = ''        # e.g. 'statutory.pencom'

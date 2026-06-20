@@ -1406,6 +1406,49 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         order.save()
         return Response({"status": f"Purchase Order {order.po_number} cancelled (Rejected)."})
 
+def _down_payment_warrant_error(po, amount):
+    """Return a DRF 400 ``Response`` if a down-payment ``amount`` exceeds the
+    released Warrant (AIE) for the PO's appropriation; otherwise ``None``.
+
+    A down payment is cash leaving the TSA *before* goods/services are
+    received, so it must fit within released warrants for the same
+    MDA × Fund × Economic line. This is a CASH-control gate, so — unlike
+    the commitment/invoice pre-payment stages — it is gated ONLY by the
+    tenant warrant master switch (``warrant_enforcement_enabled``) and
+    binds in every ``WARRANT_ENFORCEMENT_STAGE`` mode, mirroring the
+    payment-stage gate on regular AP payments.
+
+    Returns ``None`` (no block) when: the tenant has warrant control off,
+    the PO lacks MDA/Fund, the PO has no line account to resolve the
+    appropriation, or the amount is empty.
+    """
+    from accounting.budget_logic import (
+        check_warrant_availability,
+        warrant_enforcement_enabled,
+    )
+    if not (po and po.mda and po.fund and amount):
+        return None
+    if not warrant_enforcement_enabled():
+        return None
+    line_account = po.lines.first().account if po.lines.exists() else None
+    if not line_account:
+        return None
+    allowed, msg, _info = check_warrant_availability(
+        dimensions={'mda': po.mda, 'fund': po.fund},
+        account=line_account,
+        amount=amount,
+    )
+    if not allowed:
+        return Response(
+            {
+                'error': f'Down payment exceeds released Warrant (AIE): {msg}',
+                'warrant_exceeded': True,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
+
+
 class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_field = 'purchase_order__mda'
     """Finance-facing view to list, review, and process down payment requests."""
@@ -1426,49 +1469,19 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if dpr.status != 'Pending':
             return Response({"error": f"Cannot approve a request in '{dpr.status}' status."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── Budget + warrant gate ─────────────────────────────────
-        # Down payments are an additional cash outflow on top of the
-        # PO's existing encumbrance. The PO's commitment guards the
-        # PO's full value; an approved DPR represents cash leaving
-        # the TSA *before* the goods/services are received, which
-        # must be independently validated against released warrants
-        # for the same appropriation.
-        po = dpr.purchase_order
-        if po and po.mda and po.fund and dpr.requested_amount:
-            try:
-                from accounting.budget_logic import (
-                    check_warrant_availability,
-                    is_warrant_pre_payment_enforced,
-                )
-                from accounting.models.advanced import AccountingSettings
-                _settings = AccountingSettings.objects.first()
-                _enforce_warrant = (
-                    bool(getattr(_settings, 'require_warrant_before_payment', True))
-                    if _settings is not None else True
-                )
-                if _enforce_warrant and is_warrant_pre_payment_enforced():
-                    line_account = po.lines.first().account if po.lines.exists() else None
-                    if line_account:
-                        allowed, msg, _info = check_warrant_availability(
-                            dimensions={'mda': po.mda, 'fund': po.fund},
-                            account=line_account,
-                            amount=dpr.requested_amount,
-                        )
-                        if not allowed:
-                            return Response(
-                                {
-                                    'error': (
-                                        f'Down payment exceeds released warrant: {msg}'
-                                    ),
-                                    'warrant_exceeded': True,
-                                },
-                                status=status.HTTP_400_BAD_REQUEST,
-                            )
-            except Exception as exc:  # noqa: BLE001 — surface as 400
-                return Response(
-                    {'error': f'Budget/warrant check failed: {exc}'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        # ── Warrant (AIE) cash gate ───────────────────────────────
+        # A down payment is cash leaving the TSA *before* goods/services
+        # are received, so it must be validated against released warrants
+        # for the PO's appropriation. This is a cash-control gate (like
+        # the payment-stage gate on regular AP payments): it binds
+        # whenever the tenant requires warrants, NOT only under the
+        # pre-payment WARRANT_ENFORCEMENT_STAGE modes. Previously it was
+        # additionally gated by ``is_warrant_pre_payment_enforced()``,
+        # which is False in the default 'payment' build — so down payments
+        # silently skipped the ceiling and cash could leave un-warranted.
+        warrant_err = _down_payment_warrant_error(dpr.purchase_order, dpr.requested_amount)
+        if warrant_err is not None:
+            return warrant_err
 
         dpr.status = 'Approved'
         dpr.save()
@@ -1492,6 +1505,15 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return Response({"error": "Only approved requests can be processed."}, status=status.HTTP_400_BAD_REQUEST)
         if dpr.payment_id:
             return Response({"error": "A payment has already been created for this request."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Re-check the warrant ceiling at processing — approval may predate
+        # the current warrant balance, and this is the step that creates
+        # the disbursing Payment, so it's the last chokepoint where the
+        # PO's appropriation is still known (the Payment row carries no
+        # MDA/Fund/account, so the disbursement post itself cannot re-check).
+        warrant_err = _down_payment_warrant_error(dpr.purchase_order, dpr.requested_amount)
+        if warrant_err is not None:
+            return warrant_err
 
         try:
             from accounting.models import Payment

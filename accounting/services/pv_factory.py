@@ -26,6 +26,7 @@ from django.db import transaction
 if TYPE_CHECKING:
     from accounting.models.receivables import VendorInvoice
     from accounting.models.treasury import PaymentVoucherGov
+    from contracts.models.payment import MobilizationPayment
     from django.contrib.auth.models import AbstractUser
 
 
@@ -162,6 +163,106 @@ def create_draft_voucher_from_invoice(
         source_document=invoice.invoice_number or "",
         invoice_number=invoice.invoice_number or "",
         invoice_date=invoice.invoice_date,
+        status="DRAFT",
+        created_by=actor,
+        updated_by=actor,
+    )
+    return pv
+
+
+@transaction.atomic
+def create_draft_voucher_from_mobilization(
+    *,
+    payment: "MobilizationPayment",
+    actor: "AbstractUser",
+    notes: str = "",
+) -> "PaymentVoucherGov":
+    """Create (or fetch existing) draft PaymentVoucherGov for a
+    mobilisation advance.
+
+    Pre-fills:
+      • payee_*       ← contract.vendor (vendor master)
+      • gross_amount  ← payment.amount (advance amount, no deductions)
+      • narration     ← "Mobilisation advance — <contract> (<vendor>)"
+      • source_document ← contract number + " — Mobilisation"
+      • ncoa_code     ← contract.ncoa_code (the contract's own NCoA
+                        line, not a placeholder — mobilisation hits
+                        the same appropriation as the contract itself)
+      • appropriation ← payment_voucher reuses contract.appropriation
+      • tsa_account   ← first active TSA (operator can change)
+      • status        ← DRAFT
+      • wht_amount    ← 0 (mobilisation advances are not subject to
+                          withholding — that hits the IPCs that claw
+                          the advance back, not the advance itself)
+
+    Idempotent: if ``payment.payment_voucher`` is already set, that
+    PV is returned unchanged. Safe to retry on network failure or
+    operator double-click.
+
+    Raises:
+      PVFactoryError — when prerequisites missing (vendor, TSA, NCoA).
+    """
+    from accounting.models.gl import TransactionSequence
+    from accounting.models.treasury import PaymentVoucherGov, TreasuryAccount
+
+    # Idempotency: existing PV linkage wins.
+    if payment.payment_voucher_id:
+        return payment.payment_voucher
+
+    contract = payment.contract
+    if not contract.vendor_id:
+        raise PVFactoryError(
+            "Contract has no vendor — set the vendor before scheduling "
+            "the mobilisation advance for payment."
+        )
+    if not contract.ncoa_code_id:
+        raise PVFactoryError(
+            "Contract has no NCoA classification — assign segments "
+            "before scheduling mobilisation."
+        )
+
+    tsa = TreasuryAccount.objects.filter(is_active=True).first()
+    if tsa is None:
+        raise PVFactoryError(
+            "No active Treasury Account configured. Configure a TSA "
+            "before scheduling mobilisation."
+        )
+
+    vendor = contract.vendor
+    voucher_number = TransactionSequence.get_next(
+        "payment_voucher", prefix="PV-",
+    )
+
+    base_narration = (
+        f"Mobilisation advance — {contract.contract_number or contract.pk} "
+        f"({getattr(vendor, 'name', 'vendor')})"
+    )
+    narration = (notes or base_narration)[:500]
+
+    # ``payment.reference_number`` (e.g. ``MOB-DSG/WORKS/2026/003``) is
+    # the canonical cross-document idempotency key. We write it to the
+    # PV's ``source_document`` field so a duplicate-detection query
+    # (``filter(source_document=payment.reference_number)``) can find
+    # this PV later — e.g. if the link on MobilizationPayment is lost
+    # to a data-fix mistake, this gives us a recovery path.
+    pv = PaymentVoucherGov.objects.create(
+        voucher_number=voucher_number,
+        payment_type="VENDOR",
+        ncoa_code=contract.ncoa_code,
+        # The contract may not have an Appropriation FK populated
+        # (it's optional on the model); leaving None lets the
+        # treasury workflow's appropriation lookup pick the right
+        # one at posting time via NCoA + fiscal year.
+        appropriation=getattr(contract, "appropriation", None),
+        payee_name=getattr(vendor, "name", "") or "",
+        payee_account=getattr(vendor, "bank_account_number", "") or "",
+        payee_bank=getattr(vendor, "bank_name", "") or "",
+        gross_amount=payment.amount,
+        wht_amount=Decimal("0"),
+        net_amount=payment.amount,
+        narration=narration,
+        tsa_account=tsa,
+        source_document=payment.reference_number,
         status="DRAFT",
         created_by=actor,
         updated_by=actor,

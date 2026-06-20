@@ -659,6 +659,13 @@ class GeneralLedgerReportService:
             entries.append({
                 'date': line.header.posting_date,
                 'reference': line.header.reference_number,
+                # Journal-voucher identity so the ledger can drill into the
+                # full double-entry. ``journal_id`` drives the detail fetch;
+                # ``journal_number`` (JV-####) is the human-facing label.
+                # Fall back to the source reference when no JV number was
+                # allocated, so the cell is never blank.
+                'journal_id': line.header_id,
+                'journal_number': line.header.document_number or line.header.reference_number or f'JE-{line.header_id}',
                 'description': line.memo,
                 'debit': line.debit,
                 'credit': line.credit,

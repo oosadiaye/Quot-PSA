@@ -11,7 +11,12 @@ from ..serializers import CustomerInvoiceSerializer, ReceiptSerializer, ReceiptA
 
 
 class CustomerInvoiceViewSet(viewsets.ModelViewSet):
-    queryset = CustomerInvoice.objects.all().select_related('fund', 'function', 'program', 'geo', 'currency')
+    # ``prefetch_related('lines')`` collapses the per-invoice N+1 on the list
+    # endpoint (serializer renders nested ``lines`` per row). Line serializer
+    # returns FK ids only, so prefetching the lines alone is sufficient.
+    queryset = CustomerInvoice.objects.all().select_related(
+        'fund', 'function', 'program', 'geo', 'currency',
+    ).prefetch_related('lines')
     serializer_class = CustomerInvoiceSerializer
     filterset_fields = ['status', 'customer_name', 'invoice_date']
 

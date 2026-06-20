@@ -46,7 +46,7 @@ HUNDRED = Decimal("100")
 
 class RetentionService:
 
-    # ── Deduction on each IPC ─────────────────────────────────────────
+    # ── Deduction on each IPC (deprecated — upfront model in use) ─────
 
     @staticmethod
     def compute_deduction(
@@ -56,33 +56,27 @@ class RetentionService:
         this_certificate_gross: Decimal,
     ) -> Decimal:
         """
-        Compute retention to deduct on this IPC.
-        deduction = retention_rate% × this_certificate_gross.
+        Returns ZERO — retention is no longer deducted per IPC.
 
-        Caller then calls apply_deduction under SELECT FOR UPDATE to
-        increment balance.retention_held.
+        This system uses the LUMP-SUM / UPFRONT retention model:
+        the full retention reserve (``contract.retention_reserve`` =
+        original_sum × retention_rate / 100) is held back from the
+        contract ceiling at activation. ``balance.retention_held`` is
+        seeded with this value in
+        :meth:`ContractActivationService.activate`, and IPCs cannot
+        push committed spend over the reduced ceiling.
 
-        Cumulative cap: once ``balance.retention_held`` reaches
-        ``contract.retention_cap_percent`` of ``contract.original_sum``,
-        no further retention is deducted on this IPC. Mirrors standard
-        FIDIC / Nigerian PPP practice — typically capped at 5–10% of
-        contract sum so the contractor isn't bled past the original
-        risk holdback ratio over the contract life.
+        The function is kept as a stub (rather than removed) so the
+        existing IPC submission code in
+        :meth:`IPCService._submit_ipc` doesn't need a structural change
+        — it can keep calling this helper and writing the result onto
+        ``IPC.retention_deduction_this_cert``. The field stays in the
+        model for backward compat on historical IPCs created under the
+        old per-IPC formula; new IPCs simply write 0.
+
+        See :attr:`Contract.retention_reserve` for the new model.
         """
-        if contract.retention_rate <= ZERO:
-            return ZERO
-        raw = quantize_currency(this_certificate_gross * contract.retention_rate / HUNDRED)
-        cap_percent = getattr(contract, 'retention_cap_percent', None) or ZERO
-        if cap_percent <= ZERO:
-            return raw
-        cap_amount = quantize_currency(
-            (contract.original_sum or ZERO) * cap_percent / HUNDRED
-        )
-        already_held = balance.retention_held or ZERO
-        headroom = cap_amount - already_held
-        if headroom <= ZERO:
-            return ZERO
-        return min(raw, headroom)
+        return ZERO
 
     @staticmethod
     def apply_deduction(

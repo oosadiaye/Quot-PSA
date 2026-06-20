@@ -12,6 +12,7 @@ Design notes:
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from rest_framework import serializers
 
 from contracts.models import (
@@ -124,6 +125,22 @@ class ContractYearPlanSerializer(serializers.ModelSerializer):
 # ── Milestones ────────────────────────────────────────────────────────
 
 class MilestoneScheduleSerializer(serializers.ModelSerializer):
+    # ── IPC linkage (read-only) ───────────────────────────────────────
+    # ``InterimPaymentCertificate.milestone`` is a OneToOneField with
+    # ``related_name="ipc"``, so ``milestone.ipc`` resolves to the
+    # single IPC raised against this milestone — or raises
+    # ``InterimPaymentCertificate.DoesNotExist`` for the common case
+    # where no IPC has been raised yet. Method fields with a guarded
+    # ``hasattr`` check are the simplest way to flatten that into a
+    # nullable JSON value the frontend can consume.
+    #
+    # Why both ``ipc`` AND ``ipc_number``: the contract detail UI uses
+    # ``ipc`` (truthy id) as the visibility gate for the "Convert to
+    # IPC" button, and ``ipc_number`` (e.g. ``DSG/WORKS/2026/001/IPC/01``)
+    # as the human-readable audit pointer next to the row.
+    ipc = serializers.SerializerMethodField()
+    ipc_number = serializers.SerializerMethodField()
+
     class Meta:
         model = MilestoneSchedule
         fields = [
@@ -131,8 +148,20 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "scheduled_value", "percentage_weight",
             "target_date", "actual_completion_date",
             "status", "notes",
+            "ipc", "ipc_number",
         ]
         read_only_fields = ["id"]
+
+    def get_ipc(self, obj):
+        # ``hasattr`` returns False for an unset reverse OneToOne in
+        # Django, so this is safe and side-effect-free (no query
+        # beyond what select_related already prefetched).
+        ipc = getattr(obj, "ipc", None) if hasattr(obj, "ipc") else None
+        return ipc.pk if ipc else None
+
+    def get_ipc_number(self, obj):
+        ipc = getattr(obj, "ipc", None) if hasattr(obj, "ipc") else None
+        return ipc.ipc_number if ipc else None
 
 
 # ── Contracts ─────────────────────────────────────────────────────────
@@ -152,6 +181,15 @@ class ContractSerializer(serializers.ModelSerializer):
         max_digits=20, decimal_places=2, read_only=True,
     )
     contract_ceiling = serializers.DecimalField(
+        max_digits=20, decimal_places=2, read_only=True,
+    )
+    # Lump-sum retention reserved upfront off the contract sum.
+    # original_sum × retention_rate / 100. Held in
+    # balance.retention_held from activation; released at completion.
+    # Surfaced here so the contract detail UI can show the breakdown:
+    #   Contract Sum: ₦100,000  −  Retention Reserve: ₦5,000  =
+    #   Processable: ₦95,000 (== contract_ceiling).
+    retention_reserve = serializers.DecimalField(
         max_digits=20, decimal_places=2, read_only=True,
     )
     milestones = MilestoneScheduleSerializer(many=True, read_only=True)
@@ -194,6 +232,16 @@ class ContractSerializer(serializers.ModelSerializer):
     )
     vendor_ap_code = serializers.SerializerMethodField()
     vendor_ap_name = serializers.SerializerMethodField()
+
+    # Mobilization status surfaced on the contracts list so operators
+    # can scan "which contracts have a pending mobilization that needs
+    # treasury action" without drilling into each row. Returns the
+    # MobilizationPayment.status when one exists, or '' when no advance
+    # has been issued (so the column reads as blank — distinct from
+    # an explicit PENDING/APPROVED/PAID value). The relation is the
+    # ``mobilization_payment`` reverse OneToOne; ``hasattr`` returns
+    # False when the row doesn't exist (Django reverse-OneToOne semantics).
+    mobilization_status = serializers.SerializerMethodField()
     withholding_account_code = serializers.CharField(
         source='vendor.withholding_tax_code.withholding_account.code',
         read_only=True, default='',
@@ -221,6 +269,20 @@ class ContractSerializer(serializers.ModelSerializer):
         except Exception:
             return ''
 
+    def get_mobilization_status(self, obj):
+        # Reverse OneToOne — ``mobilization_payment`` is set on Contract
+        # via ``MobilizationPayment.contract = OneToOneField(...,
+        # related_name="mobilization_payment")``. ``hasattr`` correctly
+        # returns False when no related row exists. Side-effect-free
+        # when the queryset prefetched the relation (which it should —
+        # see ContractViewSet); otherwise one extra SELECT per row.
+        if hasattr(obj, 'mobilization_payment'):
+            try:
+                return obj.mobilization_payment.status
+            except Exception:
+                return ''
+        return ''
+
     class Meta:
         model = Contract
         fields = [
@@ -245,6 +307,8 @@ class ContractSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
             # Computed
             "mobilization_amount", "approved_variations_total", "contract_ceiling",
+            "retention_reserve",
+            "mobilization_status",
             # Embedded
             "milestones", "balance",
         ]
@@ -252,6 +316,8 @@ class ContractSerializer(serializers.ModelSerializer):
             "id", "contract_number", "status",
             "created_at", "updated_at",
             "mobilization_amount", "approved_variations_total", "contract_ceiling",
+            "retention_reserve",
+            "mobilization_status",
             "milestones", "balance",
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",
@@ -260,8 +326,34 @@ class ContractSerializer(serializers.ModelSerializer):
             "vendor_ap_code", "vendor_ap_name",
             "withholding_account_code", "input_tax_account_code",
         ]
+        # ``retention_rate`` is a contract clause that is contractually
+        # optional. Many consultancy / supply / service contracts
+        # carry no retention at all; only works contracts typically
+        # do. At the API surface we treat "blank / null / omitted"
+        # as the operator's explicit "no retention" intent — saved
+        # as 0.00, not silently coerced back to a 5% default they
+        # may have just deliberately removed.
+        #
+        # The model still keeps ``default=Decimal('5.00')`` for ORM-
+        # direct callers (admin, fixtures, service scripts) so their
+        # existing behaviour is unchanged — that path is unaffected
+        # by serializer-level defaults.
+        extra_kwargs = {
+            "retention_rate": {
+                "required": False,
+                "allow_null": True,
+                "default": Decimal("0.00"),
+            },
+        }
 
     def validate(self, attrs):
+        # ``retention_rate=null`` from the form means "no retention on
+        # this contract". Coerce to 0.00 so the DB column (which is
+        # not-null) holds a real value, but DO NOT silently re-apply
+        # a 5% default the operator just deleted.
+        if "retention_rate" in attrs and attrs["retention_rate"] is None:
+            attrs["retention_rate"] = Decimal("0.00")
+
         # Lock financial / structural fields after activation. The
         # canonical path for changes after activation is
         # ``ContractVariation`` (with tier-based approval).  Allowing
@@ -500,17 +592,54 @@ class IPCMarkPaidSerializer(serializers.Serializer):
 # ── Mobilization payments ─────────────────────────────────────────────
 
 class MobilizationPaymentSerializer(serializers.ModelSerializer):
+    # Human-readable display fields so the cross-contract list page
+    # (see ``MobilizationPaymentList`` in the frontend) can show
+    # contract number / vendor / voucher info without N+1 round-trips.
+    # All pull via ``source=`` so they cost nothing extra when the
+    # viewset's queryset has ``select_related('contract__vendor',
+    # 'payment_voucher')`` — which the ViewSet already does.
+    contract_number = serializers.CharField(
+        source="contract.contract_number", read_only=True, default="",
+    )
+    contract_title = serializers.CharField(
+        source="contract.title", read_only=True, default="",
+    )
+    vendor_name = serializers.CharField(
+        source="contract.vendor.name", read_only=True, default="",
+    )
+    payment_voucher_number = serializers.CharField(
+        source="payment_voucher.voucher_number", read_only=True, default="",
+    )
+    # The PV's status — operators on the Mobilization list want to see
+    # whether the linked PV is still DRAFT, APPROVED, SCHEDULED, or
+    # PAID without having to drill into the PV detail page.
+    payment_voucher_status = serializers.CharField(
+        source="payment_voucher.status", read_only=True, default="",
+    )
+    # Journal id when the disbursement journal exists — surfaced so
+    # the Mobilization contract tab can link directly to "view the
+    # accounting entries" without an extra round trip.
+    payment_voucher_journal_id = serializers.IntegerField(
+        source="payment_voucher.journal_id", read_only=True, default=None, allow_null=True,
+    )
+
     class Meta:
         model = MobilizationPayment
         fields = [
-            "id", "contract", "amount",
-            "payment_voucher", "payment_date",
+            "id", "contract", "contract_number", "contract_title", "vendor_name",
+            "amount",
+            "payment_voucher", "payment_voucher_number",
+            "payment_voucher_status", "payment_voucher_journal_id",
+            "payment_date",
             "status", "notes",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "amount", "payment_voucher", "payment_date",
             "status", "created_at", "updated_at",
+            "contract_number", "contract_title", "vendor_name",
+            "payment_voucher_number",
+            "payment_voucher_status", "payment_voucher_journal_id",
         ]
 
 

@@ -17,7 +17,14 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     # invoice is visible. Mirrors PaymentVoucher / Treasury / Revenue
     # viewsets which already use this mixin.
     org_filter_field = 'mda'
-    queryset = VendorInvoice.objects.all().select_related('vendor', 'fund', 'function', 'program', 'geo', 'currency', 'account')
+    # ``prefetch_related('lines')`` collapses the per-invoice N+1: the
+    # serializer renders nested ``lines`` on every list row, so without this
+    # a 20-row page fired 20 extra "SELECT … FROM vendorinvoiceline" queries.
+    # The line serializer returns FK ids only (no account.code), so prefetching
+    # the lines alone is sufficient — no ``lines__account`` depth needed.
+    queryset = VendorInvoice.objects.all().select_related(
+        'vendor', 'fund', 'function', 'program', 'geo', 'currency', 'account',
+    ).prefetch_related('lines')
     serializer_class = VendorInvoiceSerializer
     filterset_fields = ['status', 'vendor', 'invoice_date']
     search_fields = ['invoice_number', 'reference', 'vendor__name', 'description']
@@ -31,9 +38,86 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # drafts get buried. ``-invoice_date`` stays as a secondary
         # tiebreaker. User can still override via ?ordering=.
         qs = super().get_queryset()
+
+        # Multi-status filter (?status__in=Posted,Partially Paid,Approved).
+        # DjangoFilterBackend's exact ``status`` filter (filterset_fields)
+        # can't express "any of these", but the outgoing-payment allocation
+        # pickers (New Payment + Clear Advance) need every PAYABLE invoice
+        # in one request: Posted (AP liability recognised but unpaid),
+        # Partially Paid (balance remaining), and Approved (approved
+        # pre-post). Previously they asked for ``status=Approved`` only and
+        # silently missed every Posted invoice — the common case, since
+        # post_invoice flips the status to Posted the moment AP is booked.
+        status_in = self.request.query_params.get('status__in')
+        if status_in:
+            statuses = [s.strip() for s in status_in.split(',') if s.strip()]
+            if statuses:
+                qs = qs.filter(status__in=statuses)
+
         if not self.request.query_params.get('ordering'):
             qs = qs.order_by('-id', '-invoice_date')
         return qs
+
+    def list(self, request, *args, **kwargs):
+        # N+1 fix: the serializer exposes 3 PV fields
+        # (payment_voucher_id / _number / _status) all backed by
+        # ``VendorInvoiceSerializer._linked_pv``, which runs ONE
+        # ``PaymentVoucherGov.objects.filter(invoice_number=…)`` query
+        # per invoice (cached on ``obj._linked_pv_cache``). On the list
+        # endpoint that is one query per row.
+        #
+        # We pre-seed each row's ``_linked_pv_cache`` from a SINGLE batch
+        # query before serialization, so the serializer finds the cache
+        # already populated and skips its per-row lookup entirely.
+        # Behaviour is identical: the seed mirrors ``_linked_pv``'s
+        # ``.order_by('-id').first()`` (latest PV per invoice_number) and
+        # the same cache convention (store the PV, or ``False`` on miss).
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else list(queryset)
+        self._seed_linked_pv_cache(rows)
+        serializer = self.get_serializer(rows, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @staticmethod
+    def _seed_linked_pv_cache(rows):
+        """Batch-load the linked PaymentVoucherGov for every row in ONE
+        query and pre-populate each invoice's ``_linked_pv_cache``,
+        mirroring ``VendorInvoiceSerializer._linked_pv`` exactly.
+
+        ``_linked_pv`` resolves the LATEST PV (``.order_by('-id').first()``)
+        for ``PaymentVoucherGov.invoice_number == invoice.invoice_number``
+        and caches the result on the instance — storing the PV on a hit,
+        or ``False`` on a miss. We replicate both halves: iterate the
+        batch in ASCENDING id so the LAST PV seen per invoice_number is
+        the highest id (== ``.order_by('-id').first()``), then seed
+        ``_linked_pv_cache`` with that PV or ``False`` when none matched.
+        """
+        from accounting.models.treasury import PaymentVoucherGov
+        numbers = [
+            r.invoice_number for r in rows
+            if getattr(r, 'invoice_number', None)
+        ]
+        latest: dict = {}
+        if numbers:
+            # Ascending id → the LAST seen per invoice_number is the
+            # highest id, which equals ``.order_by('-id').first()``.
+            # ``.only(...)`` mirrors the serializer's deferred field set
+            # plus ``invoice_number`` (needed here to key the dict).
+            for pv in (
+                PaymentVoucherGov.objects
+                .filter(invoice_number__in=numbers)
+                .only('id', 'voucher_number', 'status', 'invoice_number')
+                .order_by('id')
+            ):
+                latest[pv.invoice_number] = pv
+        for r in rows:
+            num = getattr(r, 'invoice_number', None)
+            # Mirror ``_linked_pv``'s cache convention: store the PV on a
+            # hit, ``False`` on a miss (and ``False`` when no number).
+            r._linked_pv_cache = latest.get(num, False) if num else False
 
     # Project rule (memory: feedback_draft_immutable_after_post): non-Draft
     # documents are immutable. Only Drafts can be edited; users who need to
@@ -808,23 +892,17 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         from accounting.budget_logic import (
             check_warrant_availability,
             is_warrant_pre_payment_enforced,
+            warrant_enforcement_enabled,
         )
-        # Tenant-level kill switch: when the operator has bypassed
-        # warrant enforcement entirely, skip the invoice-stage check too.
-        # The system-wide ``is_warrant_pre_payment_enforced`` flag still
-        # decides which pre-payment stages are gated by default; this
-        # tenant flag is the master enable.
-        try:
-            from accounting.models.advanced import AccountingSettings
-            _ap_settings = AccountingSettings.objects.first()
-            _tenant_warrant_on = (
-                bool(getattr(_ap_settings, 'require_warrant_before_payment', True))
-                if _ap_settings is not None else True
-            )
-        except Exception:
-            _tenant_warrant_on = True
+        # ``warrant_enforcement_enabled()`` is the tenant master switch
+        # (kill switch when bypassed). The system-wide
+        # ``is_warrant_pre_payment_enforced`` flag additionally decides
+        # whether the *invoice* stage is gated at all — under the default
+        # build (WARRANT_ENFORCEMENT_STAGE='payment') it returns False, so
+        # this check is intentionally a no-op and the ceiling binds at
+        # payment time instead.
         if (
-            _tenant_warrant_on
+            warrant_enforcement_enabled()
             and is_warrant_pre_payment_enforced()
             and invoice.mda and invoice.account and invoice.fund
         ):
@@ -1592,10 +1670,30 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def post_payment(self, request, pk=None):
-        """Post payment — creates journal entry + updates GL balances + vendor balance."""
+        """Post payment — creates journal entry + updates GL balances + vendor balance.
+
+        Two routing branches based on ``payment.is_advance``:
+          • is_advance=False (normal AP payment) → standard journal
+            ``DR Accounts Payable / CR Bank`` against the allocated
+            invoice(s). Requires ``PaymentAllocation`` rows.
+          • is_advance=True (F-48 advance / down payment) → SAP
+            Special-GL pattern via ``VendorAdvanceService.disburse``:
+            ``DR Vendor-Advance Recon / CR Cash``. NO allocations
+            required (no invoice exists yet); the operator clears
+            the advance against actual invoices later via F-54.
+        """
         payment = self.get_object()
         if payment.status == 'Posted':
             return Response({"error": "Payment already posted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── F-48 branch: advance / down-payment ──────────────────────
+        # Advances have no invoice yet — they sit in a Special-GL
+        # recon account until matched (F-54). Skip the allocations
+        # check + the warrant / matching gates (those are
+        # invoice-driven controls); enforce the fiscal-period gate
+        # because that's date-based and applies universally.
+        if payment.is_advance:
+            return self._post_advance_payment(payment, request)
 
         if not payment.allocations.exists():
             return Response({"error": "Payment has no allocations."}, status=status.HTTP_400_BAD_REQUEST)
@@ -1618,19 +1716,16 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # operate on warrant-based cash control. The toggle defaults
         # to True; flipping it OFF is an explicit, audited decision
         # the operator makes via Accounting Settings.
-        try:
-            from accounting.models.advanced import AccountingSettings
-            _settings = AccountingSettings.objects.first()
-            _enforce_warrant = (
-                bool(getattr(_settings, 'require_warrant_before_payment', True))
-                if _settings is not None else True
-            )
-        except Exception:
-            # Fail closed: if the settings row is unreadable we still
-            # enforce the warrant ceiling — the safer default.
-            _enforce_warrant = True
-
-        from accounting.budget_logic import check_warrant_availability
+        # Payment-stage warrant gate is unconditional w.r.t.
+        # WARRANT_ENFORCEMENT_STAGE — cash leaving the TSA is always the
+        # binding moment — so it consults only the tenant master switch.
+        # ``warrant_enforcement_enabled()`` fails closed if settings are
+        # unreadable.
+        from accounting.budget_logic import (
+            check_warrant_availability,
+            warrant_enforcement_enabled,
+        )
+        _enforce_warrant = warrant_enforcement_enabled()
         from collections import defaultdict
         buckets: dict = defaultdict(lambda: {'amount': Decimal('0'), 'mda': None, 'fund': None, 'account': None})
         for alloc in payment.allocations.select_related('invoice').all():
@@ -1863,12 +1958,20 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 # F()-decrement under the same atomic so two concurrent
                 # payments can't lose-update the bank balance.
                 if payment.bank_account_id:
-                    from accounting.models.banking import BankAccount as _BankAccount
+                    # Local imports match the file's existing pattern.
+                    # ``timezone`` was previously referenced here without
+                    # an import — the surrounding broken
+                    # ``accounting.models.banking`` import would have
+                    # raised first and silently masked the NameError,
+                    # leaving this H9 invariant inert until both bugs
+                    # surfaced together via the new advance-post path.
+                    from django.utils import timezone as _timezone
+                    from accounting.models import BankAccount as _BankAccount
                     _BankAccount.objects.filter(
                         pk=payment.bank_account_id,
                     ).update(
                         current_balance=F('current_balance') - amount,
-                        updated_at=timezone.now(),
+                        updated_at=_timezone.now(),
                     )
 
                 # Link journal to payment and update status
@@ -2231,6 +2334,135 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         """Update GLBalance from journal lines — delegates to atomic F()-based service."""
         from accounting.services import update_gl_from_journal
         update_gl_from_journal(journal)
+
+    def _post_advance_payment(self, payment, request):
+        """F-48 branch of ``post_payment`` — post an advance / down
+        payment via the Vendor-Advance Special-GL pattern.
+
+        Posts the journal:
+            DR  Vendor-Advance Recon (Special GL)     amount
+            CR  Bank / Cash                                   amount
+
+        Creates a ``VendorAdvance`` row with status=OUTSTANDING so the
+        operator can later clear it (F-54) against actual invoices.
+        Mirrors what ``MobilizationService.mark_paid`` does for
+        contract advances — same canonical service, so the bookkeeping
+        is identical regardless of which surface triggered the advance.
+        """
+        # ── Warrant (AIE) gate — deliberately ABSENT at this step ─────
+        # An advance Payment carries no appropriation dimensions (the
+        # Payment model has no MDA/Fund/account/PO FK) and its journal
+        # debits the Vendor-Advance Recon Special-GL, not an appropriation
+        # line — so there is nothing to test a warrant ceiling against at
+        # disbursement. The warrant cash gate is enforced UPSTREAM, where
+        # the appropriation IS known:
+        #   • PO-backed down payments → DownPaymentRequest.approve/process
+        #     (procurement.views._down_payment_warrant_error)
+        #   • contract mobilization   → MobilizationService._validate_appropriation
+        # Manual ad-hoc advances (Outgoing Payments → Vendor Advances tab)
+        # have no appropriation context at all, so a warrant ceiling can't
+        # apply; warrant-controlled tenants should route advances through a
+        # PO/DPR or contract mobilization. This absence is intentional.
+
+        # Fiscal period gate — same as the AP branch.
+        try:
+            from accounting.services.base_posting import BasePostingService
+            BasePostingService._validate_fiscal_period(payment.payment_date, user=request.user)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc), "period_closed": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Pre-flight: vendor + bank account are required for the journal.
+        if not payment.vendor_id:
+            return Response(
+                {"error": "Advance payment must reference a vendor."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not payment.bank_account_id:
+            return Response(
+                {"error": (
+                    "Pick a bank account before posting — advances credit a "
+                    "specific cash GL determined by the bank account."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Disburse via the canonical Special-GL service. Idempotency:
+        # the service refuses to post a duplicate against
+        # (source_type, source_id), so a retried request returns a
+        # friendly error rather than creating two ledger rows.
+        from accounting.services.vendor_advance import VendorAdvanceService
+        from accounting.models.vendor_advance import VendorAdvanceSource
+        from accounting.services.base_posting import TransactionPostingError
+        try:
+            with transaction.atomic():
+                # Stamp the document number first so the reference
+                # carries through to the ledger row + journal.
+                if not payment.document_number:
+                    payment.document_number = TransactionSequence.get_next(
+                        'payment_doc', 'PAY-',
+                    )
+                reference = (
+                    payment.reference_number
+                    or payment.payment_number
+                    or payment.document_number
+                    or f"PAY-{payment.pk}"
+                )
+                advance = VendorAdvanceService.disburse(
+                    vendor=payment.vendor,
+                    amount=payment.total_amount,
+                    source_type=VendorAdvanceSource.AP_DOWNPAYMENT,
+                    source_id=payment.pk,
+                    reference=reference,
+                    posting_date=payment.payment_date,
+                    actor=request.user,
+                    bank_account=payment.bank_account,
+                    notes=(
+                        f"Advance disbursement — Payment {payment.payment_number} "
+                        f"({payment.vendor.name})"
+                    ),
+                )
+
+                # Link the disbursement journal back onto the Payment
+                # row so the existing Payment detail UI shows it,
+                # then flip status to Posted.
+                payment.journal_entry = advance.disbursement_journal
+                payment.status = 'Posted'
+                # ``advance_remaining`` mirrors the Special-GL balance —
+                # at posting it equals the full advance amount and
+                # decreases as clearances are recorded.
+                payment.advance_remaining = payment.total_amount
+                payment.save(_allow_status_change=True)
+
+                # Keep BankAccount.current_balance in sync — same
+                # invariant as the AP branch at line ~1856. ``timezone``
+                # is imported locally to match the file's pattern (the
+                # AP branch did the same — see how the previous fix at
+                # this site silently failed because neither this
+                # import nor the broken ``accounting.models.banking``
+                # reference was caught at import time).
+                from django.utils import timezone as _timezone
+                from accounting.models import BankAccount as _BankAccount
+                _BankAccount.objects.filter(
+                    pk=payment.bank_account_id,
+                ).update(
+                    current_balance=F('current_balance') - payment.total_amount,
+                    updated_at=_timezone.now(),
+                )
+        except TransactionPostingError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Failed to post advance: {exc}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(self.get_serializer(payment).data)
 
 
 class PaymentAllocationViewSet(viewsets.ModelViewSet):

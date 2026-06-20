@@ -55,8 +55,21 @@ class ContractViewSet(viewsets.ModelViewSet):
         # — a 50-contract list page becomes 51 queries. Pulling it
         # into the same SQL JOIN gets the list down to a single
         # query plus the milestones prefetch.
-        .select_related("vendor", "mda", "fiscal_year", "ncoa_code", "balance")
-        .prefetch_related("milestones")
+        # ``mobilization_payment`` is a reverse OneToOne; we add it to
+        # select_related so the new ``mobilization_status`` serializer
+        # method field doesn't issue one extra SELECT per row on the
+        # contracts list. Combined with ``balance`` (also reverse
+        # OneToOne) the list endpoint stays one-shot.
+        .select_related(
+            "vendor", "mda", "fiscal_year", "ncoa_code", "balance",
+            "mobilization_payment",
+        )
+        # ``milestones__ipc`` pre-loads the reverse OneToOne so
+        # MilestoneScheduleSerializer.get_ipc / get_ipc_number don't
+        # fire one extra query per milestone. Without this a contract
+        # with 5 milestones would issue 5 additional SELECTs on every
+        # detail load (the "IPC raised" link rendering needs ipc_number).
+        .prefetch_related("milestones__ipc")
         .order_by("-created_at")
     )
     serializer_class = ContractSerializer

@@ -331,9 +331,14 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
 # ── Mobilization payments ─────────────────────────────────────────────
 
 class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = MobilizationPayment.objects.select_related("contract").order_by(
-        "-created_at",
-    )
+    # ``contract__vendor`` and ``payment_voucher`` are accessed by the
+    # serializer's display fields (contract_number, vendor_name,
+    # payment_voucher_number). Without these in select_related the
+    # cross-contract list page would fire 3N extra queries — one
+    # per row.
+    queryset = MobilizationPayment.objects.select_related(
+        "contract", "contract__vendor", "payment_voucher",
+    ).order_by("-created_at")
     serializer_class = MobilizationPaymentSerializer
     permission_classes = [CanViewContracts]
     filter_backends = [DjangoFilterBackend]
@@ -364,6 +369,90 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
                 contract=contract, actor=request.user,
             )
         return Response(MobilizationPaymentSerializer(payment).data, status=201)
+
+    @action(
+        detail=True, methods=["post"], url_path="approve",
+        # Same permission tier as approving an IPC — both are
+        # pre-cash governance gates on contract-driven outflows.
+        permission_classes=[CanApproveIPC],
+    )
+    def approve(self, request, pk=None):
+        """Approve a PENDING mobilisation advance (PENDING → APPROVED).
+
+        Pre-requisite step before treasury raises the disbursement PV.
+        Body: optional ``{"notes": "..."}`` recorded on the audit
+        ContractApprovalStep. SoD: approver cannot be the issuer.
+        """
+        payment = self.get_object()
+        notes = (request.data or {}).get("notes", "")
+        with translate_service_errors():
+            payment = MobilizationService.approve(
+                payment=payment, actor=request.user, notes=notes,
+            )
+        return Response(MobilizationPaymentSerializer(payment).data)
+
+    @action(
+        detail=True, methods=["post"], url_path="schedule-payment",
+        # Scheduling a payment is the cash-out trigger — same tier as
+        # raising any other PV. ``CanRaiseVoucher`` is the canonical
+        # permission for "create a draft PV".
+        permission_classes=[CanRaiseVoucher],
+    )
+    def schedule_payment(self, request, pk=None):
+        """Create a DRAFT PaymentVoucher AND a DRAFT Payment for this
+        APPROVED mobilization. Idempotent.
+
+        After this call:
+          • Draft PV is in the Payment Vouchers list
+          • Draft Payment is in the Outgoing Payments page
+          • ``payment.payment_voucher`` is linked
+          • Treasury reviews/posts the Payment as normal
+          • PV pay cascade → ``mark_paid`` flips status to PAID
+
+        Body: optional ``{"notes": "..."}`` overrides the auto-generated
+        PV narration. Second call returns the existing records.
+        """
+        payment = self.get_object()
+        notes = (request.data or {}).get("notes", "")
+        with translate_service_errors():
+            payment, pv, draft_payment = MobilizationService.schedule_payment(
+                payment=payment, actor=request.user, notes=notes,
+            )
+        return Response({
+            **MobilizationPaymentSerializer(payment).data,
+            # Surface both downstream record identities so the
+            # frontend can deep-link without a second fetch.
+            "created_pv_id": pv.pk,
+            "created_pv_number": pv.voucher_number,
+            "created_payment_id": draft_payment.pk,
+            "created_payment_number": draft_payment.payment_number,
+            # The canonical idempotency key — exposed so an operator
+            # / API client can audit cross-document linkage at a
+            # glance ("show me everything stamped MOB-…").
+            "reference_number": payment.reference_number,
+        })
+
+    @action(
+        detail=True, methods=["post"], url_path="cancel",
+        # Same tier as approving — cancelling is also a cash-out
+        # governance gate (refusing to disburse). Keeps the
+        # permission surface symmetric.
+        permission_classes=[CanApproveIPC],
+    )
+    def cancel(self, request, pk=None):
+        """Cancel a PENDING or APPROVED mobilisation advance.
+
+        Marks the advance as ``CANCELLED`` (no cash will be disbursed)
+        and writes an audit step. Blocked if the advance has already
+        been paid — at that point you need a reversal, not a cancellation.
+        """
+        payment = self.get_object()
+        notes = (request.data or {}).get("notes", "")
+        with translate_service_errors():
+            payment = MobilizationService.cancel(
+                payment=payment, actor=request.user, notes=notes,
+            )
+        return Response(MobilizationPaymentSerializer(payment).data)
 
     @action(detail=True, methods=["post"], url_path="mark-paid",
             permission_classes=[CanMarkIPCPaid])

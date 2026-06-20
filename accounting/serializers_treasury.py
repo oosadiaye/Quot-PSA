@@ -386,11 +386,93 @@ class RevenueCollectionSerializer(serializers.ModelSerializer):
             'id', 'receipt_number', 'status', 'journal',
             'created_at', 'updated_at',
         ]
+        # Three fields are omitted by the IGR journal-style form
+        # because they duplicate information the operator has already
+        # entered elsewhere or are not meaningful at counter/POS
+        # receipt time. We relax the serializer-level requirement and
+        # inject the canonical value in ``validate()``:
+        #   - revenue_head: the credit-leg GL account IS the revenue
+        #     head. GL account code == NCoA Economic code == revenue
+        #     head identity in this tenant's data model. There is no
+        #     separate curated catalog — the RevenueHead table is a
+        #     1-to-1 mirror of the revenue-side economic segments,
+        #     materialised on first use. See ``_resolve_revenue_head``.
+        #   - payer_name:   "Walk-in Payer" when the form's payer
+        #     section is left collapsed (typical for counter receipts
+        #     and bulk POS deposits where the payer is anonymous).
+        #   - payment_reference: sequence-generated ``PR-NNNNNNNN``.
+        #     The field is ``unique=True`` on the model so a static
+        #     default would collide on the second record.
+        extra_kwargs = {
+            'revenue_head': {'required': False, 'allow_null': True},
+            'payer_name': {'required': False, 'allow_blank': True, 'default': ''},
+            'payment_reference': {'required': False, 'allow_blank': True, 'default': ''},
+        }
 
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
+
+    def _resolve_revenue_head(self, ncoa_code):
+        """Return the RevenueHead that mirrors the picked NCoA economic
+        segment, materialising it on first use.
+
+        The data model in this tenant treats the revenue-side GL
+        account, the NCoA Economic segment, and the RevenueHead as
+        three projections of one identity (e.g. ``12020708 — Earnings
+        From Consultancy Services`` is all three). The frontend lets
+        the operator pick exactly one of them — the credit-leg GL
+        account — and the system resolves the other two server-side.
+
+        ``RevenueHead`` exists as a separate table only because
+        legacy FKs (``RevenueCollection.revenue_head``,
+        ``RevenueCollection.revenue_head``-indexed reports) point at
+        it. Treat it as a derived registry: one row per revenue-side
+        EconomicSegment, created the first time that segment is
+        actually used to collect revenue. This is not a fallback —
+        it is the canonical write path.
+        """
+        if not ncoa_code or not ncoa_code.economic_id:
+            raise serializers.ValidationError({
+                'revenue_head': (
+                    'Cannot resolve revenue_head — ncoa_code has no '
+                    'economic segment.'
+                ),
+            })
+        economic = ncoa_code.economic
+        existing = RevenueHead.objects.filter(
+            economic_segment=economic,
+        ).first()
+        if existing:
+            return existing
+        return RevenueHead.objects.create(
+            code=economic.code,
+            name=economic.name,
+            economic_segment=economic,
+            revenue_type='OTHER',
+        )
+
+    def validate(self, attrs):
+        # Inject revenue_head when omitted, by resolving it from the
+        # NCoA economic segment the user already picked. Skip on
+        # partial-update (PATCH) where ncoa_code may not be in attrs.
+        if not attrs.get('revenue_head') and attrs.get('ncoa_code'):
+            attrs['revenue_head'] = self._resolve_revenue_head(
+                attrs['ncoa_code'],
+            )
+        # Default an anonymous payer when the form leaves the
+        # collapsible Payer Details section empty.
+        if not attrs.get('payer_name'):
+            attrs['payer_name'] = 'Walk-in Payer'
+        # Auto-generate a unique payment reference when blank.
+        # Parallel to receipt_number generation in create() below.
+        if not attrs.get('payment_reference'):
+            from accounting.models.gl import TransactionSequence
+            attrs['payment_reference'] = TransactionSequence.get_next(
+                'payment_ref', prefix='PR-',
+            )
+        return attrs
 
     def create(self, validated_data):
         from accounting.models.gl import TransactionSequence
