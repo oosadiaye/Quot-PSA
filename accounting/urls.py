@@ -388,3 +388,25 @@ urlpatterns += [
     path('mda-imports/catalogue/', MDAImportCatalogueView.as_view(), name='mda-import-catalogue'),
     path('mda-imports/commit/',    MDAImportCommitView.as_view(),    name='mda-import-commit'),
 ]
+
+# ── Async report exports (additive — off-worker rendering) ───────────
+# Parallel, opt-in surface to the synchronous export endpoints. Does NOT
+# alter any existing route.
+from .views.async_export import AsyncExportJobViewSet
+urlpatterns += [
+    path(
+        'exports/',
+        AsyncExportJobViewSet.as_view({'post': 'create'}),
+        name='async-export-create',
+    ),
+    path(
+        'exports/<int:pk>/',
+        AsyncExportJobViewSet.as_view({'get': 'retrieve'}),
+        name='async-export-detail',
+    ),
+    path(
+        'exports/<int:pk>/download/',
+        AsyncExportJobViewSet.as_view({'get': 'download'}),
+        name='async-export-download',
+    ),
+]

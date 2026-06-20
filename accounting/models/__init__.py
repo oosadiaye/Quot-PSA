@@ -37,6 +37,7 @@ from accounting.models.budget_check_rules import BudgetCheckRule  # noqa: F401
 from accounting.models.payment_reconciliation import (  # noqa: F401
     PaymentCascadeFailure,
 )
+from accounting.models.async_export import AsyncExportJob  # noqa: F401
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -237,4 +238,7 @@ __all__ = [
 
     # payment_reconciliation.py — H2 follow-up (WS6)
     'PaymentCascadeFailure',
+
+    # async_export.py — off-worker report export (additive)
+    'AsyncExportJob',
 ]
