@@ -86,6 +86,8 @@ const subtleButtonStyle: React.CSSProperties = {
 };
 
 export default function CurrencyManagement() {
+    const formLabelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
     const { showConfirm } = useDialog();
     const { data: currencies, isLoading: currLoading } = useCurrencies();
     const { data: exchangeRates, isLoading: ratesLoading } = useExchangeRates();
@@ -358,20 +360,20 @@ export default function CurrencyManagement() {
                     }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                             <div>
-                                <label style={labelStyle}>Code <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={inputStyle} maxLength={3} required value={currForm.code} onChange={e => setCurrForm({ ...currForm, code: e.target.value.toUpperCase() })} placeholder="USD" />
+                                <label style={formLabelStyle}>Code<span className="required-mark"> *</span></label>
+                                <input className="input" maxLength={3} required value={currForm.code} onChange={e => setCurrForm({ ...currForm, code: e.target.value.toUpperCase() })} placeholder="USD" />
                             </div>
                             <div>
-                                <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={inputStyle} required value={currForm.name} onChange={e => setCurrForm({ ...currForm, name: e.target.value })} placeholder="US Dollar" />
+                                <label style={formLabelStyle}>Name<span className="required-mark"> *</span></label>
+                                <input className="input" required value={currForm.name} onChange={e => setCurrForm({ ...currForm, name: e.target.value })} placeholder="US Dollar" />
                             </div>
                             <div>
-                                <label style={labelStyle}>Symbol <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={inputStyle} maxLength={5} required value={currForm.symbol} onChange={e => setCurrForm({ ...currForm, symbol: e.target.value })} placeholder="$" />
+                                <label style={formLabelStyle}>Symbol<span className="required-mark"> *</span></label>
+                                <input className="input" maxLength={5} required value={currForm.symbol} onChange={e => setCurrForm({ ...currForm, symbol: e.target.value })} placeholder="$" />
                             </div>
                             <div>
-                                <label style={labelStyle}>Exchange Rate</label>
-                                <input style={inputStyle} type="number" step="0.000001" required value={currForm.exchange_rate} onChange={e => setCurrForm({ ...currForm, exchange_rate: e.target.value })} />
+                                <label style={formLabelStyle}>Exchange Rate</label>
+                                <input className="input" type="number" step="0.000001" required value={currForm.exchange_rate} onChange={e => setCurrForm({ ...currForm, exchange_rate: e.target.value })} />
                             </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -380,17 +382,8 @@ export default function CurrencyManagement() {
                                 Active
                             </label>
                             <div style={{ flex: 1 }} />
-                            <button type="button" onClick={resetCurrForm} style={{
-                                padding: '9px 18px', borderRadius: '10px', border: '1.5px solid #e2e8f0',
-                                background: 'white', color: '#475569', cursor: 'pointer', fontSize: '13px',
-                                fontWeight: 600, fontFamily: 'inherit',
-                            }}>Cancel</button>
-                            <button type="submit" disabled={createCurrency.isPending || updateCurrency.isPending} style={{
-                                padding: '9px 18px', borderRadius: '10px', border: 'none',
-                                background: 'linear-gradient(135deg, #0284c7, #0369a1)', color: 'white',
-                                cursor: 'pointer', fontWeight: 600, fontSize: '13px', fontFamily: 'inherit',
-                                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
-                            }}>
+                            <button type="button" className="btn btn-outline" onClick={resetCurrForm}>Cancel</button>
+                            <button type="submit" className="btn btn-primary" disabled={createCurrency.isPending || updateCurrency.isPending}>
                                 {editingCurrId ? 'Update' : 'Create'}
                             </button>
                         </div>
@@ -595,46 +588,38 @@ export default function CurrencyManagement() {
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                             <div>
-                                <label style={labelStyle}>From Currency <span style={{ color: '#ef4444' }}>*</span></label>
-                                <select style={inputStyle} required value={rateForm.from_currency} onChange={e => setRateForm({ ...rateForm, from_currency: e.target.value })} disabled={!!editingRateId}>
+                                <label style={formLabelStyle}>From Currency<span className="required-mark"> *</span></label>
+                                <select className="input" required value={rateForm.from_currency} onChange={e => setRateForm({ ...rateForm, from_currency: e.target.value })} disabled={!!editingRateId}>
                                     <option value="">Select...</option>
                                     {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label style={labelStyle}>To Currency <span style={{ color: '#ef4444' }}>*</span></label>
-                                <select style={inputStyle} required value={rateForm.to_currency} onChange={e => setRateForm({ ...rateForm, to_currency: e.target.value })} disabled={!!editingRateId}>
+                                <label style={formLabelStyle}>To Currency<span className="required-mark"> *</span></label>
+                                <select className="input" required value={rateForm.to_currency} onChange={e => setRateForm({ ...rateForm, to_currency: e.target.value })} disabled={!!editingRateId}>
                                     <option value="">Select...</option>
                                     {currencies.filter((c: any) => String(c.id) !== rateForm.from_currency).map((c: any) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label style={labelStyle}>Exchange Rate <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={inputStyle} type="number" step="0.000001" required value={rateForm.exchange_rate} onChange={e => setRateForm({ ...rateForm, exchange_rate: e.target.value })} />
+                                <label style={formLabelStyle}>Exchange Rate<span className="required-mark"> *</span></label>
+                                <input className="input" type="number" step="0.000001" required value={rateForm.exchange_rate} onChange={e => setRateForm({ ...rateForm, exchange_rate: e.target.value })} />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                             <div>
-                                <label style={labelStyle}>Valid From <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={inputStyle} type="date" required value={rateForm.rate_valid_from} onChange={e => setRateForm({ ...rateForm, rate_valid_from: e.target.value })} />
+                                <label style={formLabelStyle}>Valid From<span className="required-mark"> *</span></label>
+                                <input className="input" type="date" required value={rateForm.rate_valid_from} onChange={e => setRateForm({ ...rateForm, rate_valid_from: e.target.value })} />
                             </div>
                             <div>
-                                <label style={labelStyle}>Valid To <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(blank = ongoing)</span></label>
-                                <input style={inputStyle} type="date" value={rateForm.rate_valid_to} onChange={e => setRateForm({ ...rateForm, rate_valid_to: e.target.value })} />
+                                <label style={formLabelStyle}>Valid To</label>
+                                <input className="input" type="date" value={rateForm.rate_valid_to} onChange={e => setRateForm({ ...rateForm, rate_valid_to: e.target.value })} />
+                                <p style={helpStyle}>Blank = ongoing</p>
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button type="button" onClick={resetRateForm} style={{
-                                padding: '9px 18px', borderRadius: '10px', border: '1.5px solid #e2e8f0',
-                                background: 'white', color: '#475569', cursor: 'pointer', fontSize: '13px',
-                                fontWeight: 600, fontFamily: 'inherit',
-                            }}>Cancel</button>
-                            <button type="submit" disabled={createRate.isPending || updateRate.isPending} style={{
-                                padding: '9px 18px', borderRadius: '10px', border: 'none',
-                                background: editingRateId ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                                color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: '13px', fontFamily: 'inherit',
-                                boxShadow: editingRateId ? '0 2px 8px rgba(59,130,246,0.3)' : '0 2px 8px rgba(245,158,11,0.3)',
-                            }}>{editingRateId ? 'Update' : 'Create'}</button>
+                            <button type="button" className="btn btn-outline" onClick={resetRateForm}>Cancel</button>
+                            <button type="submit" className="btn btn-primary" disabled={createRate.isPending || updateRate.isPending}>{editingRateId ? 'Update' : 'Create'}</button>
                         </div>
                     </form>
                 )}

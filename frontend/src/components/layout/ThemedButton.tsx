@@ -8,7 +8,7 @@
  * Sizes map to 32/40/48px heights.  On mobile, buttons have `min-height: 44`
  * to hit the iOS tap target.
  */
-import { ReactNode, CSSProperties, MouseEvent } from 'react';
+import type { ReactNode, CSSProperties, MouseEvent } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type Size = 'sm' | 'md' | 'lg';

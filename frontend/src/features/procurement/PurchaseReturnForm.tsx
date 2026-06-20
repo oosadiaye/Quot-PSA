@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    RotateCcw, FileText, Layers, AlertTriangle, CheckCircle2,
+    RotateCcw, AlertTriangle, CheckCircle2, Undo2, Save, X,
 } from 'lucide-react';
 import {
     useCreatePurchaseReturn,
@@ -169,43 +169,12 @@ const PurchaseReturnForm: React.FC = () => {
     // ─────────────────────────────────────────────────────────────────────────
     // Render helpers
     // ─────────────────────────────────────────────────────────────────────────
-    const inputStyle: React.CSSProperties = {
-        width: '100%',
-        padding: '0.625rem 0.75rem',
-        border: '1px solid var(--color-border)',
-        borderRadius: '8px',
-        background: 'var(--color-surface)',
-        color: 'var(--color-text)',
-        fontSize: 'var(--text-sm)',
-        boxSizing: 'border-box',
-    };
-
     const labelStyle: React.CSSProperties = {
-        display: 'block',
-        marginBottom: '0.375rem',
-        fontSize: 'var(--text-sm)',
-        fontWeight: 500,
-        color: 'var(--color-text)',
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
     };
-
-    const cardStyle: React.CSSProperties = {
-        background: 'var(--color-surface)',
-        borderRadius: '12px',
-        border: '1px solid var(--color-border)',
-        padding: '1.25rem',
-        marginBottom: '1.25rem',
-    };
-
-    const sectionTitle: React.CSSProperties = {
-        fontSize: 'var(--text-sm)',
-        fontWeight: 700,
-        color: 'var(--color-text-muted)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        marginBottom: '1rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
     };
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -226,35 +195,47 @@ const PurchaseReturnForm: React.FC = () => {
     return (
         <AccountingLayout>
             <div style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
-                {/* ── Page header ──────────────────────────────────────────────── */}
-                <PageHeader
-                    title="New Purchase Return"
-                    subtitle="Return goods to vendor against a posted GRN"
-                    icon={<RotateCcw size={22} />}
-                    onBack={() => navigate('/procurement/returns')}
-                />
-
                 <form onSubmit={handleSubmit}>
+                    {/* ── Page header ──────────────────────────────────────────────── */}
+                    <PageHeader
+                        title="New Purchase Return"
+                        subtitle="Return goods to vendor against a posted GRN"
+                        icon={<Undo2 size={22} />}
+                        onBack={() => navigate('/procurement/returns')}
+                        actions={
+                            <>
+                                <button type="button" className="btn btn-outline" onClick={() => navigate('/procurement/returns')}>
+                                    <X size={18} /> Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={createReturn.isPending || !hasValidLines}>
+                                    <Save size={18} /> {createReturn.isPending ? 'Saving...' : 'Save as Draft'}
+                                </button>
+                            </>
+                        }
+                    />
+
+                    {formError && (
+                        <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
+                            {formError}
+                        </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.25rem', alignItems: 'start' }}>
 
                         {/* ── LEFT COLUMN ──────────────────────────────────────── */}
                         <div>
                             {/* ── Section 1: PO + GRN Selection ──────────────── */}
-                            <div style={cardStyle}>
-                                <div style={sectionTitle}>
-                                    <FileText size={14} />
-                                    Source Document
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                                <h3 style={{ marginBottom: '1.5rem' }}>Source Document</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                                     <div>
                                         <label style={labelStyle}>
-                                            Purchase Order <span style={{ color: 'var(--color-error)' }}>*</span>
+                                            Purchase Order<span className="required-mark"> *</span>
                                         </label>
                                         <select
+                                            className="input"
                                             required
                                             value={selectedPOId ?? ''}
                                             onChange={e => setSelectedPOId(e.target.value ? Number(e.target.value) : null)}
-                                            style={inputStyle}
                                         >
                                             <option value="">— Select PO —</option>
                                             {posList.map((po: any) => (
@@ -266,15 +247,15 @@ const PurchaseReturnForm: React.FC = () => {
                                     </div>
                                     <div>
                                         <label style={labelStyle}>
-                                            Goods Received Note <span style={{ color: 'var(--color-error)' }}>*</span>
+                                            Goods Received Note<span className="required-mark"> *</span>
                                         </label>
                                         <select
+                                            className="input"
                                             required
                                             value={selectedGRNId ?? ''}
                                             onChange={e => setSelectedGRNId(e.target.value ? Number(e.target.value) : null)}
                                             disabled={!selectedPOId || grnsLoading}
                                             style={{
-                                                ...inputStyle,
                                                 opacity: !selectedPOId ? 0.5 : 1,
                                                 cursor: !selectedPOId ? 'not-allowed' : 'pointer',
                                             }}
@@ -325,65 +306,62 @@ const PurchaseReturnForm: React.FC = () => {
                             </div>
 
                             {/* ── Section 2: Header Details ───────────────────── */}
-                            <div style={cardStyle}>
-                                <div style={sectionTitle}>
-                                    <Layers size={14} />
-                                    Return Details
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                                <h3 style={{ marginBottom: '1.5rem' }}>Return Details</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
                                     <div>
                                         <label style={labelStyle}>
-                                            Return Date <span style={{ color: 'var(--color-error)' }}>*</span>
+                                            Return Date<span className="required-mark"> *</span>
                                         </label>
                                         <input
                                             type="date"
+                                            className="input"
                                             required
                                             value={header.return_date}
                                             onChange={e => setHeader({ ...header, return_date: e.target.value })}
-                                            style={inputStyle}
                                         />
                                     </div>
                                 </div>
-                                <div style={{ marginBottom: '1rem' }}>
+                                <div style={{ marginBottom: '1.5rem' }}>
                                     <label style={labelStyle}>
-                                        Return Reason <span style={{ color: 'var(--color-error)' }}>*</span>
+                                        Return Reason<span className="required-mark"> *</span>
                                     </label>
                                     <textarea
+                                        className="input"
                                         required
                                         rows={2}
                                         placeholder="Describe the reason for the return (e.g. damaged goods, wrong items, quality issue)"
                                         value={header.reason}
                                         onChange={e => setHeader({ ...header, reason: e.target.value })}
-                                        style={{ ...inputStyle, resize: 'vertical' }}
+                                        style={{ resize: 'vertical' }}
                                     />
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Internal Notes</label>
                                     <textarea
+                                        className="input"
                                         rows={2}
                                         placeholder="Optional internal notes"
                                         value={header.notes}
                                         onChange={e => setHeader({ ...header, notes: e.target.value })}
-                                        style={{ ...inputStyle, resize: 'vertical' }}
+                                        style={{ resize: 'vertical' }}
                                     />
+                                    <p style={helpStyle}>Optional</p>
                                 </div>
                             </div>
 
                             {/* ── Section 3: Return Lines ─────────────────────── */}
-                            <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
                                 <div style={{
-                                    padding: '1rem 1.25rem',
-                                    borderBottom: '1px solid var(--color-border)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
+                                    marginBottom: '1.5rem',
                                 }}>
-                                    <div style={sectionTitle as React.CSSProperties & { margin: 0 }}>
-                                        <RotateCcw size={14} />
+                                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                         Return Lines
                                         {linesWithQty.length > 0 && (
                                             <span style={{
-                                                marginLeft: '0.5rem',
                                                 padding: '0.125rem 0.5rem',
                                                 background: 'rgba(36, 113, 163, 0.1)',
                                                 color: '#2471a3',
@@ -394,7 +372,7 @@ const PurchaseReturnForm: React.FC = () => {
                                                 {linesWithQty.length} line{linesWithQty.length !== 1 ? 's' : ''} selected
                                             </span>
                                         )}
-                                    </div>
+                                    </h3>
                                     {selectedGRNId && grnLoading && (
                                         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Loading lines…</span>
                                     )}
@@ -514,7 +492,7 @@ const PurchaseReturnForm: React.FC = () => {
 
                         {/* ── RIGHT COLUMN: Summary ─────────────────────────────── */}
                         <div style={{ position: 'sticky', top: '1.5rem' }}>
-                            <div style={{ ...cardStyle, background: summaryColor, border: summaryBorder, marginBottom: '1rem' }}>
+                            <div className="card" style={{ background: summaryColor, border: summaryBorder, marginBottom: '1rem' }}>
                                 <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
                                     Return Summary
                                 </div>
@@ -592,74 +570,6 @@ const PurchaseReturnForm: React.FC = () => {
                                 Saved as <strong>Draft</strong>. Submit for manager approval, then mark <strong>Completed</strong> to post the GL reversal and vendor credit note.
                             </div>
 
-                            {/* Error message */}
-                            {formError && (
-                                <div style={{
-                                    padding: '0.75rem 1rem',
-                                    background: 'rgba(239, 68, 68, 0.08)',
-                                    borderRadius: '8px',
-                                    border: '1px solid rgba(239, 68, 68, 0.2)',
-                                    color: '#ef4444',
-                                    fontSize: 'var(--text-sm)',
-                                    marginBottom: '1rem',
-                                    display: 'flex',
-                                    gap: '0.5rem',
-                                    alignItems: 'flex-start',
-                                }}>
-                                    <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-                                    <span>{formError}</span>
-                                </div>
-                            )}
-
-                            {/* Action buttons */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                                <button
-                                    type="submit"
-                                    disabled={createReturn.isPending || !hasValidLines}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        background: hasValidLines ? 'var(--color-primary)' : 'var(--color-border)',
-                                        color: hasValidLines ? 'white' : 'var(--color-text-muted)',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        fontWeight: 700,
-                                        fontSize: 'var(--text-sm)',
-                                        cursor: hasValidLines ? 'pointer' : 'not-allowed',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '0.5rem',
-                                        transition: 'background 0.15s',
-                                    }}
-                                >
-                                    {createReturn.isPending ? (
-                                        'Saving…'
-                                    ) : (
-                                        <>
-                                            <RotateCcw size={16} />
-                                            Save as Draft
-                                        </>
-                                    )}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/procurement/returns')}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.625rem',
-                                        background: 'transparent',
-                                        color: 'var(--color-text-muted)',
-                                        border: '1px solid var(--color-border)',
-                                        borderRadius: '8px',
-                                        fontWeight: 500,
-                                        fontSize: 'var(--text-sm)',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    Cancel
-                                </button>
-                            </div>
                         </div>
                     </div>
                 </form>

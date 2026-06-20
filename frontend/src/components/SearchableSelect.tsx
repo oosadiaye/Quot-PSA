@@ -40,13 +40,39 @@ interface SearchableSelectProps {
     placeholder?: string;
     required?: boolean;
     style?: React.CSSProperties;
+    /**
+     * OPTIONAL server-side search mode. When provided, the dropdown stops
+     * client-filtering ``options`` and instead calls ``onSearch(query)``
+     * (debounced) to fetch matches from the server — the fix for the
+     * "fetch-all 10,000 rows" pattern on big pickers (accounts, vendors).
+     *
+     * Strictly additive: when ``onSearch`` is undefined the component
+     * behaves EXACTLY as before (pure client-side filter of ``options``),
+     * so every existing consumer is unaffected.
+     *
+     * Callers should still pass the currently-selected option in
+     * ``options`` (e.g. ``[selectedOption]``) so its label renders before
+     * the user types — the async results won't contain it on first paint.
+     */
+    onSearch?: (query: string) => Promise<Option[]>;
+    /** Debounce for ``onSearch`` (ms). Default 250. */
+    searchDebounceMs?: number;
 }
 
 export default function SearchableSelect({
     options, value, onChange, placeholder = 'Search or select...', required, style,
+    onSearch, searchDebounceMs = 250,
 }: SearchableSelectProps) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
+    // Async-mode state — only used when ``onSearch`` is provided.
+    const [asyncOptions, setAsyncOptions] = useState<Option[]>([]);
+    const [asyncLoading, setAsyncLoading] = useState(false);
+    // Sticky label for the picked option so its display survives later
+    // searches that no longer contain it (async mode). Set on selection;
+    // harmless in client-side mode (``selectedOption`` resolves from
+    // ``options`` first there, so behaviour is unchanged).
+    const [lastSelected, setLastSelected] = useState<Option | null>(null);
     const ref = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -66,8 +92,30 @@ export default function SearchableSelect({
     const listboxId = `${baseId}-listbox`;
     const optionId = (value: string) => `${baseId}-opt-${value}`;
 
-    // Find selected option label
-    const selectedOption = options.find(o => o.value === value);
+    // Find selected option label. In async mode the picked option may not
+    // be in ``options``, so fall back to the fetched results — non-async
+    // consumers have an empty ``asyncOptions``, so this is identical to
+    // ``options.find(...)`` for them.
+    const selectedOption =
+        options.find(o => o.value === value) ||
+        asyncOptions.find(o => o.value === value) ||
+        (lastSelected && lastSelected.value === value ? lastSelected : undefined);
+
+    // Async server-side search — only active when ``onSearch`` is provided.
+    // Debounced; stale responses are discarded via a per-effect ``active``
+    // flag so an earlier slow query can't overwrite a later one.
+    useEffect(() => {
+        if (!onSearch || !open) return;
+        let active = true;
+        setAsyncLoading(true);
+        const handle = setTimeout(() => {
+            Promise.resolve(onSearch(search.trim()))
+                .then(opts => { if (active) setAsyncOptions(opts); })
+                .catch(() => { if (active) setAsyncOptions([]); })
+                .finally(() => { if (active) setAsyncLoading(false); });
+        }, searchDebounceMs);
+        return () => { active = false; clearTimeout(handle); };
+    }, [onSearch, open, search, searchDebounceMs]);
 
     // Recompute the anchor rect whenever the menu is open. ``layout``
     // effect timing avoids a one-frame flash at the wrong position
@@ -108,8 +156,11 @@ export default function SearchableSelect({
         };
     }, []);
 
-    // Filter options by search
+    // Filter options by search. In async mode the dropdown shows the
+    // server-fetched results directly (no client filter); otherwise the
+    // original client-side filter is preserved byte-for-byte.
     const filtered = useMemo(() => {
+        if (onSearch) return asyncOptions;
         if (!search.trim()) return options;
         const q = search.toLowerCase();
         return options.filter(o =>
@@ -117,9 +168,14 @@ export default function SearchableSelect({
             (o.sublabel && o.sublabel.toLowerCase().includes(q)) ||
             o.value.toLowerCase().includes(q)
         );
-    }, [options, search]);
+    }, [onSearch, asyncOptions, options, search]);
 
     const handleSelect = (optValue: string) => {
+        // Remember the chosen option so its label persists across later
+        // searches (async mode). Resolved from whatever list is currently
+        // shown (``filtered`` = asyncOptions in async mode, client list otherwise).
+        const picked = filtered.find(o => o.value === optValue);
+        if (picked) setLastSelected(picked);
         onChange(optValue);
         setSearch('');
         setOpen(false);
@@ -261,9 +317,13 @@ export default function SearchableSelect({
                         maxHeight: 240, overflowY: 'auto',
                     }}
                 >
-                    {filtered.length === 0 ? (
+                    {onSearch && asyncLoading ? (
                         <div style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--color-text-muted, #94a3b8)', fontSize: 'var(--text-xs, 0.75rem)' }}>
-                            No matches found
+                            Searching…
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--color-text-muted, #94a3b8)', fontSize: 'var(--text-xs, 0.75rem)' }}>
+                            {onSearch && !search.trim() ? 'Type to search…' : 'No matches found'}
                         </div>
                     ) : (
                         filtered.map(opt => (

@@ -583,7 +583,7 @@ const TenantsTab = () => {
                       )}
                     </Descriptions>
 
-                    <Divider orientation="left">Subscription Actions</Divider>
+                    <Divider titlePlacement="left">Subscription Actions</Divider>
                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
                       <Space.Compact style={{ width: '100%' }}>
                         <InputNumber

@@ -50,7 +50,7 @@ const todayLocalISO = (): string => {
 };
 
 interface JournalLine {
-    id: string;
+    id?: string;
     account: string;
     debit: number;
     credit: number;
@@ -232,7 +232,7 @@ const JournalForm = () => {
         try {
             setFormError('');
             if (isEditMode && editingId !== null) {
-                await updateJournal.mutateAsync({ id: editingId, payload: payload as Record<string, unknown> });
+                await updateJournal.mutateAsync({ id: editingId, payload: payload as unknown as Record<string, unknown> });
             } else {
                 await createJournal.mutateAsync(payload);
             }

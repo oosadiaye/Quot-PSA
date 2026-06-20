@@ -114,7 +114,16 @@ export default function ProfitLoss() {
     const [submitted, setSubmitted] = useState(false);
 
     const params = submitted ? { start_date: startDate, end_date: endDate } : null;
-    const { data, isLoading, error } = useProfitLoss(params);
+    const { data: rawData, isLoading, error } = useProfitLoss(params);
+
+    const data = rawData as {
+        revenue?: any;
+        expenses?: any;
+        total_revenue?: number;
+        total_income?: number;
+        total_expenses?: number;
+        net_income?: number;
+    } | undefined;
 
     // Backend returns { revenue: { total, details }, expenses: { total, details }, net_income }
     const revenueRaw = data?.revenue;

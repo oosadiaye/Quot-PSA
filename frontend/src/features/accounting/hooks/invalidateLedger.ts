@@ -73,6 +73,21 @@ const LEDGER_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
   // Budget execution — appropriation cards show committed/expended
   // figures that recompute off the same underlying data.
   ['generic-list', '/budget/appropriations/'],
+  // Direct-fetch queries used by the Appropriation Detail / Admin
+  // pages. Previously omitted, which meant posting a journal to a
+  // GL account left the per-appropriation Committed / Expended
+  // figures stale until the 5-minute staleTime expired or the user
+  // hard-refreshed. These two prefixes catch every page that reads
+  // a single appropriation or its MDA siblings.
+  ['appropriation-detail'],
+  ['appropriation-mda-lines'],
+  // ``appropriation`` is the single-row read used by the Transactions
+  // (Line Items) drill-down page — same backend endpoint as
+  // ``appropriation-detail`` but a different cache key.
+  ['appropriation'],
+  // The drill-down's per-line transaction list (PO commitments, AP
+  // invoices, PVs, manual + funneled JEs).
+  ['appropriation-transactions'],
   ['contract-appropriation'],
   ['contract-balance'],
 

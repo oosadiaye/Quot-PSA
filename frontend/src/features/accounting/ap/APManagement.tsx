@@ -579,7 +579,7 @@ function InvoiceViewModal({ invoice, onClose, formatCurrency }: InvoiceViewModal
     const journalLoading = hasRealJournal ? realJournalLoading : proposedLoading;
     const isProposed = !hasRealJournal;
 
-    const statusStyles: Record<string, React.CSSProperties> = {
+    const statusStyles: Record<string, { bg: string; color: string; border: string }> = {
         Draft:            { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' },
         Approved:         { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
         Posted:           { bg: '#dcfce7', color: '#15803d', border: '#86efac' },

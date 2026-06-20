@@ -6,7 +6,7 @@
  *
  * Optional `title` + `actions` slot provide a consistent card header bar.
  */
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useBreakpoint, spaceFor } from '../../design';
 
 interface SectionCardProps {

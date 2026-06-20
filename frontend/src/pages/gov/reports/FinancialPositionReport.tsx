@@ -97,7 +97,7 @@ export default function FinancialPositionReport() {
                             <div style={{ padding: '12px 0' }}>
                                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#008751', marginBottom: '8px' }}>Current Assets</div>
                                 {renderItems(data.assets?.current?.items)}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontWeight: 600, fontSize: '13px', background: '#f0fdf4', borderRadius: '4px', padding: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '13px', background: '#f0fdf4', borderRadius: '4px', padding: '8px' }}>
                                     <span>Total Current Assets</span><span style={{ fontFamily: 'monospace' }}>{fmtNGN(data.assets?.current?.total)}</span>
                                 </div>
                             </div>

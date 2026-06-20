@@ -117,25 +117,49 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('impersonation');
         window.location.href = '/superadmin';
       } else {
-        // Clear stale auth data from both storages and notify ProtectedRoute
-        // + the Login page (via sessionStorage flag) that the session expired
-        // so the user sees an explanatory banner instead of a silent redirect.
-        const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo', 'tenantPermissions'];
-        for (const key of keys) {
-          localStorage.removeItem(key);
-          sessionStorage.removeItem(key);
+        // Was the user actually authenticated before this request? A 401 on
+        // a fresh visit to /login (or on the boot-time /core/users/me/
+        // hydration call that AuthContext fires in cookie-only mode) is the
+        // expected response to an anonymous request — NOT a session-expired
+        // event. Surfacing the "Your session expired" banner in that case
+        // makes first-time visitors think they were timed out.
+        //
+        // We treat the request as a real expiry only when at least one of
+        // these markers existed in storage at the time the request fired:
+        //   • ``authToken`` in sessionStorage (the legacy token path), OR
+        //   • a ``user`` object in either storage (the cookie-only path —
+        //     the cookie itself isn't readable from JS, but ``user`` is
+        //     mirrored to localStorage on login).
+        const hadToken = !!sessionStorage.getItem('authToken');
+        const hadUser =
+          !!localStorage.getItem('user') ||
+          !!sessionStorage.getItem('user');
+        const wasAuthenticated = hadToken || hadUser;
+
+        if (wasAuthenticated) {
+          // Clear stale auth data from both storages and notify ProtectedRoute
+          // + the Login page (via sessionStorage flag) that the session expired
+          // so the user sees an explanatory banner instead of a silent redirect.
+          const keys = ['authToken', 'user', 'tenantDomain', 'tenantInfo', 'tenantPermissions'];
+          for (const key of keys) {
+            localStorage.removeItem(key);
+            sessionStorage.removeItem(key);
+          }
+          // One-shot reason the Login page can read & clear so it knows to show
+          // "Your session expired. Please log in again." rather than looking like
+          // a spurious logout.
+          try {
+            sessionStorage.setItem(
+              'auth-expired-reason',
+              'Your session expired. Please log in again to continue.'
+            );
+          } catch { /* storage quota / disabled — non-fatal */ }
+          // Dispatch event so ProtectedRoute can react without hard redirect
+          window.dispatchEvent(new Event('auth-expired'));
         }
-        // One-shot reason the Login page can read & clear so it knows to show
-        // "Your session expired. Please log in again." rather than looking like
-        // a spurious logout.
-        try {
-          sessionStorage.setItem(
-            'auth-expired-reason',
-            'Your session expired. Please log in again to continue.'
-          );
-        } catch { /* storage quota / disabled — non-fatal */ }
-        // Dispatch event so ProtectedRoute can react without hard redirect
-        window.dispatchEvent(new Event('auth-expired'));
+        // else: anonymous 401 — caller (Login page, AuthContext /me/
+        // hydration) handles its own UX. We just reject below without
+        // poisoning sessionStorage with a misleading reason.
       }
     } else if (status === 403) {
       // Permission denied — don't redirect, let the component handle it

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
     Plus, Trash2, FileText, Layers, Paperclip,
-    ReceiptText, ArrowLeftRight, CheckCircle, AlertCircle, Eye, X as XIcon,
+    ReceiptText, ArrowLeftRight, CheckCircle, AlertCircle, Eye, Save, X as XIcon,
 } from 'lucide-react';
 import {
     useCreateVendorInvoice, useUpdateVendorInvoice, useVendorInvoiceDetail,
@@ -16,7 +16,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { useToast } from '../../../context/ToastContext';
 import AccountingLayout from '../AccountingLayout';
-import BackButton from '../../../components/BackButton';
+import PageHeader from '../../../components/PageHeader';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
 import apiClient from '../../../api/client';
@@ -354,7 +354,7 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
         setLines(prev => [...prev, { _uid: nextLineUid(), line_type: lt || addLineType, account: '', description: '', amount: '0', tax_code: '', withholding_tax: '' }]);
     const removeLine = (idx: number) => setLines(prev => prev.filter((_, i) => i !== idx));
     const updateLine = (idx: number, field: keyof InvoiceLine, value: string) =>
-        setLines(prev => { const n = [...prev]; n[idx][field] = value; return n; });
+        setLines(prev => { const n = [...prev]; (n[idx] as unknown as Record<string, string>)[field] = value; return n; });
 
     const switchTab = (tab: TabType) => {
         setActiveTab(tab);
@@ -382,7 +382,7 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
         // Sentinel funds: pick the header.fund if dimensions enabled,
         // otherwise the first known fund (some tenants store fund at
         // the appropriation level only and skip the form field).
-        const fundId = header.fund || (dims?.funds?.[0]?.id ? String(dims.funds[0].id) : '');
+        const fundId = header.fund || ((dims?.funds?.[0] as { id?: unknown } | undefined)?.id ? String((dims?.funds?.[0] as { id?: unknown }).id) : '');
         if (!fundId) return;
         const handle = setTimeout(async () => {
             const next: Record<string, LineCheck> = {};
@@ -722,95 +722,78 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
     return (
         <form onSubmit={handleSubmit} style={{ height: '100%' }}>
 
-            {/* ── TOP BAR: header + tabs on same row ──────────────── */}
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: '0.75rem', gap: '1rem',
-            }}>
-                {/* Left: back + title */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
-                    {/* Back button calls onCancel directly via the
-                        new BackButton onClick prop — wrapping it in
-                        another <button> caused a React 19 hydration
-                        error (button-inside-button is invalid HTML). */}
-                    <BackButton onClick={onCancel} />
-                    <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
-                        {isCreditMemo ? 'Vendor Credit Memo' : 'Vendor Invoice'}
-                    </h1>
-                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                        {isCreditMemo ? 'Dr Accounts Payable · Cr Expense' : 'Dr Expense · Cr Accounts Payable'}
-                    </p>
-                </div>
-
-                {/* Centre: tab switcher */}
-                <div style={{
-                    display: 'flex', borderRadius: '9px',
-                    border: '1.5px solid var(--color-border)',
-                    overflow: 'hidden', flexShrink: 0,
-                }}>
-                    {([
-                        { key: 'invoice' as TabType, label: 'Vendor Invoice', Icon: FileText, restricted: false },
-                        { key: 'credit_memo' as TabType, label: 'Credit Memo', Icon: ReceiptText, restricted: !canCreateCreditMemo },
-                    ]).filter(t => !t.restricted).map(({ key, label, Icon }) => (
-                        <button key={key} type="button" onClick={() => switchTab(key)} style={{
-                            display: 'flex', alignItems: 'center', gap: '0.4rem',
-                            padding: '0.45rem 1.1rem', border: 'none', cursor: 'pointer',
-                            fontSize: 'var(--text-xs)', fontWeight: 600,
-                            background: activeTab === key ? 'var(--color-primary)' : 'transparent',
-                            color: activeTab === key ? '#fff' : 'var(--color-text-muted)',
-                            transition: 'background 0.15s, color 0.15s',
+            {/* ── Gradient page header + tabs + actions ───────────── */}
+            <PageHeader
+                title={isEditMode
+                    ? (isCreditMemo ? 'Edit Vendor Credit Memo' : 'Edit Vendor Invoice')
+                    : (isCreditMemo ? 'New Vendor Credit Memo' : 'New Vendor Invoice')}
+                subtitle={isCreditMemo ? 'Dr Accounts Payable · Cr Expense' : 'Dr Expense · Cr Accounts Payable'}
+                icon={isCreditMemo ? <ReceiptText size={22} /> : <FileText size={22} />}
+                onBack={onCancel}
+                actions={
+                    <>
+                        {/* Tab switcher — restricted-role logic preserved */}
+                        <div style={{
+                            display: 'flex', borderRadius: '9px',
+                            border: '1.5px solid rgba(255,255,255,0.35)',
+                            overflow: 'hidden', flexShrink: 0,
                         }}>
-                            <Icon size={13} />
-                            {label}
-                        </button>
-                    ))}
-                </div>
+                            {([
+                                { key: 'invoice' as TabType, label: 'Vendor Invoice', Icon: FileText, restricted: false },
+                                { key: 'credit_memo' as TabType, label: 'Credit Memo', Icon: ReceiptText, restricted: !canCreateCreditMemo },
+                            ]).filter(t => !t.restricted).map(({ key, label, Icon }) => (
+                                <button key={key} type="button" onClick={() => switchTab(key)} style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                    padding: '0.45rem 1.1rem', border: 'none', cursor: 'pointer',
+                                    fontSize: 'var(--text-xs)', fontWeight: 600,
+                                    background: activeTab === key ? '#fff' : 'transparent',
+                                    color: activeTab === key ? 'var(--color-primary)' : 'rgba(255,255,255,0.85)',
+                                    transition: 'background 0.15s, color 0.15s',
+                                }}>
+                                    <Icon size={13} />
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
 
-                {/* Right: action buttons */}
-                <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0 }}>
-                    <button type="button" className="btn btn-outline" onClick={onCancel}
-                        style={{ padding: '0.45rem 1.1rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Cancel
-                    </button>
-                    {/* Simulate posting (SAP-style) — opens a modal with
-                        the journal lines that will be booked at posting
-                        time so the operator can verify the GL impact
-                        before committing. */}
-                    <button
-                        type="button"
-                        onClick={() => setShowPreview(true)}
-                        disabled={previewEntries.length === 0}
-                        title={previewEntries.length === 0 ? 'Add a line with an account & amount to preview' : 'Preview accounting entries'}
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                            padding: '0.45rem 1rem', fontSize: 'var(--text-sm)', fontWeight: 600,
-                            borderRadius: '7px',
-                            border: '1.5px solid var(--color-border)',
-                            background: 'var(--color-surface)',
-                            color: 'var(--color-text)',
-                            cursor: previewEntries.length === 0 ? 'not-allowed' : 'pointer',
-                            opacity: previewEntries.length === 0 ? 0.55 : 1,
-                        }}
-                    >
-                        <Eye size={14} /> Preview Entry
-                    </button>
-                    <button type="submit" className="btn btn-primary"
-                        disabled={createInvoice.isPending || updateInvoice.isPending || !isBalanced || anyLineBlocked}
-                        title={
-                            anyLineBlocked ? 'One or more lines are blocked by a strict budget rule — fix the line(s) flagged in red below.' :
-                            !isBalanced ? 'Debit and credit must be equal before saving' : undefined
-                        }
-                        style={{ padding: '0.45rem 1.25rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        {(createInvoice.isPending || updateInvoice.isPending)
-                            ? 'Saving…'
-                            : (approveInvoice.isPending || postCreditMemo.isPending)
-                                ? 'Posting…'
-                                : isEditMode
-                                    ? 'Save & Post'
-                                    : isCreditMemo ? 'Save & Post Credit Memo' : 'Save & Post Invoice'}
-                    </button>
-                </div>
-            </div>
+                        <button type="button" className="btn btn-outline" onClick={onCancel}>
+                            <XIcon size={18} /> Cancel
+                        </button>
+                        {/* Simulate posting (SAP-style) — opens a modal with
+                            the journal lines that will be booked at posting
+                            time so the operator can verify the GL impact
+                            before committing. */}
+                        <button
+                            type="button"
+                            onClick={() => setShowPreview(true)}
+                            disabled={previewEntries.length === 0}
+                            title={previewEntries.length === 0 ? 'Add a line with an account & amount to preview' : 'Preview accounting entries'}
+                            className="btn btn-outline"
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                                cursor: previewEntries.length === 0 ? 'not-allowed' : 'pointer',
+                                opacity: previewEntries.length === 0 ? 0.55 : 1,
+                            }}
+                        >
+                            <Eye size={18} /> Preview Entry
+                        </button>
+                        <button type="submit" className="btn btn-primary"
+                            disabled={createInvoice.isPending || updateInvoice.isPending || !isBalanced || anyLineBlocked}
+                            title={
+                                anyLineBlocked ? 'One or more lines are blocked by a strict budget rule — fix the line(s) flagged in red below.' :
+                                !isBalanced ? 'Debit and credit must be equal before saving' : undefined
+                            }>
+                            <Save size={18} /> {(createInvoice.isPending || updateInvoice.isPending)
+                                ? 'Saving…'
+                                : (approveInvoice.isPending || postCreditMemo.isPending)
+                                    ? 'Posting…'
+                                    : isEditMode
+                                        ? 'Save & Post'
+                                        : isCreditMemo ? 'Save & Post Credit Memo' : 'Save & Post Invoice'}
+                        </button>
+                    </>
+                }
+            />
 
             {/* ── Info banner (compact 1-line) ─────────────────────── */}
             <div style={{

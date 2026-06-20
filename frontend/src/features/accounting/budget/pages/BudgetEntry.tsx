@@ -142,7 +142,7 @@ export const BudgetEntry: React.FC = () => {
                     cost_center: null,
                     allocated_amount: row.allocated_amount,
                     revised_amount: row.revised_amount || row.allocated_amount,
-                    control_level: controlLevel,
+                    control_level: controlLevel as 'NONE' | 'WARNING' | 'HARD_STOP',
                     enable_encumbrance: !code.startsWith('1'), // No encumbrance for revenue
                     notes: row.notes,
                 };
@@ -154,7 +154,7 @@ export const BudgetEntry: React.FC = () => {
             setTimeout(() => setSaveSuccess(''), 5000);
         } catch (error) {
             setSaveError('Failed to save budget');
-            logger.error(error);
+            logger.error('Failed to save budget', error);
         }
     };
 

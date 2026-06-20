@@ -6,34 +6,37 @@ import { useCostCenters } from '../../hooks/useCostCenters';
 import { useMDAs, useAccounts } from '../../hooks/useBudgetDimensions';
 import { useFunds, useFunctions, usePrograms, useGeos } from '../../hooks/useDimensions';
 import apiClient from '../../../../api/client';
-import { Save, Upload, Download, CheckCircle, AlertTriangle, Inbox, FileSpreadsheet, FilePlus } from 'lucide-react';
+import PageHeader from '../../../../components/PageHeader';
+import { Save, Upload, Download, CheckCircle, AlertTriangle, Inbox, FileSpreadsheet, FilePlus, Wallet, X } from 'lucide-react';
 import { useDialog } from '../../../../hooks/useDialog';
 import '../../styles/glassmorphism.css';
 
+const BUDGET_CREATE_FORM_ID = 'budget-create-form';
+
 const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
-    color: 'var(--color-text)', marginBottom: '0.375rem',
+    display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+    fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+};
+const helpStyle: React.CSSProperties = {
+    fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
 };
 const selectStyle: React.CSSProperties = {
     width: '100%', padding: '0.625rem', borderRadius: '8px',
     border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
     color: 'var(--color-text)', fontSize: 'var(--text-sm)',
 };
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.625rem', borderRadius: '8px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-sm)',
-};
 
 // ─── Single Budget Creation Form ─────────────────────────────
-const CreateForm: React.FC = () => {
-    const navigate = useNavigate();
+interface CreateFormProps {
+    createBudgetAsync: ReturnType<typeof useBudgets>['createBudgetAsync'];
+}
+
+const CreateForm: React.FC<CreateFormProps> = ({ createBudgetAsync }) => {
     const { years: fiscalYears } = useBudgetFiscalYears();
     const [selectedFY, setSelectedFY] = useState<string>('');
     const { periods, isLoading: periodsLoading } = useBudgetPeriods(
         selectedFY ? { fiscal_year: selectedFY, period_type: 'MONTHLY' } : { period_type: 'MONTHLY' }
     );
-    const { createBudgetAsync, isCreating } = useBudgets();
     const { data: costCenters } = useCostCenters({ is_active: true });
     const { data: mdas = [] } = useMDAs({ is_active: true });
     const { data: accounts = [] } = useAccounts({ is_active: true });
@@ -101,13 +104,9 @@ const CreateForm: React.FC = () => {
     };
 
     return (
-        <form onSubmit={handleSubmit}>
+        <form id={BUDGET_CREATE_FORM_ID} onSubmit={handleSubmit}>
             {error && (
-                <div style={{
-                    padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem',
-                    background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
-                    color: '#ef4444', fontSize: 'var(--text-sm)',
-                }}>
+                <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
                     {error}
                 </div>
             )}
@@ -121,71 +120,69 @@ const CreateForm: React.FC = () => {
                 </div>
             )}
 
-            {/* Period & MDA */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                <div>
-                    <label style={labelStyle}>Budget Period *</label>
-                    {/* Fiscal year filter then month picker */}
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <select
-                            value={selectedFY}
-                            onChange={(e) => { setSelectedFY(e.target.value); updateField('period', ''); }}
-                            style={{ ...selectStyle, flex: '0 0 110px', fontSize: 'var(--text-xs)' }}
-                        >
-                            <option value="">All Years</option>
-                            {(fiscalYears ?? []).map((yr: number) => (
-                                <option key={yr} value={yr}>FY {yr}</option>
+            {/* ── Allocation Details ────────────────────── */}
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1.5rem' }}>Allocation Details</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                    <div>
+                        <label style={labelStyle}>Budget Period<span className="required-mark"> *</span></label>
+                        {/* Fiscal year filter then month picker */}
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <select
+                                className="input"
+                                value={selectedFY}
+                                onChange={(e) => { setSelectedFY(e.target.value); updateField('period', ''); }}
+                                style={{ flex: '0 0 110px' }}
+                            >
+                                <option value="">All Years</option>
+                                {(fiscalYears ?? []).map((yr: number) => (
+                                    <option key={yr} value={yr}>FY {yr}</option>
+                                ))}
+                            </select>
+                            <select
+                                className="input"
+                                value={formData.period}
+                                onChange={(e) => updateField('period', e.target.value)}
+                                required
+                                disabled={periodsLoading}
+                            >
+                                <option value="">
+                                    {periodsLoading ? 'Loading…' : periods?.length === 0 ? 'No periods — create a fiscal year first' : 'Select month…'}
+                                </option>
+                                {(periods ?? []).map((p: any) => (
+                                    <option key={p.id} value={p.id}>
+                                        FY{p.fiscal_year} – {periodLabel(p)}
+                                        {p.status === 'OPEN' ? ' ✓' : p.status === 'ACTIVE' ? ' (Active)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>MDA<span className="required-mark"> *</span></label>
+                        <select className="input" value={formData.mda} onChange={(e) => updateField('mda', e.target.value)} required>
+                            <option value="">Select MDA</option>
+                            {mdas.map((m: any) => (
+                                <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
                             ))}
                         </select>
-                        <select
-                            value={formData.period}
-                            onChange={(e) => updateField('period', e.target.value)}
-                            style={selectStyle}
-                            required
-                            disabled={periodsLoading}
-                        >
-                            <option value="">
-                                {periodsLoading ? 'Loading…' : periods?.length === 0 ? 'No periods — create a fiscal year first' : 'Select month…'}
-                            </option>
-                            {(periods ?? []).map((p: any) => (
-                                <option key={p.id} value={p.id}>
-                                    FY{p.fiscal_year} – {periodLabel(p)}
-                                    {p.status === 'OPEN' ? ' ✓' : p.status === 'ACTIVE' ? ' (Active)' : ''}
-                                </option>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={labelStyle}>GL Account<span className="required-mark"> *</span></label>
+                        <select className="input" value={formData.account} onChange={(e) => updateField('account', e.target.value)} required>
+                            <option value="">Select account</option>
+                            {accounts.map((a: any) => (
+                                <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
                             ))}
                         </select>
                     </div>
                 </div>
-                <div>
-                    <label style={labelStyle}>MDA *</label>
-                    <select value={formData.mda} onChange={(e) => updateField('mda', e.target.value)} style={selectStyle} required>
-                        <option value="">Select MDA</option>
-                        {mdas.map((m: any) => (
-                            <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
-                        ))}
-                    </select>
-                </div>
             </div>
 
-            {/* GL Account */}
-            <div style={{ marginBottom: '1rem' }}>
-                <label style={labelStyle}>GL Account *</label>
-                <select value={formData.account} onChange={(e) => updateField('account', e.target.value)} style={selectStyle} required>
-                    <option value="">Select account</option>
-                    {accounts.map((a: any) => (
-                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
-                    ))}
-                </select>
-            </div>
-
-            {/* Dimensions */}
-            <div style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Dimensions (optional)</span>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+            {/* ── Dimensions (optional) ─────────────────── */}
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1.5rem' }}>Dimensions (optional)</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                     {[
                         { label: 'Fund', field: 'fund', options: funds },
                         { label: 'Function', field: 'function', options: functions },
@@ -196,9 +193,9 @@ const CreateForm: React.FC = () => {
                         <div key={field}>
                             <label style={labelStyle}>{label}</label>
                             <select
+                                className="input"
                                 value={formData[field]}
                                 onChange={(e) => updateField(field, e.target.value)}
-                                style={selectStyle}
                             >
                                 <option value="">{label}</option>
                                 {(options as any[]).map((o: any) => (
@@ -210,41 +207,40 @@ const CreateForm: React.FC = () => {
                 </div>
             </div>
 
-            {/* Amounts & Controls */}
-            <div style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>Budget Amounts</span>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem' }}>
+            {/* ── Budget Amounts ────────────────────────── */}
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1.5rem' }}>Budget Amounts</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
                     <div>
-                        <label style={labelStyle}>Allocated Amount *</label>
+                        <label style={labelStyle}>Allocated Amount<span className="required-mark"> *</span></label>
                         <input
                             type="number"
+                            className="input"
                             value={formData.allocated_amount}
                             onChange={(e) => updateField('allocated_amount', e.target.value)}
                             min={0}
                             step="0.01"
                             required
-                            style={{ ...inputStyle, textAlign: 'right' }}
+                            style={{ textAlign: 'right' }}
                         />
                     </div>
                     <div>
                         <label style={labelStyle}>Revised Amount</label>
                         <input
                             type="number"
+                            className="input"
                             value={formData.revised_amount}
                             onChange={(e) => updateField('revised_amount', e.target.value)}
                             min={0}
                             step="0.01"
                             placeholder="Same as allocated"
-                            style={{ ...inputStyle, textAlign: 'right' }}
+                            style={{ textAlign: 'right' }}
                         />
+                        <p style={helpStyle}>Leave blank to match the allocated amount.</p>
                     </div>
                     <div>
-                        <label style={labelStyle}>Control Level *</label>
-                        <select value={formData.control_level} onChange={(e) => updateField('control_level', e.target.value)} style={selectStyle}>
+                        <label style={labelStyle}>Control Level<span className="required-mark"> *</span></label>
+                        <select className="input" value={formData.control_level} onChange={(e) => updateField('control_level', e.target.value)}>
                             <option value="HARD_STOP">Hard Stop</option>
                             <option value="WARNING">Warning</option>
                             <option value="NONE">None</option>
@@ -253,9 +249,9 @@ const CreateForm: React.FC = () => {
                     <div>
                         <label style={labelStyle}>Commitment Tracking</label>
                         <select
+                            className="input"
                             value={formData.enable_encumbrance ? 'On' : 'Off'}
                             onChange={(e) => updateField('enable_encumbrance', e.target.value === 'On')}
-                            style={selectStyle}
                         >
                             <option value="On">On</option>
                             <option value="Off">Off</option>
@@ -263,20 +259,6 @@ const CreateForm: React.FC = () => {
                     </div>
                 </div>
             </div>
-
-            <button
-                type="submit"
-                disabled={isCreating}
-                style={{
-                    display: 'flex', alignItems: 'center', gap: '0.5rem',
-                    padding: '0.75rem 1.5rem', borderRadius: '8px', border: 'none',
-                    background: 'var(--color-primary, #1e40af)', color: 'white',
-                    cursor: 'pointer', fontWeight: 600, fontSize: 'var(--text-sm)',
-                    opacity: isCreating ? 0.6 : 1,
-                }}
-            >
-                <Save size={18} /> Create Budget
-            </button>
         </form>
     );
 };
@@ -484,19 +466,29 @@ const BulkUpload: React.FC = () => {
 
 // ─── Main Page ───────────────────────────────────────────────
 export const BudgetCreate: React.FC = () => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'create' | 'upload'>('create');
+    const { createBudgetAsync, isCreating } = useBudgets();
 
     return (
         <div>
-            {/* Header */}
-            <div style={{ marginBottom: '1.5rem' }}>
-                <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.25rem' }}>
-                    Create Budget
-                </h2>
-                <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                    Add a single budget allocation or bulk upload from a file
-                </p>
-            </div>
+            <PageHeader
+                title="Create Budget"
+                subtitle="Add a single budget allocation or bulk upload from a file"
+                icon={<Wallet size={22} />}
+                actions={
+                    <>
+                        <button type="button" className="btn btn-outline" onClick={() => navigate('/accounting/budget/dashboard')}>
+                            <X size={18} /> Cancel
+                        </button>
+                        {activeTab === 'create' && (
+                            <button type="submit" form={BUDGET_CREATE_FORM_ID} className="btn btn-primary" disabled={isCreating}>
+                                <Save size={18} /> {isCreating ? 'Saving...' : 'Create Budget'}
+                            </button>
+                        )}
+                    </>
+                }
+            />
 
             {/* Tab Switcher */}
             <div style={{ display: 'flex', gap: '0', marginBottom: '1.5rem', borderBottom: '2px solid var(--color-border)' }}>
@@ -527,9 +519,13 @@ export const BudgetCreate: React.FC = () => {
             </div>
 
             {/* Tab Content */}
-            <div className="glass-card" style={{ padding: '1.5rem' }}>
-                {activeTab === 'create' ? <CreateForm /> : <BulkUpload />}
-            </div>
+            {activeTab === 'create' ? (
+                <CreateForm createBudgetAsync={createBudgetAsync} />
+            ) : (
+                <div className="card">
+                    <BulkUpload />
+                </div>
+            )}
         </div>
     );
 };

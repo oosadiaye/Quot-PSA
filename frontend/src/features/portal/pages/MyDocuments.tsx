@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  FolderLock,
+  FolderOpen,
   Upload,
   Trash2,
   FileText,
@@ -123,12 +123,26 @@ export default function MyDocuments() {
     (s) => s.status === 'pending',
   );
 
+  const labelStyle: React.CSSProperties = { display:'block', marginBottom:'0.5rem', fontSize:'var(--text-xs)', fontWeight:600, textTransform:'uppercase', color:'var(--color-text-muted)' };
+  const helpStyle: React.CSSProperties = { fontSize:'11px', color:'var(--color-text-muted)', marginTop:'4px' };
+
   return (
     <PortalLayout>
       <PortalPageHeader
         title="My Documents"
         subtitle="Upload and manage your personnel documents, and respond to verification cycles"
-        icon={<FolderLock size={20} color="#ffffff" />}
+        icon={<FolderOpen size={22} color="#ffffff" />}
+        actions={
+          <button
+            type="submit"
+            form="document-upload-form"
+            disabled={uploadMutation.isPending}
+            className="btn btn-outline"
+            style={{ background: 'rgba(255,255,255,0.16)', color: '#ffffff', borderColor: 'rgba(255,255,255,0.3)' }}
+          >
+            <Upload size={18} /> {uploadMutation.isPending ? 'Uploading…' : 'Upload Document'}
+          </button>
+        }
       />
 
       {pendingSubmission && (
@@ -163,34 +177,16 @@ export default function MyDocuments() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 18 }}>
-        <section
-          style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: 12,
-            padding: 20,
-            alignSelf: 'start',
-          }}
-        >
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              color: '#64748b',
-              marginBottom: 14,
-            }}
-          >
-            Upload document
-          </div>
-          <form onSubmit={handleUpload}>
-            <Field label="Category">
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1.5rem' }}>Upload Document</h3>
+        <form id="document-upload-form" onSubmit={handleUpload}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+            <div>
+              <label style={labelStyle}>Category<span className="required-mark"> *</span></label>
               <select
+                className="input"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as DocumentCategory)}
-                style={inputStyle}
               >
                 {CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>
@@ -198,89 +194,61 @@ export default function MyDocuments() {
                   </option>
                 ))}
               </select>
-            </Field>
-            <Field label="Title (optional)">
+            </div>
+            <div>
+              <label style={labelStyle}>Title</label>
               <input
                 type="text"
+                className="input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. BSc Certificate (UNILAG, 2014)"
-                style={inputStyle}
               />
-            </Field>
-            <Field label="File (PDF, image, or Word — max 10 MB)">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.heic,.doc,.docx,application/pdf,image/*"
-                style={{ ...inputStyle, padding: 6 }}
-              />
-            </Field>
-            <button
-              type="submit"
-              disabled={uploadMutation.isPending}
-              style={{
-                width: '100%',
-                marginTop: 6,
-                background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                color: '#ffffff',
-                border: 0,
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                opacity: uploadMutation.isPending ? 0.6 : 1,
-              }}
-            >
-              <Upload size={14} />
-              {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
-            </button>
-          </form>
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              background: '#f8fafc',
-              borderRadius: 8,
-              fontSize: 12,
-              color: '#64748b',
-              lineHeight: 1.5,
-            }}
-          >
-            Only you and HR reviewers can see your documents. Verified documents can't be
-            deleted — contact HR if a correction is needed.
+              <p style={helpStyle}>Optional — a short label to help you identify this document.</p>
+            </div>
           </div>
-        </section>
-
-        <section
+          <div style={{ marginTop: '1.5rem' }}>
+            <label style={labelStyle}>File<span className="required-mark"> *</span></label>
+            <input
+              ref={fileRef}
+              type="file"
+              className="input"
+              accept=".pdf,.jpg,.jpeg,.png,.heic,.doc,.docx,application/pdf,image/*"
+            />
+            <p style={helpStyle}>PDF, image, or Word — max 10 MB.</p>
+          </div>
+        </form>
+        <div
           style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: 12,
-            overflow: 'hidden',
+            marginTop: 16,
+            padding: 12,
+            background: '#f8fafc',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#64748b',
+            lineHeight: 1.5,
           }}
         >
-          <header
-            style={{
-              padding: '14px 18px',
-              borderBottom: '1px solid #e2e8f0',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#475569',
-              display: 'flex',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Your documents</span>
-            <span style={{ color: '#94a3b8', fontWeight: 500 }}>
-              {documents.length} on file
-            </span>
-          </header>
+          Only you and HR reviewers can see your documents. Verified documents can't be
+          deleted — contact HR if a correction is needed.
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3
+          style={{
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+          }}
+        >
+          <span>Your Documents</span>
+          <span style={{ color: '#94a3b8', fontWeight: 500, fontSize: 13 }}>
+            {documents.length} on file
+          </span>
+        </h3>
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
           {documentsQuery.isLoading && (
             <div style={{ padding: 24, color: '#94a3b8' }}>Loading…</div>
           )}
@@ -416,7 +384,7 @@ export default function MyDocuments() {
               );
             })}
           </ul>
-        </section>
+        </div>
       </div>
     </PortalLayout>
   );
@@ -596,25 +564,3 @@ function VerificationBanner({
     </div>
   );
 }
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 5 }}>
-        {label}
-      </div>
-      {children}
-    </label>
-  );
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '9px 11px',
-  border: '1px solid #e2e8f0',
-  borderRadius: 8,
-  fontSize: 13,
-  color: '#0f172a',
-  outline: 'none',
-  background: '#ffffff',
-};

@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { List, Plus, Download, Edit, Trash2, Filter, Search, X, Check, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Upload, FileDown, Copy, BookOpen } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
-import { useDebounce } from '../../../hooks/useDebounce';
+// (useDebounce removed — search now uses explicit submit instead of
+// per-keystroke debounce. See ``handleSearchSubmit`` below.)
 import StatusBadge from '../components/shared/StatusBadge';
 import GlassCard from '../components/shared/GlassCard';
 import AccountingLayout from '../AccountingLayout';
+import JournalDetailModal from '../components/JournalDetailModal';
 import PageHeader from '../../../components/PageHeader';
 import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useDialog } from '../../../hooks/useDialog';
@@ -65,7 +67,25 @@ export default function ChartOfAccounts() {
     const [isImporting, setIsImporting] = useState(false);
     const [editingAccount, setEditingAccount] = useState<Account | null>(null);
     const [typeFilter, setTypeFilter] = useState('');
+    // Two-state search:
+    //   ``searchTerm``        — what the input box currently shows.
+    //                           Updates instantly on every keystroke
+    //                           but does NOT fire any network call.
+    //   ``appliedSearchTerm`` — what the server query actually uses.
+    //                           Only changes when the user finishes
+    //                           typing (presses Enter, clicks the
+    //                           Search button, or clears the field).
+    //
+    // Why two: the page previously had a 300ms debounced
+    // ``searchTerm`` driving BOTH the server query AND a client-side
+    // re-filter. During the 300ms window the re-filter rejected every
+    // already-loaded row (because the new search term didn't match
+    // the stale data), so the user saw an empty list and assumed the
+    // account didn't exist — even when the server had it. Explicit
+    // submit means "I'm done typing; go" → single round trip, no
+    // race, no flashing empty state.
     const [searchTerm, setSearchTerm] = useState('');
+    const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -85,6 +105,10 @@ export default function ChartOfAccounts() {
     const [ledgerStartDate, setLedgerStartDate] = useState(startOfFY);
     const [ledgerEndDate, setLedgerEndDate] = useState(today);
     const [ledgerData, setLedgerData] = useState<any>(null);
+    // Journal drill-down: the JournalHeader id of the ledger line the
+    // user clicked. Opens the shared JournalDetailModal (full double-entry)
+    // layered above the GL Ledger modal.
+    const [drillJournalId, setDrillJournalId] = useState<number | null>(null);
 
     const [formData, setFormData] = useState({
         code: '',
@@ -132,10 +156,14 @@ export default function ChartOfAccounts() {
         }
     }, [editingAccount]);
 
-    // Reset to page 1 when filters change
+    // Reset to page 1 when the EFFECTIVE filters change. Note: we
+    // depend on ``appliedSearchTerm`` (committed by handleSearchSubmit)
+    // not ``searchTerm`` (which fires on every keystroke). Typing in
+    // the search box must not reset pagination — only running an
+    // actual search does.
     useEffect(() => {
         setCurrentPage(1);
-    }, [typeFilter, searchTerm]);
+    }, [typeFilter, appliedSearchTerm]);
 
     // Fetch accounting settings (digit enforcement only — series is
     // hard-coded per Nigeria CoA standards and no longer read from DB)
@@ -186,21 +214,43 @@ export default function ChartOfAccounts() {
     /** Label-swap helper: internal "Income" → user-facing "Revenue". */
     const displayType = (t: string): string => (t === 'Income' ? 'Revenue' : t);
 
-    // Debounce search term to avoid excessive API calls
-    const debouncedSearchTerm = useDebounce(searchTerm, 300);
-
-    // Fetch accounts
+    // Fetch accounts. The query key includes ``appliedSearchTerm``
+    // (NOT ``searchTerm``) so the network call only fires when the
+    // user explicitly submits — typing in the box doesn't trigger
+    // anything. This matches the "let me finish typing first" UX
+    // and removes the previous debounce + client-filter race.
     const { data: accountsData, isLoading, isError, error } = useQuery({
-        queryKey: ['accounts', typeFilter, currentPage, pageSize, debouncedSearchTerm],
+        queryKey: ['accounts', typeFilter, currentPage, pageSize, appliedSearchTerm],
         queryFn: async () => {
             const params: Record<string, any> = { page: currentPage, page_size: pageSize };
             if (typeFilter) params.account_type = typeFilter;
-            if (debouncedSearchTerm) params.search = debouncedSearchTerm;
+            if (appliedSearchTerm) params.search = appliedSearchTerm;
             const response = await apiClient.get(API_URL, { params });
             return { results: response.data.results, count: response.data.count };
         },
         staleTime: 5 * 60 * 1000, // 5 minutes
     });
+
+    /**
+     * Submit the live ``searchTerm`` as the new applied filter and
+     * reset to page 1. Called from:
+     *   • The Search button's onClick
+     *   • Pressing Enter in the input
+     */
+    const handleSearchSubmit = (): void => {
+        setCurrentPage(1);
+        setAppliedSearchTerm(searchTerm.trim());
+    };
+
+    /**
+     * Clear both the live term and the applied filter, returning the
+     * full list view. Wired to the X button inside the input.
+     */
+    const handleSearchClear = (): void => {
+        setSearchTerm('');
+        setAppliedSearchTerm('');
+        setCurrentPage(1);
+    };
 
     const accounts = accountsData?.results;
     const totalCount = accountsData?.count ?? 0;
@@ -371,27 +421,30 @@ export default function ChartOfAccounts() {
     };
 
     const sortedAccounts = useMemo(() => {
-        let filtered = (Array.isArray(accounts) ? accounts : []).filter((acc: Account) => {
-            return acc.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                acc.name.toLowerCase().includes(searchTerm.toLowerCase());
-        }) || [];
-
+        // The server-side ``search`` query parameter is the SINGLE
+        // source of truth for filtering. Previously this memo ran an
+        // additional client-side ``.includes(searchTerm)`` pass on the
+        // already-filtered server response — which, during the window
+        // between a keystroke and the debounced refetch, rejected
+        // every row in the stale ``accounts`` array (none matched the
+        // newly-typed text) and showed an empty list. The race made
+        // users believe codes like ``22020306`` didn't exist when in
+        // fact the server had them.
+        //
+        // Local sort still happens here because column-header clicks
+        // re-sort the visible page without a server round-trip.
+        const rows = Array.isArray(accounts) ? [...accounts] : [];
         if (sortConfig !== null) {
-            filtered.sort((a, b) => {
+            rows.sort((a, b) => {
                 const aValue = a[sortConfig.key];
                 const bValue = b[sortConfig.key];
-
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
         }
-        return filtered;
-    }, [accounts, searchTerm, sortConfig]);
+        return rows;
+    }, [accounts, sortConfig]);
 
     if (isError) {
         return (
@@ -1211,13 +1264,32 @@ export default function ChartOfAccounts() {
             {/* List Controls */}
             <GlassCard style={{ padding: '1.25rem', marginBottom: '1.5rem' }} className="animate-fade-in">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '300px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '0 1rem' }}>
+                    <div
+                        style={{
+                            display: 'flex', alignItems: 'center',
+                            gap: '0.5rem', flex: 1, minWidth: '300px',
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '10px', padding: '0 1rem',
+                            // 3px frame mirrors the AppropriationDetail filter
+                            // inputs so the search affordance reads as a primary
+                            // control across the accounting surfaces.
+                            border: '3px solid var(--color-border, #94a3b8)',
+                            boxSizing: 'border-box',
+                        }}
+                    >
                         <Search size={20} style={{ color: 'var(--text-muted)' }} />
                         <input
                             type="text"
-                            placeholder="Filter by code or description..."
+                            placeholder="Type code or description, then press Enter or click Search"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSearchSubmit();
+                                }
+                            }}
+                            aria-label="Search accounts by code or description"
                             style={{
                                 flex: 1,
                                 border: 'none',
@@ -1225,9 +1297,57 @@ export default function ChartOfAccounts() {
                                 padding: '0.75rem 0',
                                 color: 'var(--text-primary)',
                                 fontWeight: 500,
-                                outline: 'none'
+                                outline: 'none',
                             }}
                         />
+                        {/* Clear button — visible only when there's
+                            something to clear. Resets both the live
+                            input and the applied filter. */}
+                        {(searchTerm || appliedSearchTerm) && (
+                            <button
+                                type="button"
+                                onClick={handleSearchClear}
+                                aria-label="Clear search"
+                                title="Clear search"
+                                style={{
+                                    border: 'none', background: 'transparent',
+                                    cursor: 'pointer', color: 'var(--text-muted)',
+                                    padding: '0.25rem', display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center',
+                                    borderRadius: '4px',
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        )}
+                        {/* Submit button — clicking runs the search
+                            with the current input value. The button
+                            label changes to "Searching…" while the
+                            query is in flight so the user gets a
+                            visible signal that work is happening. */}
+                        <button
+                            type="button"
+                            onClick={handleSearchSubmit}
+                            disabled={
+                                // Avoid no-op queries — disable when the
+                                // input matches what's already applied.
+                                searchTerm.trim() === appliedSearchTerm && !isLoading
+                            }
+                            style={{
+                                border: 'none',
+                                background: '#2926d9',
+                                color: '#fff',
+                                padding: '0.5rem 1rem',
+                                borderRadius: '8px',
+                                fontWeight: 600,
+                                fontSize: '0.875rem',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                opacity: (searchTerm.trim() === appliedSearchTerm && !isLoading) ? 0.5 : 1,
+                            }}
+                        >
+                            {isLoading && appliedSearchTerm ? 'Searching…' : 'Search'}
+                        </button>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -1757,13 +1877,14 @@ export default function ChartOfAccounts() {
                                         [`GL Ledger: ${ledgerAccount.code} ${ledgerAccount.name}`],
                                         [`Period: ${ledgerStartDate} to ${ledgerEndDate}`],
                                         [],
-                                        ['Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'],
+                                        ['Date', 'Reference', 'Journal #', 'Description', 'Debit', 'Credit', 'Balance'],
                                     ];
                                     const entries = (ledgerData.entries || []) as any[];
                                     for (const e of entries) {
                                         rows.push([
                                             e.date || '',
                                             e.reference || '',
+                                            e.journal_number || '',
                                             e.description || '',
                                             fmt(e.debit),
                                             fmt(e.credit),
@@ -1779,7 +1900,7 @@ export default function ChartOfAccounts() {
                                     // expecting a non-existent key (which would
                                     // silently print '0.00' for any non-zero ledger).
                                     const closingBalance = entries.length > 0 ? entries[entries.length - 1].balance : '0';
-                                    rows.push(['', '', 'Totals', fmt(ledgerData.total_debit), fmt(ledgerData.total_credit), fmt(closingBalance)]);
+                                    rows.push(['', '', '', 'Totals', fmt(ledgerData.total_debit), fmt(ledgerData.total_credit), fmt(closingBalance)]);
                                     const csv = rows.map(r => r.map(escape).join(',')).join('\n');
                                     const blob = new Blob(['﻿' + csv], { type: 'application/vnd.ms-excel;charset=utf-8' });
                                     const url = window.URL.createObjectURL(blob);
@@ -1826,10 +1947,10 @@ export default function ChartOfAccounts() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
                                         <thead>
                                             <tr style={{ borderBottom: '2px solid var(--color-border)', background: 'var(--color-surface)' }}>
-                                                {['Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'].map(h => (
+                                                {['Date', 'Reference', 'Journal #', 'Description', 'Debit', 'Credit', 'Balance'].map(h => (
                                                     <th key={h} style={{
                                                         padding: '0.75rem 1rem',
-                                                        textAlign: h === 'Date' || h === 'Reference' || h === 'Description' ? 'left' : 'right',
+                                                        textAlign: h === 'Debit' || h === 'Credit' || h === 'Balance' ? 'right' : 'left',
                                                         fontSize: 'var(--text-xs)',
                                                         fontWeight: 700,
                                                         color: 'var(--color-text-muted)',
@@ -1856,6 +1977,7 @@ export default function ChartOfAccounts() {
                                                     {ledgerStartDate}
                                                 </td>
                                                 <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', fontWeight: 600 }}>—</td>
+                                                <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', fontWeight: 600 }}>—</td>
                                                 <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
                                                     Opening Balance (brought forward)
                                                 </td>
@@ -1872,7 +1994,7 @@ export default function ChartOfAccounts() {
                                             </tr>
                                             {ledgerData.entries.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                         No transactions in this date window. Opening balance shown above —
                                                         widen the From date to see the source entries.
                                                     </td>
@@ -1888,6 +2010,25 @@ export default function ChartOfAccounts() {
                                                         </td>
                                                         <td style={{ padding: '0.65rem 1rem', color: 'var(--color-primary)', whiteSpace: 'nowrap', fontWeight: 600 }}>
                                                             {entry.reference || '—'}
+                                                        </td>
+                                                        <td style={{ padding: '0.65rem 1rem', whiteSpace: 'nowrap' }}>
+                                                            {entry.journal_id ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setDrillJournalId(entry.journal_id)}
+                                                                    title="View accounting entries (full double-entry)"
+                                                                    style={{
+                                                                        background: 'none', border: 'none', padding: 0,
+                                                                        color: '#2563eb', fontWeight: 600, fontSize: 'var(--text-sm)',
+                                                                        cursor: 'pointer', textDecoration: 'underline',
+                                                                        fontFamily: 'monospace',
+                                                                    }}
+                                                                >
+                                                                    {entry.journal_number || `JE-${entry.journal_id}`}
+                                                                </button>
+                                                            ) : (
+                                                                <span style={{ color: 'var(--color-text-muted)' }}>{entry.journal_number || '—'}</span>
+                                                            )}
                                                         </td>
                                                         <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text)', maxWidth: '320px' }}>
                                                             {entry.description || '—'}
@@ -1953,6 +2094,14 @@ export default function ChartOfAccounts() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Journal drill-down — opened from a clickable journal number
+                on a GL Ledger line. Renders ABOVE the ledger modal
+                (z-index 1100) so the user can inspect the full double-entry
+                without losing their place in the ledger. */}
+            {drillJournalId && (
+                <JournalDetailModal id={drillJournalId} onClose={() => setDrillJournalId(null)} />
             )}
         </AccountingLayout>
     );

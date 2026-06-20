@@ -128,6 +128,9 @@ const DimensionManager: React.FC<DimensionManagerProps> = ({
         }
     };
 
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
+
     if (isLoading) {
         return <LoadingScreen message={`Loading ${title.toLowerCase()}...`} />;
     }
@@ -279,67 +282,43 @@ const DimensionManager: React.FC<DimensionManagerProps> = ({
                         {editingId ? 'Edit' : 'Create New'} {title.slice(0, -1)}
                     </h2>
                     <form onSubmit={handleSubmit}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '1rem' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
-                                    Code *
+                                <label style={labelStyle}>
+                                    Code<span className="required-mark"> *</span>
                                 </label>
                                 <input
                                     type="text"
+                                    className="input"
                                     required
                                     value={formData.code}
                                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--color-border)',
-                                        background: 'var(--color-surface)',
-                                        color: 'var(--color-text)',
-                                        fontSize: 'var(--text-sm)',
-                                    }}
                                     placeholder="Enter code"
                                 />
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
-                                    Name *
+                                <label style={labelStyle}>
+                                    Name<span className="required-mark"> *</span>
                                 </label>
                                 <input
                                     type="text"
+                                    className="input"
                                     required
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--color-border)',
-                                        background: 'var(--color-surface)',
-                                        color: 'var(--color-text)',
-                                        fontSize: 'var(--text-sm)',
-                                    }}
                                     placeholder="Enter name"
                                 />
                             </div>
                         </div>
                         <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
+                            <label style={labelStyle}>
                                 Description
                             </label>
                             <textarea
+                                className="input"
                                 value={formData.description}
                                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--color-border)',
-                                    background: 'var(--color-surface)',
-                                    color: 'var(--color-text)',
-                                    fontSize: 'var(--text-sm)',
-                                    minHeight: '80px',
-                                }}
+                                style={{ width: '100%', minHeight: '80px' }}
                                 placeholder="Enter description"
                             />
                         </div>
@@ -358,32 +337,15 @@ const DimensionManager: React.FC<DimensionManagerProps> = ({
                         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                             <button
                                 type="button"
+                                className="btn btn-outline"
                                 onClick={resetForm}
-                                style={{
-                                    padding: '0.75rem 1.5rem',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--color-border)',
-                                    background: 'var(--color-surface)',
-                                    color: 'var(--color-text)',
-                                    cursor: 'pointer',
-                                    fontWeight: 500,
-                                }}
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
+                                className="btn btn-primary"
                                 disabled={isCreating || isUpdating}
-                                style={{
-                                    padding: '0.75rem 1.5rem',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: 'var(--color-primary)',
-                                    color: 'white',
-                                    cursor: isCreating || isUpdating ? 'not-allowed' : 'pointer',
-                                    fontWeight: 500,
-                                    opacity: isCreating || isUpdating ? 0.6 : 1,
-                                }}
                             >
                                 {isCreating || isUpdating ? 'Saving...' : editingId ? 'Update' : 'Create'}
                             </button>

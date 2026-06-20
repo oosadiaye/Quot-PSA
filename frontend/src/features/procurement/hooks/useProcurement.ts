@@ -875,6 +875,8 @@ export interface SimulatePayload {
     invoice_amount: number;
     invoice_subtotal?: number;
     invoice_tax_amount?: number;
+    tax_code?: number;
+    withholding_tax?: number;
 }
 export interface SimulatedJournalLine {
     account_code: string;

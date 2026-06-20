@@ -378,11 +378,14 @@ export default function AccountingSettingsPage() {
                             Require Warrant (AIE) before Payment
                         </h2>
                         <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
-                            Controls whether outgoing payments and AP-invoice posting
-                            are gated by released Warrant (AIE) availability. When
-                            disabled, both stages skip the warrant ceiling check —
-                            useful for tenants not yet operating on warrant-based
-                            cash control. The default (enabled) is GIFMIS-compliant.
+                            Master switch for warrant-based cash control. When enabled,
+                            cash-out is gated by released Warrant (AIE) availability across
+                            outgoing payments, vendor down-payments, and contract
+                            mobilization advances (and AP-invoice posting under the
+                            invoice/commitment enforcement stage). When disabled, these
+                            stages skip the warrant ceiling check — useful for tenants not
+                            yet operating on warrant-based cash control. The default
+                            (enabled) is GIFMIS-compliant.
                         </p>
                     </div>
                 </div>
@@ -426,8 +429,8 @@ export default function AccountingSettingsPage() {
                         </div>
                         <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
                             {requireWarrantBeforePayment
-                                ? 'Payments are blocked when released Warrant (AIE) for the MDA + Fund + Account would not cover the amount. AP-invoice posting respects the same ceiling.'
-                                : 'Both AP-invoice posting and outgoing payments skip the warrant ceiling check. Cash can leave the TSA without a released Warrant — use only for non-warrant-based jurisdictions.'}
+                                ? 'Cash-out is blocked when released Warrant (AIE) for the MDA + Fund + Account would not cover the amount — across outgoing payments, down-payment requests, and contract mobilization advances. (Manual ad-hoc advances carry no appropriation, so route them via a PO/DPR or contract to keep them warrant-gated.)'
+                                : 'Outgoing payments, AP-invoice posting, down-payments, and contract mobilization all skip the warrant ceiling check. Cash can leave the TSA without a released Warrant — use only for non-warrant-based jurisdictions.'}
                         </div>
                     </div>
                 </div>

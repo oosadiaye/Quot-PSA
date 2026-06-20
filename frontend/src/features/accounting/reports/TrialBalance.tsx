@@ -13,9 +13,16 @@ export default function TrialBalance() {
     const [fiscalYear, setFiscalYear] = useState(currentYear);
     const [period, setPeriod] = useState(currentMonth);
 
-    const { data, isLoading, error, refetch } = useTrialBalance({ fiscal_year: fiscalYear, period });
+    const { data: rawData, isLoading, error, refetch } = useTrialBalance({ fiscal_year: fiscalYear, period });
 
-    const accounts: any[] = data?.accounts ?? data?.results ?? (Array.isArray(data) ? data : []);
+    interface TrialBalanceData {
+        accounts?: any[];
+        results?: any[];
+        [key: string]: any;
+    }
+    const data = rawData as TrialBalanceData | any[] | undefined;
+
+    const accounts: any[] = (data as TrialBalanceData)?.accounts ?? (data as TrialBalanceData)?.results ?? (Array.isArray(data) ? data : []);
 
     const totalDebits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.debit_balance ?? a.total_debit ?? 0), 0);
     const totalCredits = accounts.reduce((sum: number, a: any) => sum + parseFloat(a.credit_balance ?? a.total_credit ?? 0), 0);

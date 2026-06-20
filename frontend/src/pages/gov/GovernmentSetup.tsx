@@ -214,7 +214,7 @@ export default function GovernmentSetup() {
                                 <select style={selectStyle} value={stateCode} onChange={e => setStateCode(e.target.value)} required>
                                     <option value="">Select your state...</option>
                                     {Object.entries(
-                                        (config?.available_states || []).reduce((groups: Record<string, typeof config.available_states>, state) => {
+                                        (config?.available_states || []).reduce((groups: Record<string, { code: string; name: string; zone: string }[]>, state) => {
                                             const zoneName = ZONE_NAMES[state.zone] || `Zone ${state.zone}`;
                                             if (!groups[zoneName]) groups[zoneName] = [];
                                             groups[zoneName].push(state);

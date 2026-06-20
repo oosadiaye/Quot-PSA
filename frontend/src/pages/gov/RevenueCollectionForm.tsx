@@ -2,20 +2,26 @@
  * Revenue Collection (IGR) — Journal-Style Entry — Quot PSE
  * Route: /accounting/revenue-collections/new
  *
- * Redesigned to match the Journal Entry layout:
- *   - Header row (Collection Date, Reference, Narration)
- *   - Mandatory NCoA dimensions (MDA, Fund, Function, Program, Geo)
- *   - GL Journal lines (real Account FK pickers) with Dr/Cr balance check
- *   - Collapsible optional Payer / Period card
+ * Lean Journal-style layout:
+ *   - Header: Collection Date, MDA (Admin), Narration
+ *   - NCoA panel: Function, Programme, Fund, Geographic (4 segments)
+ *   - GL Journal lines (TSA picker + Account FK pickers, Dr/Cr balance)
+ *   - Collapsible Payer / Period card
  *   - Single Post button
  *
- * The old "Revenue Head *" field is intentionally removed — the
- * second (credit) line of the journal IS the revenue GL account, so
- * keeping a separate Revenue Head dropdown caused the user to enter
- * the same information twice. The GL account on the credit line is
- * the single source of truth for which revenue is being collected.
+ * What is DERIVED (not user-entered):
+ *   - economic_code: comes from the credit line's GL account code
+ *     (NCoA economic segment == GL account code in this CoA).
+ *   - tsa_account (header): comes from the first TSA-tagged line.
+ *   - collection_channel: defaults to 'BANK' in initial state.
+ *
+ * What is REMOVED from the UI (vs older versions):
+ *   - Channel / Payment Ref / RRR / TSA Account header cards
+ *   - Economic (Revenue Head) dropdown in NCoA panel (now derived)
+ *   - MDA in NCoA panel (promoted to header — mandatory cannot live
+ *     inside an "all 6 required" group when 1 of them is special).
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Save, AlertCircle, Plus, Trash2, CheckCircle2, BookOpen, ChevronDown, ChevronUp, User,
@@ -29,15 +35,6 @@ import {
 import { useAccounts, useMDAs } from '../../features/accounting/hooks/useBudgetDimensions';
 import { useFunds, useFunctions, usePrograms, useGeos } from '../../features/accounting/hooks/useDimensions';
 
-const COLLECTION_CHANNELS: Array<[string, string]> = [
-    ['BANK', 'Bank Deposit'],
-    ['ONLINE', 'Online Payment'],
-    ['USSD', 'USSD'],
-    ['AGENT', 'Collection Agent'],
-    ['COUNTER', 'Counter'],
-    ['POS', 'POS Terminal'],
-];
-
 const MONTHS = Array.from({ length: 12 }, (_, i): [string, string] => [
     String(i + 1), new Date(2000, i).toLocaleString('en', { month: 'long' }),
 ]);
@@ -45,21 +42,51 @@ const MONTHS = Array.from({ length: 12 }, (_, i): [string, string] => [
 const fmtNGN = (v: number): string =>
     v ? '\u20A6' + v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '\u20A60.00';
 
+/**
+ * A row in the revenue journal-entry table.
+ *
+ * ``tsa_account`` is the per-line shortcut for "this line is the cash
+ * inflow against this TSA". When set, ``account`` is auto-resolved to
+ * the TSA's underlying ``gl_cash_account`` (driven by
+ * ``TreasuryAccount.gl_cash_account`` — see backend model). This way
+ * the user picks a meaningful TSA (e.g. "Main Treasury — UBA
+ * 1024531234") instead of hunting through the full COA for the cash
+ * GL code, and gets it right by construction. Leaving ``tsa_account``
+ * blank falls back to the manual ``account`` picker — useful for the
+ * credit (revenue) leg or any non-cash adjustment.
+ */
 interface JournalLine {
     id: string;
-    account: string;    // Account FK id
+    tsa_account: string; // TreasuryAccount FK id (optional)
+    account: string;     // Account FK id (auto-filled when tsa_account is set)
     debit: string;
     credit: string;
     memo: string;
 }
 
+interface TSAOption {
+    id: number;
+    account_number: string;
+    account_name: string;
+    gl_cash_account: number | null;
+    gl_cash_account_code?: string;
+    gl_cash_account_name?: string;
+}
+
+interface AccountOption {
+    id: number;
+    code: string;
+    name: string;
+}
+
 /**
  * A minimal "new line" shape. The form opens with exactly two rows:
  * Dr cash/TSA and Cr revenue, both blank — the user picks the accounts
- * and amounts directly (same as the Journal Entry form).
+ * (or a TSA shortcut) and amounts directly.
  */
 const newLine = (): JournalLine => ({
     id: `l-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    tsa_account: '',
     account: '',
     debit: '',
     credit: '',
@@ -112,13 +139,78 @@ export default function RevenueCollectionForm() {
 
     // Journal lines — double-entry. Seeded as 2 empty rows: Dr Cash/TSA | Cr Revenue.
     const [lines, setLines] = useState<JournalLine[]>([newLine(), newLine()]);
-    const updateLine = (idx: number, field: keyof JournalLine, value: string) =>
-        setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
-    const addLine = () => setLines((prev) => [...prev, newLine()]);
-    const removeLine = (idx: number) => {
+
+    /**
+     * Update one cell of one line. Special-cased for ``tsa_account``:
+     * when the user picks a TSA on a row, we ALSO auto-fill the
+     * row's ``account`` field with that TSA's underlying
+     * ``gl_cash_account`` (the GL Cash account flagged on the
+     * TreasuryAccount). When the user clears the TSA, we leave
+     * ``account`` alone so they can manually pick a different GL.
+     */
+    const updateLine = (idx: number, field: keyof JournalLine, value: string): void => {
+        setLines((prev) => prev.map((l, i) => {
+            if (i !== idx) return l;
+            if (field === 'tsa_account') {
+                const tsa = (tsaAccounts as TSAOption[]).find(
+                    (t) => String(t.id) === value,
+                );
+                const autoAccount = tsa?.gl_cash_account
+                    ? String(tsa.gl_cash_account)
+                    : l.account;
+                return { ...l, tsa_account: value, account: autoAccount };
+            }
+            return { ...l, [field]: value };
+        }));
+    };
+
+    const addLine = (): void => setLines((prev) => [...prev, newLine()]);
+    const removeLine = (idx: number): void => {
         if (lines.length <= 2) return;
         setLines((prev) => prev.filter((_, i) => i !== idx));
     };
+
+    /**
+     * Keep the header ``tsa_account`` in sync with the journal lines.
+     * The backend model stores a single TSA per RevenueCollection;
+     * the first line with a TSA picked wins. If the user clears every
+     * line's TSA we leave the header alone (don't auto-clear), so a
+     * user who explicitly set the header field then experiments with
+     * line-level TSAs won't lose it.
+     */
+    const derivedHeaderTsa = useMemo<string>(() => {
+        const firstWithTsa = lines.find((l) => l.tsa_account);
+        return firstWithTsa?.tsa_account ?? '';
+    }, [lines]);
+    useEffect(() => {
+        if (derivedHeaderTsa && header.tsa_account !== derivedHeaderTsa) {
+            setH('tsa_account', derivedHeaderTsa);
+        }
+    }, [derivedHeaderTsa, header.tsa_account]);
+
+    /**
+     * NCoA economic code is the same identifier as the GL account
+     * code on the revenue credit line. Rather than asking the user
+     * to pick it twice, derive it from the first credit-side line
+     * with a GL account selected. This keeps the backend wire
+     * format unchanged (the resolver still needs ``economic_code``)
+     * while removing the redundant header dropdown.
+     */
+    const derivedEconomicCode = useMemo<string>(() => {
+        const firstCreditLine = lines.find(
+            (l) => (parseFloat(l.credit) || 0) > 0 && l.account,
+        );
+        if (!firstCreditLine) return '';
+        const acct = (accounts as AccountOption[]).find(
+            (a) => String(a.id) === firstCreditLine.account,
+        );
+        return acct?.code ?? '';
+    }, [lines, accounts]);
+    useEffect(() => {
+        if (derivedEconomicCode && header.economic_code !== derivedEconomicCode) {
+            setH('economic_code', derivedEconomicCode);
+        }
+    }, [derivedEconomicCode, header.economic_code]);
 
     // Totals
     const totalDebit = useMemo(
@@ -146,14 +238,59 @@ export default function RevenueCollectionForm() {
             return;
         }
 
+        // Cash-leg sanity. RevenueCollection.tsa_account is required on
+        // the model; the form auto-syncs it from the first line that
+        // picks a TSA. If NO line picked a TSA AND the header is empty,
+        // tell the user up-front rather than waiting for the backend to
+        // 400 with a generic ``tsa_account: This field is required.``
+        const anyLineHasTsa = lines.some((l) => l.tsa_account);
+        if (!anyLineHasTsa && !header.tsa_account) {
+            setFormError(
+                'At least one line must pick a TSA Account (the cash inflow leg). '
+                + 'Use the TSA Account column to designate which line is the cash receipt.',
+            );
+            return;
+        }
+
+        // Double-check every TSA-tagged line is on the DEBIT side. A
+        // revenue collection is a cash inflow — a TSA on a credit line
+        // would imply cash leaving the TSA against revenue, which is
+        // backwards. Catch the mistake before the journal hits the GL.
+        const reversedTsaLine = lines.findIndex(
+            (l) => l.tsa_account && (parseFloat(l.credit) || 0) > 0
+                && !(parseFloat(l.debit) || 0),
+        );
+        if (reversedTsaLine !== -1) {
+            setFormError(
+                `Line ${reversedTsaLine + 1}: a TSA Account is the cash inflow `
+                + `leg of revenue collection — its amount must be in the DEBIT `
+                + `column, not Credit.`,
+            );
+            return;
+        }
+
         // Resolve the 6-segment NCoA composite id (required by the
-        // backend so revenue gets the full classification).
-        const required = [
-            header.admin_code, header.economic_code, header.functional_code,
-            header.programme_code, header.fund_code, header.geo_code,
+        // backend so revenue gets the full classification). The UI
+        // collects 4 segments directly + MDA in header + economic
+        // derived from the credit line GL — verify all 6 made it
+        // into state before asking the backend to resolve them.
+        if (!header.admin_code) {
+            setFormError('Please pick an MDA (Admin) at the top of the form.');
+            return;
+        }
+        if (!header.economic_code) {
+            setFormError(
+                'Economic code could not be derived from the credit line. '
+                + 'Make sure the credit (revenue) line has both a GL Account and a Credit amount.',
+            );
+            return;
+        }
+        const remaining = [
+            header.functional_code, header.programme_code,
+            header.fund_code, header.geo_code,
         ];
-        if (required.some((v) => !v)) {
-            setFormError('Please select all 6 NCoA segments (MDA, Economic, Function, Program, Fund, Geo).');
+        if (remaining.some((v) => !v)) {
+            setFormError('Please select all NCoA segments (Function, Programme, Fund, Geographic).');
             return;
         }
         let ncoaCodeId: number | null = null;
@@ -194,7 +331,13 @@ export default function RevenueCollectionForm() {
             description: header.description,
             // Journal lines forwarded raw so the backend can mirror
             // the posting onto its own JournalHeader / JournalLine.
+            // ``tsa_account`` is preserved per-line so a future backend
+            // can drive multi-TSA postings directly from the form
+            // without another wire-format change. The current backend
+            // ignores per-line tsa and uses the header field, which
+            // we've auto-synced from the first TSA-tagged line above.
             journal_lines: lines.map((l) => ({
+                tsa_account: l.tsa_account ? parseInt(l.tsa_account) : null,
                 account: parseInt(l.account),
                 debit: parseFloat(l.debit) || 0,
                 credit: parseFloat(l.credit) || 0,
@@ -237,10 +380,18 @@ export default function RevenueCollectionForm() {
             )}
 
             <form onSubmit={handleSubmit}>
-                {/* ── Header fields ───────────────────────────────── */}
+                {/* ── Header fields ─────────────────────────────────
+                    Channel, Payment Ref, RRR, and TSA Account were
+                    moved off the header per UX feedback. TSA Account
+                    now comes exclusively from the per-line picker on
+                    the journal-lines table (header.tsa_account is
+                    auto-synced from the first TSA-tagged line). MDA
+                    is promoted here from the NCoA panel because it
+                    is mandatory and identifies "who collected" — a
+                    fact that cannot be derived from any GL code. */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
                     gap: '1.5rem', marginBottom: '2rem',
                 }}>
                     <div className="card">
@@ -251,39 +402,12 @@ export default function RevenueCollectionForm() {
                         />
                     </div>
                     <div className="card">
-                        <label className="label">Channel</label>
-                        <select value={header.collection_channel}
-                            onChange={(e) => setH('collection_channel', e.target.value)}>
-                            {COLLECTION_CHANNELS.map(([v, l]) => (
-                                <option key={v} value={v}>{l}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="card">
-                        <label className="label">Payment Ref / Teller</label>
-                        <input type="text"
-                            placeholder="Bank teller / confirmation"
-                            value={header.payment_reference}
-                            onChange={(e) => setH('payment_reference', e.target.value)}
-                        />
-                    </div>
-                    <div className="card">
-                        <label className="label">RRR (Remita)</label>
-                        <input type="text"
-                            placeholder="Remita reference"
-                            value={header.rrr}
-                            onChange={(e) => setH('rrr', e.target.value)}
-                        />
-                    </div>
-                    <div className="card">
-                        <label className="label">TSA Account<span className="required-mark"> *</span></label>
-                        <select required value={header.tsa_account}
-                            onChange={(e) => setH('tsa_account', e.target.value)}>
-                            <option value="">Select TSA...</option>
-                            {(tsaAccounts as any[]).map((a: any) => (
-                                <option key={a.id} value={a.id}>
-                                    {a.account_number} - {a.account_name}
-                                </option>
+                        <label className="label">MDA (Admin)<span className="required-mark"> *</span></label>
+                        <select required value={header.admin_code}
+                            onChange={(e) => setH('admin_code', e.target.value)}>
+                            <option value="">Select MDA...</option>
+                            {segments?.administrative?.map((s: any) => (
+                                <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
                             ))}
                         </select>
                     </div>
@@ -297,35 +421,19 @@ export default function RevenueCollectionForm() {
                     </div>
                 </div>
 
-                {/* ── Mandatory NCoA Dimensions ───────────────────── */}
+                {/* ── Mandatory NCoA Dimensions ─────────────────────
+                    MDA was promoted to the header (mandatory, set
+                    by user). Economic is derived from the credit
+                    line's GL account code (see derivedEconomicCode
+                    useMemo). The remaining 4 dimensions stay here. */}
                 <div className="card" style={{ marginBottom: '2rem' }}>
                     <h3 style={{ marginBottom: '1rem', fontSize: 'var(--text-base)' }}>
-                        NCoA Classification <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(all 6 segments required)</span>
+                        NCoA Classification <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(Function / Programme / Fund / Geographic — all required)</span>
                     </h3>
                     {segsLoading ? (
                         <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading NCoA segments...</div>
                     ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                            <div>
-                                <label className="label">MDA (Admin)<span className="required-mark"> *</span></label>
-                                <select required value={header.admin_code}
-                                    onChange={(e) => setH('admin_code', e.target.value)}>
-                                    <option value="">Select...</option>
-                                    {segments?.administrative?.map((s: any) => (
-                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="label">Economic (Revenue Head)<span className="required-mark"> *</span></label>
-                                <select required value={header.economic_code}
-                                    onChange={(e) => setH('economic_code', e.target.value)}>
-                                    <option value="">Select...</option>
-                                    {segments?.economic?.map((s: any) => (
-                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
                             <div>
                                 <label className="label">Function (COFOG)<span className="required-mark"> *</span></label>
                                 <select required value={header.functional_code}
@@ -375,6 +483,12 @@ export default function RevenueCollectionForm() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
+                                <th
+                                    style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 240 }}
+                                    title="Pick a Treasury Single Account to auto-resolve this row's GL Account to the TSA's underlying cash GL. Optional — leave blank for non-cash lines (e.g. the credit revenue leg)."
+                                >
+                                    TSA Account <span style={{ color: '#94a3b8', fontWeight: 400 }}>(cash leg)</span>
+                                </th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Debit (NGN)</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Credit (NGN)</th>
@@ -383,16 +497,61 @@ export default function RevenueCollectionForm() {
                             </tr>
                         </thead>
                         <tbody>
-                            {lines.map((line, idx) => (
+                            {lines.map((line, idx) => {
+                                // When a TSA is picked, the GL Account picker is
+                                // bound to that TSA's gl_cash_account and we
+                                // disable it so the user can't accidentally pick a
+                                // mismatched GL. Clearing the TSA re-enables the
+                                // picker and the user goes back to manual mode.
+                                const tsaLocked = !!line.tsa_account;
+                                const tsaForRow = (tsaAccounts as TSAOption[]).find(
+                                    (t) => String(t.id) === line.tsa_account,
+                                );
+                                return (
                                 <tr key={line.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '0.5rem 0.75rem' }}>
+                                        <select
+                                            value={line.tsa_account}
+                                            onChange={(e) => updateLine(idx, 'tsa_account', e.target.value)}
+                                            aria-label="Treasury Single Account for this line"
+                                            style={{ width: '100%' }}
+                                        >
+                                            <option value="">— (manual GL) —</option>
+                                            {(tsaAccounts as TSAOption[]).map((t) => (
+                                                <option key={t.id} value={t.id}>
+                                                    {t.account_number} — {t.account_name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {tsaLocked && tsaForRow?.gl_cash_account_code && (
+                                            <div style={{
+                                                marginTop: 4, fontSize: 11, color: '#16a34a',
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}>
+                                                <CheckCircle2 size={11} />
+                                                Cash GL: {tsaForRow.gl_cash_account_code}
+                                                {tsaForRow.gl_cash_account_name
+                                                    ? ` — ${tsaForRow.gl_cash_account_name}`
+                                                    : ''}
+                                            </div>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '0.5rem 0.75rem' }}>
                                         <select required
                                             value={line.account}
                                             onChange={(e) => updateLine(idx, 'account', e.target.value)}
-                                            style={{ width: '100%' }}
+                                            disabled={tsaLocked}
+                                            title={tsaLocked
+                                                ? 'Auto-resolved from the TSA above. Clear the TSA to override.'
+                                                : 'Pick a GL account directly. Use the TSA column to the left to auto-fill the cash GL.'}
+                                            style={{
+                                                width: '100%',
+                                                background: tsaLocked ? '#f1f5f9' : '#fff',
+                                                cursor: tsaLocked ? 'not-allowed' : 'pointer',
+                                            }}
                                         >
                                             <option value="">Select Account...</option>
-                                            {(accounts as any[]).map((a: any) => (
+                                            {(accounts as AccountOption[]).map((a) => (
                                                 <option key={a.id} value={a.id}>
                                                     {a.code} — {a.name}
                                                 </option>
@@ -444,11 +603,16 @@ export default function RevenueCollectionForm() {
                                         )}
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                         <tfoot>
                             <tr style={{ borderTop: '2px solid var(--border)', background: '#f8fafc' }}>
-                                <td style={{ padding: '0.75rem 1rem' }}>
+                                {/* colSpan=2 because the table now has a leading
+                                    TSA Account column before GL Account — the
+                                    Add Line affordance spans both since neither
+                                    needs a footer total. */}
+                                <td colSpan={2} style={{ padding: '0.75rem 1rem' }}>
                                     <button type="button" onClick={addLine}
                                         style={{
                                             background: 'none', border: '1px dashed #94a3b8',

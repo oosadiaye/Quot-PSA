@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
-    ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle,
-    Banknote, TrendingDown, Clock, ShieldCheck, FileCheck2, CreditCard,
-    RefreshCw, ChevronRight,
+    ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
+    Banknote, TrendingDown, CreditCard,
+    ChevronRight,
 } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -14,8 +14,12 @@ import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
     useVendors, useDownPaymentRequests, useProcessDownPayment,
-    useInvoiceMatchings, useMatchInvoice,
 } from '../../procurement/hooks/useProcurement';
+import { useClearVendorAdvance } from '../hooks/useVendorAdvances';
+import {
+    JournalHeaderStrip, JournalLinesTable,
+    type JournalDetail,
+} from '../components/shared/JournalViewer';
 import { useBankAccounts } from '../../settings/hooks/useBankAccounts';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
@@ -32,7 +36,7 @@ const inp: React.CSSProperties = {
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
-type ActiveTab = 'payments' | 'verification' | 'advances';
+type ActiveTab = 'payments' | 'advances';
 
 // ─── domain row shapes ────────────────────────────────────────────────────
 // Minimal interfaces covering only the fields this page reads. Kept
@@ -55,6 +59,9 @@ interface VendorInvoiceRow {
     invoice_number: string;
     total_amount: string;
     paid_amount?: string;
+    // Authoritative outstanding from the serializer. Preferred over
+    // ``total_amount - paid_amount`` when present.
+    balance_due?: string;
 }
 interface PaymentVoucherRow {
     id: number;
@@ -77,24 +84,19 @@ interface PaymentRow {
     reference_number?: string;
     payment_voucher?: number | null;
     status: 'Draft' | 'Posted' | 'Cancelled' | string;
+    is_advance?: boolean;
     advance_remaining?: string;
     advance_type?: string;
-}
-interface MatchingRow {
-    id: number;
-    invoice_reference: string;
-    invoice_date: string;
-    invoice_amount: string;
-    variance_amount?: string;
-    status: 'Pending' | 'Matched' | string;
-    purchase_order?: number | null;
-    purchase_order_number?: string;
-    goods_received_note?: number | null;
-    grn_number?: string;
-    vendor_id?: number;
-    vendor_invoice?: number | null;
-    net_payable?: string;
-    payment_voucher_id?: number | null;
+    // Set by the backend serializer once an advance has been posted:
+    // the id of the VendorAdvance Special-GL ledger row that this
+    // Payment created. Used by the Clear button to call /clear/
+    // without an extra round-trip. Null for non-advance payments or
+    // advances that haven't been posted yet.
+    linked_vendor_advance_id?: number | null;
+    // JournalHeader FK id — set by post_payment / _post_advance_payment
+    // once the disbursement journal posts. Drives the View Journal
+    // button visibility (only Posted rows with a journal can be viewed).
+    journal_entry?: number | null;
 }
 interface DownPaymentRequestRow {
     id: number;
@@ -137,7 +139,17 @@ function extractApiErrorMessage(err: unknown, fallback: string): string {
 // fail silently in non-strict. The previous unfrozen template
 // caused every subsequent form open to inherit any mutation made by
 // earlier code paths.
-const BLANK_PAYMENT = Object.freeze({
+type PaymentForm = {
+    vendor: string; payment_date: string; total_amount: string;
+    payment_method: string; bank_account: string; reference_number: string;
+    invoice: string; payment_voucher: string;
+};
+type AdvanceForm = {
+    vendor: string; payment_date: string; total_amount: string;
+    payment_method: string; bank_account: string; reference_number: string;
+    advance_type: 'Vendor Advance' | 'Vendor Deposit';
+};
+const BLANK_PAYMENT: Readonly<PaymentForm> = Object.freeze({
     vendor: '', payment_date: new Date().toISOString().slice(0, 10),
     total_amount: '', payment_method: 'Wire', bank_account: '',
     reference_number: '', invoice: '',
@@ -146,10 +158,10 @@ const BLANK_PAYMENT = Object.freeze({
     // optional otherwise. Selecting a PV auto-fills the Vendor field.
     payment_voucher: '',
 });
-const BLANK_ADVANCE = Object.freeze({
+const BLANK_ADVANCE: Readonly<AdvanceForm> = Object.freeze({
     vendor: '', payment_date: new Date().toISOString().slice(0, 10),
     total_amount: '', payment_method: 'Wire', bank_account: '',
-    reference_number: '', advance_type: 'Vendor Advance' as 'Vendor Advance' | 'Vendor Deposit',
+    reference_number: '', advance_type: 'Vendor Advance',
 });
 
 // ─── inline notification ─────────────────────────────────────────────────────
@@ -222,10 +234,11 @@ function PaymentFormModal({
     /**
      * Optional pre-fill: merged with ``BLANK_PAYMENT`` so the modal
      * can open with vendor + amount + reference + allocated-invoice
-     * already populated when the caller is launching from a matched
-     * verification line. The vendor dropdown still resolves the
-     * vendor id back to the option in the list, so all auto-fill
-     * logic (filtered PVs, vendor invoices) continues to work.
+     * already populated when a caller (e.g. an upstream document
+     * surface) launches the New Payment flow. The vendor dropdown
+     * still resolves the vendor id back to the option in the list,
+     * so all auto-fill logic (filtered PVs, vendor invoices)
+     * continues to work.
      */
     initialValues?: Partial<typeof BLANK_PAYMENT>;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
@@ -236,9 +249,27 @@ function PaymentFormModal({
     const [form, setForm] = useState({ ...BLANK_PAYMENT, ...(initialValues || {}) });
     const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
-    const selectedVendorInvoices = openInvoices.filter(
-        (inv) => !form.vendor || String(inv.vendor) === form.vendor
-    );
+    // Outstanding balance for an invoice — prefer the serializer's
+    // ``balance_due``; fall back to ``total - paid`` when it's absent.
+    const invoiceOutstanding = (inv: VendorInvoiceRow): number => {
+        const bd = inv.balance_due != null ? parseFloat(inv.balance_due) : NaN;
+        if (Number.isFinite(bd)) return bd;
+        return (parseFloat(inv.total_amount) || 0) - (parseFloat(inv.paid_amount || '0') || 0);
+    };
+
+    // Only the SELECTED vendor's UNALLOCATED (outstanding) invoices.
+    // Previously the filter fell through to *all* invoices when no
+    // vendor was chosen (``!form.vendor || …``), so the picker showed
+    // unrelated rows before a supplier was even selected. Now it stays
+    // empty until a vendor is picked, then lists that vendor's open
+    // invoices (balance_due > 0) so the operator allocates only against
+    // what's still owed.
+    const selectedVendorInvoices = form.vendor
+        ? openInvoices.filter(
+            (inv) => String(inv.vendor) === form.vendor && invoiceOutstanding(inv) > 0.005,
+        )
+        : [];
+    const outstandingTotal = selectedVendorInvoices.reduce((s, inv) => s + invoiceOutstanding(inv), 0);
 
     // When a PV is selected we want to auto-populate the Vendor (and, where
     // sensible, the amount and narration). Similarly, selecting a Vendor
@@ -392,15 +423,27 @@ function PaymentFormModal({
                         </div>
                         <div>
                             <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Allocate to Invoice (optional)</label>
-                            <select style={sel} value={form.invoice} onChange={e => set('invoice', e.target.value)}>
+                            <select style={sel} value={form.invoice} onChange={e => set('invoice', e.target.value)} disabled={!form.vendor}>
                                 <option value="">— no allocation —</option>
-                                {selectedVendorInvoices?.map((inv) => (
+                                {selectedVendorInvoices.map((inv) => (
                                     <option key={inv.id} value={inv.id}>
-                                        {inv.invoice_number} · {inv.vendor_name} · Balance: {parseFloat(inv.total_amount) - parseFloat(inv.paid_amount || '0')}
+                                        {inv.invoice_number} · Outstanding: {invoiceOutstanding(inv).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </option>
                                 ))}
                             </select>
-                            <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>Only approved &amp; matched invoices can be posted.</p>
+                            {/* Vendor-aware helper. Until a supplier is chosen the
+                                picker has nothing to allocate against, so we say so
+                                instead of silently showing an empty/irrelevant list. */}
+                            {!form.vendor ? (
+                                <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>Select a vendor to see their open invoices.</p>
+                            ) : selectedVendorInvoices.length === 0 ? (
+                                <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>No open (unallocated) invoices for this supplier.</p>
+                            ) : (
+                                <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 0' }}>
+                                    <strong>{selectedVendorInvoices.length}</strong> open invoice{selectedVendorInvoices.length === 1 ? '' : 's'} ·
+                                    total outstanding <strong>{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                </p>
+                            )}
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
@@ -540,11 +583,11 @@ export default function OutgoingPaymentsPage() {
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [showAdvanceForm, setShowAdvanceForm] = useState(false);
     // Prefill carries vendor + amount + reference + allocated-invoice
-    // from a matched verification line into the New Outgoing Payment
-    // modal. Set when the user clicks "Create Payment" on a Matched
-    // row in the Verification tab; consumed by ``PaymentFormModal``
-    // via its ``initialValues`` prop; cleared on close so the next
-    // standalone "+ New Payment" click opens an empty form again.
+    // into the New Outgoing Payment modal when an upstream surface
+    // launches the flow (e.g. a downstream "raise payment" button on
+    // another page). Consumed by ``PaymentFormModal`` via its
+    // ``initialValues`` prop; cleared on close so the next standalone
+    // "+ New Payment" click opens an empty form again.
     const [paymentPrefill, setPaymentPrefill] = useState<Partial<typeof BLANK_PAYMENT> | null>(null);
     // When the user clicks "Post" on an existing Draft payment row, we
     // open the same prefilled modal — but the submit handler then
@@ -558,16 +601,47 @@ export default function OutgoingPaymentsPage() {
     // Confirm modals
     const [postConfirm, setPostConfirm] = useState<{ id: number; number: string } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; number: string } | null>(null);
-    const [matchConfirm, setMatchConfirm] = useState<{ id: number; ref: string } | null>(null);
     const [processAdvanceConfirm, setProcessAdvanceConfirm] = useState<{ id: number; ref: string } | null>(null);
+
+    // Clear-advance modal. Opens when the operator clicks Clear on a
+    // Posted advance row. Carries the linked VendorAdvance id (to call
+    // /clear/ against), the vendor (to filter the invoice picker),
+    // and the remaining balance (to cap the allocation amount).
+    const [clearAdvance, setClearAdvance] = useState<{
+        advanceId: number;
+        paymentNumber: string;
+        vendorId: number | null;
+        vendorName: string;
+        outstanding: string;
+    } | null>(null);
+
+    // View-journal modal. Opens when the operator clicks the Eye icon
+    // on a Posted row in either tab. Carries the JournalHeader id to
+    // fetch + the source row's display context so the modal title and
+    // breadcrumbs match (e.g. "Journal for Payment PAY-0042 — ₦20,000").
+    const [viewJournalFor, setViewJournalFor] = useState<{
+        journalId: number;
+        sourceLabel: string;
+        amount: string;
+        isAdvance: boolean;
+    } | null>(null);
 
     // ─── queries ─────────────────────────────────────────────────────────────
     const { data: payments, isLoading: loadingPayments } = usePayments({ is_advance: false });
     const { data: advances, isLoading: loadingAdvances } = usePayments({ is_advance: true });
     const { data: vendors } = useVendors();
     const { data: bankAccounts } = useBankAccounts({ is_active: true });
-    const { data: openInvoices } = useVendorInvoices({ status: 'Approved' });
-    const { data: invoiceMatchings, isLoading: loadingMatchings } = useInvoiceMatchings({});
+    // Allocation pickers (New Payment + Clear Advance) need every PAYABLE
+    // invoice for the vendor — not just status=Approved. ``Posted`` is the
+    // primary payable state (AP recognised the moment the invoice posts,
+    // still unpaid); ``Partially Paid`` has a residual balance. The
+    // client-side ``balance_due > 0`` filter then drops anything settled.
+    // page_size is raised because the picker filters client-side by vendor,
+    // so the whole payable set must arrive in one page (default was 20).
+    const { data: openInvoices } = useVendorInvoices({
+        status__in: 'Approved,Posted,Partially Paid',
+        page_size: 1000,
+    });
     const { data: downPaymentRequests, isLoading: loadingDPR } = useDownPaymentRequests({ status: 'Approved' });
 
     // Tenant-level setting: whether a PV must back every outgoing payment.
@@ -598,8 +672,8 @@ export default function OutgoingPaymentsPage() {
     const createAllocation = useCreatePaymentAllocation();
     const postPayment = usePostPayment();
     const deletePayment = useDeletePayment();
-    const matchInvoice = useMatchInvoice();
     const processDownPayment = useProcessDownPayment();
+    const clearAdvanceMut = useClearVendorAdvance();
 
     // ─── helpers ──────────────────────────────────────────────────────────────
     const showSuccess = (msg: string) => { setNotification({ msg, type: 'success' }); setTimeout(() => setNotification(null), 3500); };
@@ -617,10 +691,6 @@ export default function OutgoingPaymentsPage() {
     const pendingPosting  = paymentsList.filter(p => p.status === 'Draft').length;
     const postedCount     = paymentsList.filter(p => p.status === 'Posted').length;
     const advanceBalance  = advancesList.reduce((s, p) => s + parseFloat(p.advance_remaining || '0'), 0);
-    const matchingsList: MatchingRow[] = Array.isArray(invoiceMatchings)
-        ? (invoiceMatchings as MatchingRow[])
-        : ((invoiceMatchings as { results?: MatchingRow[] } | undefined)?.results ?? []);
-    const pendingMatching = matchingsList.filter((m) => m.status === 'Pending').length;
 
     // ─── handlers ─────────────────────────────────────────────────────────────
     const handleSubmitPayment = async (form: typeof BLANK_PAYMENT) => {
@@ -629,8 +699,7 @@ export default function OutgoingPaymentsPage() {
         //  1. CREATE-NEW (editingPaymentId === null): POST a fresh
         //     Payment, optionally allocate to an invoice, leave it in
         //     Draft for a follow-up Post action. This is the standalone
-        //     "+ New Payment" path and the "Create Payment" path from
-        //     the Matched verification line.
+        //     "+ New Payment" path and any upstream prefilled-launch path.
         //
         //  2. EDIT-AND-POST (editingPaymentId is a number): PATCH the
         //     existing Draft with the form's values (most importantly,
@@ -695,7 +764,7 @@ export default function OutgoingPaymentsPage() {
                 });
             }
             setShowPaymentForm(false);
-            // Clear any verification-line prefill so the next click of
+            // Clear any upstream prefill so the next click of
             // "+ New Payment" opens an empty form.
             setPaymentPrefill(null);
             showSuccess('Payment saved successfully.');
@@ -744,18 +813,6 @@ export default function OutgoingPaymentsPage() {
         } catch (err: unknown) {
             setDeleteConfirm(null);
             showError(extractApiErrorMessage(err, 'Failed to delete payment.'));
-        }
-    };
-
-    const handleMatch = async () => {
-        if (!matchConfirm) return;
-        try {
-            await matchInvoice.mutateAsync({ id: matchConfirm.id });
-            setMatchConfirm(null);
-            showSuccess(`Invoice matching ${matchConfirm.ref} approved.`);
-        } catch (err: unknown) {
-            setMatchConfirm(null);
-            showError(extractApiErrorMessage(err, 'Failed to approve matching.'));
         }
     };
 
@@ -863,108 +920,28 @@ export default function OutgoingPaymentsPage() {
                                                     </button>
                                                 </>
                                             )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-
-    // ─── invoice verification tab ─────────────────────────────────────────────
-    const matchings = matchingsList;
-
-    const verificationTabJSX = (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Invoice Verification (3-Way Match)</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Review PO → GRN → Invoice matchings before releasing payment</p>
-                </div>
-            </div>
-            <div style={{
-                display: 'flex', alignItems: 'flex-start', gap: '10px',
-                background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px',
-                padding: '12px 16px', marginBottom: '20px',
-            }}>
-                <ShieldCheck size={16} color="#2563eb" style={{ marginTop: '1px', flexShrink: 0 }} />
-                <p style={{ margin: 0, fontSize: '13px', color: '#1e40af', lineHeight: 1.5 }}>
-                    Payments can only be posted after invoices are matched. Approve pending matchings here to unlock payment posting.
-                </p>
-            </div>
-
-            {loadingMatchings ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading matchings…</div>
-            ) : !matchings.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
-                    <FileCheck2 size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No invoice matchings found. Create them from the Procurement module.</p>
-                </div>
-            ) : (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                            <tr style={{ background: '#f8fafc' }}>
-                                {['Invoice Ref', 'PO', 'GRN', 'Invoice Date', 'Amount', 'Variance', 'Status', 'Actions'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {matchings.map((m) => (
-                                <tr key={m.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{m.invoice_reference}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{m.purchase_order_number || m.purchase_order || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{m.grn_number || m.goods_received_note || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{m.invoice_date}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#1e293b' }}>{formatCurrency(m.invoice_amount)}</td>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {m.variance_amount && parseFloat(m.variance_amount) !== 0
-                                            ? <span style={{ color: '#d97706', fontWeight: 600 }}>{formatCurrency(m.variance_amount)}</span>
-                                            : <span style={{ color: '#16a34a', fontSize: '12px' }}>None</span>}
-                                    </td>
-                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={m.status} /></td>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {m.status === 'Pending' && (
-                                            <button onClick={() => setMatchConfirm({ id: m.id, ref: m.invoice_reference })}
-                                                style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                <CheckCircle2 size={12} /> Approve Match
-                                            </button>
-                                        )}
-                                        {m.status === 'Matched' && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontSize: '12px', fontWeight: 600 }}>
-                                                    <CheckCircle2 size={12} /> Matched
-                                                </span>
-                                                {/* Create Payment — prefill the New Outgoing
-                                                    Payment form from this matched line.
-                                                    Vendor + amount + reference + allocated
-                                                    invoice come straight off the matching
-                                                    row, so the operator just confirms the
-                                                    method/date/bank and saves. */}
+                                            {/* View Accounting Entry — visible only when the
+                                                payment has been posted AND a journal id is
+                                                set. Opens an inline modal showing the
+                                                journal header + DR/CR lines so the operator
+                                                can audit the posting without leaving the
+                                                Outgoing Payments workflow. */}
+                                            {pay.status === 'Posted' && pay.journal_entry && (
                                                 <button
-                                                    onClick={() => {
-                                                        setPaymentPrefill({
-                                                            vendor: m.vendor_id ? String(m.vendor_id) : '',
-                                                            // Prefer net_payable (handles downpayment
-                                                            // deductions); fall back to invoice_amount.
-                                                            total_amount: String(m.net_payable ?? m.invoice_amount ?? ''),
-                                                            reference_number: m.invoice_reference || '',
-                                                            invoice: m.vendor_invoice ? String(m.vendor_invoice) : '',
-                                                            payment_voucher: m.payment_voucher_id ? String(m.payment_voucher_id) : '',
-                                                        });
-                                                        setShowPaymentForm(true);
-                                                    }}
-                                                    title="Create an outgoing payment for this matched invoice"
-                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#fef3c7', color: '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}
-                                                >
-                                                    <Play size={12} /> Create Payment
+                                                    onClick={() => setViewJournalFor({
+                                                        journalId: pay.journal_entry as number,
+                                                        sourceLabel: `Payment ${pay.payment_number}`,
+                                                        amount: pay.total_amount,
+                                                        isAdvance: false,
+                                                    })}
+                                                    title="View accounting entry (journal)"
+                                                    aria-label={`View journal for ${pay.payment_number}`}
+                                                    type="button"
+                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                    <Eye size={12} /> View
                                                 </button>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -1053,7 +1030,7 @@ export default function OutgoingPaymentsPage() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px' }}>
                     <AlertTriangle size={14} color="#d97706" style={{ marginTop: '1px', flexShrink: 0 }} />
                     <p style={{ margin: 0, fontSize: '12px', color: '#92400e' }}>
-                        Manual advances are recorded for reference only. To post an advance to the GL, create a <strong>Down Payment Request</strong> in the Procurement module, get it approved, then use the "Process" button in the section above.
+                        Manual advances start as <strong>Draft</strong>. Click <strong>Post</strong> on a draft row to confirm the bank account and push the disbursement journal to the GL — same flow as the Payments tab.
                     </p>
                 </div>
                 {loadingAdvances ? (
@@ -1067,7 +1044,7 @@ export default function OutgoingPaymentsPage() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                             <thead>
                                 <tr style={{ background: '#fffbeb' }}>
-                                    {['Payment #', 'Vendor', 'Date', 'Amount', 'Type', 'Remaining', 'Status'].map(h => (
+                                    {['Payment #', 'Vendor', 'Date', 'Amount', 'Type', 'Remaining', 'Status', 'Actions'].map(h => (
                                         <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#92400e', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #fde68a', whiteSpace: 'nowrap' }}>{h}</th>
                                     ))}
                                 </tr>
@@ -1084,6 +1061,104 @@ export default function OutgoingPaymentsPage() {
                                             {formatCurrency(adv.advance_remaining || '0')}
                                         </td>
                                         <td style={{ padding: '11px 14px' }}><StatusBadge status={adv.status} /></td>
+                                        <td style={{ padding: '11px 14px' }}>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                {adv.status === 'Draft' && (
+                                                    <>
+                                                        {/* Post — opens the Payment modal
+                                                            prefilled with this advance's
+                                                            values (vendor / amount / method /
+                                                            ref / PV / bank) so the operator
+                                                            can confirm or change the bank
+                                                            account before posting to GL.
+                                                            ``editingPaymentId`` flags the
+                                                            submit handler to PATCH + post
+                                                            instead of POST-create. Backed by
+                                                            the same ``postPayment`` mutation
+                                                            the Payments tab uses — but the
+                                                            backend routes is_advance=true to
+                                                            ``VendorAdvanceService.disburse``
+                                                            so the journal becomes
+                                                            DR Vendor-Advance Recon / CR Cash
+                                                            (F-48) instead of the standard
+                                                            DR AP / CR Bank (which would need
+                                                            allocations the advance doesn't have). */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingPaymentId(adv.id);
+                                                                setPaymentPrefill({
+                                                                    vendor: adv.vendor ? String(adv.vendor) : '',
+                                                                    payment_date: adv.payment_date || new Date().toISOString().slice(0, 10),
+                                                                    total_amount: String(adv.total_amount ?? ''),
+                                                                    payment_method: adv.payment_method || 'Wire',
+                                                                    bank_account: adv.bank_account ? String(adv.bank_account) : '',
+                                                                    reference_number: adv.reference_number || '',
+                                                                    payment_voucher: adv.payment_voucher ? String(adv.payment_voucher) : '',
+                                                                });
+                                                                setShowPaymentForm(true);
+                                                            }}
+                                                            title="Post advance — review bank account first"
+                                                            style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                            <Play size={12} /> Post
+                                                        </button>
+                                                        <button onClick={() => setDeleteConfirm({ id: adv.id, number: adv.payment_number })}
+                                                            title="Delete"
+                                                            aria-label={`Delete advance ${adv.payment_number}`}
+                                                            type="button"
+                                                            style={{ padding: '5px 8px', border: 'none', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', cursor: 'pointer' }}>
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {/* Clear (F-54) — visible on Posted advances
+                                                    that still have an outstanding balance
+                                                    AND a linked VendorAdvance row (set by
+                                                    the backend serializer once the F-48
+                                                    disburse journal has posted). Opens the
+                                                    Clear-Advance modal where the operator
+                                                    picks an invoice to allocate against and
+                                                    enters the amount to recover. */}
+                                                {adv.status === 'Posted'
+                                                    && adv.linked_vendor_advance_id
+                                                    && parseFloat(adv.advance_remaining || '0') > 0 && (
+                                                    <button
+                                                        onClick={() => setClearAdvance({
+                                                            advanceId: adv.linked_vendor_advance_id as number,
+                                                            paymentNumber: adv.payment_number,
+                                                            vendorId: adv.vendor,
+                                                            vendorName: adv.vendor_name || '',
+                                                            outstanding: adv.advance_remaining || '0',
+                                                        })}
+                                                        title="Clear / Allocate advance against an invoice (F-54)"
+                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dbeafe', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                        <CheckCircle2 size={12} /> Clear
+                                                    </button>
+                                                )}
+                                                {/* View Accounting Entry — same as the
+                                                    Payments tab. For F-48 advance posts the
+                                                    journal is:
+                                                       DR Vendor-Advance Recon   amount
+                                                       CR Cash / Bank                    amount
+                                                    so the operator can confirm the disbursement
+                                                    journal actually posted against the right
+                                                    GLs without leaving the page. */}
+                                                {adv.status === 'Posted' && adv.journal_entry && (
+                                                    <button
+                                                        onClick={() => setViewJournalFor({
+                                                            journalId: adv.journal_entry as number,
+                                                            sourceLabel: `Advance ${adv.payment_number}`,
+                                                            amount: adv.total_amount,
+                                                            isAdvance: true,
+                                                        })}
+                                                        title="View accounting entry (journal)"
+                                                        aria-label={`View journal for ${adv.payment_number}`}
+                                                        type="button"
+                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                        <Eye size={12} /> View
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1121,7 +1196,6 @@ export default function OutgoingPaymentsPage() {
                 <SummaryCard label="Pending Posting" value={pendingPosting} sub="Draft payments" accent="#3b82f6" />
                 <SummaryCard label="Posted" value={postedCount} sub="This period" accent="#10b981" />
                 <SummaryCard label="Advance Balance" value={formatCurrency(advanceBalance)} sub="Outstanding vendor advances" accent="#8b5cf6" />
-                <SummaryCard label="Pending Match" value={pendingMatching} sub="Invoices to verify" accent="#ef4444" />
             </div>
 
             {notification && (
@@ -1132,9 +1206,8 @@ export default function OutgoingPaymentsPage() {
             <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 6px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                     {([
-                        { key: 'payments',     label: 'Payments',             icon: <CreditCard size={14} /> },
-                        { key: 'verification', label: 'Invoice Verification',  icon: <FileCheck2 size={14} /> },
-                        { key: 'advances',     label: 'Vendor Advances',       icon: <TrendingDown size={14} /> },
+                        { key: 'payments', label: 'Payments',         icon: <CreditCard size={14} /> },
+                        { key: 'advances', label: 'Vendor Advances',  icon: <TrendingDown size={14} /> },
                     ] as { key: ActiveTab; label: string; icon: React.ReactNode }[]).map(tab => (
                         <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
@@ -1146,16 +1219,12 @@ export default function OutgoingPaymentsPage() {
                             transition: 'all 0.15s',
                         }}>
                             {tab.icon} {tab.label}
-                            {tab.key === 'verification' && pendingMatching > 0 && (
-                                <span style={{ background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 6px', fontSize: '10px', fontWeight: 700 }}>{pendingMatching}</span>
-                            )}
                         </button>
                     ))}
                 </div>
                 <div style={{ padding: '24px' }}>
-                    {activeTab === 'payments'     && paymentsTabJSX}
-                    {activeTab === 'verification' && verificationTabJSX}
-                    {activeTab === 'advances'     && advancesTabJSX}
+                    {activeTab === 'payments' && paymentsTabJSX}
+                    {activeTab === 'advances' && advancesTabJSX}
                 </div>
             </div>
 
@@ -1204,16 +1273,6 @@ export default function OutgoingPaymentsPage() {
                     onCancel={() => setDeleteConfirm(null)}
                 />
             )}
-            {matchConfirm && (
-                <ConfirmModal
-                    title="Approve Invoice Match"
-                    message={`Mark invoice ${matchConfirm.ref} as Matched? This will allow payments against this invoice to be posted.`}
-                    confirmLabel="Approve Match"
-                    confirmColor="#2563eb"
-                    onConfirm={handleMatch}
-                    onCancel={() => setMatchConfirm(null)}
-                />
-            )}
             {processAdvanceConfirm && (
                 <ConfirmModal
                     title="Process Down Payment"
@@ -1224,6 +1283,464 @@ export default function OutgoingPaymentsPage() {
                     onCancel={() => setProcessAdvanceConfirm(null)}
                 />
             )}
+            {clearAdvance && (
+                <ClearAdvanceModal
+                    state={clearAdvance}
+                    invoices={(openInvoices ?? []) as InvoiceOption[]}
+                    formatCurrency={formatCurrency}
+                    isLoading={clearAdvanceMut.isPending}
+                    onCancel={() => setClearAdvance(null)}
+                    onSubmit={async (allocations) => {
+                        // Multi-invoice fan-out. Each /clear/ call is
+                        // atomic on the backend (row-locked advance + own
+                        // contra journal); we run them sequentially so an
+                        // earlier failure short-circuits the rest — that
+                        // avoids posting a partial set with the operator
+                        // unaware which lines landed. ``allSettled`` would
+                        // be safer-on-partial but harder to reason about
+                        // for accounting integrity, so we serialise.
+                        const results: Array<{ ok: boolean; ref: string; amount: string; err?: string }> = [];
+                        for (const alloc of allocations) {
+                            try {
+                                await clearAdvanceMut.mutateAsync({
+                                    id: clearAdvance.advanceId,
+                                    amount: alloc.amount,
+                                    cleared_against_type: 'AP_INVOICE',
+                                    cleared_against_id: alloc.invoiceId,
+                                    cleared_against_reference: alloc.invoiceRef,
+                                });
+                                results.push({ ok: true, ref: alloc.invoiceRef, amount: alloc.amount });
+                            } catch (err: unknown) {
+                                const msg = extractApiErrorMessage(err, 'Failed to clear advance.');
+                                results.push({ ok: false, ref: alloc.invoiceRef, amount: alloc.amount, err: msg });
+                                break;
+                            }
+                        }
+                        const okCount = results.filter((r) => r.ok).length;
+                        const failed = results.find((r) => !r.ok);
+                        if (failed) {
+                            showError(
+                                `Cleared ${okCount} of ${allocations.length} allocations before failure on `
+                                + `${failed.ref}: ${failed.err}`,
+                            );
+                            // Leave the modal open so the operator can see
+                            // which lines remain and retry / adjust.
+                        } else {
+                            setClearAdvance(null);
+                            const totalCleared = results.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+                            showSuccess(
+                                `Cleared ${formatCurrency(totalCleared)} of advance `
+                                + `${clearAdvance.paymentNumber} across ${okCount} invoice${okCount === 1 ? '' : 's'}.`,
+                            );
+                        }
+                    }}
+                />
+            )}
+            {viewJournalFor && (
+                <JournalViewModal
+                    journalId={viewJournalFor.journalId}
+                    sourceLabel={viewJournalFor.sourceLabel}
+                    amount={viewJournalFor.amount}
+                    isAdvance={viewJournalFor.isAdvance}
+                    formatCurrency={formatCurrency}
+                    onClose={() => setViewJournalFor(null)}
+                />
+            )}
         </AccountingLayout>
     );
 }
+
+// ─── Journal View Modal ──────────────────────────────────────────────
+// Modal wrapper. The actual journal rendering (header strip + lines
+// table) comes from the canonical shared components — see
+// ``features/accounting/components/shared/JournalViewer``. This
+// component owns only the modal chrome (overlay, title bar, footer
+// with "Open in Journals" deep-link) + the React Query call that
+// fetches the journal. Consumer-specific bits like the F-48 ADVANCE
+// pill stay here because they're not part of the journal display
+// itself — they're context about *what* is being shown.
+
+interface JournalViewModalProps {
+    journalId: number;
+    sourceLabel: string;
+    amount: string;
+    isAdvance: boolean;
+    formatCurrency: (n: number | string) => string;
+    onClose: () => void;
+}
+
+function JournalViewModal({
+    journalId, sourceLabel, amount, isAdvance, formatCurrency, onClose,
+}: JournalViewModalProps) {
+    const { data: journal, isLoading, error } = useQuery<JournalDetail>({
+        queryKey: ['journal-view', journalId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
+            return data;
+        },
+        enabled: !!journalId,
+    });
+
+    return (
+        <div style={modalOverlayStyle}>
+            <div style={{ ...modalCardStyle, maxWidth: 880 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                            Accounting Entry
+                        </h3>
+                        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                            <strong>{sourceLabel}</strong> · {formatCurrency(amount)}
+                            {isAdvance && (
+                                <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#ede9fe', color: '#6d28d9' }}>
+                                    F-48 ADVANCE
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        aria-label="Close"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4 }}
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {isLoading && (
+                    <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                        Loading journal…
+                    </div>
+                )}
+
+                {error && (
+                    <div style={{ padding: 16, marginTop: 8, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 13 }}>
+                        Failed to load journal #{journalId}. {(error as Error)?.message ?? 'Please try again.'}
+                    </div>
+                )}
+
+                {journal && (
+                    <>
+                        <div style={{ marginTop: 12 }}>
+                            <JournalHeaderStrip journal={journal} formatCurrency={formatCurrency} />
+                        </div>
+                        <div style={{ marginTop: 14 }}>
+                            <JournalLinesTable
+                                lines={journal.lines}
+                                formatCurrency={formatCurrency}
+                                emptyMessage="This journal has no lines."
+                            />
+                        </div>
+
+                        {/* Footer — Close + Open in Journals (canonical full-page viewer) */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 16 }}>
+                            <a
+                                href={`/accounting/journals/${journalId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#1e4d8c', fontWeight: 600, fontSize: 12, textDecoration: 'none' }}
+                            >
+                                <BookOpen size={14} /> Open in Journals
+                            </a>
+                            <button
+                                onClick={onClose}
+                                style={{ padding: '8px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#475569', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ─── Clear Advance Modal (F-54) ──────────────────────────────────────
+// Operator allocates a posted advance against an open vendor invoice.
+// Posts the contra journal: DR Real-AP / CR Vendor-Advance Recon.
+// Filters the invoice picker to invoices for the same vendor so the
+// operator can't accidentally cross-allocate to another vendor's
+// payable. The amount input is capped at the outstanding balance.
+
+interface InvoiceOption {
+    id: number;
+    invoice_number?: string;
+    vendor?: number | null;
+    total_amount?: string | number;
+    balance_due?: string | number;
+    status?: string;
+}
+
+// One allocation line inside the Clear modal. The operator can add
+// many of these — each becomes one /clear/ POST when the form submits.
+interface AllocationLine {
+    rowKey: string;        // local-only React list key; not sent to backend
+    invoiceId: number | '';
+    amount: string;
+}
+
+interface SubmittedAllocation {
+    invoiceId: number;
+    invoiceRef: string;
+    amount: string;
+}
+
+interface ClearAdvanceModalProps {
+    state: {
+        advanceId: number;
+        paymentNumber: string;
+        vendorId: number | null;
+        vendorName: string;
+        outstanding: string;
+    };
+    invoices: InvoiceOption[];
+    formatCurrency: (n: number | string) => string;
+    isLoading: boolean;
+    onCancel: () => void;
+    onSubmit: (allocations: SubmittedAllocation[]) => void | Promise<void>;
+}
+
+function ClearAdvanceModal({
+    state, invoices, formatCurrency, isLoading, onCancel, onSubmit,
+}: ClearAdvanceModalProps) {
+    const outstandingNum = parseFloat(state.outstanding) || 0;
+    // Same-vendor AND still-unallocated (outstanding balance > 0). An
+    // invoice already fully paid/cleared has nothing left to allocate
+    // the advance against, so it's excluded from the picker.
+    const invoiceBalance = (inv: InvoiceOption): number =>
+        parseFloat(String(inv.balance_due ?? inv.total_amount ?? '0')) || 0;
+    const vendorInvoices = invoices.filter((inv) =>
+        (state.vendorId == null || inv.vendor === state.vendorId)
+        && invoiceBalance(inv) > 0.005,
+    );
+
+    // Seed with one empty allocation row. The operator can Add more
+    // and Remove individual rows. Default amount is the full
+    // outstanding so the most common single-invoice case is one click.
+    const [rows, setRows] = useState<AllocationLine[]>([
+        { rowKey: 'r0', invoiceId: '', amount: state.outstanding },
+    ]);
+
+    const updateRow = (key: string, patch: Partial<AllocationLine>) => {
+        setRows((prev) => prev.map((r) => (r.rowKey === key ? { ...r, ...patch } : r)));
+    };
+    const addRow = () => {
+        setRows((prev) => [
+            ...prev,
+            { rowKey: `r${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, invoiceId: '', amount: '' },
+        ]);
+    };
+    const removeRow = (key: string) => {
+        setRows((prev) => (prev.length === 1 ? prev : prev.filter((r) => r.rowKey !== key)));
+    };
+
+    // Per-invoice usage map — used to show the "balance left on this
+    // invoice if the rest of the form submits" hint without forcing the
+    // operator to compute it in their head. Also catches the case where
+    // two rows pick the same invoice and over-allocate it.
+    const allocByInvoice: Record<number, number> = {};
+    rows.forEach((r) => {
+        if (r.invoiceId !== '') {
+            const n = parseFloat(r.amount) || 0;
+            allocByInvoice[r.invoiceId] = (allocByInvoice[r.invoiceId] || 0) + n;
+        }
+    });
+
+    const totalAllocated = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+    const advanceRemaining = outstandingNum - totalAllocated;
+    const overAllocated = advanceRemaining < -0.005;     // tolerate fp noise
+
+    // Per-row validity. A row is valid when it has an invoice picked,
+    // the amount is positive, the amount is ≤ the invoice's balance
+    // (minus this row's own contribution so the check doesn't double-
+    // subtract), AND the cumulative sum across all rows fits in the
+    // advance.
+    const rowProblems = rows.map((r) => {
+        if (r.invoiceId === '') return 'no-invoice';
+        const inv = vendorInvoices.find((i) => i.id === r.invoiceId);
+        if (!inv) return 'invoice-missing';
+        const bal = parseFloat(String(inv.balance_due ?? inv.total_amount ?? '0')) || 0;
+        const n = parseFloat(r.amount) || 0;
+        if (n <= 0) return 'zero';
+        // The cumulative allocation to THIS invoice across all rows
+        // must not exceed its balance.
+        if ((allocByInvoice[r.invoiceId] || 0) > bal + 0.005) return 'over-invoice';
+        return null;
+    });
+
+    const submitDisabled = isLoading
+        || overAllocated
+        || totalAllocated <= 0
+        || rowProblems.some((p) => p !== null);
+
+    const handleSubmit = () => {
+        const payload: SubmittedAllocation[] = rows
+            .filter((r) => r.invoiceId !== '' && (parseFloat(r.amount) || 0) > 0)
+            .map((r) => {
+                const inv = vendorInvoices.find((i) => i.id === r.invoiceId);
+                return {
+                    invoiceId: r.invoiceId as number,
+                    invoiceRef: inv?.invoice_number ?? `INV-${inv?.id ?? r.invoiceId}`,
+                    amount: r.amount,
+                };
+            });
+        if (payload.length === 0) return;
+        onSubmit(payload);
+    };
+
+    return (
+        <div style={modalOverlayStyle}>
+            <div style={{ ...modalCardStyle, maxWidth: 760 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                    Clear Advance (F-54)
+                </h3>
+                <p style={{ margin: '6px 0 16px', fontSize: 13, color: '#64748b' }}>
+                    Allocate advance <strong>{state.paymentNumber}</strong> for <strong>{state.vendorName}</strong> across one or more outstanding invoices.
+                    Each allocation posts its own contra journal: <strong>DR Accounts Payable / CR Vendor Advance Recon</strong>.
+                </p>
+
+                {/* Running-balance summary card. Tints amber if there's
+                    still a residual after the planned allocations, red
+                    if the planned set over-allocates the advance. */}
+                <div style={{
+                    background: overAllocated ? '#fef2f2' : advanceRemaining > 0.005 ? '#fffbeb' : '#f0fdf4',
+                    border: `1px solid ${overAllocated ? '#fecaca' : advanceRemaining > 0.005 ? '#fde68a' : '#bbf7d0'}`,
+                    borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13,
+                    display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+                }}>
+                    <div><strong>Outstanding on advance:</strong> {formatCurrency(outstandingNum)}</div>
+                    <div><strong>Total allocated:</strong> {formatCurrency(totalAllocated)}</div>
+                    <div style={{ color: overAllocated ? '#991b1b' : advanceRemaining > 0.005 ? '#92400e' : '#166534', fontWeight: 700 }}>
+                        {overAllocated
+                            ? `Over by ${formatCurrency(Math.abs(advanceRemaining))}`
+                            : `Remaining after submit: ${formatCurrency(Math.max(0, advanceRemaining))}`}
+                    </div>
+                </div>
+
+                {vendorInvoices.length === 0 && (
+                    <div style={{ marginBottom: 14, padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e' }}>
+                        No open invoices found for this vendor. Post the vendor's invoice first, then return to clear the advance.
+                    </div>
+                )}
+
+                {/* Allocation rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                    {rows.map((r, idx) => {
+                        const inv = vendorInvoices.find((i) => i.id === r.invoiceId);
+                        const bal = inv ? parseFloat(String(inv.balance_due ?? inv.total_amount ?? '0')) || 0 : 0;
+                        const usedOnThisInvoice = inv ? (allocByInvoice[inv.id] || 0) : 0;
+                        const balanceLeftAfter = bal - usedOnThisInvoice;
+                        const problem = rowProblems[idx];
+                        return (
+                            <div key={r.rowKey} style={{
+                                display: 'grid', gridTemplateColumns: '1fr 180px 36px', gap: 8,
+                                alignItems: 'start',
+                                padding: '8px 10px', background: '#f8fafc',
+                                border: `1px solid ${problem ? '#fecaca' : '#e2e8f0'}`,
+                                borderRadius: 8,
+                            }}>
+                                <div>
+                                    <select
+                                        value={r.invoiceId === '' ? '' : String(r.invoiceId)}
+                                        onChange={(e) => updateRow(r.rowKey, {
+                                            invoiceId: e.target.value === '' ? '' : Number(e.target.value),
+                                        })}
+                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: 12, background: '#fff' }}
+                                    >
+                                        <option value="">— Select invoice —</option>
+                                        {vendorInvoices.map((opt) => {
+                                            const optBal = parseFloat(String(opt.balance_due ?? opt.total_amount ?? '0')) || 0;
+                                            return (
+                                                <option key={opt.id} value={opt.id}>
+                                                    {opt.invoice_number ?? `#${opt.id}`} — balance {formatCurrency(optBal)}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                    {inv && (
+                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                            Balance after this allocation: <strong>{formatCurrency(balanceLeftAfter)}</strong>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Amount"
+                                        value={r.amount}
+                                        onChange={(e) => updateRow(r.rowKey, { amount: e.target.value })}
+                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}
+                                    />
+                                    {problem === 'over-invoice' && (
+                                        <div style={{ fontSize: 10, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
+                                            Exceeds invoice balance
+                                        </div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => removeRow(r.rowKey)}
+                                    disabled={rows.length === 1}
+                                    title={rows.length === 1 ? 'Need at least one allocation' : 'Remove this allocation'}
+                                    style={{
+                                        padding: '7px 8px', border: 'none', borderRadius: 6,
+                                        background: rows.length === 1 ? '#f1f5f9' : '#fee2e2',
+                                        color: rows.length === 1 ? '#cbd5e1' : '#dc2626',
+                                        cursor: rows.length === 1 ? 'not-allowed' : 'pointer',
+                                        height: 'fit-content',
+                                    }}
+                                >
+                                    <Trash2 size={13} />
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <button
+                    onClick={addRow}
+                    disabled={vendorInvoices.length === 0}
+                    style={{
+                        padding: '7px 14px', border: '1px dashed #94a3b8', borderRadius: 6,
+                        background: '#fff', color: '#475569', cursor: vendorInvoices.length === 0 ? 'not-allowed' : 'pointer',
+                        fontSize: 12, fontWeight: 600, marginBottom: 16,
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        opacity: vendorInvoices.length === 0 ? 0.5 : 1,
+                    }}
+                >
+                    <Plus size={13} /> Add another allocation
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button
+                        onClick={onCancel}
+                        disabled={isLoading}
+                        style={{ padding: '9px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#475569', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={submitDisabled}
+                        style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: '#1d4ed8', color: '#fff', cursor: submitDisabled ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 13, opacity: submitDisabled ? 0.5 : 1 }}
+                    >
+                        {isLoading ? 'Clearing…' : `Post ${rows.filter((r) => r.invoiceId !== '').length} Clearance${rows.filter((r) => r.invoiceId !== '').length === 1 ? '' : 's'}`}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const modalOverlayStyle: React.CSSProperties = {
+    position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.45)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 1000, padding: 20,
+};
+
+const modalCardStyle: React.CSSProperties = {
+    background: '#fff', borderRadius: 14, padding: '22px 24px',
+    width: '100%', boxShadow: '0 20px 50px -12px rgba(0,0,0,0.25)',
+};

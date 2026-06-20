@@ -9,7 +9,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, AlertCircle, Plus, X, FileSpreadsheet, Calendar, Info } from 'lucide-react';
+import { Save, AlertCircle, Plus, X, FileSpreadsheet, Calendar, Info } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
@@ -18,16 +18,6 @@ import {
     useAppropriationsList,
 } from '../../hooks/useGovForms';
 import '../../features/accounting/styles/glassmorphism.css';
-
-const selectStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.625rem',
-    borderRadius: '6px',
-    border: '2.5px solid var(--color-border)',
-    background: 'var(--color-surface)',
-    color: 'var(--color-text)',
-    fontSize: 'var(--text-xs)',
-};
 
 const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -40,17 +30,7 @@ const inputStyle: React.CSSProperties = {
     textAlign: 'right',
 };
 
-const lblStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '0.65rem',
-    fontWeight: 600,
-    color: 'var(--color-text-muted)',
-    marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.04em',
-};
-
-const APPROPRIATION_TYPES = [
+const APPROPRIATION_TYPES: [string, string][] = [
     ['ORIGINAL', 'Original Appropriation'],
     ['SUPPLEMENTARY', 'Supplementary Appropriation'],
     ['VIREMENT', 'Virement (Transfer)'],
@@ -91,6 +71,9 @@ export default function AppropriationForm() {
     const [lines, setLines] = useState<BudgetLine[]>([
         { id: '1', economic: '', functional: '', programme: '', geographic: '', amount_approved: '', description: '' },
     ]);
+
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
 
     const setH = (field: string, value: string) => setHeader(prev => ({ ...prev, [field]: value }));
 
@@ -286,11 +269,22 @@ export default function AppropriationForm() {
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
+              <form onSubmit={handleSubmit}>
                 <PageHeader
                     title="Budget Appropriation Entry"
                     subtitle="Enter expenditure and revenue budget lines per MDA — multiple lines per submission"
                     icon={<Calendar size={22} />}
                     backButton={true}
+                    actions={
+                        <>
+                            <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                <X size={18} /> Cancel
+                            </button>
+                            <button type="submit" className="btn btn-primary" disabled={isSaving}>
+                                <Save size={18} /> {isSaving ? 'Saving...' : `Save ${lines.length} Line(s)`}
+                            </button>
+                        </>
+                    }
                 />
 
                 {/* Messages */}
@@ -360,16 +354,12 @@ export default function AppropriationForm() {
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit}>
                     {/* Budget Header */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Calendar size={15} color="var(--color-primary)" />
-                            Budget Header
-                        </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Budget Header</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
                             <div>
-                                <label style={lblStyle}>Fiscal Year {requiredMark}</label>
+                                <label style={labelStyle}>Fiscal Year<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     options={fiscalYearOptions}
                                     value={String(header.fiscal_year || '')}
@@ -379,7 +369,7 @@ export default function AppropriationForm() {
                                 />
                             </div>
                             <div>
-                                <label style={lblStyle}>Administrative (MDA) {requiredMark}</label>
+                                <label style={labelStyle}>Administrative (MDA)<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     options={(segments?.administrative || []).map((s: any) => ({
                                         value: String(s.id), label: `${s.code} - ${s.name}`, sublabel: s.mda_type || s.level,
@@ -391,7 +381,7 @@ export default function AppropriationForm() {
                                 />
                             </div>
                             <div>
-                                <label style={lblStyle}>Fund Source {requiredMark}</label>
+                                <label style={labelStyle}>Fund Source<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     options={fundOptions}
                                     value={String(header.fund || '')}
@@ -401,9 +391,9 @@ export default function AppropriationForm() {
                                 />
                             </div>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={lblStyle}>Appropriation Type</label>
+                                <label style={labelStyle}>Appropriation Type</label>
                                 <SearchableSelect
                                     options={appropriationTypeOptions}
                                     value={header.appropriation_type}
@@ -412,12 +402,12 @@ export default function AppropriationForm() {
                                 />
                             </div>
                             <div>
-                                <label style={lblStyle}>Law / Act Reference</label>
-                                <input style={{ ...inputStyle, textAlign: 'left' }} value={header.law_reference} onChange={e => setH('law_reference', e.target.value)} placeholder="Appropriation Act 2026" />
+                                <label style={labelStyle}>Law / Act Reference</label>
+                                <input className="input" value={header.law_reference} onChange={e => setH('law_reference', e.target.value)} placeholder="Appropriation Act 2026" />
                             </div>
                             <div>
-                                <label style={lblStyle}>Enactment Date</label>
-                                <input style={{ ...inputStyle, textAlign: 'left' }} type="date" value={header.enactment_date} onChange={e => setH('enactment_date', e.target.value)} />
+                                <label style={labelStyle}>Enactment Date</label>
+                                <input className="input" type="date" value={header.enactment_date} onChange={e => setH('enactment_date', e.target.value)} />
                             </div>
                         </div>
 
@@ -435,7 +425,7 @@ export default function AppropriationForm() {
                     </div>
 
                     {/* Budget Lines */}
-                    <div className="glass-card" style={{ overflow: 'hidden' }}>
+                    <div className="card" style={{ marginBottom: '1.5rem', overflow: 'hidden' }}>
                         <div style={{
                             padding: '1rem 1.5rem',
                             borderBottom: '1px solid var(--color-border)',
@@ -605,29 +595,7 @@ export default function AppropriationForm() {
                         </div>
                     </div>
 
-                    {/* Actions */}
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
-                        <button type="button" onClick={() => navigate(-1)} className="glass-button" style={{
-                            display: 'flex', alignItems: 'center', gap: '0.375rem',
-                            padding: '0.625rem 1.25rem', borderRadius: '8px',
-                            border: '1px solid var(--color-border)', background: 'var(--color-surface)',
-                            color: 'var(--color-text)', cursor: 'pointer', fontWeight: 500, fontSize: 'var(--text-sm)',
-                        }}>
-                            Cancel
-                        </button>
-                        <button type="submit" disabled={isSaving} style={{
-                            display: 'flex', alignItems: 'center', gap: '0.375rem',
-                            padding: '0.625rem 1.25rem', borderRadius: '8px',
-                            border: 'none',
-                            background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)',
-                            color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--text-sm)',
-                            boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
-                            opacity: isSaving ? 0.7 : 1,
-                        }}>
-                            <Save size={16} /> {isSaving ? 'Saving...' : `Save ${lines.length} Line(s)`}
-                        </button>
-                    </div>
-                </form>
+              </form>
             </main>
         </div>
     );

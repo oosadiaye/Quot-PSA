@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
     FileText, Filter, Send, Trash2,
@@ -149,7 +149,7 @@ export default function ARManagement() {
         );
     }
 
-    const tabs: { key: ActiveTab; label: string; icon: JSX.Element }[] = [
+    const tabs: { key: ActiveTab; label: string; icon: React.JSX.Element }[] = [
         { key: 'invoices', label: 'Invoices', icon: <FileText size={15} /> },
         { key: 'settings', label: 'Settings', icon: <Percent size={15} /> },
     ];

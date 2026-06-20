@@ -1229,6 +1229,8 @@ export default function NewInvoiceMatching() {
             invoice_reference: '', invoice_date: '',
             invoice_amount: '', invoice_tax_amount: '',
             invoice_subtotal: '', notes: '',
+            tax_code: '', withholding_tax: '',
+            wht_exempt: false, wht_exempt_reason: '',
         });
         setPosted(null);
         setError('');
@@ -1319,6 +1321,8 @@ export default function NewInvoiceMatching() {
                                 invoice_reference: '', invoice_date: '',
                                 invoice_amount: '', invoice_tax_amount: '',
                                 invoice_subtotal: '', notes: '',
+                                tax_code: '', withholding_tax: '',
+                                wht_exempt: false, wht_exempt_reason: '',
                             });
                             setError('');
                         }}
@@ -1756,7 +1760,7 @@ export default function NewInvoiceMatching() {
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                                                                 <span>Inv vs GRN:</span>
                                                                 {/* Subtotal-vs-GRN — both ex-VAT */}
-                                                                <VariancePill base={grnTotal} actual={invoiceForGrnCompare} />
+                                                                <VariancePill base={grnTotal} actual={invoiceForGrnCompare ?? 0} />
                                                             </div>
                                                         )}
                                                         {poTotal !== null && (
@@ -1949,6 +1953,8 @@ export default function NewInvoiceMatching() {
                                 invoice_reference: '', invoice_date: '',
                                 invoice_amount: '', invoice_tax_amount: '',
                                 invoice_subtotal: '', notes: '',
+                                tax_code: '', withholding_tax: '',
+                                wht_exempt: false, wht_exempt_reason: '',
                             });
                             setDpEnabled(false);
                             setDpAmount('');

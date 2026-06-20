@@ -19,6 +19,14 @@ export interface ContractSummary {
   end_date: string;
   cumulative_gross_certified?: string;
   ceiling_utilization_pct?: number;
+  // Status of the MobilizationPayment linked to this contract, or
+  // empty string when no advance has been issued. Surfaced on the
+  // list so operators can scan "which contracts have a pending
+  // mobilization that treasury needs to act on" without drilling
+  // into each row. Possible values mirror MobilizationPaymentStatus:
+  // '', 'PENDING', 'APPROVED', 'CANCELLED', 'PAID',
+  // 'PARTIALLY_RECOVERED', 'FULLY_RECOVERED'.
+  mobilization_status?: string;
 }
 
 export const CONTRACTS_BASE = '/contracts/contracts/';

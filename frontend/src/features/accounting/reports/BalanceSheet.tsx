@@ -114,7 +114,13 @@ export default function BalanceSheet() {
     const [submitted, setSubmitted] = useState(false);
 
     const params = submitted ? { start_date: startDate, end_date: endDate } : null;
-    const { data, isLoading, error } = useBalanceSheet(params);
+    const { data: rawData, isLoading, error } = useBalanceSheet(params);
+
+    const data = rawData as {
+        assets?: any;
+        liabilities?: any;
+        equity?: any;
+    } | undefined;
 
     // Backend returns { assets: { total, details }, liabilities: { total, details }, equity: { total, details, net_income } }
     const assetsRaw = data?.assets;
@@ -153,19 +159,19 @@ export default function BalanceSheet() {
                 {
                     title: 'Assets',
                     columns: cols,
-                    rows: assetRows.map(r => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: assetRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
                     totals: { code: '', name: 'Total Assets', amount: formatCurrency(totalAssets) },
                 },
                 {
                     title: 'Liabilities',
                     columns: cols,
-                    rows: liabilityRows.map(r => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: liabilityRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
                     totals: { code: '', name: 'Total Liabilities', amount: formatCurrency(totalLiabilities) },
                 },
                 {
                     title: 'Equity',
                     columns: cols,
-                    rows: equityRows.map(r => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: equityRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
                     totals: { code: '', name: 'Total Equity', amount: formatCurrency(totalEquity) },
                 },
             ],

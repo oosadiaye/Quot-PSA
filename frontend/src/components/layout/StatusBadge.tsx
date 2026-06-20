@@ -6,16 +6,18 @@
  * The mapping knows common ERP status terms; unknown statuses fall
  * back to a neutral grey.
  */
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'purple' | 'gold';
 
 interface StatusBadgeProps {
-    children: ReactNode;
+    children?: ReactNode;
     tone?: Tone;
     /** Optional explicit status string — will be mapped to a tone. */
     status?: string;
     size?: 'sm' | 'md';
+    /** Optional variant hint from callers — used for tone resolution fallback. */
+    variant?: string;
 }
 
 const toneStyle: Record<Tone, { bg: string; fg: string; dot: string }> = {

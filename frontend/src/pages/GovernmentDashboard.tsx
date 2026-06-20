@@ -326,7 +326,7 @@ const GovernmentDashboard = () => {
                                                 <Cell key={i} fill={entry.fill} />
                                             ))}
                                         </Pie>
-                                        <Tooltip formatter={(val: number) => fmtNGN(val)} />
+                                        <Tooltip formatter={(val) => fmtNGN(Number(val ?? 0))} />
                                         <Legend wrapperStyle={{ fontSize: '11px' }} />
                                     </PieChart>
                                 </ResponsiveContainer>

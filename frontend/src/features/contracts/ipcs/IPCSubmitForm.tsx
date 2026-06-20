@@ -60,7 +60,7 @@ const IPCSubmitForm = () => {
                 step={1000}
                 style={{ width: '100%' }}
                 formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={(v) => Number((v ?? '').toString().replace(/,/g, ''))}
+                parser={(v) => Number((v ?? '').toString().replace(/,/g, '')) as unknown as 0}
               />
             </Form.Item>
             <Form.Item label="Measurement Book Ref" name="measurement_book_reference">

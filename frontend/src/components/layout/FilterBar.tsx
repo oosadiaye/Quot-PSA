@@ -7,7 +7,7 @@
  *
  * Sits inside a `SectionCard` or just above one.
  */
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useIsMobile } from '../../design';
 
 interface FilterBarProps {

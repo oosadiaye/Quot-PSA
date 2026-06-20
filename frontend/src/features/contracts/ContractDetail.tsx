@@ -13,12 +13,16 @@
  * / FINAL_COMPLETION. The full status name is still shown as a tag in
  * the hero so auditors don't lose granularity.
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Popconfirm, Button, App as AntApp,
   Modal, Form, Input, InputNumber, DatePicker,
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
+import {
+    JournalHeaderStrip, JournalLinesTable,
+    type JournalDetail,
+} from '../accounting/components/shared/JournalViewer';
 import dayjs from 'dayjs';
 import apiClient from '../../api/client';
 import {
@@ -41,7 +45,7 @@ import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 // ── Status mapping ──────────────────────────────────────────────────
 // 7 backend statuses → 5 visual phases for the compact stepper.
@@ -103,7 +107,7 @@ function currentPhaseIndex(status: ContractStatus): number {
 // ── Tab type ─────────────────────────────────────────────────────────
 // 'year-plans' is the multi-year contract tab — visible on every contract,
 // shows even single-year contracts (which auto-create one year_plan row).
-type TabKey = 'milestones' | 'ipcs' | 'variations' | 'year-plans';
+type TabKey = 'milestones' | 'ipcs' | 'variations' | 'year-plans' | 'mobilization';
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -113,9 +117,21 @@ const ContractDetail = () => {
   const { id } = useParams<{ id: string }>();
   const cid = Number(id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { formatCurrency } = useCurrency();
   const { message } = AntApp.useApp();
-  const [activeTab, setActiveTab] = useState<TabKey>('milestones');
+
+  // Initial tab honours the ``?tab=...`` query param so the
+  // Mobilization Advances list can deep-link directly to the
+  // mobilization view (``/contracts/123?tab=mobilization``). Falls
+  // back to 'milestones' for the unparameterised case so nothing
+  // else changes.
+  const initialTab = ((): TabKey => {
+    const raw = searchParams.get('tab');
+    const allowed: TabKey[] = ['milestones', 'ipcs', 'variations', 'year-plans', 'mobilization'];
+    return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'milestones';
+  })();
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
   const { data: contract, isLoading: loadingC } = useContract(cid);
   const { data: balance } = useContractBalance(cid);
@@ -304,6 +320,27 @@ const ContractDetail = () => {
   // hook order stable.
   const liveValue = Form.useWatch('scheduled_value', milestoneForm) || 0;
   const liveWeight = Form.useWatch('percentage_weight', milestoneForm) || 0;
+
+  // ── Auto-populate Percentage Weight from Scheduled Value ──────────
+  // The "default" weight in a lump-sum contract is the milestone's
+  // share of the contract sum: weight = value / contract_sum * 100.
+  // Operators can still override it manually for risk-weighted
+  // milestones (e.g. mobilisation typically carries less weight than
+  // its raw value would suggest) — typing a new value just refreshes
+  // the auto-fill. Rounded to 3dp to match the model's
+  // ``decimal_places=3`` so what the user sees equals what the
+  // backend stores. The equality guard prevents an avoidable
+  // re-render loop when the computed weight matches the stored one.
+  useEffect(() => {
+    if (!milestoneModalOpen) return;
+    if (!Number.isFinite(ceiling) || ceiling <= 0) return;
+    const v = Number(liveValue || 0);
+    const computed = Math.round((v / ceiling) * 100000) / 1000; // 3dp
+    const current = milestoneForm.getFieldValue('percentage_weight');
+    if (Number(current ?? -1) !== computed) {
+      milestoneForm.setFieldValue('percentage_weight', computed);
+    }
+  }, [liveValue, ceiling, milestoneModalOpen, milestoneForm]);
 
   if (loadingC) return <LoadingScreen />;
   if (!contract) {
@@ -741,6 +778,15 @@ const ContractDetail = () => {
                   onClick={() => setActiveTab('year-plans')}
                   label={`Year Plan (${yearPlans?.count ?? 0})`}
                 />
+                {/* Mobilization tab — always rendered so an operator
+                    can navigate to it even before an advance is
+                    issued (the tab body then shows the empty state).
+                    Count = 1 when an advance row exists, else 0. */}
+                <TabButton
+                  active={activeTab === 'mobilization'}
+                  onClick={() => setActiveTab('mobilization')}
+                  label={`Mobilization (${mobilizationPayment ? 1 : 0})`}
+                />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', paddingBottom: '0.5rem' }}>
                 {activeTab === 'milestones' && (
@@ -788,6 +834,7 @@ const ContractDetail = () => {
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
                 onConvertToIPC={handleConvertToIPC}
+                onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
                 actionLoading={
                   startMilestoneMut.isPending
                   || approveMilestoneMut.isPending
@@ -814,6 +861,17 @@ const ContractDetail = () => {
                 yearPlans={yearPlans?.results ?? []}
                 originalSum={Number(contract?.original_sum ?? 0)}
                 formatCurrency={formatCurrency}
+              />
+            )}
+            {activeTab === 'mobilization' && (
+              <MobilizationTab
+                payment={mobilizationPayment}
+                contractStatus={status}
+                formatCurrency={formatCurrency}
+                onIssueAdvance={canIssueMobilization ? handleIssueMobilization : undefined}
+                onOpenPV={(pvId) => navigate(`/accounting/payment-vouchers/${pvId}`)}
+                onOpenJournal={(jId) => navigate(`/accounting/journals/${jId}`)}
+                onOpenOutgoingPayments={() => navigate('/accounting/outgoing-payments')}
               />
             )}
           </section>
@@ -1010,8 +1068,8 @@ const ContractDetail = () => {
               min={0.01}
               style={{ width: '100%' }}
               step={1000}
-              formatter={(v) => (v != null && v !== '' ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
-              parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as number}
+              formatter={(v) => (v != null ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+              parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as 0.01}
             />
           </Form.Item>
           <Form.Item
@@ -1021,7 +1079,16 @@ const ContractDetail = () => {
               { required: true, message: 'Weight required' },
               { type: 'number', min: 0, max: 100, message: '0–100%' },
             ]}
-            tooltip="What share of the total project this milestone represents."
+            tooltip={
+              ceiling > 0
+                ? `Auto-calculated as Scheduled Value ÷ Contract Sum (${formatCurrency(ceiling)}) × 100. Override manually for risk-weighted milestones.`
+                : 'What share of the total project this milestone represents.'
+            }
+            extra={
+              ceiling > 0
+                ? 'Auto-filled from Scheduled Value — edit if this milestone carries a different risk weight.'
+                : undefined
+            }
           >
             <InputNumber
               min={0}
@@ -1131,17 +1198,35 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
 }
 
 
+interface MilestoneRow {
+  id: number;
+  milestone_number: number;
+  description: string;
+  scheduled_value: string | number;
+  percentage_weight: string | number;
+  target_date: string | null;
+  actual_completion_date: string | null;
+  status: string;
+  // Backend exposes these as nullable — populated only once an IPC
+  // has been raised against this milestone (see
+  // MilestoneScheduleSerializer.get_ipc / get_ipc_number).
+  ipc: number | null;
+  ipc_number: string | null;
+}
+
 interface MilestonesTabProps {
-  milestones: any[];
+  milestones: MilestoneRow[];
   contractCeiling: number;
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
   onConvertToIPC: (id: number) => void;
+  onOpenIPC: (ipcId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
-  milestones, contractCeiling, formatCurrency, onStart, onApprove, onConvertToIPC, actionLoading,
+  milestones, contractCeiling, formatCurrency,
+  onStart, onApprove, onConvertToIPC, onOpenIPC, actionLoading,
 }: MilestonesTabProps) {
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
@@ -1186,7 +1271,7 @@ function MilestonesTab({
           </tr>
         </thead>
         <tbody>
-          {milestones.map((m: any) => (
+          {milestones.map((m) => (
             <tr key={m.id} style={tableRow}>
               <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>
                 {m.milestone_number}
@@ -1269,9 +1354,21 @@ function MilestonesTab({
                     </Popconfirm>
                   )}
                   {m.status === 'COMPLETED' && m.ipc && (
-                    <span style={milestoneIPCLink} title="View the IPC raised against this milestone">
-                      IPC raised
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenIPC(m.ipc as number)}
+                      style={{
+                        ...milestoneIPCLink,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px 10px',
+                        textDecoration: 'underline',
+                      }}
+                      title={`Open IPC ${m.ipc_number ?? ''}`.trim()}
+                    >
+                      {m.ipc_number ? `IPC ${m.ipc_number}` : 'IPC raised'}
+                    </button>
                   )}
                 </div>
               </td>
@@ -1368,6 +1465,259 @@ const milestoneIPCLink: React.CSSProperties = {
   borderRadius: 999,
   textTransform: 'uppercase', letterSpacing: '0.05em',
 };
+
+
+// ─── Mobilization Tab ─────────────────────────────────────────────
+// Shows the single MobilizationPayment row (if any) for this
+// contract, with click-throughs to the linked PV and an inline
+// DR/CR table for the disbursement journal so the operator can
+// audit the posting without leaving the contract context. Empty
+// state when no advance has been issued.
+
+interface MobilizationRecord {
+  id: number;
+  amount: string | number;
+  status: string;
+  payment_voucher?: number | null;
+  payment_voucher_number?: string;
+  payment_voucher_status?: string;
+  payment_voucher_journal_id?: number | null;
+  payment_date?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Journal types are imported from the shared JournalViewer to keep
+// the wire shape consistent across every place the app displays a
+// journal. The Mobilization tab uses the SHARED renderers below.
+
+interface MobilizationTabProps {
+  payment: MobilizationRecord | null | undefined;
+  contractStatus: string;
+  formatCurrency: (n: number) => string;
+  onIssueAdvance?: () => Promise<void> | void;
+  onOpenPV: (pvId: number) => void;
+  onOpenJournal: (journalId: number) => void;
+  onOpenOutgoingPayments: () => void;
+}
+
+function MobilizationTab({
+  payment, contractStatus, formatCurrency,
+  onIssueAdvance, onOpenPV, onOpenJournal, onOpenOutgoingPayments,
+}: MobilizationTabProps) {
+  // Fetch the disbursement journal inline whenever a journal id is
+  // present (i.e. the linked PV has been posted). Same fetch pattern
+  // as the Revenue Collection detail page — the journal endpoint
+  // returns lines with account_code / account_name pre-expanded so
+  // we don't need a second lookup for the GL display.
+  const journalId = payment?.payment_voucher_journal_id ?? null;
+  const { data: journal, isLoading: journalLoading } = useQuery<JournalDetail>({
+    queryKey: ['mobilization-journal', journalId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
+      return data;
+    },
+    enabled: !!journalId,
+  });
+  // No advance issued yet — show empty state with optional Issue button.
+  if (!payment) {
+    return (
+      <EmptyState
+        title="No Mobilization Issued"
+        description={
+          contractStatus === 'DRAFT'
+            ? 'Activate the contract first, then return here to issue the mobilization advance.'
+            : 'No mobilization advance has been issued for this contract yet.'
+        }
+        action={
+          onIssueAdvance ? (
+            <button
+              onClick={() => onIssueAdvance()}
+              style={{
+                padding: '10px 20px', borderRadius: 8,
+                background: '#4f46e5', color: '#fff',
+                border: 'none', fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Issue Mobilization Advance
+            </button>
+          ) : null
+        }
+      />
+    );
+  }
+
+  const statusColor: Record<string, { bg: string; fg: string }> = {
+    PENDING:             { bg: '#fef3c7', fg: '#92400e' },
+    APPROVED:            { bg: '#dbeafe', fg: '#1e40af' },
+    PAID:                { bg: '#dcfce7', fg: '#15803d' },
+    PARTIALLY_RECOVERED: { bg: '#fef9c3', fg: '#854d0e' },
+    FULLY_RECOVERED:     { bg: '#d1fae5', fg: '#065f46' },
+  };
+  const pillColors = statusColor[payment.status] || { bg: '#f1f5f9', fg: '#475569' };
+  const amount = Number(payment.amount);
+
+  const card: React.CSSProperties = {
+    background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+    padding: 24, marginBottom: 16,
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: '#94a3b8',
+    textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4,
+  };
+  const valueStyle: React.CSSProperties = {
+    fontSize: 14, fontWeight: 500, color: '#1e293b',
+  };
+  const linkStyle: React.CSSProperties = {
+    background: 'none', border: 'none', padding: 0,
+    color: '#1e4d8c', fontWeight: 600, textDecoration: 'underline',
+    cursor: 'pointer', fontSize: 14,
+  };
+
+  return (
+    <div>
+      {/* Hero card — amount + status */}
+      <div style={{ ...card, background: '#f0fdf4', border: '2px solid #22c55e', textAlign: 'center' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase' }}>
+          Mobilization Advance
+        </div>
+        <div style={{ fontSize: 32, fontWeight: 800, color: '#15803d', fontFamily: 'monospace', marginTop: 4 }}>
+          {formatCurrency(amount)}
+        </div>
+        <span style={{
+          display: 'inline-block', marginTop: 8, padding: '4px 12px',
+          borderRadius: 999, fontSize: 12, fontWeight: 700,
+          background: pillColors.bg, color: pillColors.fg,
+        }}>
+          {payment.status.replaceAll('_', ' ')}
+        </span>
+      </div>
+
+      {/* Timeline / dates */}
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Timeline</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={labelStyle}>Issued On</div>
+            <div style={valueStyle}>
+              {payment.created_at ? new Date(payment.created_at).toLocaleDateString('en-GB') : '—'}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Approved / Updated</div>
+            <div style={valueStyle}>
+              {payment.updated_at ? new Date(payment.updated_at).toLocaleDateString('en-GB') : '—'}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Paid On</div>
+            <div style={valueStyle}>
+              {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-GB') : '—'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Linked Payment Voucher */}
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>
+          Payment Voucher (Disbursement)
+        </div>
+        {payment.payment_voucher && payment.payment_voucher_number ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+            <div>
+              <div style={labelStyle}>PV Number</div>
+              <button
+                style={linkStyle}
+                onClick={() => onOpenPV(payment.payment_voucher as number)}
+                title="Open the linked Payment Voucher"
+              >
+                {payment.payment_voucher_number}
+              </button>
+            </div>
+            <div>
+              <div style={labelStyle}>PV Status</div>
+              <div style={valueStyle}>
+                {payment.payment_voucher_status || '—'}
+              </div>
+            </div>
+            <div>
+              <div style={labelStyle}>Journal</div>
+              {payment.payment_voucher_journal_id ? (
+                <button
+                  style={linkStyle}
+                  onClick={() => onOpenJournal(payment.payment_voucher_journal_id as number)}
+                  title="Open the full journal in the Journals module"
+                >
+                  Open in Journals
+                </button>
+              ) : (
+                <div style={{ ...valueStyle, color: '#94a3b8', fontStyle: 'italic' }}>
+                  No journal yet (post the PV first)
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            padding: 16, background: '#fffbeb',
+            border: '1px solid #fde68a', borderRadius: 8,
+            color: '#92400e', fontSize: 13,
+          }}>
+            {payment.status === 'APPROVED'
+              ? '⏳ Approved — click "Schedule for Payment" on the Mobilization Advances list to create a draft PV.'
+              : payment.status === 'PENDING'
+                ? '⏳ Pending approval — once approved, treasury can schedule the disbursement PV.'
+                : 'No PV linked.'}
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={onOpenOutgoingPayments}
+                style={{
+                  padding: '6px 12px', borderRadius: 6,
+                  background: '#fff', border: '1px solid #fde68a',
+                  color: '#92400e', cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                }}
+              >
+                Open Outgoing Payments
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accounting Entries — inline DR/CR table when the
+          disbursement journal has been posted. Mirrors the
+          IPC / Revenue Collection detail page's journal block so
+          the visual treatment is consistent across the app's
+          accrual-document pages. Hidden when no journal exists yet;
+          shows a loading message while the fetch is in flight. */}
+      {payment.payment_voucher_journal_id && (
+        <div style={card}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>
+            Accounting Entries (Disbursement Journal)
+          </div>
+          {journalLoading && (
+            <div style={{ color: '#94a3b8', fontSize: 13 }}>
+              Loading journal lines...
+            </div>
+          )}
+          {journal && (
+            <>
+              {/* Canonical journal renderers — single source of truth in
+                  ``features/accounting/components/shared/JournalViewer``.
+                  Drift-resistant: any DR/CR display change made there
+                  propagates to every place that displays a journal. */}
+              <div style={{ marginBottom: 12 }}>
+                <JournalHeaderStrip journal={journal} formatCurrency={formatCurrency as (n: number | string) => string} />
+              </div>
+              <JournalLinesTable lines={journal.lines} formatCurrency={formatCurrency as (n: number | string) => string} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 interface IPCsTabProps {
@@ -1585,8 +1935,13 @@ interface EmptyStateProps {
   title: string;
   description: string;
   iconKey?: 'kanban' | 'receipt' | 'edit';
+  // Optional CTA rendered below the description — typically a button
+  // that lets the operator transition out of the empty state directly
+  // (e.g. "Issue Mobilization Advance" on the Mobilization tab when no
+  // advance exists yet).
+  action?: React.ReactNode;
 }
-function EmptyState({ title, description }: EmptyStateProps) {
+function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
     <div style={emptyState}>
       <div style={emptyIconBox}>
@@ -1598,6 +1953,7 @@ function EmptyState({ title, description }: EmptyStateProps) {
       <p style={{ color: '#94a3b8', fontSize: '0.75rem', maxWidth: 320, lineHeight: 1.6, margin: 0 }}>
         {description}
       </p>
+      {action && <div style={{ marginTop: 16 }}>{action}</div>}
     </div>
   );
 }

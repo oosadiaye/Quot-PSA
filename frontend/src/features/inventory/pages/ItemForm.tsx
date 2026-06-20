@@ -64,6 +64,7 @@ const ItemForm = () => {
         is_active: true,
         inventory_account: '',
         expense_account: '',
+        production_bom: '',
     });
 
     useEffect(() => {
@@ -424,7 +425,7 @@ const ItemForm = () => {
                                     onChange={e => setFormData({ ...formData, production_bom: e.target.value })}
                                 >
                                     <option value="">None (not a manufactured item)</option>
-                                    {boms.map((b: any) => (
+                                    {([] as any[]).map((b: any) => (
                                         <option key={b.id} value={b.id}>{b.item_code} — {b.item_name}</option>
                                     ))}
                                 </select>

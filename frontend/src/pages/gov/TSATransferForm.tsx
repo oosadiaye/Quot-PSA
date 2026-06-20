@@ -24,18 +24,6 @@ import apiClient from '../../api/client';
 import { useTSAAccounts } from '../../hooks/useGovForms';
 import '../../features/accounting/styles/glassmorphism.css';
 
-// Reuse the same field styling as TSAAccountForm for visual continuity.
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
-
 interface TSAOption {
     id: number;
     account_number: string;
@@ -174,6 +162,9 @@ export default function TSATransferForm() {
         !missingGL &&
         !submitting;
 
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
+
     const handleSubmit = async (e: React.FormEvent): Promise<void> => {
         e.preventDefault();
         setFormError('');
@@ -234,11 +225,32 @@ export default function TSATransferForm() {
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
-                <div style={{ maxWidth: '760px' }}>
+                <form onSubmit={handleSubmit}>
                     <PageHeader
                         title="TSA Bank Transfer"
                         subtitle="Move cash between two Treasury Single Accounts. Posts a balanced JV in real time."
                         icon={<ArrowRightLeft size={22} />}
+                        actions={
+                            <>
+                                <button
+                                    type="button"
+                                    className="btn btn-outline"
+                                    onClick={() => navigate('/accounting/tsa-accounts')}
+                                    disabled={submitting}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={!canSubmit}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                                >
+                                    <Save size={14} />
+                                    {submitting ? 'Posting…' : 'Post Transfer'}
+                                </button>
+                            </>
+                        }
                     />
 
                     {/* Result banner — shown after a successful post */}
@@ -291,17 +303,18 @@ export default function TSATransferForm() {
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="glass-card" style={{ padding: '1.5rem' }}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Transfer Details</h3>
                         <div
                             style={{
                                 display: 'grid',
                                 gridTemplateColumns: '1fr 1fr',
-                                gap: '1rem 1.25rem',
+                                gap: '1.5rem',
                             }}
                         >
                             {/* Source TSA */}
                             <div>
-                                <label style={lblStyle}>From TSA Account *</label>
+                                <label style={labelStyle}>From TSA Account<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     value={form.source_tsa_id}
                                     onChange={(v) => set('source_tsa_id', v)}
@@ -332,7 +345,7 @@ export default function TSATransferForm() {
 
                             {/* Target TSA */}
                             <div>
-                                <label style={lblStyle}>To TSA Account *</label>
+                                <label style={labelStyle}>To TSA Account<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     value={form.target_tsa_id}
                                     onChange={(v) => set('target_tsa_id', v)}
@@ -363,21 +376,21 @@ export default function TSATransferForm() {
 
                             {/* Amount */}
                             <div>
-                                <label style={lblStyle}>Amount (NGN) *</label>
+                                <label style={labelStyle}>Amount (NGN)<span className="required-mark"> *</span></label>
                                 <input
                                     type="number"
+                                    className="input"
                                     inputMode="decimal"
                                     min="0.01"
                                     step="0.01"
                                     value={form.amount}
                                     onChange={(e) => set('amount', e.target.value)}
                                     placeholder="0.00"
-                                    style={{
-                                        ...inputStyle,
-                                        borderColor: insufficientFunds
-                                            ? 'var(--color-danger-border, #ef5350)'
-                                            : inputStyle.border?.toString().split(' ').pop(),
-                                    }}
+                                    style={
+                                        insufficientFunds
+                                            ? { borderColor: 'var(--color-danger-border, #ef5350)' }
+                                            : undefined
+                                    }
                                 />
                                 {insufficientFunds && (
                                     <div
@@ -395,26 +408,27 @@ export default function TSATransferForm() {
 
                             {/* Transfer Date */}
                             <div>
-                                <label style={lblStyle}>Transfer Date</label>
+                                <label style={labelStyle}>Transfer Date</label>
                                 <input
                                     type="date"
+                                    className="input"
                                     value={form.transfer_date}
                                     onChange={(e) => set('transfer_date', e.target.value)}
-                                    style={inputStyle}
                                 />
                             </div>
 
                             {/* Narration — full width */}
                             <div style={{ gridColumn: '1 / -1' }}>
-                                <label style={lblStyle}>Narration</label>
+                                <label style={labelStyle}>Narration</label>
                                 <input
                                     type="text"
+                                    className="input"
                                     value={form.narration}
                                     onChange={(e) => set('narration', e.target.value)}
                                     placeholder="Optional — e.g. Top-up for MoH Q2 warrant"
                                     maxLength={255}
-                                    style={inputStyle}
                                 />
+                                <p style={helpStyle}>Optional reference shown on the posted journal.</p>
                             </div>
                         </div>
 
@@ -437,38 +451,8 @@ export default function TSATransferForm() {
                             </div>
                         )}
 
-                        <div
-                            style={{
-                                marginTop: '1.5rem',
-                                display: 'flex',
-                                gap: '0.5rem',
-                                justifyContent: 'flex-end',
-                            }}
-                        >
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => navigate('/accounting/tsa-accounts')}
-                                disabled={submitting}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                className="btn btn-primary"
-                                disabled={!canSubmit}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                }}
-                            >
-                                <Save size={14} />
-                                {submitting ? 'Posting…' : 'Post Transfer'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
+                    </div>
+                </form>
             </main>
         </div>
     );

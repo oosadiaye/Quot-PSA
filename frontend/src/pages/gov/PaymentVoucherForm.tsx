@@ -26,7 +26,6 @@ import { Save, AlertCircle, Receipt, Search, FileText, Building2 } from 'lucide-
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
-import '../../features/accounting/styles/glassmorphism.css';
 import { useCreatePV, useNCoASegments } from '../../hooks/useGovForms';
 import apiClient from '../../api/client';
 import { useWithholdingTaxes } from '../../features/accounting/hooks/useAccountingEnhancements';
@@ -57,16 +56,13 @@ interface DeductionRow {
     gl_account: string;        // FK id as string
 }
 
+// Compact field style retained for the dense deduction-line grid and the
+// computed Total/Net display boxes, which need a tighter footprint than the
+// canonical full-size `.input` class.
 const inputStyle: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
     border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
     color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const selectStyle = inputStyle;
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
 };
 
 const PAYMENT_TYPES: [string, string][] = [
@@ -114,6 +110,9 @@ export default function PaymentVoucherForm() {
     const createPV = useCreatePV();
     const { data: segments } = useNCoASegments();
 
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
+
     const [formError, setFormError] = useState('');
     const [invoiceSearch, setInvoiceSearch] = useState('');
     const [invoiceResults, setInvoiceResults] = useState<PayableInvoice[]>([]);
@@ -153,8 +152,8 @@ export default function PaymentVoucherForm() {
     const { data: liabilityAccts } = useAccounts({ account_type: 'Liability', is_active: true });
     const { data: expenseAccts } = useAccounts({ account_type: 'Expense', is_active: true });
     const allAccts: Array<{ id: number; code: string; name: string; account_type: string }> = [
-        ...(Array.isArray(liabilityAccts) ? liabilityAccts : (liabilityAccts?.results ?? [])),
-        ...(Array.isArray(expenseAccts)   ? expenseAccts   : (expenseAccts?.results   ?? [])),
+        ...(liabilityAccts ?? []),
+        ...(expenseAccts ?? []),
     ];
 
     const addDeduction = (type: DeductionType = 'WHT') => {
@@ -340,6 +339,16 @@ export default function PaymentVoucherForm() {
                     title="New Payment Voucher"
                     subtitle="Raise a payment request — Treasury will post the final payment from the Outgoing Payments screen"
                     icon={<Receipt size={22} />}
+                    actions={
+                        <>
+                            <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                <X size={18} /> Cancel
+                            </button>
+                            <button type="submit" form="pv-form" className="btn btn-primary" disabled={createPV.isPending}>
+                                <Save size={18} /> {createPV.isPending ? 'Creating…' : 'Raise Payment Request'}
+                            </button>
+                        </>
+                    }
                 />
 
                 {formError && (
@@ -353,15 +362,15 @@ export default function PaymentVoucherForm() {
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} style={{ maxWidth: 1000 }}>
+                <form id="pv-form" onSubmit={handleSubmit} style={{ maxWidth: 1000 }}>
 
                     {/* ── 1. MDA (mandatory, first) ────────────────── */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Building2 size={15} /> 1. MDA
-                            <span style={{ color: '#ef4444', marginLeft: '0.25rem' }}>*</span>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Building2 size={18} /> MDA
+                            <span className="required-mark"> *</span>
                         </h3>
-                        <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: '0 0 0.5rem 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1rem' }}>
                             Determines the budget line. Invoices below are filtered to
                             this MDA so you pay only against its approved spend.
                         </p>
@@ -383,26 +392,27 @@ export default function PaymentVoucherForm() {
                     </div>
 
                     {/* ── 2. Payment Type + Invoice Search ─────────── */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem', opacity: form.admin_code ? 1 : 0.55 }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>
-                            2. Payment Type & Invoice
+                    <div className="card" style={{ marginBottom: '1.5rem', opacity: form.admin_code ? 1 : 0.55 }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>
+                            Payment Type &amp; Invoice
                         </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '0.75rem', alignItems: 'end' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '1.5rem', alignItems: 'end' }}>
                             <div>
-                                <label style={lblStyle}>Payment Type</label>
-                                <select style={selectStyle} value={form.payment_type} onChange={e => set('payment_type', e.target.value)} disabled={!form.admin_code}>
+                                <label style={labelStyle}>Payment Type</label>
+                                <select className="input" value={form.payment_type} onChange={e => set('payment_type', e.target.value)} disabled={!form.admin_code}>
                                     {PAYMENT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                                 </select>
                             </div>
                             <div ref={dropdownRef} style={{ position: 'relative' }}>
-                                <label style={lblStyle}>
-                                    Invoice / Document Number <span style={{ color: '#ef4444' }}>*</span>
+                                <label style={labelStyle}>
+                                    Invoice / Document Number<span className="required-mark"> *</span>
                                     <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--color-text-muted)' }}> — filtered by MDA</span>
                                 </label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                                    <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', zIndex: 1 }} />
                                     <input
-                                        style={{ ...inputStyle, paddingLeft: '2rem' }}
+                                        className="input"
+                                        style={{ paddingLeft: '2rem' }}
                                         disabled={!form.admin_code}
                                         value={invoiceSearch}
                                         onChange={e => { setInvoiceSearch(e.target.value); setSelectedInvoice(null); }}
@@ -467,49 +477,49 @@ export default function PaymentVoucherForm() {
                     </div>
 
                     {/* ── 3. Supplier Details (HORIZONTAL, optional) ─ */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>
-                            3. Supplier Details
-                            <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', fontSize: '0.7rem', marginLeft: '0.5rem' }}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>
+                            Supplier Details
+                            <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginLeft: '0.5rem' }}>
                                 (optional — auto-filled from invoice, Treasury can amend)
                             </span>
                         </h3>
                         {/* Four fields in a single horizontal row */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={lblStyle}>Supplier Name</label>
-                                <input style={inputStyle} value={form.payee_name} onChange={e => set('payee_name', e.target.value)} placeholder="Vendor or employee" />
+                                <label style={labelStyle}>Supplier Name</label>
+                                <input className="input" value={form.payee_name} onChange={e => set('payee_name', e.target.value)} placeholder="Vendor or employee" />
                             </div>
                             <div>
-                                <label style={lblStyle}>Bank</label>
-                                <input style={inputStyle} value={form.payee_bank} onChange={e => set('payee_bank', e.target.value)} placeholder="Bank name" />
+                                <label style={labelStyle}>Bank</label>
+                                <input className="input" value={form.payee_bank} onChange={e => set('payee_bank', e.target.value)} placeholder="Bank name" />
                             </div>
                             <div>
-                                <label style={lblStyle}>Account Number</label>
-                                <input style={inputStyle} value={form.payee_account} onChange={e => set('payee_account', e.target.value)} placeholder="NUBAN" />
+                                <label style={labelStyle}>Account Number</label>
+                                <input className="input" value={form.payee_account} onChange={e => set('payee_account', e.target.value)} placeholder="NUBAN" />
                             </div>
                             <div>
-                                <label style={lblStyle}>Sort Code</label>
-                                <input style={inputStyle} value={form.payee_sort_code} onChange={e => set('payee_sort_code', e.target.value)} />
+                                <label style={labelStyle}>Sort Code</label>
+                                <input className="input" value={form.payee_sort_code} onChange={e => set('payee_sort_code', e.target.value)} />
                             </div>
                         </div>
                     </div>
 
                     {/* ── 4. Amount & Deductions ───────────────────── */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>
-                            4. Amount &amp; Deductions
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>
+                            Amount &amp; Deductions
                         </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
                             <div>
-                                <label style={lblStyle}>Gross Amount (NGN) <span style={{ color: '#ef4444' }}>*</span></label>
-                                <input style={{ ...inputStyle, fontSize: 'var(--text-base)', fontWeight: 700 }}
+                                <label style={labelStyle}>Gross Amount (NGN)<span className="required-mark"> *</span></label>
+                                <input className="input" style={{ fontSize: 'var(--text-base)', fontWeight: 700 }}
                                     type="number" step="0.01" min="0.01" required
                                     value={form.gross_amount}
                                     onChange={e => set('gross_amount', e.target.value)} placeholder="0.00" />
                             </div>
                             <div>
-                                <label style={lblStyle}>Total Deductions</label>
+                                <label style={labelStyle}>Total Deductions</label>
                                 <div style={{
                                     ...inputStyle,
                                     background: 'rgba(234,179,8,0.06)',
@@ -521,7 +531,7 @@ export default function PaymentVoucherForm() {
                                 </div>
                             </div>
                             <div>
-                                <label style={lblStyle}>Net Paid to Vendor</label>
+                                <label style={labelStyle}>Net Paid to Vendor</label>
                                 <div style={{
                                     ...inputStyle,
                                     background: 'rgba(25,30,106,0.04)',
@@ -632,9 +642,9 @@ export default function PaymentVoucherForm() {
                             ))}
                         </div>
 
-                        <div style={{ marginTop: '1rem' }}>
-                            <label style={lblStyle}>Narration <span style={{ color: '#ef4444' }}>*</span></label>
-                            <textarea style={{ ...inputStyle, minHeight: '60px' }} required
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <label style={labelStyle}>Narration<span className="required-mark"> *</span></label>
+                            <textarea className="input" style={{ width: '100%', minHeight: '60px' }} required
                                 value={form.narration}
                                 onChange={e => set('narration', e.target.value)}
                                 placeholder="Description of goods/services..." />
@@ -642,18 +652,18 @@ export default function PaymentVoucherForm() {
                     </div>
 
                     {/* ── 5. Source Documents (existing, unchanged) ── */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>
-                            5. Source Documents
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>
+                            Source Documents
                         </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-                            <div><label style={lblStyle}>PO / Contract Ref</label><input style={inputStyle} value={form.source_document} onChange={e => set('source_document', e.target.value)} /></div>
-                            <div><label style={lblStyle}>Invoice Number</label><input style={inputStyle} value={form.invoice_number} onChange={e => set('invoice_number', e.target.value)} /></div>
-                            <div><label style={lblStyle}>Invoice Date</label><input style={inputStyle} type="date" value={form.invoice_date} onChange={e => set('invoice_date', e.target.value)} /></div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+                            <div><label style={labelStyle}>PO / Contract Ref</label><input className="input" value={form.source_document} onChange={e => set('source_document', e.target.value)} /></div>
+                            <div><label style={labelStyle}>Invoice Number</label><input className="input" value={form.invoice_number} onChange={e => set('invoice_number', e.target.value)} /></div>
+                            <div><label style={labelStyle}>Invoice Date</label><input className="input" type="date" value={form.invoice_date} onChange={e => set('invoice_date', e.target.value)} /></div>
                         </div>
-                        <div style={{ marginTop: '0.75rem' }}>
-                            <label style={lblStyle}>Notes</label>
-                            <textarea style={{ ...inputStyle, minHeight: '50px' }} value={form.notes} onChange={e => set('notes', e.target.value)} />
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <label style={labelStyle}>Notes</label>
+                            <textarea className="input" style={{ width: '100%', minHeight: '50px' }} value={form.notes} onChange={e => set('notes', e.target.value)} />
                         </div>
                     </div>
 
@@ -669,10 +679,13 @@ export default function PaymentVoucherForm() {
                         will post the final cash payment from the Outgoing Payments screen.
                     </div>
 
+                    {/* Footer actions mirror the header buttons for long-form scrolling */}
                     <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={() => navigate(-1)} className="glass-button" style={{ padding: '0.625rem 1.25rem', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', cursor: 'pointer', fontWeight: 500, fontSize: 'var(--text-sm)' }}>Cancel</button>
-                        <button type="submit" disabled={createPV.isPending} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.625rem 1.25rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)', color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--text-sm)', boxShadow: '0 4px 12px rgba(15,18,64,0.3)', opacity: createPV.isPending ? 0.7 : 1 }}>
-                            <Save size={16} /> {createPV.isPending ? 'Creating…' : 'Raise Payment Request'}
+                        <button type="button" onClick={() => navigate(-1)} className="btn btn-outline">
+                            <X size={18} /> Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={createPV.isPending}>
+                            <Save size={18} /> {createPV.isPending ? 'Creating…' : 'Raise Payment Request'}
                         </button>
                     </div>
                 </form>

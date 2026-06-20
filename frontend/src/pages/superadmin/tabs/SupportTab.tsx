@@ -322,7 +322,7 @@ export default function SupportTab() {
               </Descriptions.Item>
             </Descriptions>
 
-            <Divider orientation="left">Description</Divider>
+            <Divider titlePlacement="left">Description</Divider>
             <Card size="small" style={{ borderRadius: 8, marginBottom: 16, background: '#fafafa' }}>
               <Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
                 {selectedTicket.description}
@@ -330,7 +330,7 @@ export default function SupportTab() {
             </Card>
 
             {/* Status Change */}
-            <Divider orientation="left">Update Status</Divider>
+            <Divider titlePlacement="left">Update Status</Divider>
             <Select
               value={selectedTicket.status}
               style={{ width: '100%', marginBottom: 16 }}
@@ -347,7 +347,7 @@ export default function SupportTab() {
             {/* Resolution */}
             {selectedTicket.resolution && (
               <>
-                <Divider orientation="left">Resolution</Divider>
+                <Divider titlePlacement="left">Resolution</Divider>
                 <Card size="small" style={{ borderRadius: 8, marginBottom: 16, background: '#f6ffed', borderColor: '#b7eb8f' }}>
                   <Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
                     {selectedTicket.resolution}
@@ -359,7 +359,7 @@ export default function SupportTab() {
             {/* Comments */}
             {selectedTicket.comments && selectedTicket.comments.length > 0 && (
               <>
-                <Divider orientation="left">
+                <Divider titlePlacement="left">
                   <Space><MessageOutlined /> Comments ({selectedTicket.comments.length})</Space>
                 </Divider>
                 <Timeline
@@ -383,7 +383,7 @@ export default function SupportTab() {
             )}
 
             {/* Resolve Form */}
-            <Divider orientation="left">Add Resolution / Notes</Divider>
+            <Divider titlePlacement="left">Add Resolution / Notes</Divider>
             <TextArea
               rows={3}
               value={resolution}

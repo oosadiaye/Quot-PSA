@@ -36,18 +36,14 @@ const useAccounts = () => useQuery({
 interface RefAccountLite { id: number | string; code?: string; name?: string; }
 interface BudgetPeriodLite { id: number | string; fiscal_year?: number | string; period_type?: string; period_number?: number | string; }
 
-const inp: React.CSSProperties = {
-    width: '100%', padding: '9px 12px', border: '1.5px solid var(--color-border, #e2e8f0)',
-    borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box',
-    background: 'var(--color-surface, #fff)', color: 'var(--color-text, #1e293b)',
-};
-const sel: React.CSSProperties = { ...inp };
-const lbl: React.CSSProperties = {
-    display: 'block', marginBottom: '5px', fontSize: '11px',
-    fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em',
-};
-
 const AccrualDeferralForm = () => {
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
     const navigate = useNavigate();
     const { id, type } = useParams();
     const { formatCurrency: fmt } = useCurrency();
@@ -162,18 +158,9 @@ const AccrualDeferralForm = () => {
 
     if (isEdit && isLoading) return <LoadingScreen message="Loading…" />;
 
-    const sectionHd: React.CSSProperties = {
-        fontSize: '12px', fontWeight: 700, color: '#64748b',
-        textTransform: 'uppercase', letterSpacing: '0.06em',
-        borderBottom: '1.5px solid #e2e8f0', paddingBottom: '8px', marginBottom: '18px',
-    };
-    const card: React.CSSProperties = {
-        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px',
-        padding: '24px', marginBottom: '20px',
-    };
-    const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' };
-    const grid3: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' };
-    const chkRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#374151' };
+    const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' };
+    const grid3: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' };
+    const chkRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--color-text)' };
 
     return (
         <AccountingLayout>
@@ -187,119 +174,116 @@ const AccrualDeferralForm = () => {
                         : 'Record a prepaid expense or deferred revenue with periodic recognition schedule'}
                     icon={<ArrowRightLeft size={22} />}
                     actions={
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <button type="button" onClick={() => navigate('/accounting/accruals-deferrals')}
-                                style={{ padding: '9px 18px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
-                                <X size={15} style={{ verticalAlign: 'middle', marginRight: '4px' }} />Cancel
+                        <>
+                            <button type="button" className="btn btn-outline" onClick={() => navigate('/accounting/accruals-deferrals')}>
+                                <X size={18} /> Cancel
                             </button>
-                            <button type="submit" disabled={isPending}
-                                style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: 'var(--color-primary, #4f46e5)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
-                                <Save size={15} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                                {isPending ? 'Saving…' : isEdit ? 'Update' : 'Create'}
+                            <button type="submit" className="btn btn-primary" disabled={isPending}>
+                                <Save size={18} /> {isPending ? 'Saving…' : isEdit ? 'Update' : 'Create'}
                             </button>
-                        </div>
+                        </>
                     }
                 />
 
                 {apiError && (
-                    <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#991b1b', fontSize: '13px' }}>
+                    <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
                         {apiError}
                     </div>
                 )}
 
                 {/* ─── Basic Info ─── */}
-                <div style={card}>
-                    <div style={sectionHd}>Basic Information</div>
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <h3 style={{ marginBottom: '1.5rem' }}>Basic Information</h3>
                     {isAccrual ? (
                         <>
                             <div style={grid3}>
                                 <div>
-                                    <label style={lbl}>Name *</label>
-                                    <input style={inp} required value={aForm.name} onChange={e => setAForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. March Rent Accrual" />
+                                    <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
+                                    <input className="input" required value={aForm.name} onChange={e => setAForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. March Rent Accrual" />
                                 </div>
                                 <div>
-                                    <label style={lbl}>Type</label>
-                                    <select style={sel} value={aForm.accrual_type} onChange={e => setAForm(p => ({ ...p, accrual_type: e.target.value }))}>
+                                    <label style={labelStyle}>Type</label>
+                                    <select className="input" value={aForm.accrual_type} onChange={e => setAForm(p => ({ ...p, accrual_type: e.target.value }))}>
                                         <option value="expense">Expense Accrual</option>
                                         <option value="revenue">Revenue Accrual</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={lbl}>Amount *</label>
-                                    <input style={inp} type="number" step="0.01" required value={aForm.amount} onChange={e => setAForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" />
-                                    {aForm.amount && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>{fmt(parseFloat(aForm.amount || '0'))}</div>}
+                                    <label style={labelStyle}>Amount<span className="required-mark"> *</span></label>
+                                    <input className="input" type="number" step="0.01" required value={aForm.amount} onChange={e => setAForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" />
+                                    {aForm.amount && <div style={helpStyle}>{fmt(parseFloat(aForm.amount || '0'))}</div>}
                                 </div>
                             </div>
-                            <div style={{ ...grid2, marginTop: '14px' }}>
+                            <div style={{ ...grid2, marginTop: '1.5rem' }}>
                                 <div>
-                                    <label style={lbl}>{aForm.accrual_type === 'expense' ? 'Expense Account' : 'Revenue Account'} (Dr)</label>
-                                    <select style={sel} value={aForm.account} onChange={e => setAForm(p => ({ ...p, account: e.target.value }))}>
+                                    <label style={labelStyle}>{aForm.accrual_type === 'expense' ? 'Expense Account' : 'Revenue Account'} (Dr)</label>
+                                    <select className="input" value={aForm.account} onChange={e => setAForm(p => ({ ...p, account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
                                         {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={lbl}>{aForm.accrual_type === 'expense' ? 'Accrued Liability Account' : 'Accrued Receivable Account'} (Cr)</label>
-                                    <select style={sel} value={aForm.counterpart_account} onChange={e => setAForm(p => ({ ...p, counterpart_account: e.target.value }))}>
+                                    <label style={labelStyle}>{aForm.accrual_type === 'expense' ? 'Accrued Liability Account' : 'Accrued Receivable Account'} (Cr)</label>
+                                    <select className="input" value={aForm.counterpart_account} onChange={e => setAForm(p => ({ ...p, counterpart_account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
                                         {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                             </div>
-                            <div style={{ ...grid3, marginTop: '14px' }}>
+                            <div style={{ ...grid3, marginTop: '1.5rem' }}>
                                 <div>
-                                    <label style={lbl}>Fiscal Period</label>
-                                    <select style={sel} value={aForm.period} onChange={e => setAForm(p => ({ ...p, period: e.target.value }))}>
+                                    <label style={labelStyle}>Fiscal Period</label>
+                                    <select className="input" value={aForm.period} onChange={e => setAForm(p => ({ ...p, period: e.target.value }))}>
                                         <option value="">— Select Period —</option>
                                         {(periods as BudgetPeriodLite[]).map((p) => <option key={p.id} value={p.id}>FY{p.fiscal_year} – {p.period_type} {p.period_number}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={lbl}>Posting Date *</label>
-                                    <input style={inp} type="date" required value={aForm.posting_date} onChange={e => setAForm(p => ({ ...p, posting_date: e.target.value }))} />
+                                    <label style={labelStyle}>Posting Date<span className="required-mark"> *</span></label>
+                                    <input className="input" type="date" required value={aForm.posting_date} onChange={e => setAForm(p => ({ ...p, posting_date: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={lbl}>Reversal Date</label>
-                                    <input style={inp} type="date" value={aForm.reversal_date} onChange={e => setAForm(p => ({ ...p, reversal_date: e.target.value }))} />
+                                    <label style={labelStyle}>Reversal Date</label>
+                                    <input className="input" type="date" value={aForm.reversal_date} onChange={e => setAForm(p => ({ ...p, reversal_date: e.target.value }))} />
                                 </div>
                             </div>
-                            <div style={{ marginTop: '14px' }}>
-                                <label style={lbl}>Description</label>
-                                <input style={inp} value={aForm.description} onChange={e => setAForm(p => ({ ...p, description: e.target.value }))} placeholder="Brief description of this accrual" />
+                            <div style={{ marginTop: '1.5rem' }}>
+                                <label style={labelStyle}>Description</label>
+                                <input className="input" value={aForm.description} onChange={e => setAForm(p => ({ ...p, description: e.target.value }))} placeholder="Brief description of this accrual" />
                             </div>
-                            <div style={{ marginTop: '14px' }}>
-                                <label style={lbl}>Source Document</label>
-                                <input style={inp} value={aForm.source_document} onChange={e => setAForm(p => ({ ...p, source_document: e.target.value }))} placeholder="e.g. Invoice #INV-2024-001" />
+                            <div style={{ marginTop: '1.5rem' }}>
+                                <label style={labelStyle}>Source Document</label>
+                                <input className="input" value={aForm.source_document} onChange={e => setAForm(p => ({ ...p, source_document: e.target.value }))} placeholder="e.g. Invoice #INV-2024-001" />
                             </div>
                         </>
                     ) : (
                         <>
                             <div style={grid3}>
                                 <div>
-                                    <label style={lbl}>Name *</label>
-                                    <input style={inp} required value={dForm.name} onChange={e => setDForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Prepaid Insurance" />
+                                    <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
+                                    <input className="input" required value={dForm.name} onChange={e => setDForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Prepaid Insurance" />
                                 </div>
                                 <div>
-                                    <label style={lbl}>Type</label>
-                                    <select style={sel} value={dForm.deferral_type} onChange={e => setDForm(p => ({ ...p, deferral_type: e.target.value }))}>
+                                    <label style={labelStyle}>Type</label>
+                                    <select className="input" value={dForm.deferral_type} onChange={e => setDForm(p => ({ ...p, deferral_type: e.target.value }))}>
                                         <option value="prepaid_expense">Prepaid Expense</option>
                                         <option value="deferred_revenue">Deferred Revenue</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={lbl}>Original Amount *</label>
-                                    <input style={inp} type="number" step="0.01" required value={dForm.original_amount} onChange={e => setDForm(p => ({ ...p, original_amount: e.target.value }))} placeholder="0.00" />
-                                    {dForm.original_amount && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>{fmt(parseFloat(dForm.original_amount || '0'))}</div>}
+                                    <label style={labelStyle}>Original Amount<span className="required-mark"> *</span></label>
+                                    <input className="input" type="number" step="0.01" required value={dForm.original_amount} onChange={e => setDForm(p => ({ ...p, original_amount: e.target.value }))} placeholder="0.00" />
+                                    {dForm.original_amount && <div style={helpStyle}>{fmt(parseFloat(dForm.original_amount || '0'))}</div>}
                                 </div>
                             </div>
-                            <div style={{ ...grid3, marginTop: '14px' }}>
+                            <div style={{ ...grid3, marginTop: '1.5rem' }}>
                                 <div>
-                                    <label style={lbl}>Recognition Periods</label>
-                                    <input style={inp} type="number" min="1" value={dForm.recognition_periods} onChange={e => setDForm(p => ({ ...p, recognition_periods: e.target.value }))} />
+                                    <label style={labelStyle}>Recognition Periods</label>
+                                    <input className="input" type="number" min="1" value={dForm.recognition_periods} onChange={e => setDForm(p => ({ ...p, recognition_periods: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={lbl}>Amount Per Period</label>
-                                    <input style={inp} type="number" step="0.01" value={dForm.recognition_amount} onChange={e => setDForm(p => ({ ...p, recognition_amount: e.target.value }))} placeholder="Auto-calculated if blank" />
+                                    <label style={labelStyle}>Amount Per Period</label>
+                                    <input className="input" type="number" step="0.01" value={dForm.recognition_amount} onChange={e => setDForm(p => ({ ...p, recognition_amount: e.target.value }))} placeholder="Auto-calculated if blank" />
                                     {dForm.recognition_periods && dForm.original_amount && !dForm.recognition_amount && (
                                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
                                             ≈ {fmt(parseFloat(dForm.original_amount || '0') / parseFloat(dForm.recognition_periods || '1'))} / period
@@ -307,41 +291,41 @@ const AccrualDeferralForm = () => {
                                     )}
                                 </div>
                                 <div>
-                                    <label style={lbl}>Start Date *</label>
-                                    <input style={inp} type="date" required value={dForm.start_date} onChange={e => setDForm(p => ({ ...p, start_date: e.target.value }))} />
+                                    <label style={labelStyle}>Start Date<span className="required-mark"> *</span></label>
+                                    <input className="input" type="date" required value={dForm.start_date} onChange={e => setDForm(p => ({ ...p, start_date: e.target.value }))} />
                                 </div>
                             </div>
-                            <div style={{ ...grid2, marginTop: '14px' }}>
+                            <div style={{ ...grid2, marginTop: '1.5rem' }}>
                                 <div>
-                                    <label style={lbl}>{dForm.deferral_type === 'prepaid_expense' ? 'Prepaid Asset Account (Cr on recognition)' : 'Deferred Revenue Account (Dr on recognition)'}</label>
-                                    <select style={sel} value={dForm.account} onChange={e => setDForm(p => ({ ...p, account: e.target.value }))}>
+                                    <label style={labelStyle}>{dForm.deferral_type === 'prepaid_expense' ? 'Prepaid Asset Account (Cr on recognition)' : 'Deferred Revenue Account (Dr on recognition)'}</label>
+                                    <select className="input" value={dForm.account} onChange={e => setDForm(p => ({ ...p, account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
                                         {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={lbl}>{dForm.deferral_type === 'prepaid_expense' ? 'Expense Account (Dr on recognition)' : 'Revenue Account (Cr on recognition)'}</label>
-                                    <select style={sel} value={dForm.counterpart_account} onChange={e => setDForm(p => ({ ...p, counterpart_account: e.target.value }))}>
+                                    <label style={labelStyle}>{dForm.deferral_type === 'prepaid_expense' ? 'Expense Account (Dr on recognition)' : 'Revenue Account (Cr on recognition)'}</label>
+                                    <select className="input" value={dForm.counterpart_account} onChange={e => setDForm(p => ({ ...p, counterpart_account: e.target.value }))}>
                                         <option value="">— Select Account —</option>
                                         {(accounts as RefAccountLite[]).map((a) => <option key={a.id} value={a.id}>{a.code} – {a.name}</option>)}
                                     </select>
                                 </div>
                             </div>
-                            <div style={{ marginTop: '14px' }}>
-                                <label style={lbl}>Description</label>
-                                <input style={inp} value={dForm.description} onChange={e => setDForm(p => ({ ...p, description: e.target.value }))} placeholder="Brief description of this deferral" />
+                            <div style={{ marginTop: '1.5rem' }}>
+                                <label style={labelStyle}>Description</label>
+                                <input className="input" value={dForm.description} onChange={e => setDForm(p => ({ ...p, description: e.target.value }))} placeholder="Brief description of this deferral" />
                             </div>
-                            <div style={{ marginTop: '14px' }}>
-                                <label style={lbl}>Source Document</label>
-                                <input style={inp} value={dForm.source_document} onChange={e => setDForm(p => ({ ...p, source_document: e.target.value }))} placeholder="e.g. Contract #CTR-2024-001" />
+                            <div style={{ marginTop: '1.5rem' }}>
+                                <label style={labelStyle}>Source Document</label>
+                                <input className="input" value={dForm.source_document} onChange={e => setDForm(p => ({ ...p, source_document: e.target.value }))} placeholder="e.g. Contract #CTR-2024-001" />
                             </div>
                         </>
                     )}
                 </div>
 
                 {/* ─── Options ─── */}
-                <div style={card}>
-                    <div style={sectionHd}>Auto-Processing Options</div>
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <h3 style={{ marginBottom: '1.5rem' }}>Auto-Processing Options</h3>
                     {isAccrual ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <label style={chkRow}>

@@ -50,16 +50,6 @@ const cardStyle: React.CSSProperties = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
-const lbl: React.CSSProperties = {
-    display: 'block',
-    fontSize: '11px',
-    fontWeight: 700,
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: '0.6px',
-    marginBottom: '6px',
-};
-
 const inp: React.CSSProperties = {
     width: '100%',
     padding: '10px 14px',
@@ -116,6 +106,9 @@ export default function BankAccountSettings() {
     const [searchQuery, setSearchQuery] = useState('');
     const [glAccounts, setGlAccounts] = useState<any[]>([]);
     const [formError, setFormError] = useState('');
+
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
 
     const { data: bankAccounts, isLoading } = useBankAccounts({});
     const { data: currencies } = useCurrencies();
@@ -468,42 +461,36 @@ export default function BankAccountSettings() {
 
                                 {/* Account Name */}
                                 <div style={{ marginBottom: '16px' }}>
-                                    <label style={lbl}>Account Name <span style={{ color: '#ef4444' }}>*</span></label>
+                                    <label style={labelStyle}>Account Name<span className="required-mark"> *</span></label>
                                     <input
-                                        style={inp}
+                                        className="input"
                                         type="text"
                                         placeholder="e.g. Main Operating Account"
                                         value={formData.name}
                                         onChange={e => setFormData({ ...formData, name: e.target.value })}
-                                        onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                        onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                         required
                                     />
                                 </div>
 
                                 {/* Account Number | Account Type */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '16px' }}>
                                     <div>
-                                        <label style={lbl}>Account Number <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <label style={labelStyle}>Account Number<span className="required-mark"> *</span></label>
                                         <input
-                                            style={inp}
+                                            className="input"
                                             type="text"
                                             placeholder="e.g. 0012345678"
                                             value={formData.account_number}
                                             onChange={e => setFormData({ ...formData, account_number: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                             required
                                         />
                                     </div>
                                     <div>
-                                        <label style={lbl}>Account Type <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <label style={labelStyle}>Account Type<span className="required-mark"> *</span></label>
                                         <select
-                                            style={selectStyle}
+                                            className="input"
                                             value={formData.account_type}
                                             onChange={e => setFormData({ ...formData, account_type: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                             required
                                         >
                                             <option value="Bank">Bank</option>
@@ -515,15 +502,13 @@ export default function BankAccountSettings() {
                                 </div>
 
                                 {/* Currency | GL Account */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '16px' }}>
                                     <div>
-                                        <label style={lbl}>Currency <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <label style={labelStyle}>Currency<span className="required-mark"> *</span></label>
                                         <select
-                                            style={selectStyle}
+                                            className="input"
                                             value={formData.currency}
                                             onChange={e => setFormData({ ...formData, currency: parseInt(e.target.value) })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                             required
                                         >
                                             <option value="">Select currency...</option>
@@ -533,13 +518,11 @@ export default function BankAccountSettings() {
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={lbl}>GL Account <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <label style={labelStyle}>GL Account<span className="required-mark"> *</span></label>
                                         <select
-                                            style={selectStyle}
+                                            className="input"
                                             value={formData.gl_account}
                                             onChange={e => setFormData({ ...formData, gl_account: parseInt(e.target.value) })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                             required
                                         >
                                             <option value="">Select GL account...</option>
@@ -551,18 +534,16 @@ export default function BankAccountSettings() {
                                 </div>
 
                                 {/* Opening Balance */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '24px' }}>
                                     <div>
-                                        <label style={lbl}>Opening Balance</label>
+                                        <label style={labelStyle}>Opening Balance</label>
                                         <input
-                                            style={inp}
+                                            className="input"
                                             type="number"
                                             step="0.01"
                                             placeholder="0.00"
                                             value={formData.opening_balance}
                                             onChange={e => setFormData({ ...formData, opening_balance: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                         />
                                     </div>
                                 </div>
@@ -581,58 +562,50 @@ export default function BankAccountSettings() {
 
                                 {/* Bank Name */}
                                 <div style={{ marginBottom: '16px' }}>
-                                    <label style={lbl}>Bank Name</label>
+                                    <label style={labelStyle}>Bank Name</label>
                                     <input
-                                        style={inp}
+                                        className="input"
                                         type="text"
                                         placeholder="e.g. First National Bank"
                                         value={formData.bank_name}
                                         onChange={e => setFormData({ ...formData, bank_name: e.target.value })}
-                                        onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                        onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                     />
                                 </div>
 
                                 {/* Branch | SWIFT */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '16px' }}>
                                     <div>
-                                        <label style={lbl}>Branch Name</label>
+                                        <label style={labelStyle}>Branch Name</label>
                                         <input
-                                            style={inp}
+                                            className="input"
                                             type="text"
                                             placeholder="Branch"
                                             value={formData.branch_name}
                                             onChange={e => setFormData({ ...formData, branch_name: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                         />
                                     </div>
                                     <div>
-                                        <label style={lbl}>SWIFT Code</label>
+                                        <label style={labelStyle}>SWIFT Code</label>
                                         <input
-                                            style={inp}
+                                            className="input"
                                             type="text"
                                             placeholder="e.g. FNBZAJJXXX"
                                             value={formData.swift_code}
                                             onChange={e => setFormData({ ...formData, swift_code: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                         />
                                     </div>
                                 </div>
 
                                 {/* IBAN */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: '24px' }}>
                                     <div>
-                                        <label style={lbl}>IBAN</label>
+                                        <label style={labelStyle}>IBAN</label>
                                         <input
-                                            style={inp}
+                                            className="input"
                                             type="text"
                                             placeholder="e.g. GB29 NWBK..."
                                             value={formData.iban}
                                             onChange={e => setFormData({ ...formData, iban: e.target.value })}
-                                            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-                                            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
                                         />
                                     </div>
                                 </div>

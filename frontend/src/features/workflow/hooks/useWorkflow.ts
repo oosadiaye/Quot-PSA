@@ -8,7 +8,12 @@ import apiClient from '../../../api/client';
 export interface ApprovalGroupPayload {
     name: string;
     description?: string;
+    // Direct user membership (auth.User PKs).
     members: number[];
+    // Role-based indirect membership (core.Role PKs). Effective approvers
+    // are direct ``members`` ∪ users with an active RoleAssignment to any
+    // role in this list.
+    roles?: number[];
     min_amount?: number;
     max_amount?: number;
     is_active?: boolean;
@@ -72,7 +77,7 @@ export const useApprovalGroup = (id?: number) => {
             const { data } = await apiClient.get(`/workflow/approval-groups/${id}/`);
             return data;
         },
-        enabled: Boolean(id) && !isNaN(id),
+        enabled: id !== undefined && Boolean(id) && !isNaN(id),
         staleTime: STALE_TIME,
     });
 };
@@ -138,7 +143,7 @@ export const useApprovalTemplate = (id?: number) => {
             const { data } = await apiClient.get(`/workflow/approval-templates/${id}/`);
             return data;
         },
-        enabled: Boolean(id) && !isNaN(id),
+        enabled: id !== undefined && Boolean(id) && !isNaN(id),
         staleTime: STALE_TIME,
     });
 };
@@ -204,7 +209,7 @@ export const useApproval = (id?: number) => {
             const { data } = await apiClient.get(`/workflow/approvals/${id}/`);
             return data;
         },
-        enabled: Boolean(id) && !isNaN(id),
+        enabled: id !== undefined && Boolean(id) && !isNaN(id),
         staleTime: STALE_TIME,
     });
 };

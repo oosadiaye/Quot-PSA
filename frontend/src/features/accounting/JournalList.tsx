@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    useJournals, usePostJournal, useUpdateJournalDescription, useUnpostJournal, useJournalDetail,
+    useJournals, usePostJournal, useUpdateJournalDescription, useUnpostJournal,
     useBulkDeleteJournals, useDeleteJournal,
     useDownloadJournalTemplate, useBulkImportJournals, useBulkPostJournals,
 } from './hooks/useJournal';
 import AccountingLayout from './AccountingLayout';
+import JournalDetailModal from './components/JournalDetailModal';
 import PageHeader from '../../components/PageHeader';
 import {
     Plus, Check, FileText, Eye, Edit, RotateCcw, X, Save, Search, Filter,
@@ -15,58 +16,6 @@ import {
 import LoadingScreen from '../../components/common/LoadingScreen';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useDialog } from '../../hooks/useDialog';
-
-// Inner component to fetch details safely across re-renders
-const JournalDetailModal = ({ id, onClose }: { id: number; onClose: () => void }) => {
-    const { data: journal, isLoading } = useJournalDetail(id);
-
-    return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="card glass" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                    <h2 style={{ fontSize: 'var(--text-lg)', margin: 0 }}>Journal Details: {journal?.reference_number || `JE-${id}`}</h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text)' }}><X size={20} /></button>
-                </div>
-                {isLoading ? (
-                    <p>Loading details...</p>
-                ) : (
-                    <div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem', fontSize: 'var(--text-sm)' }}>
-                            <div><strong>Date:</strong> {journal?.posting_date}</div>
-                            <div><strong>Status:</strong> {journal?.status}</div>
-                            <div><strong>Fund:</strong> {journal?.fund_name || '-'}</div>
-                            <div><strong>Geo:</strong> {journal?.geo_name || '-'}</div>
-                            <div style={{ gridColumn: 'span 2' }}><strong>Description:</strong> {journal?.description}</div>
-                        </div>
-
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
-                            <thead>
-                                <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
-                                    <th style={{ padding: '0.75rem' }}>Account</th>
-                                    <th style={{ padding: '0.75rem' }}>Document No.</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Debit</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Credit</th>
-                                    <th style={{ padding: '0.75rem' }}>Memo</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {journal?.lines?.map((line: any) => (
-                                    <tr key={line.id ?? line.account_code} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                                        <td style={{ padding: '0.75rem' }}>{line.account_code} - {line.account_name}</td>
-                                        <td style={{ padding: '0.75rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>{line.document_number || '-'}</td>
-                                        <td style={{ padding: '0.75rem', textAlign: 'right' }}>{(parseFloat(line.debit) || 0) > 0 ? (parseFloat(line.debit)).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                                        <td style={{ padding: '0.75rem', textAlign: 'right' }}>{(parseFloat(line.credit) || 0) > 0 ? (parseFloat(line.credit)).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                                        <td style={{ padding: '0.75rem' }}>{line.memo || '-'}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
 
 const JournalList = () => {
     const { showConfirm } = useDialog();
@@ -544,8 +493,8 @@ const JournalList = () => {
                 </div>
             )}
 
-            <div className="card glass animate-fade" style={{ padding: 0, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="card glass animate-fade" style={{ padding: 0, overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
                             <th style={{ padding: '1rem 0.75rem 1rem 1.5rem', width: '40px' }}>

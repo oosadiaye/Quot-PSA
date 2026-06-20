@@ -291,7 +291,7 @@ const ProductCategoryList = () => {
                 data: {
                     name: data.name.trim(),
                     ...(data.product_type ? { product_type: Number(data.product_type) } : {}),
-                    parent: data.parent ? Number(data.parent) : null,
+                    parent: data.parent ? Number(data.parent) : undefined,
                 },
             });
             setEditingId(null);
@@ -469,7 +469,7 @@ const ProductCategoryList = () => {
                             style={{ width: '100%' }}
                         >
                             <option value="">All Product Types</option>
-                            {productTypes.map(pt => (
+                            {productTypes.map((pt: ProductType) => (
                                 <option key={pt.id} value={String(pt.id)}>
                                     {pt.name_display || pt.name}
                                 </option>
@@ -518,8 +518,8 @@ const ProductCategoryList = () => {
                                         const isRoot     = !indented && cat.parent === null;
                                         const typeColor  = getTypeColor(cat.product_type);
                                         const typeName   = cat.product_type_name ||
-                                            productTypes.find(pt => pt.id === cat.product_type)?.name_display ||
-                                            productTypes.find(pt => pt.id === cat.product_type)?.name ||
+                                            productTypes.find((pt: ProductType) => pt.id === cat.product_type)?.name_display ||
+                                            productTypes.find((pt: ProductType) => pt.id === cat.product_type)?.name ||
                                             '—';
                                         const parentName = cat.parent_name ||
                                             (cat.parent ? allCats.find(c => c.id === cat.parent)?.name : null) ||

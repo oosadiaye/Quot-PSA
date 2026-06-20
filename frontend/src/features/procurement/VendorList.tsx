@@ -183,6 +183,7 @@ const VendorList = () => {
                     await createVendor.mutateAsync({
                         name: row.name,
                         code: row.code,
+                        category: parseInt(row.category) || 0,
                         tax_id: row.tax_id || '',
                         email: row.email || '',
                         phone: row.phone || '',

@@ -10,7 +10,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     ArrowLeft, FileText, ListChecks, ExternalLink, Search, Download,
 } from 'lucide-react';
@@ -19,6 +19,7 @@ import AccountingLayout from '../../features/accounting/AccountingLayout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import PageHeader from '../../components/PageHeader';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useLedgerMutationListener } from '../../features/accounting/hooks/ledgerEvents';
 
 interface TxnRow {
     type: 'PO_COMMITMENT' | 'AP_INVOICE' | 'PV' | 'JE';
@@ -64,6 +65,18 @@ export default function AppropriationTransactions() {
     const [typeFilter, setTypeFilter] = useState<string>('');
     const [searchTerm, setSearchTerm] = useState<string>('');
 
+    // Real-time freshness policy (same shape as AppropriationDetail).
+    // The global QueryClient sets staleTime 5min + no refocus refetch
+    // for report performance; budget execution surfaces must override
+    // both so a journal posted seconds ago is visible the moment the
+    // user navigates back to this page or refocuses the tab.
+    const realtimeQueryOpts = {
+        staleTime: 0,
+        refetchOnMount: 'always' as const,
+        refetchOnWindowFocus: true,
+    };
+    const qc = useQueryClient();
+
     // Fetch the appropriation header in parallel so we can render the
     // summary cards even when the transactions endpoint fails (e.g.
     // network error, server-side schema gap on a particular source).
@@ -76,6 +89,7 @@ export default function AppropriationTransactions() {
             return data;
         },
         enabled: !!id,
+        ...realtimeQueryOpts,
     });
 
     const { data, isLoading, error } = useQuery<TxnResponse>({
@@ -90,6 +104,14 @@ export default function AppropriationTransactions() {
         // Don't retry endlessly when the endpoint isn't available — fall
         // back to "no transactions" UI quickly so the page is usable.
         retry: 1,
+        ...realtimeQueryOpts,
+    });
+
+    // Cross-tab refresh — drop the local caches when any sibling tab
+    // reports a ledger-affecting mutation.
+    useLedgerMutationListener(() => {
+        qc.invalidateQueries({ queryKey: ['appropriation'] });
+        qc.invalidateQueries({ queryKey: ['appropriation-transactions'] });
     });
 
     // Resilient fallbacks: if the transactions endpoint failed but we
@@ -233,8 +255,24 @@ export default function AppropriationTransactions() {
                 gap: '1rem', marginBottom: '1.25rem',
             }}>
                 <SummaryCard label="Approved" value={fmt(a.amount_approved)} accent="#1e293b" />
-                <SummaryCard label="Committed (open)" value={fmt(a.cached_total_committed)} accent="#a16207" />
-                <SummaryCard label="Expended" value={fmt(a.cached_total_expended)} accent="#b91c1c" />
+                {/*
+                    Read via the model property names (``total_committed`` /
+                    ``total_expended``) — same as AppropriationDetail. These
+                    fall back to the cached fields but stay consistent if a
+                    future serializer change swaps the source. ``??`` keeps
+                    the cached fields as a safety fallback when an older
+                    backend version serves the request.
+                */}
+                <SummaryCard
+                    label="Committed (open)"
+                    value={fmt(a.total_committed ?? a.cached_total_committed)}
+                    accent="#a16207"
+                />
+                <SummaryCard
+                    label="Expended"
+                    value={fmt(a.total_expended ?? a.cached_total_expended)}
+                    accent="#b91c1c"
+                />
                 <SummaryCard label="Available" value={fmt(a.available_balance)} accent="#059669" />
             </div>
 

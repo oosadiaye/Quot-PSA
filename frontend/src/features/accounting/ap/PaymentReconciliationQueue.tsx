@@ -129,7 +129,7 @@ interface ResolveModalProps {
 function ResolveModal({ failure, onClose }: ResolveModalProps) {
   const [note, setNote] = useState<string>('');
   const [submitError, setSubmitError] = useState<string>('');
-  const focusRef = useFocusTrap<HTMLDivElement>(true);
+  const focusRef = useFocusTrap(true, onClose);
   const resolve = useResolveFailure();
 
   const minNoteLength = 10;

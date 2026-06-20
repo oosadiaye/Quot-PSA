@@ -6,8 +6,9 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query';
-import { Plus, Download, Upload, RefreshCw, FileDown, CheckCircle2, AlertCircle, BookOpen, Trash2 } from 'lucide-react';
+import { Plus, Download, Upload, RefreshCw, FileDown, CheckCircle2, AlertCircle, BookOpen, Trash2, Eye, CalendarClock, XCircle } from 'lucide-react';
 import GenericListPage from '../../components/GenericListPage';
+import { useDialog } from '../../hooks/useDialog';
 import Sidebar from '../../components/Sidebar';
 import SearchableSelect from '../../components/SearchableSelect';
 import { downloadNCoATemplate, useNCoABulkImport, type NCoASegmentType, type BulkImportResult } from '../../hooks/useNCoAImportExport';
@@ -318,6 +319,8 @@ export const AppropriationList = () => {
         appropriation_count: number;
         amount_approved: string | number;
         total_expended: string | number;
+        total_committed?: string | number;
+        total_all_committed?: string | number;
         available_balance: string | number;
         execution_rate: string | number;
         sample_appropriation_id?: number;
@@ -560,6 +563,7 @@ export const AppropriationList = () => {
             setImportResult({
                 success: false,
                 created: 0,
+                updated: 0,
                 skipped: 0,
                 errors: [err.response?.data?.error || 'Import failed. Check the file format.'],
             });
@@ -1335,6 +1339,13 @@ export const PaymentVoucherList = () => {
             subtitle="Government payment vouchers -- approved and processed via TSA"
             endpoint="/accounting/payment-vouchers/"
             columns={[
+                // ``created_at`` is the PV's birthdate — when the
+                // operator raised the voucher. Leftmost column matches
+                // accounting-software convention (SAP FBL1N, Sage AP)
+                // where the date is column 1; auditors scan
+                // chronologically. Formatted as DD/MM/YYYY per Nigerian
+                // convention by the GenericListPage 'date' formatter.
+                { key: 'created_at', label: 'Date', format: 'date', width: '110px' },
                 { key: 'voucher_number', label: 'PV Number', width: '130px' },
                 { key: 'payment_type', label: 'Type' },
                 { key: 'payee_name', label: 'Payee' },
@@ -1347,6 +1358,226 @@ export const PaymentVoucherList = () => {
                 { label: 'New Payment Voucher', onClick: () => nav('/accounting/payment-vouchers/new'), variant: 'primary', icon: icon(Plus) },
             ]}
             onRowClick={(item) => nav(`/accounting/payment-vouchers/${item.id}`)}
+        />
+    );
+};
+
+/**
+ * Mobilization Advances list — cross-contract operator dashboard.
+ *
+ * When a contract officer clicks "Issue Mobilization Advance" on a
+ * contract, the backend creates a ``MobilizationPayment`` row with
+ * status=PENDING. The row sits there until a treasury officer raises
+ * a Payment Voucher to actually disburse the cash. Previously there
+ * was no list view — the advance was only findable from inside the
+ * specific contract, so treasury had no way to see "X advances
+ * across N contracts are awaiting PV scheduling".
+ *
+ * This page is that missing list. Status badges make the workflow
+ * stage obvious:
+ *   PENDING            — needs a PV raised
+ *   PAID               — PV paid, advance disbursed, no recovery yet
+ *   PARTIALLY_RECOVERED — IPCs are clawing it back pro-rata
+ *   FULLY_RECOVERED    — advance fully recouped against IPC certifications
+ */
+export const MobilizationPaymentList = () => {
+    const nav = useNavigate();
+    const qc = useQueryClient();
+    const { showAlert, showConfirm } = useDialog();
+
+    // Approve action: POST /contracts/mobilization-payments/{id}/approve/
+    // Lifts a PENDING advance to APPROVED so treasury can raise the PV.
+    // Backend enforces SoD (approver ≠ issuer) and writes an audit step.
+    const approveAdvance = useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(
+                `/contracts/mobilization-payments/${id}/approve/`,
+                {},
+            );
+            return data;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({
+                queryKey: ['generic-list', '/contracts/mobilization-payments/'],
+            });
+            showAlert('Mobilization advance approved. Treasury can now raise the PV.', 'success');
+        },
+        onError: (err: any) => {
+            const msg = err?.response?.data?.error
+                ?? err?.response?.data?.detail
+                ?? 'Approval failed.';
+            showAlert(msg, 'error');
+        },
+    });
+
+    // Schedule-for-payment action: POST /contracts/mobilization-payments/{id}/schedule-payment/
+    // Creates BOTH a DRAFT PaymentVoucherGov (the document) and a
+    // DRAFT Payment (the cash event in Outgoing Payments). Backend
+    // is idempotent across multiple layers — see the comment block
+    // on MobilizationService.schedule_payment.
+    const schedulePayment = useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(
+                `/contracts/mobilization-payments/${id}/schedule-payment/`,
+                {},
+            );
+            return data as {
+                created_pv_id?: number;
+                created_pv_number?: string;
+                created_payment_id?: number;
+                created_payment_number?: string;
+                reference_number?: string;
+            };
+        },
+        onSuccess: (data) => {
+            qc.invalidateQueries({
+                queryKey: ['generic-list', '/contracts/mobilization-payments/'],
+            });
+            const pvLabel = data.created_pv_number ?? `#${data.created_pv_id}`;
+            const payLabel = data.created_payment_number ?? `#${data.created_payment_id}`;
+            const refLabel = data.reference_number ?? '';
+            showAlert(
+                `Draft PV ${pvLabel} and draft Payment ${payLabel} created `
+                + (refLabel ? `(ref: ${refLabel}). ` : '. ')
+                + 'Open Outgoing Payments to review and post.',
+                'success',
+            );
+        },
+        onError: (err: any) => {
+            const msg = err?.response?.data?.error
+                ?? err?.response?.data?.detail
+                ?? 'Scheduling failed.';
+            showAlert(msg, 'error');
+        },
+    });
+
+    // Cancel action: POST /contracts/mobilization-payments/{id}/cancel/
+    // Marks a PENDING or APPROVED advance as CANCELLED. Blocked once
+    // PAID (use a reversal at that point — cancellation can't undo a
+    // posted journal). Writes an audit step.
+    const cancelAdvance = useMutation({
+        mutationFn: async (id: number) => {
+            const { data } = await apiClient.post(
+                `/contracts/mobilization-payments/${id}/cancel/`,
+                {},
+            );
+            return data;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({
+                queryKey: ['generic-list', '/contracts/mobilization-payments/'],
+            });
+            showAlert('Mobilization advance cancelled.', 'warning');
+        },
+        onError: (err: any) => {
+            const msg = err?.response?.data?.error
+                ?? err?.response?.data?.detail
+                ?? 'Cancellation failed.';
+            showAlert(msg, 'error');
+        },
+    });
+
+    return (
+        <GenericListPage
+            title="Mobilization Advances"
+            subtitle="Advance payments issued against contracts -- approve, then track from PV disbursement through IPC recovery"
+            endpoint="/contracts/mobilization-payments/"
+            columns={[
+                // Date first — same convention as Payment Vouchers list.
+                { key: 'created_at', label: 'Issued On', format: 'date', width: '110px' },
+                { key: 'contract_number', label: 'Contract', width: '180px' },
+                { key: 'vendor_name', label: 'Vendor' },
+                { key: 'amount', label: 'Advance Amount', format: 'currency' },
+                // PV reference is empty until a treasury officer raises one;
+                // status pill below tells the operator what to do.
+                { key: 'payment_voucher_number', label: 'PV Reference', width: '140px' },
+                { key: 'payment_date', label: 'Paid On', format: 'date', width: '110px' },
+                { key: 'status', label: 'Status', format: 'status' },
+            ]}
+            // Clicking a row opens the parent contract -- that's where
+            // the operator can act on the advance (see the
+            // ``mobilizationPayment`` block in ContractDetail.tsx).
+            onRowClick={(item) => nav(`/contracts/${item.contract}`)}
+            rowActions={{
+                custom: [
+                    {
+                        // Approve PENDING advances. Visibility predicate
+                        // hides the button on rows that are already
+                        // APPROVED / PAID / *_RECOVERED — no point
+                        // showing an action that the backend would 400.
+                        label: 'Approve Mobilization Advance',
+                        icon: <CheckCircle2 size={14} />,
+                        color: '#16a34a',
+                        borderColor: '#16a34a',
+                        visible: (item) => String(item.status) === 'PENDING',
+                        onClick: async (item) => {
+                            const ok = await showConfirm(
+                                `Approve mobilization advance of ₦${Number(item.amount).toLocaleString('en-NG')} `
+                                + `for ${item.vendor_name} on ${item.contract_number}? `
+                                + 'This authorises treasury to raise the disbursement Payment Voucher.',
+                            );
+                            if (!ok) return;
+                            approveAdvance.mutate(item.id as number);
+                        },
+                    },
+                    {
+                        // Schedule for payment — creates a DRAFT PV that
+                        // shows up on Outgoing Payments. Only visible
+                        // for APPROVED advances that don't already have
+                        // a PV linked (idempotent backend would no-op
+                        // anyway, but hiding the button avoids confusing
+                        // operators about whether something happened).
+                        label: 'Schedule for Payment (creates draft PV)',
+                        icon: <CalendarClock size={14} />,
+                        color: '#7c3aed',
+                        borderColor: '#7c3aed',
+                        visible: (item) =>
+                            String(item.status) === 'APPROVED'
+                            && !item.payment_voucher_number,
+                        onClick: async (item) => {
+                            const ok = await showConfirm(
+                                `Schedule ₦${Number(item.amount).toLocaleString('en-NG')} mobilization for ${item.vendor_name}? `
+                                + 'A draft Payment Voucher will be created. '
+                                + 'Treasury can then review and post it from Outgoing Payments.',
+                            );
+                            if (!ok) return;
+                            schedulePayment.mutate(item.id as number);
+                        },
+                    },
+                    {
+                        // Cancel a PENDING or APPROVED advance. Backend
+                        // blocks once PAID — the button hides at that
+                        // point too so the operator doesn't get a 400.
+                        label: 'Cancel Mobilization Advance',
+                        icon: <XCircle size={14} />,
+                        color: '#dc2626',
+                        borderColor: '#dc2626',
+                        visible: (item) => {
+                            const s = String(item.status);
+                            return s === 'PENDING' || s === 'APPROVED';
+                        },
+                        onClick: async (item) => {
+                            const ok = await showConfirm(
+                                `Cancel ₦${Number(item.amount).toLocaleString('en-NG')} mobilization advance `
+                                + `for ${item.vendor_name} on ${item.contract_number}? `
+                                + 'No cash will be disbursed. This is for advances that should never be paid '
+                                + '(e.g. vendor withdrawn, contract amended).',
+                            );
+                            if (!ok) return;
+                            cancelAdvance.mutate(item.id as number);
+                        },
+                    },
+                    {
+                        // View contract → deep-link to the Mobilization
+                        // tab so the operator lands on the right view
+                        // showing payment details + journal entries.
+                        label: 'View Mobilization (in Contract)',
+                        icon: <Eye size={14} />,
+                        color: '#1e4d8c',
+                        onClick: (item) => nav(`/contracts/${item.contract}?tab=mobilization`),
+                    },
+                ],
+            }}
         />
     );
 };
@@ -1407,8 +1638,11 @@ export const RevenueHeadList = () => {
 
 export const RevenueCollectionList = () => {
     const nav = useNavigate();
+    const qc = useQueryClient();
+    const { showAlert } = useDialog();
     const fileRef = useRef<HTMLInputElement>(null);
     const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
+    const [bulkBusy, setBulkBusy] = useState(false);
 
     const handleTemplate = async () => {
         try {
@@ -1427,6 +1661,88 @@ export const RevenueCollectionList = () => {
             setImportResult(res.data);
         } catch { /* ignore */ }
         e.target.value = '';
+    };
+
+    /**
+     * Bulk approve = walk each selected receipt through whatever steps
+     * are still pending in the state machine:
+     *   PENDING   → confirm() → post_to_gl()
+     *   CONFIRMED → post_to_gl()
+     *   POSTED    → skip (already done)
+     *   REVERSED / CANCELLED → skip (cannot re-post)
+     *
+     * Runs all rows in parallel via Promise.allSettled so one bad row
+     * (e.g. wrong status, model validation error) doesn't block the
+     * rest. Aggregates results into a single summary alert and
+     * invalidates the list + summary caches so the new statuses
+     * show immediately.
+     */
+    const handleBulkApprove = async (items: Record<string, unknown>[]) => {
+        if (bulkBusy || items.length === 0) return;
+        setBulkBusy(true);
+        try {
+            const results = await Promise.allSettled(items.map(async (item) => {
+                const id = item.id as number;
+                const status = String(item.status || '');
+                if (status === 'POSTED') return { id, outcome: 'already_posted' as const };
+                if (status === 'REVERSED' || status === 'CANCELLED') {
+                    return { id, outcome: 'skipped' as const, reason: status };
+                }
+                // PENDING needs CONFIRM first, then POST. CONFIRMED jumps
+                // straight to POST. Sequential per row so the second call
+                // sees the row in its new state.
+                if (status === 'PENDING') {
+                    await apiClient.post(`/accounting/revenue-collections/${id}/confirm/`);
+                }
+                await apiClient.post(`/accounting/revenue-collections/${id}/post_to_gl/`);
+                return { id, outcome: 'posted' as const };
+            }));
+
+            const posted: number[] = [];
+            const alreadyPosted: number[] = [];
+            const skipped: Array<{ id: number; reason: string }> = [];
+            const failed: Array<{ id: number; reason: string }> = [];
+
+            results.forEach((r, idx) => {
+                const fallbackId = items[idx]?.id as number;
+                if (r.status === 'rejected') {
+                    const err = r.reason as { response?: { data?: { error?: string; detail?: string } }; message?: string };
+                    failed.push({
+                        id: fallbackId,
+                        reason: err?.response?.data?.error
+                            ?? err?.response?.data?.detail
+                            ?? err?.message
+                            ?? 'Unknown error',
+                    });
+                } else if (r.value.outcome === 'posted') {
+                    posted.push(r.value.id);
+                } else if (r.value.outcome === 'already_posted') {
+                    alreadyPosted.push(r.value.id);
+                } else {
+                    skipped.push({ id: r.value.id, reason: r.value.reason });
+                }
+            });
+
+            // Build a single-line summary the user can read at a glance.
+            const parts: string[] = [];
+            if (posted.length) parts.push(`${posted.length} posted to GL`);
+            if (alreadyPosted.length) parts.push(`${alreadyPosted.length} already posted`);
+            if (skipped.length) parts.push(`${skipped.length} skipped (reversed/cancelled)`);
+            if (failed.length) {
+                const sampleReasons = failed.slice(0, 3).map(f => `#${f.id}: ${f.reason}`).join(' | ');
+                parts.push(`${failed.length} failed → ${sampleReasons}`);
+            }
+
+            const variant = failed.length ? 'error' : (posted.length ? 'success' : 'warning');
+            showAlert(parts.join('. ') || 'Nothing to do.', variant);
+
+            // Refresh the list and the dashboard summary so the new
+            // status pills + counters reflect the just-posted rows.
+            qc.invalidateQueries({ queryKey: ['generic-list', '/accounting/revenue-collections/'] });
+            qc.invalidateQueries({ queryKey: ['gov-revenue-summary'] });
+        } finally {
+            setBulkBusy(false);
+        }
     };
 
     return (
@@ -1456,6 +1772,32 @@ export const RevenueCollectionList = () => {
                     { label: 'New Revenue Entry', onClick: () => nav('/accounting/revenue-collections/new'), variant: 'primary', icon: icon(Plus) },
                 ]}
                 onRowClick={(item) => nav(`/accounting/revenue-collections/${item.id}`)}
+                rowActions={{
+                    // Explicit View affordance — the whole row is also
+                    // clickable, but icon-buttons make the drill-in obvious
+                    // to operators who don't know rows are interactive.
+                    custom: [
+                        {
+                            label: 'View Receipt + Journal',
+                            icon: <Eye size={14} />,
+                            onClick: (item) => nav(`/accounting/revenue-collections/${item.id}`),
+                            color: '#1e4d8c',
+                        },
+                    ],
+                }}
+                // Passing bulkActions activates GenericListPage's built-in
+                // leading checkbox column AND a master "select all on
+                // page" checkbox in the table header. The contextual
+                // action bar surfaces once at least one row is selected,
+                // showing "{N} selected" + Clear + this action.
+                bulkActions={[
+                    {
+                        label: bulkBusy ? 'Posting...' : 'Confirm & Post to GL',
+                        icon: <CheckCircle2 size={14} />,
+                        variant: 'primary',
+                        onClick: handleBulkApprove,
+                    },
+                ]}
             />
         </>
     );

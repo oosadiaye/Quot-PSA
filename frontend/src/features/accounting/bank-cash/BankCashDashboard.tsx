@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Wallet, ArrowUpRight, ArrowDownLeft, Filter, Search, CheckCircle2, Clock, XCircle, Plus, Play } from 'lucide-react';
 import { useBankAccounts, useBankAccountSummary, useBankAccountTransactions, useBankReconciliations, useCreateBankReconciliation, useReconcileBank } from '../../settings/hooks/useBankAccounts';
@@ -16,7 +16,7 @@ const inputStyle: React.CSSProperties = {
     boxSizing: 'border-box',
 };
 
-const RECON_STATUS: Record<string, { color: string; bg: string; icon: JSX.Element }> = {
+const RECON_STATUS: Record<string, { color: string; bg: string; icon: React.JSX.Element }> = {
     draft:       { color: '#374151', bg: '#f3f4f6', icon: <Clock size={12} /> },
     reconciled:  { color: '#065f46', bg: '#d1fae5', icon: <CheckCircle2 size={12} /> },
     approved:    { color: '#1e40af', bg: '#dbeafe', icon: <CheckCircle2 size={12} /> },

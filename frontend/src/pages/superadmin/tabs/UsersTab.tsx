@@ -402,7 +402,7 @@ const UsersTab = () => {
               <Descriptions.Item label="SuperUser">{selectedUser.is_superuser ? 'Yes' : 'No'}</Descriptions.Item>
             </Descriptions>
 
-            <Divider orientation="left">Tenant Roles</Divider>
+            <Divider titlePlacement="left">Tenant Roles</Divider>
             {selectedUser.tenants && selectedUser.tenants.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {selectedUser.tenants.map((t) => (

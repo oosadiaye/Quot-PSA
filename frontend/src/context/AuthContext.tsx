@@ -127,6 +127,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return (getStored('mdaIsolationMode') as 'UNIFIED' | 'SEPARATED') || 'UNIFIED';
     });
 
+    // ── Cross-tab boot phase (right-click → "Open link in new tab") ──
+    //
+    // sessionStorage is per-tab scoped, so a freshly-opened tab boots
+    // with the user JSON mirrored from localStorage but NO ``authToken``.
+    // The BroadcastChannel handshake below would deliver the token from
+    // the sibling tab — but only AFTER the first React render, so any
+    // child API call fires synchronously without an ``Authorization``
+    // header and gets a 401 → bounce to login.
+    //
+    // Fix: when we detect this state on mount (user present, token
+    // absent, BroadcastChannel available), short-circuit rendering to
+    // a "Restoring session…" placeholder for up to 600ms. The handshake
+    // either succeeds (token lands in sessionStorage, flag cleared,
+    // children mount with a valid token) or times out (we fall through
+    // to the unauthenticated path and the user lands on /login cleanly).
+    const initialAuthToken = (typeof window !== 'undefined')
+        ? sessionStorage.getItem('authToken')
+        : null;
+    const needsCrossTabBoot = !!user && !initialAuthToken
+        && typeof BroadcastChannel !== 'undefined';
+    const [restoringFromSibling, setRestoringFromSibling] = useState<boolean>(
+        needsCrossTabBoot,
+    );
+
     // Derive auth state from the ``user`` state variable only — NOT
     // from synchronous storage reads. ``user`` is set via
     // ``setAuthData`` only after the token was persisted, and cleared
@@ -431,6 +455,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // pick it up without any further changes.
                 sessionStorage.setItem('authToken', msg.token);
                 sessionStorage.setItem('user', msg.user);
+                // Token landed — release the cross-tab boot gate so the
+                // children mount with a populated sessionStorage.
+                setRestoringFromSibling(false);
                 if (msg.tenantInfo) sessionStorage.setItem('tenantInfo', msg.tenantInfo);
                 if (msg.tenantPermissions) sessionStorage.setItem('tenantPermissions', msg.tenantPermissions);
                 if (msg.tenantDomain) sessionStorage.setItem('tenantDomain', msg.tenantDomain);
@@ -468,13 +495,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // If we mounted with no user, ask siblings for their state.
         // No-op in tabs that already have a user — they don't need help.
-        if (!user) {
+        // Also fire the request when we're in the cross-tab boot phase
+        // (user mirrored from localStorage but token missing in this tab).
+        const needsRequest = !user || restoringFromSibling;
+        if (needsRequest) {
             channel.postMessage({ type: 'request-auth-state' } satisfies SyncMessage);
+        }
+
+        // Safety net: if no sibling responds within 600ms, release the
+        // boot gate so the user lands on /login cleanly instead of
+        // staring at "Restoring session…" forever. This window is wide
+        // enough for typical same-machine BroadcastChannel round-trips
+        // (~5-20ms) plus React render headroom on slow devices.
+        let bootTimeout: ReturnType<typeof setTimeout> | undefined;
+        if (restoringFromSibling) {
+            bootTimeout = setTimeout(() => {
+                setRestoringFromSibling(false);
+            }, 600);
         }
 
         return () => {
             channel.removeEventListener('message', onMessage);
             channel.close();
+            if (bootTimeout) clearTimeout(bootTimeout);
         };
         // We intentionally only run this on mount. ``user`` and
         // ``logout`` are referenced via the closure but their stale
@@ -507,6 +550,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasPermission, hasRole, setAuthData, setTenantData, logout,
         activeOrganization, userOrganizations, mdaIsolationMode,
         setActiveOrganization, setOrganizationList]);
+
+    // While restoring auth state from a sibling tab, render a tiny
+    // placeholder instead of children. This prevents API calls from
+    // firing without an Authorization header — which is the exact race
+    // that caused "Session expired" on right-click → "Open in new tab".
+    // Hard cap is 600ms (see the BroadcastChannel useEffect above).
+    if (restoringFromSibling) {
+        return (
+            <AuthContext.Provider value={value}>
+                <div
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100vh',
+                        fontFamily: "'Manrope', system-ui, sans-serif",
+                        color: '#0f172a',
+                        fontSize: 14,
+                    }}
+                >
+                    Restoring session…
+                </div>
+            </AuthContext.Provider>
+        );
+    }
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

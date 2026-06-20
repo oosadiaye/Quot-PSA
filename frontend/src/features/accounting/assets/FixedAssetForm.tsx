@@ -16,7 +16,7 @@
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, X } from 'lucide-react';
+import { Save, X, Building2 } from 'lucide-react';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
 import { useCreateFixedAsset } from '../hooks/useAccountingEnhancements';
@@ -99,23 +99,19 @@ const initialForm: FixedAssetFormData = {
     status: 'Active',
 };
 
-const label: React.CSSProperties = {
-    fontSize: 12, fontWeight: 600, color: '#475569',
-    textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6,
-    display: 'block',
-};
-
-const inputBase: React.CSSProperties = {
-    width: '100%', padding: '10px 12px', fontSize: 14,
-    borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff',
-    outline: 'none', transition: 'border-color 150ms ease, box-shadow 150ms ease',
-};
-
 const fieldErr: React.CSSProperties = { color: '#dc2626', fontSize: 12, marginTop: 4 };
 
 export default function FixedAssetForm() {
     const navigate = useNavigate();
     const createAsset = useCreateFixedAsset();
+
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
 
     const [form, setForm] = useState<FixedAssetFormData>(initialForm);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -229,56 +225,57 @@ export default function FixedAssetForm() {
         <div style={{ background: '#f5f7fb', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
-                <PageHeader
-                    title="New Fixed Asset"
-                    subtitle="Register a new government asset in the IPSAS-compliant register"
-                    onBack={() => navigate('/accounting/fixed-assets')}
-                    actions={
-                        <button
-                            type="button"
-                            onClick={() => navigate('/accounting/fixed-assets')}
-                            className="btn btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)' }}
-                        >
-                            <ArrowLeft size={16} /> Back to Register
-                        </button>
-                    }
-                />
+                <form onSubmit={handleSubmit}>
+                    <PageHeader
+                        title="New Fixed Asset"
+                        subtitle="Register a new government asset in the IPSAS-compliant register"
+                        icon={<Building2 size={22} />}
+                        onBack={() => navigate('/accounting/fixed-assets')}
+                        actions={
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/accounting/fixed-assets')}
+                                    className="btn btn-outline"
+                                >
+                                    <X size={18} /> Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={createAsset.isPending}
+                                    className="btn btn-primary"
+                                >
+                                    <Save size={18} /> {createAsset.isPending ? 'Saving…' : 'Save Asset'}
+                                </button>
+                            </>
+                        }
+                    />
 
-                <form onSubmit={handleSubmit} style={{ maxWidth: 920 }}>
                     {submitError && (
-                        <div style={{
-                            padding: '12px 16px', borderRadius: 8, marginBottom: 20,
-                            background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b',
-                            fontSize: 14,
-                        }}>
+                        <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
                             {submitError}
                         </div>
                     )}
 
                     {/* ── Identification ──────────────────────── */}
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitle}>Identification</h3>
-                        <div style={gridStyle}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Identification</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={label}>
-                                    Asset Number
-                                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                        (auto-generated — leave blank)
-                                    </span>
-                                </label>
+                                <label style={labelStyle}>Asset Number</label>
                                 <input
-                                    style={inputBase}
+                                    className="input"
                                     value={form.asset_number}
                                     onChange={e => setField('asset_number', e.target.value)}
                                     placeholder="Leave blank: FA-2026-00001 will be allocated on save"
                                 />
+                                <p style={helpStyle}>Auto-generated — leave blank.</p>
                                 {formErrors.asset_number && <div style={fieldErr}>{formErrors.asset_number}</div>}
                             </div>
                             <div>
-                                <label style={label}>Asset Name *</label>
+                                <label style={labelStyle}>Asset Name<span className="required-mark"> *</span></label>
                                 <input
-                                    style={inputBase}
+                                    className="input"
                                     value={form.name}
                                     onChange={e => setField('name', e.target.value)}
                                     placeholder="Toyota Hilux 2026"
@@ -286,8 +283,8 @@ export default function FixedAssetForm() {
                                 {formErrors.name && <div style={fieldErr}>{formErrors.name}</div>}
                             </div>
                             <div>
-                                <label style={label}>
-                                    Category *
+                                <label style={labelStyle}>
+                                    Category<span className="required-mark"> *</span>
                                     {catsLoading && (
                                         <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-text-muted)' }}>
                                             loading…
@@ -295,7 +292,7 @@ export default function FixedAssetForm() {
                                     )}
                                 </label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.asset_category}
                                     onChange={e => setField('asset_category', e.target.value)}
                                 >
@@ -313,9 +310,9 @@ export default function FixedAssetForm() {
                                 {formErrors.asset_category && <div style={fieldErr}>{formErrors.asset_category}</div>}
                             </div>
                             <div>
-                                <label style={label}>Status</label>
+                                <label style={labelStyle}>Status</label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.status || 'Active'}
                                     onChange={e => setField('status', e.target.value)}
                                 >
@@ -325,26 +322,28 @@ export default function FixedAssetForm() {
                                 </select>
                             </div>
                         </div>
-                        <div style={{ marginTop: 16 }}>
-                            <label style={label}>Description</label>
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <label style={labelStyle}>Description</label>
                             <textarea
-                                style={{ ...inputBase, minHeight: 72, fontFamily: 'inherit' }}
+                                className="input"
+                                style={{ width: '100%', minHeight: 72, fontFamily: 'inherit' }}
                                 value={form.description || ''}
                                 onChange={e => setField('description', e.target.value)}
+                                rows={3}
                                 placeholder="Asset notes / serial number / chassis, etc."
                             />
                         </div>
-                    </section>
+                    </div>
 
                     {/* ── Acquisition & Depreciation ────────── */}
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitle}>Acquisition &amp; Depreciation</h3>
-                        <div style={gridStyle}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Acquisition &amp; Depreciation</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={label}>Acquisition Date *</label>
+                                <label style={labelStyle}>Acquisition Date<span className="required-mark"> *</span></label>
                                 <input
                                     type="date"
-                                    style={inputBase}
+                                    className="input"
                                     value={form.acquisition_date}
                                     onChange={e => setField('acquisition_date', e.target.value)}
                                 />
@@ -456,20 +455,20 @@ export default function FixedAssetForm() {
                                 );
                             })()}
                         </div>
-                    </section>
+                    </div>
 
                     {/* ── Dimensions ────────────────────────── */}
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitle}>Budget Dimensions</h3>
-                        <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 16 }}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '0.5rem' }}>Budget Dimensions</h3>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem' }}>
                             Required for government accounting — every asset must be coded to an MDA and Fund
                             source so IPSAS reports can attribute it correctly.
                         </p>
-                        <div style={gridStyle}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={label}>MDA *</label>
+                                <label style={labelStyle}>MDA<span className="required-mark"> *</span></label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.mda ?? ''}
                                     onChange={e => setField('mda', e.target.value ? Number(e.target.value) : null)}
                                 >
@@ -481,9 +480,9 @@ export default function FixedAssetForm() {
                                 {formErrors.mda && <div style={fieldErr}>{formErrors.mda}</div>}
                             </div>
                             <div>
-                                <label style={label}>Fund *</label>
+                                <label style={labelStyle}>Fund<span className="required-mark"> *</span></label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.fund ?? ''}
                                     onChange={e => setField('fund', e.target.value ? Number(e.target.value) : null)}
                                 >
@@ -495,9 +494,9 @@ export default function FixedAssetForm() {
                                 {formErrors.fund && <div style={fieldErr}>{formErrors.fund}</div>}
                             </div>
                             <div>
-                                <label style={label}>Function (COFOG)</label>
+                                <label style={labelStyle}>Function (COFOG)</label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.function ?? ''}
                                     onChange={e => setField('function', e.target.value ? Number(e.target.value) : null)}
                                 >
@@ -508,9 +507,9 @@ export default function FixedAssetForm() {
                                 </select>
                             </div>
                             <div>
-                                <label style={label}>Programme</label>
+                                <label style={labelStyle}>Programme</label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.program ?? ''}
                                     onChange={e => setField('program', e.target.value ? Number(e.target.value) : null)}
                                 >
@@ -521,9 +520,9 @@ export default function FixedAssetForm() {
                                 </select>
                             </div>
                             <div>
-                                <label style={label}>Geographic</label>
+                                <label style={labelStyle}>Geographic</label>
                                 <select
-                                    style={inputBase}
+                                    className="input"
                                     value={form.geo ?? ''}
                                     onChange={e => setField('geo', e.target.value ? Number(e.target.value) : null)}
                                 >
@@ -534,7 +533,7 @@ export default function FixedAssetForm() {
                                 </select>
                             </div>
                         </div>
-                    </section>
+                    </div>
 
                     {/* ── GL Account Display ────────────────── */}
                     {/* Read-only view of the three GL accounts inherited
@@ -545,8 +544,8 @@ export default function FixedAssetForm() {
                         single-source-of-truth on the category and lets
                         auditors trust that every asset under a category
                         hits the same accounts. */}
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitle}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>
                             GL Account Display
                             <span style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>
                                 {' '}(inherited from the selected Asset Category)
@@ -629,7 +628,7 @@ export default function FixedAssetForm() {
 
                             return (
                                 <>
-                                    <div style={gridStyle}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                                         <DisplayCard title="Asset Account" acc={costAcc} />
                                         <DisplayCard title="Accumulated Depreciation" acc={accAccDep} />
                                         <DisplayCard title="Depreciation Expense" acc={depExpAcc} />
@@ -650,48 +649,9 @@ export default function FixedAssetForm() {
                                 </>
                             );
                         })()}
-                    </section>
-
-                    {/* ── Action bar ────────────────────────── */}
-                    <div style={{
-                        display: 'flex', justifyContent: 'flex-end', gap: 10,
-                        padding: '16px 0', borderTop: '1px solid #e2e8f0', marginTop: 8,
-                    }}>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/accounting/fixed-assets')}
-                            className="btn btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                            <X size={16} /> Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={createAsset.isPending}
-                            className="btn btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                            <Save size={16} />
-                            {createAsset.isPending ? 'Saving…' : 'Save Asset'}
-                        </button>
                     </div>
                 </form>
             </main>
         </div>
     );
 }
-
-const sectionStyle: React.CSSProperties = {
-    background: '#fff', borderRadius: 12, padding: '20px 24px',
-    border: '1px solid #e2e8f0', marginBottom: 20,
-};
-
-const sectionTitle: React.CSSProperties = {
-    margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#0f172a',
-};
-
-const gridStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 16,
-};

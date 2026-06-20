@@ -10,32 +10,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Save, AlertCircle, Landmark } from 'lucide-react';
+import { Save, X, AlertCircle, Landmark } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
 import apiClient from '../../api/client';
-import '../../features/accounting/styles/glassmorphism.css';
 import {
     useCreateTSAAccount, useUpdateTSAAccount, useTSAAccount,
     useNCoASegments, useTSAAccounts,
 } from '../../hooks/useGovForms';
-
-const selectStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
 
 const ACCOUNT_TYPES = [
     ['MAIN_TSA', 'Main TSA'],
@@ -164,91 +147,112 @@ export default function TSAAccountForm() {
         }
     };
 
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
+
     return (
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <div style={{ maxWidth: '900px' }}>
-                    <PageHeader
-                        title={isEditing ? 'Edit TSA Account' : 'New TSA Account'}
-                        subtitle={isEditing
-                            ? `Update Treasury Single Account ${existingTSA?.account_number ?? ''}`.trim()
-                            : 'Create a Treasury Single Account entry'}
-                        icon={<Landmark size={22} />}
-                    />
-                    {isEditing && existingLoading && (
-                        <div style={{ padding: '1rem', color: '#64748b', fontSize: 'var(--text-sm)' }}>
-                            Loading existing TSA account…
-                        </div>
-                    )}
-
-                    {formError && (
-                        <div style={{
-                            padding: '12px 16px', borderRadius: '8px', marginBottom: '16px',
-                            background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626',
-                            display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px',
-                        }}>
-                            <AlertCircle size={16} /> {formError}
-                        </div>
-                    )}
-
                     <form onSubmit={handleSubmit}>
-                        {/* Account Details */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Account Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <PageHeader
+                            title={isEditing ? 'Edit TSA Account' : 'New TSA Account'}
+                            subtitle={isEditing
+                                ? `Update Treasury Single Account ${existingTSA?.account_number ?? ''}`.trim()
+                                : 'Create a Treasury Single Account entry'}
+                            icon={<Landmark size={22} />}
+                            actions={
+                                <>
+                                    <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                        <X size={18} /> Cancel
+                                    </button>
+                                    <button type="submit" className="btn btn-primary" disabled={createTSA.isPending || updateTSA.isPending}>
+                                        <Save size={18} />
+                                        {isEditing
+                                            ? (updateTSA.isPending ? 'Saving…' : 'Save Changes')
+                                            : (createTSA.isPending ? 'Creating…' : 'Create TSA Account')}
+                                    </button>
+                                </>
+                            }
+                        />
+                        {isEditing && existingLoading && (
+                            <div style={{ padding: '1rem', color: '#64748b', fontSize: 'var(--text-sm)' }}>
+                                Loading existing TSA account…
+                            </div>
+                        )}
+
+                        {formError && (
+                            <div style={{
+                                padding: '12px 16px', borderRadius: '8px', marginBottom: '16px',
+                                background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626',
+                                display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px',
+                            }}>
+                                <AlertCircle size={16} /> {formError}
+                            </div>
+                        )}
+
+                        {/* ── Account Details ───────────────────────── */}
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Account Details</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                                 <div>
-                                    <label style={lblStyle}>Account Number *</label>
-                                    <input style={inputStyle} required value={form.account_number} onChange={e => set('account_number', e.target.value)} placeholder="10-digit NUBAN" />
+                                    <label style={labelStyle}>Account Number<span className="required-mark"> *</span></label>
+                                    <input className="input" required value={form.account_number} onChange={e => set('account_number', e.target.value)} placeholder="10-digit NUBAN" />
                                 </div>
                                 <div>
-                                    <label style={lblStyle}>Account Name *</label>
-                                    <input style={inputStyle} required value={form.account_name} onChange={e => set('account_name', e.target.value)} placeholder="TSA account name" />
+                                    <label style={labelStyle}>Account Name<span className="required-mark"> *</span></label>
+                                    <input className="input" required value={form.account_name} onChange={e => set('account_name', e.target.value)} placeholder="TSA account name" />
                                 </div>
                                 <div>
-                                    <label style={lblStyle}>Bank *</label>
-                                    <input style={inputStyle} required value={form.bank} onChange={e => set('bank', e.target.value)} placeholder="Bank name (e.g. CBN)" />
+                                    <label style={labelStyle}>Bank<span className="required-mark"> *</span></label>
+                                    <input className="input" required value={form.bank} onChange={e => set('bank', e.target.value)} placeholder="Bank name (e.g. CBN)" />
                                 </div>
                                 <div>
-                                    <label style={lblStyle}>Sort Code</label>
-                                    <input style={inputStyle} value={form.sort_code} onChange={e => set('sort_code', e.target.value)} placeholder="Bank sort code" />
+                                    <label style={labelStyle}>Sort Code</label>
+                                    <input className="input" value={form.sort_code} onChange={e => set('sort_code', e.target.value)} placeholder="Bank sort code" />
                                 </div>
                                 <div>
-                                    <label style={lblStyle}>Account Type *</label>
-                                    <select style={selectStyle} required value={form.account_type} onChange={e => set('account_type', e.target.value)}>
+                                    <label style={labelStyle}>Account Type<span className="required-mark"> *</span></label>
+                                    <select className="input" required value={form.account_type} onChange={e => set('account_type', e.target.value)}>
                                         {ACCOUNT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                                     </select>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Linking */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Linking</h3>
+                        {/* ── Linking ───────────────────────────────── */}
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Linking</h3>
                             {segsLoading ? <div style={{ color: '#94a3b8' }}>Loading segments...</div> : (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                                     <div>
-                                        <label style={lblStyle}>Owning MDA (if MDA-held bank account)</label>
-                                        <select style={selectStyle} value={form.mda} onChange={e => set('mda', e.target.value)}>
+                                        <label style={labelStyle}>Owning MDA (if MDA-held bank account)</label>
+                                        <select className="input" value={form.mda} onChange={e => set('mda', e.target.value)}>
                                             <option value="">None — central TSA / consolidated</option>
                                             {segments?.administrative?.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
                                         </select>
-                                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
+                                        <p style={helpStyle}>
                                             Select the ministry/department/agency that owns this bank account.
                                             Required for sub-accounts, zero-balance accounts, and any MDA-held
                                             operational account so postings flow to the correct administrative segment.
                                         </p>
                                     </div>
                                     <div>
-                                        <label style={lblStyle}>Fund Segment</label>
-                                        <select style={selectStyle} value={form.fund_segment} onChange={e => set('fund_segment', e.target.value)}>
+                                        <label style={labelStyle}>Fund Segment</label>
+                                        <select className="input" value={form.fund_segment} onChange={e => set('fund_segment', e.target.value)}>
                                             <option value="">None</option>
                                             {segments?.fund?.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={lblStyle}>Parent TSA Account</label>
-                                        <select style={selectStyle} value={form.parent_account} onChange={e => set('parent_account', e.target.value)}>
+                                        <label style={labelStyle}>Parent TSA Account</label>
+                                        <select className="input" value={form.parent_account} onChange={e => set('parent_account', e.target.value)}>
                                             <option value="">None (top-level)</option>
                                             {(tsaAccounts || []).map((a: any) => <option key={a.id} value={a.id}>{a.account_number} - {a.account_name}</option>)}
                                         </select>
@@ -257,20 +261,20 @@ export default function TSAAccountForm() {
                             )}
                         </div>
 
-                        {/* GL Mapping — IPSAS compliance */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.25rem 0' }}>
+                        {/* ── GL Mapping — IPSAS compliance ─────────── */}
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ marginBottom: '0.5rem' }}>
                                 GL Mapping <span style={{ color: '#94a3b8', fontWeight: 400 }}>(IPSAS cash flow)</span>
                             </h3>
-                            <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0 0 1rem 0' }}>
+                            <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem' }}>
                                 Link this TSA to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
                             </p>
                             {(glLoading || ncoaLoading) ? (
                                 <div style={{ color: '#94a3b8' }}>Loading GL accounts…</div>
                             ) : (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                                     <div>
-                                        <label style={lblStyle}>GL Cash Account (Asset) *</label>
+                                        <label style={labelStyle}>GL Cash Account (Asset)<span className="required-mark"> *</span></label>
                                         <SearchableSelect
                                             options={glAssetAccounts.map((a: any) => ({
                                                 value: String(a.id),
@@ -283,7 +287,7 @@ export default function TSAAccountForm() {
                                         />
                                     </div>
                                     <div>
-                                        <label style={lblStyle}>NCoA Economic Code (optional)</label>
+                                        <label style={labelStyle}>NCoA Economic Code (optional)</label>
                                         <SearchableSelect
                                             options={ncoaCodes.map((c: any) => ({
                                                 value: String(c.id),
@@ -299,10 +303,10 @@ export default function TSAAccountForm() {
                             )}
                         </div>
 
-                        {/* Settings */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Settings</h3>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                        {/* ── Settings ──────────────────────────────── */}
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Settings</h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem' }}>
                                 <input
                                     type="checkbox"
                                     id="is_active"
@@ -315,31 +319,9 @@ export default function TSAAccountForm() {
                                 </label>
                             </div>
                             <div>
-                                <label style={lblStyle}>Description</label>
-                                <textarea style={{ ...inputStyle, minHeight: '60px' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Account description..." />
+                                <label style={labelStyle}>Description</label>
+                                <textarea className="input" value={form.description} onChange={e => set('description', e.target.value)} rows={3} placeholder="Account description..." style={{ width: '100%' }} />
                             </div>
-                        </div>
-
-                        {/* Submit */}
-                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                            <button type="button" onClick={() => navigate(-1)} className="glass-button" style={{
-                                padding: '12px 24px', borderRadius: '8px', border: '1px solid var(--color-border)',
-                                background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-                            }}>
-                                Cancel
-                            </button>
-                            <button type="submit" disabled={createTSA.isPending || updateTSA.isPending} style={{
-                                padding: '12px 24px', borderRadius: '8px', border: 'none',
-                                background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)', color: '#fff', fontSize: '14px', fontWeight: 600,
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                                opacity: (createTSA.isPending || updateTSA.isPending) ? 0.7 : 1,
-                                boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
-                            }}>
-                                <Save size={16} />
-                                {isEditing
-                                    ? (updateTSA.isPending ? 'Saving…' : 'Save Changes')
-                                    : (createTSA.isPending ? 'Creating…' : 'Create TSA Account')}
-                            </button>
                         </div>
                     </form>
                 </div>

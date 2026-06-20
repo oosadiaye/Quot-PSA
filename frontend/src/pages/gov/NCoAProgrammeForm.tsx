@@ -5,29 +5,12 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Save, AlertCircle, Layers } from 'lucide-react';
+import { Save, X, Layers } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
-import '../../features/accounting/styles/glassmorphism.css';
 import { useNCoASegments } from '../../hooks/useGovForms';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
-
-const selectStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
 
 export default function NCoAProgrammeForm() {
     const { id } = useParams<{ id: string }>();
@@ -99,33 +82,78 @@ export default function NCoAProgrammeForm() {
 
     const progList = segments?.programme || [];
 
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
+
     return (
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
-                <PageHeader title={isEdit ? 'Edit Programme Segment' : 'Add Programme Segment'} subtitle={isEdit ? `Editing: ${form.name || '...'}` : 'Policy, programme, and capital project classification'} icon={<Layers size={22} />} />
-
-                {formError && (
-                    <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <AlertCircle size={16} color="#dc2626" /> <span style={{ color: '#dc2626', fontSize: 13 }}>{formError}</span>
-                    </div>
-                )}
-
                 <form onSubmit={handleSubmit}>
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0' }}>Programme Details</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                            <div><label style={lblStyle}>Code *</label><input style={inputStyle} value={form.code} onChange={set('code')} placeholder="e.g. 01010000000000" maxLength={14} required /></div>
-                            <div><label style={lblStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={set('name')} placeholder="e.g. Fiscal Policy Programme" required /></div>
-                            <div><label style={lblStyle}>Policy Code</label><input style={inputStyle} value={form.policy_code} onChange={set('policy_code')} placeholder="e.g. 01" maxLength={2} /></div>
-                            <div><label style={lblStyle}>Programme Code</label><input style={inputStyle} value={form.programme_code} onChange={set('programme_code')} placeholder="e.g. 01" maxLength={2} /></div>
-                            <div><label style={lblStyle}>Project Code</label><input style={inputStyle} value={form.project_code} onChange={set('project_code')} placeholder="e.g. 010001 (capital projects)" maxLength={6} /></div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div><label style={lblStyle}>Objective Code</label><input style={inputStyle} value={form.objective_code} onChange={set('objective_code')} maxLength={2} /></div>
-                                <div><label style={lblStyle}>Activity Code</label><input style={inputStyle} value={form.activity_code} onChange={set('activity_code')} maxLength={2} /></div>
+                    <PageHeader
+                        title={isEdit ? 'Edit Programme Segment' : 'Add Programme Segment'}
+                        subtitle={isEdit ? `Editing: ${form.name || '...'}` : 'Policy, programme, and capital project classification'}
+                        icon={<Layers size={22} />}
+                        actions={
+                            <>
+                                <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                    <X size={18} /> Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={saveMutation.isPending}>
+                                    <Save size={18} /> {saveMutation.isPending ? 'Saving...' : isEdit ? 'Update Programme' : 'Create Programme'}
+                                </button>
+                            </>
+                        }
+                    />
+
+                    {formError && (
+                        <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
+                            {formError}
+                        </div>
+                    )}
+
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Programme Details</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                            <div>
+                                <label style={labelStyle}>Code<span className="required-mark"> *</span></label>
+                                <input className="input" value={form.code} onChange={set('code')} placeholder="e.g. 01010000000000" maxLength={14} required />
                             </div>
-                            <div><label style={lblStyle}>Parent</label>
-                                <select style={selectStyle} value={form.parent} onChange={set('parent')}>
+                            <div>
+                                <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
+                                <input className="input" value={form.name} onChange={set('name')} placeholder="e.g. Fiscal Policy Programme" required />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Policy Code</label>
+                                <input className="input" value={form.policy_code} onChange={set('policy_code')} placeholder="e.g. 01" maxLength={2} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Programme Code</label>
+                                <input className="input" value={form.programme_code} onChange={set('programme_code')} placeholder="e.g. 01" maxLength={2} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Project Code</label>
+                                <input className="input" value={form.project_code} onChange={set('project_code')} placeholder="e.g. 010001 (capital projects)" maxLength={6} />
+                                <p style={helpStyle}>Used for capital projects.</p>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                <div>
+                                    <label style={labelStyle}>Objective Code</label>
+                                    <input className="input" value={form.objective_code} onChange={set('objective_code')} maxLength={2} />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Activity Code</label>
+                                    <input className="input" value={form.activity_code} onChange={set('activity_code')} maxLength={2} />
+                                </div>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Parent</label>
+                                <select className="input" value={form.parent} onChange={set('parent')}>
                                     <option value="">(Top level)</option>
                                     {progList.map((s: any) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
                                 </select>
@@ -139,17 +167,11 @@ export default function NCoAProgrammeForm() {
                                 </label>
                             </div>
                         </div>
-                        <div style={{ marginTop: 16 }}><label style={lblStyle}>Description</label>
-                            <textarea style={{ ...inputStyle, minHeight: 80 }} value={form.description} onChange={set('description')} />
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <label style={labelStyle}>Description</label>
+                            <textarea className="input" value={form.description} onChange={set('description')} rows={3} style={{ width: '100%' }} />
                         </div>
                     </div>
-                    <button type="submit" disabled={saveMutation.isPending} style={{
-                        display: 'flex', alignItems: 'center', gap: 8, padding: '12px 28px',
-                        background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
-                    }}>
-                        <Save size={16} /> {saveMutation.isPending ? 'Saving...' : isEdit ? 'Update Programme' : 'Create Programme'}
-                    </button>
                 </form>
             </main>
         </div>

@@ -1,14 +1,25 @@
 /**
  * Revenue Collection Detail Page — Quot PSE
  * Route: /accounting/revenue-collections/:id
- * Shows collection details + action buttons (Confirm, Post to GL, Print)
+ *
+ * Shows the receipt + action buttons + (when POSTED) the underlying
+ * journal entry with all GL lines. The journal is fetched separately
+ * from ``/accounting/journals/{id}/`` because it has its own permissions
+ * and the list-payload serializer for revenue collections deliberately
+ * omits journal lines (kept lean for the listing page).
  */
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, BookOpen, Printer, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../../api/client';
 import Sidebar from '../../components/Sidebar';
 import { useRevenueCollectionDetail, useRevenueAction } from '../../hooks/useGovForms';
 import { formatApiError } from '../../utils/apiError';
+import {
+    JournalHeaderStrip, JournalLinesTable,
+    type JournalDetail,
+} from '../../features/accounting/components/shared/JournalViewer';
 
 const fmtNGN = (v: number | string) => {
     const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -27,6 +38,21 @@ export default function RevenueCollectionDetail() {
     const revAction = useRevenueAction();
     const [actionError, setActionError] = useState('');
 
+    // Pull the underlying journal whenever the collection has been
+    // posted (``col.journal`` is the JournalHeader FK id). The detail
+    // serializer on the journal endpoint returns each GL line with
+    // ``account_code`` / ``account_name`` already expanded, so we can
+    // render the journal table without a second lookup.
+    const journalId = col?.journal;
+    const { data: journal, isLoading: journalLoading } = useQuery<JournalDetail>({
+        queryKey: ['journal-detail', journalId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
+            return data;
+        },
+        enabled: !!journalId,
+    });
+
     const doAction = async (action: string) => {
         if (!col?.id) return;
         setActionError('');
@@ -44,7 +70,7 @@ export default function RevenueCollectionDetail() {
     if (isLoading) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#94a3b8' }}>Loading...</main></div>;
     if (error || !col) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#dc2626' }}>Revenue Collection not found.</main></div>;
 
-    const statusColor = { PENDING: '#d97706', CONFIRMED: '#2563eb', POSTED: '#16a34a', REVERSED: '#64748b', CANCELLED: '#dc2626' }[col.status] || '#64748b';
+    const statusColor = ({ PENDING: '#d97706', CONFIRMED: '#2563eb', POSTED: '#16a34a', REVERSED: '#64748b', CANCELLED: '#dc2626' } as Record<string, string>)[col.status] || '#64748b';
 
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
@@ -121,6 +147,73 @@ export default function RevenueCollectionDetail() {
                             <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>NCoA Classification</div>
                             <div style={{ fontFamily: 'monospace', fontSize: '13px', color: GOV.blue, fontWeight: 600, background: '#fff', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', wordBreak: 'break-all' }}>
                                 {col.ncoa_full_code}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Posted Journal Entry — only when the collection
+                        has been pushed to GL. The journal is the
+                        authoritative record of which GL accounts were
+                        debited / credited; surfacing it here lets the
+                        operator audit the posting without leaving the
+                        receipt view. Linked to /journals/:id for the
+                        full journal context (other lines, status,
+                        period, etc.). */}
+                    {col.status === 'POSTED' && col.journal && (
+                        <div style={card}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                                    Posted Journal Entry
+                                </div>
+                                <button
+                                    onClick={() => navigate(`/accounting/journals/${col.journal}`)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                        padding: '6px 12px', borderRadius: '6px',
+                                        border: '1px solid #e2e8f0', background: '#fff',
+                                        color: GOV.blue, fontSize: '12px', fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                    title="Open the full journal in the journals module"
+                                >
+                                    <BookOpen size={14} /> Open in Journals
+                                </button>
+                            </div>
+
+                            {journalLoading && (
+                                <div style={{ color: '#94a3b8', fontSize: '13px' }}>
+                                    Loading journal lines...
+                                </div>
+                            )}
+
+                            {journal && (
+                                <>
+                                    {/* Canonical journal renderers — see
+                                        ``features/accounting/components/shared/JournalViewer``.
+                                        Sharing across receipt detail, contract
+                                        mobilization tab, and outgoing payment
+                                        modal guarantees auditors see identical
+                                        DR/CR display wherever a journal surfaces. */}
+                                    <div style={{ marginBottom: 12 }}>
+                                        <JournalHeaderStrip journal={journal} formatCurrency={fmtNGN} />
+                                    </div>
+                                    <JournalLinesTable lines={journal.lines} formatCurrency={fmtNGN} />
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Hint when the collection isn't posted yet — explain
+                        why the journal section is absent so the user
+                        doesn't think it's broken. */}
+                    {col.status !== 'POSTED' && (
+                        <div style={{ ...card, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e', fontSize: '13px' }}>
+                                <AlertCircle size={16} />
+                                <span>
+                                    Journal entry will appear here after this receipt is
+                                    <strong> Posted to GL</strong>. Current status: <strong>{col.status}</strong>.
+                                </span>
                             </div>
                         </div>
                     )}

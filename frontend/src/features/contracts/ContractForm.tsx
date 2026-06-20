@@ -322,7 +322,11 @@ const ContractForm = () => {
               initialValues={{
                 contract_type: 'WORKS',
                 procurement_method: 'OPEN_TENDER',
-                retention_rate: 5,
+                // Retention is no longer pre-filled. Many contracts
+                // (consultancy, supply, service) carry no retention;
+                // pre-filling 5% trained operators to think it's
+                // automatic. Leave blank — operator opts in by typing
+                // a rate, omission is saved as 0%.
                 mobilization_rate: 0,
                 defects_liability_period_days: 365,
               }}
@@ -621,8 +625,8 @@ const ContractForm = () => {
                       min={0.01}
                       style={{ width: '100%' }}
                       step={1000}
-                      formatter={(v) => (v !== undefined && v !== null && v !== '' ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
-                      parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as number}
+                      formatter={(v) => (v !== undefined && v !== null ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+                      parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as 0.01}
                     />
                   </Form.Item>
                 </Col>
@@ -642,9 +646,9 @@ const ContractForm = () => {
                   <Form.Item
                     label="Retention Rate (%)"
                     name="retention_rate"
-                    tooltip="DB-enforced 0–20%. Default 5%."
+                    tooltip="Optional. Leave blank for contracts without retention (consultancy, supply, service). DB-enforced 0–20%. Works contracts typically use 5%."
                   >
-                    <InputNumber min={0} max={20} style={{ width: '100%' }} step={0.5} />
+                    <InputNumber min={0} max={20} style={{ width: '100%' }} step={0.5} placeholder="Blank = no retention" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>

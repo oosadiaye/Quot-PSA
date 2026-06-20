@@ -75,7 +75,7 @@ export default function ProgrammePerformanceReport() {
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <select value={fyId} onChange={e => setFyId(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
-                            {yearOptions.map(opt => (
+                            {yearOptions.map((opt: any) => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>

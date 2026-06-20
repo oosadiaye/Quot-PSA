@@ -479,14 +479,19 @@ const IPCDetail = () => {
                     while (slots.length < 5) slots.push(null);
                     return slots.slice(0, 5).map((r, i) => {
                       if (r == null) {
-                        return <div key={i} style={chartBarEmpty} />;
+                        // Namespace padding keys so they can't collide
+                        // with a real IPC row whose ``id`` happens to
+                        // equal a padding index (e.g. real id=4 + slot
+                        // 4 was the source of the React duplicate-key
+                        // warning before this prefix).
+                        return <div key={`empty-${i}`} style={chartBarEmpty} />;
                       }
                       const v = parseFloat(String(r.this_certificate_gross || 0)) || 0;
                       const pct = (v / max) * 100;
                       const isCurrent = r.id === iid;
                       return (
                         <div
-                          key={r.id ?? i}
+                          key={`row-${r.id ?? i}`}
                           style={{
                             ...chartBar,
                             height: `${Math.max(4, pct)}%`,

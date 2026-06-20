@@ -17,7 +17,7 @@
  *     <SectionCard>...</SectionCard>
  *   </ListPageShell>
  */
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import Sidebar from '../Sidebar';
 import { useBreakpoint, spaceFor, useIsMobile } from '../../design';
 
@@ -25,9 +25,13 @@ interface ListPageShellProps {
     children: ReactNode;
     /** Optional max content width (desktop). Default: unbounded. */
     maxWidth?: number;
+    /** Optional page title rendered above children. */
+    title?: ReactNode;
+    /** Optional page subtitle rendered below the title. */
+    subtitle?: ReactNode;
 }
 
-const ListPageShell = ({ children, maxWidth }: ListPageShellProps) => {
+const ListPageShell = ({ children, maxWidth, title, subtitle }: ListPageShellProps) => {
     const bp = useBreakpoint();
     const space = spaceFor(bp);
     const isMobile = useIsMobile();
@@ -57,6 +61,20 @@ const ListPageShell = ({ children, maxWidth }: ListPageShellProps) => {
                         margin: maxWidth ? '0 auto' : undefined,
                     }}
                 >
+                    {(title || subtitle) && (
+                        <div style={{ marginBottom: 24 }}>
+                            {title && (
+                                <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0b1320' }}>
+                                    {title}
+                                </h1>
+                            )}
+                            {subtitle && (
+                                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                                    {subtitle}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {children}
                 </div>
             </main>

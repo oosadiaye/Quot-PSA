@@ -102,6 +102,8 @@ interface LineState {
 }
 
 export default function WarrantForm() {
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
     const navigate = useNavigate();
     const qc = useQueryClient();
     const { data: appropriations } = useAppropriationsList();
@@ -547,12 +549,13 @@ export default function WarrantForm() {
                          * ════════════════════════════════════════════ */}
                         <div style={{ minWidth: 0 }}>
                             {/* Step 1 — MDA */}
-                            <div className="glass-card" style={{ padding: '1.1rem 1.25rem', marginBottom: 14 }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
                                 <h3 style={cardH3}>
                                     <Building2 size={14} /> Step 1 · Select MDA
                                 </h3>
                                 <input
                                     type="text"
+                                    className="input"
                                     list="mda-with-budget-list"
                                     value={mdaInput}
                                     onChange={e => resolveMda(e.target.value)}
@@ -561,7 +564,6 @@ export default function WarrantForm() {
                                         : 'No MDA has any appropriation yet'}
                                     disabled={mdasWithBudget.length === 0}
                                     style={{
-                                        ...inputStyle,
                                         borderColor: selectedMdaCode ? '#22c55e' : undefined,
                                     }}
                                 />
@@ -580,15 +582,15 @@ export default function WarrantForm() {
                             </div>
 
                             {/* Step 2 — Shared warrant details (dates, presets, prefix, attachment) */}
-                            <div className="glass-card" style={{ padding: '1.1rem 1.25rem', marginBottom: 14 }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
                                 <h3 style={cardH3}>
                                     <Info size={14} /> Step 2 · Shared across all selected lines
                                 </h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                                     <div>
-                                        <label style={lblStyle}>Effective From *</label>
+                                        <label style={labelStyle}>Effective From<span className="required-mark"> *</span></label>
                                         <input
-                                            style={inputStyle}
+                                            className="input"
                                             type="date"
                                             required
                                             value={effectiveFrom}
@@ -596,10 +598,10 @@ export default function WarrantForm() {
                                         />
                                     </div>
                                     <div>
-                                        <label style={lblStyle}>Effective To *</label>
+                                        <label style={labelStyle}>Effective To<span className="required-mark"> *</span></label>
                                         <input
+                                            className="input"
                                             style={{
-                                                ...inputStyle,
                                                 borderColor:
                                                     effectiveFrom && effectiveTo &&
                                                     new Date(effectiveTo) < new Date(effectiveFrom)
@@ -612,9 +614,9 @@ export default function WarrantForm() {
                                         />
                                     </div>
                                     <div>
-                                        <label style={lblStyle}>Release Date *</label>
+                                        <label style={labelStyle}>Release Date<span className="required-mark"> *</span></label>
                                         <input
-                                            style={inputStyle}
+                                            className="input"
                                             type="date"
                                             required
                                             value={releaseDate}
@@ -628,7 +630,7 @@ export default function WarrantForm() {
                                         fiscal year so the picks stay correct even if
                                         the FY isn't a calendar year. */}
                                     <div style={{ gridColumn: '1 / -1' }}>
-                                        <label style={lblStyle}>Quick presets</label>
+                                        <label style={labelStyle}>Quick presets</label>
                                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                             {PERIOD_PRESETS(fyBounds[0], fyBounds[1]).map(p => {
                                                 const [s, e] = p.range;
@@ -658,14 +660,14 @@ export default function WarrantForm() {
                                         </div>
                                     </div>
                                     <div style={{ gridColumn: '1 / -1' }}>
-                                        <label style={lblStyle}>
+                                        <label style={labelStyle}>
                                             Authority Reference Prefix
                                             <span style={{ fontWeight: 400, textTransform: 'none', color: '#94a3b8' }}>
                                                 {' '}(per-line refs append the economic code)
                                             </span>
                                         </label>
                                         <input
-                                            style={inputStyle}
+                                            className="input"
                                             value={authorityRefPrefix}
                                             onChange={e => setAuthorityRefPrefix(e.target.value)}
                                             placeholder="e.g. AIE/2026/Q1/050200000000"
@@ -675,7 +677,7 @@ export default function WarrantForm() {
 
                                 {/* AIE letter attachment */}
                                 <div style={{ marginTop: 12 }}>
-                                    <label style={lblStyle}>
+                                    <label style={labelStyle}>
                                         <Paperclip size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                                         AIE Letter Attachment
                                     </label>
@@ -725,7 +727,7 @@ export default function WarrantForm() {
                             </div>
 
                             {/* Step 3 — Multi-line picker */}
-                            <div className="glass-card" style={{ padding: '1.1rem 1.25rem', marginBottom: 14 }}>
+                            <div className="card" style={{ marginBottom: '1.5rem' }}>
                                 <h3 style={cardH3}>
                                     <FileText size={14} /> Step 3 · Tick economic lines to release
                                 </h3>
@@ -758,12 +760,12 @@ export default function WarrantForm() {
                                             />
                                             <input
                                                 type="text"
+                                                className="input"
                                                 value={filterTerm}
                                                 onChange={e => setFilterTerm(e.target.value)}
                                                 placeholder="Filter by economic code or name (e.g. 22020, security, oil)"
                                                 aria-label="Filter economic lines"
                                                 style={{
-                                                    ...inputStyle,
                                                     paddingLeft: 32,
                                                     fontSize: 12,
                                                 }}

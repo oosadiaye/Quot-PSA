@@ -35,10 +35,7 @@ const inputStyle: React.CSSProperties = {
     border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
     color: 'var(--color-text)', fontSize: 'var(--text-sm)',
 };
-const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
-    color: 'var(--color-text)', marginBottom: '0.375rem',
-};
+const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
 
 const PositionList = () => {
     const { showAlert, showConfirm } = useDialog();
@@ -189,34 +186,34 @@ const PositionList = () => {
                         <form onSubmit={handleSubmit}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                                 <div>
-                                    <label style={labelStyle}>Title *</label>
+                                    <label style={labelStyle}>Title<span className="required-mark"> *</span></label>
                                     <input
                                         type="text"
+                                        className="input"
                                         value={formData.title}
                                         onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                                         placeholder="e.g. Software Engineer"
                                         required
-                                        style={inputStyle}
                                     />
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Code *</label>
+                                    <label style={labelStyle}>Code<span className="required-mark"> *</span></label>
                                     <input
                                         type="text"
+                                        className="input"
                                         value={formData.code}
                                         onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                                         placeholder="e.g. SE-001"
                                         required
-                                        style={inputStyle}
                                     />
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Department *</label>
+                                    <label style={labelStyle}>Department<span className="required-mark"> *</span></label>
                                     <select
+                                        className="input"
                                         value={formData.department}
                                         onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                                         required
-                                        style={selectStyle}
                                     >
                                         <option value="">Select Department</option>
                                         {departments.map((d: any) => (
@@ -225,12 +222,12 @@ const PositionList = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Grade *</label>
+                                    <label style={labelStyle}>Grade<span className="required-mark"> *</span></label>
                                     <select
+                                        className="input"
                                         value={formData.grade}
                                         onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
                                         required
-                                        style={selectStyle}
                                     >
                                         <option value="">Select Grade</option>
                                         {GRADE_OPTIONS.map((g) => (
@@ -242,35 +239,27 @@ const PositionList = () => {
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={labelStyle}>Description</label>
                                 <textarea
+                                    className="input"
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                     rows={2}
                                     placeholder="Position description..."
-                                    style={{ ...inputStyle, resize: 'vertical' }}
+                                    style={{ width: '100%', resize: 'vertical' }}
                                 />
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button
                                         type="submit"
+                                        className="btn btn-primary"
                                         disabled={createPosition.isPending || updatePosition.isPending}
-                                        style={{
-                                            padding: '0.625rem 1.25rem', borderRadius: '8px', border: 'none',
-                                            background: 'var(--color-primary, #1e40af)', color: 'white',
-                                            cursor: 'pointer', fontWeight: 500, fontSize: 'var(--text-sm)',
-                                            opacity: createPosition.isPending || updatePosition.isPending ? 0.6 : 1,
-                                        }}
                                     >
                                         {editingId ? 'Update' : 'Create'}
                                     </button>
                                     <button
                                         type="button"
+                                        className="btn btn-outline"
                                         onClick={() => setShowForm(false)}
-                                        style={{
-                                            padding: '0.625rem 1.25rem', borderRadius: '8px',
-                                            border: '1px solid var(--color-border)', background: 'var(--color-surface)',
-                                            color: 'var(--color-text)', cursor: 'pointer', fontWeight: 500, fontSize: 'var(--text-sm)',
-                                        }}
                                     >
                                         Cancel
                                     </button>

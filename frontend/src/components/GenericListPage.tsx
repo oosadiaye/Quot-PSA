@@ -38,6 +38,12 @@ interface CustomRowAction {
     onClick: (item: Record<string, unknown>) => void;
     color?: string;          // button text/icon colour
     borderColor?: string;    // optional border override
+    // Optional visibility predicate — when provided, the button only
+    // renders for items where the predicate returns true. Use for
+    // status-gated actions (e.g. "Approve" only on PENDING rows,
+    // "Reverse" only on PAID rows). When omitted the button shows
+    // on every row (original behaviour).
+    visible?: (item: Record<string, unknown>) => boolean;
 }
 
 interface RowActions {
@@ -437,23 +443,29 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                                         {rowActions && (
                                             <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-                                                    {rowActions.custom?.map((act, i) => (
-                                                        <button
-                                                            key={`custom-${i}`}
-                                                            onClick={e => { e.stopPropagation(); act.onClick(item); }}
-                                                            title={act.label}
-                                                            style={{
-                                                                padding: '6px',
-                                                                border: `1px solid ${act.borderColor || 'var(--color-border, #e2e8f0)'}`,
-                                                                borderRadius: '6px',
-                                                                background: 'var(--color-surface, #fff)',
-                                                                cursor: 'pointer',
-                                                                color: act.color || 'var(--primary-light, #4a52c0)',
-                                                            }}
-                                                        >
-                                                            {act.icon}
-                                                        </button>
-                                                    ))}
+                                                    {rowActions.custom?.map((act, i) => {
+                                                        // Skip buttons whose visibility predicate
+                                                        // rules this row out (e.g. an "Approve"
+                                                        // action that only shows on PENDING rows).
+                                                        if (act.visible && !act.visible(item)) return null;
+                                                        return (
+                                                            <button
+                                                                key={`custom-${i}`}
+                                                                onClick={e => { e.stopPropagation(); act.onClick(item); }}
+                                                                title={act.label}
+                                                                style={{
+                                                                    padding: '6px',
+                                                                    border: `1px solid ${act.borderColor || 'var(--color-border, #e2e8f0)'}`,
+                                                                    borderRadius: '6px',
+                                                                    background: 'var(--color-surface, #fff)',
+                                                                    cursor: 'pointer',
+                                                                    color: act.color || 'var(--primary-light, #4a52c0)',
+                                                                }}
+                                                            >
+                                                                {act.icon}
+                                                            </button>
+                                                        );
+                                                    })}
                                                     {rowActions.onEdit && (
                                                         <button
                                                             onClick={e => { e.stopPropagation(); rowActions.onEdit!(item); }}

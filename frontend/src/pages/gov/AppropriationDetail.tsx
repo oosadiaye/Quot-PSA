@@ -14,6 +14,7 @@ import PageHeader from '../../components/PageHeader';
 import '../../features/accounting/styles/glassmorphism.css';
 import apiClient from '../../api/client';
 import { formatApiError } from '../../utils/apiError';
+import { useLedgerMutationListener } from '../../features/accounting/hooks/ledgerEvents';
 
 const fmtNGN = (v: number | string | undefined): string => {
     const num = typeof v === 'string' ? parseFloat(v) : (v || 0);
@@ -30,34 +31,45 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
     CLOSED:    { color: '#dc2626', bg: '#fef2f2', label: 'Closed' },
 };
 
+/*
+    Table cell baseline styles. Bumped from the previous 0.6rem (≈9.6px)
+    and var(--text-xs) (≈10–12px) to ~0.8rem (≈12.8px) for headers and
+    0.875rem (14px) for cells. Below 12px is unreadable for financial
+    data; auditors and operators were squinting at the previous values.
+*/
 const thStyle: React.CSSProperties = {
-    padding: '0.5rem 0.625rem', textAlign: 'left', fontSize: '0.6rem',
-    fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+    padding: '0.6rem 0.75rem', textAlign: 'left', fontSize: '0.8rem',
+    fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
     color: 'var(--color-text-muted)', whiteSpace: 'nowrap',
     borderBottom: '2px solid var(--color-border, #e2e8f0)',
     background: 'var(--color-surface, #f8fafc)',
 };
 const tdStyle: React.CSSProperties = {
-    padding: '0.5rem 0.625rem', fontSize: 'var(--text-xs)',
+    padding: '0.6rem 0.75rem', fontSize: '0.875rem',
     borderBottom: '1px solid var(--color-border, #f1f5f9)',
     whiteSpace: 'nowrap',
 };
 
 const filterLabelStyle: React.CSSProperties = {
     display: 'block',
-    fontSize: '0.6rem', fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: '0.05em',
+    fontSize: '0.75rem', fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: '0.04em',
     color: 'var(--color-text-muted)',
-    marginBottom: '0.25rem',
+    marginBottom: '0.3rem',
 };
 
 const filterInputStyle: React.CSSProperties = {
     width: '100%', boxSizing: 'border-box',
-    padding: '0.4rem 0.55rem',
+    padding: '0.45rem 0.6rem',
     background: '#fff',
-    border: '1px solid var(--color-border, #cbd5e1)',
+    // 3px slate-400 border so the four filter controls (Economic Code,
+    // Functional, Programme, Fund) read as obvious interactive fields
+    // against the white panel even on high-DPI Windows displays where
+    // hairlines smear. ``border-box`` above keeps the table-cell width
+    // stable regardless of border weight so the row stays aligned.
+    border: '3px solid var(--color-border, #94a3b8)',
     borderRadius: '6px',
-    fontSize: '0.75rem', color: 'var(--color-text)',
+    fontSize: '0.85rem', color: 'var(--color-text)',
     outline: 'none',
 };
 
@@ -79,6 +91,31 @@ export default function AppropriationDetail() {
     const [filterProgramme, setFilterProgramme] = useState('');
     const [filterFund, setFilterFund] = useState('');
 
+    // Real-time freshness policy for budget execution surfaces.
+    //
+    // The global QueryClient sets ``staleTime: 5 min`` and
+    // ``refetchOnWindowFocus: false`` (App.tsx:262) so report-style
+    // queries stay snappy. Appropriation totals (Approved / Committed
+    // / Expended / Available) are different — they must reflect the
+    // latest posted journal the moment the user navigates back to
+    // this page or refocuses the tab. Otherwise a journal posted
+    // five minutes ago in the GL screen is invisible here, which is
+    // exactly the "not updating real-time" symptom users see.
+    const realtimeQueryOpts = {
+        staleTime: 0,
+        refetchOnMount: 'always' as const,
+        refetchOnWindowFocus: true,
+    };
+
+    // Cross-tab refresh: if a journal is posted in a sibling tab, the
+    // ledgerEvents BroadcastChannel fires here and we drop the cached
+    // appropriation reads. The next render's useQuery will refetch
+    // because staleTime=0 + queries are now invalidated.
+    useLedgerMutationListener(() => {
+        qc.invalidateQueries({ queryKey: ['appropriation-detail'] });
+        qc.invalidateQueries({ queryKey: ['appropriation-mda-lines'] });
+    });
+
     const { data: appro, isLoading } = useQuery({
         queryKey: ['appropriation-detail', id],
         queryFn: async () => {
@@ -86,6 +123,7 @@ export default function AppropriationDetail() {
             return res.data;
         },
         enabled: !!id,
+        ...realtimeQueryOpts,
     });
 
     // Fetch all appropriation lines for the same MDA + fiscal year
@@ -99,6 +137,7 @@ export default function AppropriationDetail() {
             return Array.isArray(results) ? results : [];
         },
         enabled: !!appro?.administrative && !!appro?.fiscal_year,
+        ...realtimeQueryOpts,
     });
 
     /**
@@ -318,23 +357,133 @@ export default function AppropriationDetail() {
                     </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>
-                    {/* Left Column */}
-                    <div>
+                {/*
+                    Single-column layout. The page used to be a two-column
+                    split (left: MDA + Budget Execution + table; right:
+                    Status / Next Step / Workflow). The right column was
+                    moved up into a horizontal strip ABOVE Budget Execution
+                    so the wide content below (4 budget cards + 12-column
+                    NCoA table) can use the full page width for better
+                    visibility — the previous layout was throwing 30% of
+                    the horizontal real estate at the status sidebar even
+                    when the table was the thing users were trying to read.
+                */}
+                <div>
                         {/* MDA Card */}
                         <div className="glass-card" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                             <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', border: '1.5px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                 <Building2 size={20} color="#2563eb" />
                             </div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.04em' }}>MDA (Administrative Segment)</div>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.15rem' }}>
-                                    <span style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--color-text)' }}>{appro.administrative_code}</span>
-                                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{appro.administrative_name}</span>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.04em' }}>MDA (Administrative Segment)</div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                                    <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)' }}>{appro.administrative_code}</span>
+                                    <span style={{ fontSize: '0.95rem', color: 'var(--color-text-muted)' }}>{appro.administrative_name}</span>
                                 </div>
                             </div>
                             <div>
                                 <span style={{ padding: '0.3rem 0.75rem', borderRadius: '1rem', fontSize: 'var(--text-xs)', fontWeight: 600, background: sc.bg, color: sc.color, border: `1.5px solid ${sc.color}30` }}>{sc.label}</span>
+                            </div>
+                        </div>
+
+                        {/*
+                            Horizontal status strip — Status / Next Step /
+                            Approval Workflow, side-by-side. Moved up from
+                            the old right column so the wide content below
+                            (4-card execution strip + 12-column table) gets
+                            the full page width. ``repeat(auto-fit,
+                            minmax(280px, 1fr))`` lets the cards re-flow
+                            naturally: 3-up on wide screens, 2-up + wrap
+                            below 920px, fully stacked under 600px.
+                        */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                            gap: '1rem',
+                            marginBottom: '1rem',
+                            alignItems: 'stretch',
+                        }}>
+                            {/* Current Status */}
+                            <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Current Status</div>
+                                <div style={{
+                                    display: 'inline-block', padding: '0.5rem 1.5rem', borderRadius: '2rem',
+                                    fontSize: '1rem', fontWeight: 700,
+                                    background: sc.bg, color: sc.color,
+                                    border: `2px solid ${sc.color}30`,
+                                }}>
+                                    {sc.label}
+                                </div>
+                            </div>
+
+                            {/* Next Action */}
+                            {nextAction && (
+                                <div className="glass-card" style={{ padding: '1.25rem' }}>
+                                    <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.5rem 0' }}>Next Step</h3>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem 0', lineHeight: 1.4 }}>
+                                        {nextAction.desc}
+                                    </p>
+                                    <button
+                                        onClick={() => doAction.mutate(nextAction.action)}
+                                        disabled={doAction.isPending}
+                                        style={{
+                                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                            padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none',
+                                            background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)',
+                                            color: 'white', fontWeight: 600, fontSize: '0.875rem',
+                                            cursor: doAction.isPending ? 'not-allowed' : 'pointer',
+                                            boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
+                                            opacity: doAction.isPending ? 0.7 : 1,
+                                        }}
+                                    >
+                                        <nextAction.icon size={16} />
+                                        {doAction.isPending ? 'Processing...' : nextAction.label}
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Closed-state placeholder card (only when no Next Step renders) */}
+                            {!nextAction && appro.status === 'CLOSED' && (
+                                <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                    <Lock size={24} color="var(--color-text-muted)" />
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                        This appropriation is closed. No further actions available.
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Approval Workflow */}
+                            <div className="glass-card" style={{ padding: '1.25rem' }}>
+                                <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.5rem 0' }}>Approval Workflow</h3>
+                                {['DRAFT', 'SUBMITTED', 'APPROVED', 'ACTIVE', 'CLOSED'].map((s, i) => {
+                                    const isCurrent = appro.status === s;
+                                    const isPast = ['DRAFT', 'SUBMITTED', 'APPROVED', 'ACTIVE', 'CLOSED'].indexOf(appro.status) > i;
+                                    return (
+                                        <div key={s} style={{
+                                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                            padding: '0.3rem 0',
+                                            opacity: isPast ? 0.5 : 1,
+                                        }}>
+                                            <div style={{
+                                                width: 20, height: 20, borderRadius: '50%',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '10px', fontWeight: 700,
+                                                background: isCurrent ? 'var(--primary, #191e6a)' : isPast ? '#22c55e' : 'var(--color-border, #e2e8f0)',
+                                                color: isCurrent || isPast ? '#fff' : 'var(--color-text-muted)',
+                                                flexShrink: 0,
+                                            }}>
+                                                {isPast ? '✓' : i + 1}
+                                            </div>
+                                            <span style={{
+                                                fontSize: '0.85rem',
+                                                fontWeight: isCurrent ? 700 : 400,
+                                                color: isCurrent ? 'var(--color-text)' : 'var(--color-text-muted)',
+                                            }}>
+                                                {STATUS_CONFIG[s]?.label || s}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
 
@@ -345,35 +494,52 @@ export default function AppropriationDetail() {
                             previous page. */}
                         <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>
                                     Budget Execution
                                 </h3>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
                                     {mdaTotals.lineCount > 0
                                         ? `MDA total across ${mdaTotals.lineCount} line${mdaTotals.lineCount === 1 ? '' : 's'}`
                                         : 'Loading…'}
                                 </span>
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                            {/*
+                                Auto-fit lets the cards wrap to a second row
+                                when there isn't horizontal space for all 4.
+                                ``minmax(180px, 1fr)`` means each card
+                                wants at least 180px — wide enough for ₦
+                                amounts up to about 9 digits. On a full-
+                                width viewport you get 4-up; on a half-
+                                width sidebar layout you get 2-up; on a
+                                phone you get 1-up. ``minWidth: 0`` on
+                                the parent flex item ensures grid columns
+                                can actually shrink past content's
+                                intrinsic min-width.
+                            */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                gap: '0.75rem',
+                            }}>
                                 <div className="metric-card" style={{ borderLeft: '4px solid var(--primary, #191e6a)', padding: '1rem' }}>
-                                    <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Approved</div>
-                                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text)' }}>{fmtNGN(mdaTotals.approved)}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Approved</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-text)', marginTop: '0.25rem' }}>{fmtNGN(mdaTotals.approved)}</div>
                                 </div>
                                 <div className="metric-card" style={{ borderLeft: '4px solid #f59e0b', padding: '1rem' }}>
-                                    <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Warrants</div>
-                                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: '#f59e0b' }}>{fmtNGN(mdaTotals.warrants)}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Warrants</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b', marginTop: '0.25rem' }}>{fmtNGN(mdaTotals.warrants)}</div>
                                 </div>
                                 <div className="metric-card" style={{ borderLeft: '4px solid #ef4444', padding: '1rem' }}>
-                                    <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Expended</div>
-                                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: '#ef4444' }}>{fmtNGN(mdaTotals.expended)}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Expended</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ef4444', marginTop: '0.25rem' }}>{fmtNGN(mdaTotals.expended)}</div>
                                 </div>
                                 <div className="metric-card" style={{ borderLeft: '4px solid #22c55e', padding: '1rem' }}>
-                                    <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Available</div>
-                                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: '#22c55e' }}>{fmtNGN(mdaTotals.available)}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Available</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#22c55e', marginTop: '0.25rem' }}>{fmtNGN(mdaTotals.available)}</div>
                                 </div>
                             </div>
                             <div style={{ marginTop: '0.75rem' }}>
-                                <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
                                     Execution Rate: {mdaTotals.executionRate.toFixed(1)}%
                                 </div>
                                 <div style={{ background: 'var(--color-border, #e2e8f0)', borderRadius: 6, height: 8, overflow: 'hidden' }}>
@@ -390,9 +556,9 @@ export default function AppropriationDetail() {
                         {/* NCoA Budget Classification — Excel-style table */}
                         <div className="glass-card" style={{ padding: '1.25rem', overflow: 'hidden' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>
                                     NCoA Budget Classification — {appro.administrative_name}
-                                    <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', marginLeft: '0.5rem', fontSize: '0.7rem' }}>
+                                    <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', marginLeft: '0.5rem', fontSize: '0.8rem' }}>
                                         ({filteredLines.length} of {mdaLines.length} {mdaLines.length === 1 ? 'line' : 'lines'})
                                     </span>
                                 </h3>
@@ -505,8 +671,23 @@ export default function AppropriationDetail() {
                                 )}
                             </div>
 
+                            {/*
+                                Horizontal scroll fallback for the wide table.
+                                On narrow viewports the user can swipe the table
+                                sideways instead of having columns clip silently.
+                                The card itself has ``overflow: hidden`` to clip
+                                the scrollbar nicely against the rounded corners.
+                            */}
                             <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-xs)' }}>
+                                <table style={{
+                                    width: '100%', borderCollapse: 'collapse',
+                                    fontSize: '0.85rem',
+                                    // ``minWidth: max-content`` lets the table
+                                    // expand to its natural width inside the
+                                    // scrolling parent without compressing
+                                    // any column below readability.
+                                    minWidth: 'max-content',
+                                }}>
                                     <thead>
                                         <tr>
                                             <th style={thStyle}>Economic Code</th>
@@ -524,7 +705,6 @@ export default function AppropriationDetail() {
                                             <th style={{ ...thStyle, textAlign: 'right' }}>Expended</th>
                                             <th style={{ ...thStyle, textAlign: 'right' }}>Available</th>
                                             <th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
-                                            <th style={{ ...thStyle, textAlign: 'center' }}>Details</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -536,13 +716,24 @@ export default function AppropriationDetail() {
                                         {filteredLines.map((line: any) => {
                                             const isCurrentLine = String(line.id) === String(id);
                                             const lineSc = STATUS_CONFIG[line.status] || STATUS_CONFIG.DRAFT;
+                                            const baseBg = isCurrentLine ? 'rgba(79,70,229,0.06)' : 'transparent';
+                                            const hoverBg = isCurrentLine ? 'rgba(79,70,229,0.12)' : '#f1f5f9';
                                             return (
                                                 <tr key={line.id}
-                                                    onClick={() => { if (!isCurrentLine) navigate(`/budget/appropriations/${line.id}`); }}
+                                                    // Click anywhere on the row to drill into that line's
+                                                    // transactions page. Previously a dedicated "View
+                                                    // Details" button on the right did this; merging the
+                                                    // button into the whole-row click makes the entire
+                                                    // line a single affordance instead of forcing the
+                                                    // user to aim at a 110px target on the far right.
+                                                    onClick={() => navigate(`/budget/appropriations/${line.id}/transactions`)}
+                                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+                                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = baseBg; }}
                                                     style={{
-                                                        background: isCurrentLine ? 'rgba(79,70,229,0.06)' : 'transparent',
-                                                        cursor: isCurrentLine ? 'default' : 'pointer',
+                                                        background: baseBg,
+                                                        cursor: 'pointer',
                                                         borderLeft: isCurrentLine ? '3px solid #4f46e5' : '3px solid transparent',
+                                                        transition: 'background 0.1s ease',
                                                     }}>
                                                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
                                                         {line.economic_code}
@@ -574,33 +765,6 @@ export default function AppropriationDetail() {
                                                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                                                         <span style={{ padding: '0.15rem 0.4rem', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 600, background: lineSc.bg, color: lineSc.color }}>{lineSc.label}</span>
                                                     </td>
-                                                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                // Stop propagation so we don't ALSO trigger the
-                                                                // row's onClick (which would navigate to the
-                                                                // sibling appropriation detail instead of the
-                                                                // line-item drill-down).
-                                                                e.stopPropagation();
-                                                                navigate(`/budget/appropriations/${line.id}/transactions`);
-                                                            }}
-                                                            title="View every transaction posted against this line"
-                                                            style={{
-                                                                padding: '0.25rem 0.55rem',
-                                                                background: '#39cd9a',
-                                                                color: '#0b3a2c',
-                                                                border: 'none',
-                                                                borderRadius: 6,
-                                                                fontSize: '0.65rem',
-                                                                fontWeight: 700,
-                                                                cursor: 'pointer',
-                                                                whiteSpace: 'nowrap',
-                                                            }}
-                                                        >
-                                                            View Details
-                                                        </button>
-                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -624,7 +788,9 @@ export default function AppropriationDetail() {
                                                         return s + (Number(l.available_balance ?? approved - expended) || 0);
                                                     }, 0))}
                                                 </td>
-                                                <td style={tdStyle}></td>
+                                                {/* One trailing empty cell — was two when the table had a
+                                                    Details column. Removed when row-click replaced the
+                                                    per-row "View Details" button. */}
                                                 <td style={tdStyle}></td>
                                             </tr>
                                         </tfoot>
@@ -637,90 +803,6 @@ export default function AppropriationDetail() {
                                 </div>
                             )}
                         </div>
-                    </div>
-
-                    {/* Right: Status + Actions */}
-                    <div>
-                        {/* Current Status */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem', textAlign: 'center' }}>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Current Status</div>
-                            <div style={{
-                                display: 'inline-block', padding: '0.5rem 1.5rem', borderRadius: '2rem',
-                                fontSize: 'var(--text-base)', fontWeight: 700,
-                                background: sc.bg, color: sc.color,
-                                border: `2px solid ${sc.color}30`,
-                            }}>
-                                {sc.label}
-                            </div>
-                        </div>
-
-                        {/* Next Action */}
-                        {nextAction && (
-                            <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>Next Step</h3>
-                                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', margin: '0 0 1rem 0' }}>
-                                    {nextAction.desc}
-                                </p>
-                                <button
-                                    onClick={() => doAction.mutate(nextAction.action)}
-                                    disabled={doAction.isPending}
-                                    style={{
-                                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                        padding: '0.75rem 1.5rem', borderRadius: '8px', border: 'none',
-                                        background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)',
-                                        color: 'white', fontWeight: 600, fontSize: 'var(--text-sm)',
-                                        cursor: 'pointer', boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
-                                        opacity: doAction.isPending ? 0.7 : 1,
-                                    }}
-                                >
-                                    <nextAction.icon size={16} />
-                                    {doAction.isPending ? 'Processing...' : nextAction.label}
-                                </button>
-                            </div>
-                        )}
-
-                        {appro.status === 'CLOSED' && (
-                            <div className="glass-card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-                                <Lock size={24} color="var(--color-text-muted)" />
-                                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', margin: '0.5rem 0 0' }}>
-                                    This appropriation is closed. No further actions available.
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Workflow Guide */}
-                        <div className="glass-card" style={{ padding: '1.25rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.75rem 0' }}>Approval Workflow</h3>
-                            {['DRAFT', 'SUBMITTED', 'APPROVED', 'ACTIVE', 'CLOSED'].map((s, i) => {
-                                const isCurrent = appro.status === s;
-                                const isPast = ['DRAFT', 'SUBMITTED', 'APPROVED', 'ACTIVE', 'CLOSED'].indexOf(appro.status) > i;
-                                return (
-                                    <div key={s} style={{
-                                        display: 'flex', alignItems: 'center', gap: '0.5rem',
-                                        padding: '0.4rem 0',
-                                        opacity: isPast ? 0.5 : 1,
-                                    }}>
-                                        <div style={{
-                                            width: 20, height: 20, borderRadius: '50%',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: '10px', fontWeight: 700,
-                                            background: isCurrent ? 'var(--primary, #191e6a)' : isPast ? '#22c55e' : 'var(--color-border, #e2e8f0)',
-                                            color: isCurrent || isPast ? '#fff' : 'var(--color-text-muted)',
-                                        }}>
-                                            {isPast ? '\u2713' : i + 1}
-                                        </div>
-                                        <span style={{
-                                            fontSize: 'var(--text-xs)',
-                                            fontWeight: isCurrent ? 700 : 400,
-                                            color: isCurrent ? 'var(--color-text)' : 'var(--color-text-muted)',
-                                        }}>
-                                            {STATUS_CONFIG[s]?.label || s}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
                 </div>
             </main>
         </div>

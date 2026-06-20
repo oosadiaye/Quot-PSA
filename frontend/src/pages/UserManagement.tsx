@@ -446,38 +446,38 @@ const CreateUserModal: React.FC<{
                 <form onSubmit={handleSubmit}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div>
-                            <label style={labelStyle}>Username *</label>
+                            <label style={labelStyle}>Username<span className="required-mark"> *</span></label>
                             <input required value={form.username}
                                 onChange={e => setForm({ ...form, username: e.target.value })}
-                                style={inputStyle} placeholder="e.g. john.doe" />
+                                className="input" placeholder="e.g. john.doe" />
                         </div>
                         <div>
-                            <label style={labelStyle}>Email *</label>
+                            <label style={labelStyle}>Email<span className="required-mark"> *</span></label>
                             <input type="email" required value={form.email}
                                 onChange={e => setForm({ ...form, email: e.target.value })}
-                                style={inputStyle} placeholder="john@example.com" />
+                                className="input" placeholder="john@example.com" />
                         </div>
                         <div>
                             <label style={labelStyle}>First Name</label>
                             <input value={form.first_name}
                                 onChange={e => setForm({ ...form, first_name: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div>
                             <label style={labelStyle}>Last Name</label>
                             <input value={form.last_name}
                                 onChange={e => setForm({ ...form, last_name: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                            <label style={labelStyle}>Password *</label>
+                            <label style={labelStyle}>Password<span className="required-mark"> *</span></label>
                             <input type="password" required value={form.password}
                                 onChange={e => setForm({ ...form, password: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div>
                             <label style={labelStyle}>Role</label>
-                            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} style={inputStyle}>
+                            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
                                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                             </select>
                         </div>
@@ -607,23 +607,23 @@ const EditUserModal: React.FC<{
                             <label style={labelStyle}>First Name</label>
                             <input value={form.first_name}
                                 onChange={e => setForm({ ...form, first_name: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div>
                             <label style={labelStyle}>Last Name</label>
                             <input value={form.last_name}
                                 onChange={e => setForm({ ...form, last_name: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div>
                             <label style={labelStyle}>Email</label>
                             <input type="email" value={form.email}
                                 onChange={e => setForm({ ...form, email: e.target.value })}
-                                style={inputStyle} />
+                                className="input" />
                         </div>
                         <div>
                             <label style={labelStyle}>Role</label>
-                            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} style={inputStyle}>
+                            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
                                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                             </select>
                         </div>
@@ -837,10 +837,10 @@ const ResetPasswordModal: React.FC<{ user: TenantUser; onClose: () => void }> = 
                             }}>{error}</div>
                         )}
                         <div>
-                            <label style={labelStyle}>New Password *</label>
+                            <label style={labelStyle}>New Password<span className="required-mark"> *</span></label>
                             <input type="password" required value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                style={inputStyle} placeholder="Enter new password" />
+                                className="input" placeholder="Enter new password" />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
                             <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>

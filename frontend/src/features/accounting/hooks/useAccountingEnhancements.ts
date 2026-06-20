@@ -12,7 +12,11 @@ interface CurrencyFormData {
     code: string;
     name: string;
     symbol: string;
-    exchange_rate: string;
+    // Accepts a number (the form parses its string input via parseFloat
+    // before sending, and the seed-currency rates are numeric) or a
+    // string. DRF's DecimalField deserialises either. Widened from
+    // ``string`` so the numeric call sites type-check.
+    exchange_rate: string | number;
     is_base_currency?: boolean;
     is_active?: boolean;
 }
@@ -154,7 +158,9 @@ interface TaxCodeFormData {
     tax_type: string;
     direction: string;
     rate: string;
-    tax_account: number;
+    tax_account: number | string | null;
+    input_tax_account?: number | string | null;
+    output_tax_account?: number | string | null;
     is_active?: boolean;
     description?: string;
 }
@@ -164,7 +170,7 @@ interface WithholdingTaxFormData {
     name: string;
     income_type: string;
     rate: string;
-    withholding_account: number;
+    withholding_account: number | string | null;
     is_active?: boolean;
 }
 

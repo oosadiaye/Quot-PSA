@@ -84,6 +84,33 @@ const ContractsList = () => {
             ),
         },
         {
+            // Mobilization status — empty when no advance has been
+            // issued, otherwise PENDING / APPROVED / PAID / etc. so
+            // treasury can scan the list and find pending work
+            // without opening each contract.
+            key: 'mobilization_status',
+            header: 'Mobilization',
+            render: (r) => {
+                const s = r.mobilization_status || '';
+                if (!s) {
+                    return <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>;
+                }
+                // Match colours used by the Mobilization Advances list
+                // status pills so the visual language is consistent.
+                const tone: 'danger' | 'warning' | 'success' | 'neutral' =
+                    s === 'CANCELLED' ? 'danger'
+                  : s === 'PENDING' ? 'warning'
+                  : s === 'APPROVED' ? 'neutral'
+                  : (s === 'PAID' || s === 'PARTIALLY_RECOVERED' || s === 'FULLY_RECOVERED') ? 'success'
+                  : 'neutral';
+                return (
+                    <StatusBadge tone={tone}>
+                        {s.replaceAll('_', ' ')}
+                    </StatusBadge>
+                );
+            },
+        },
+        {
             key: 'status',
             header: 'Status',
             render: (r) => <StatusBadge status={r.status}>{r.status}</StatusBadge>,

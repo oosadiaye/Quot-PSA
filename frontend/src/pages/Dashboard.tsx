@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Sidebar from '../components/Sidebar';
 import {
     TrendingUp,
@@ -559,7 +559,7 @@ const Dashboard = () => {
                     {/* ── Row 3: Module-aware analytics grid ──── */}
                     {(() => {
                         // Build a dynamic list of analytics cards based on enabled modules
-                        const cards: JSX.Element[] = [];
+                        const cards: React.JSX.Element[] = [];
 
                         // Accounting: AR/AP (always shown — core module)
                         if (mod('accounting')) {
@@ -652,7 +652,7 @@ const Dashboard = () => {
                                                 <Legend formatter={(value: string) => (
                                                     <span style={{ fontSize: '12px', color: '#64748b' }}>{value}</span>
                                                 )} />
-                                                <Tooltip formatter={(v: number) => fmtCurrency(v)} />
+                                                <Tooltip formatter={(v) => fmtCurrency(Number(v ?? 0))} />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </div>

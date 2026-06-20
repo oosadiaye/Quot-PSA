@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
     Plus, Trash2, FileText, Layers, Paperclip,
     ReceiptText, ArrowLeftRight, CheckCircle, AlertCircle,
+    X, Save,
 } from 'lucide-react';
 import { useCreateCustomerInvoice, useTaxCodes, useWithholdingTaxes } from '../hooks/useAccountingEnhancements';
 import { useCustomers } from '../hooks/useCustomers';
@@ -11,7 +12,7 @@ import { useCurrency } from '../../../context/CurrencyContext';
 import { useToast } from '../../../context/ToastContext';
 import { parsePostingError } from '../utils/parsePostingError';
 import AccountingLayout from '../AccountingLayout';
-import BackButton from '../../../components/BackButton';
+import PageHeader from '../../../components/PageHeader';
 import '../styles/glassmorphism.css';
 
 type TabType = 'invoice' | 'credit_memo';
@@ -66,7 +67,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
     // Income-type accounts only (matches Account model choice 'Income')
     const revenueAccounts = useMemo(
-        () => dims?.accounts?.filter((a: RefAccount) => a.account_type === 'Income') ?? [],
+        () => (dims?.accounts as RefAccount[] | undefined)?.filter((a: RefAccount) => a.account_type === 'Income') ?? [],
         [dims?.accounts]
     );
 
@@ -177,12 +178,8 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
         color: 'var(--color-text)', fontSize: 'var(--text-sm)',
         outline: 'none', fontFamily: 'inherit',
     };
-    const lbl: React.CSSProperties = {
-        display: 'block', marginBottom: '0.25rem',
-        fontSize: '0.68rem', fontWeight: 700,
-        textTransform: 'uppercase', letterSpacing: '0.05em',
-        color: 'var(--color-text-muted)',
-    };
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
     const fieldGap: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.65rem' };
     const pill = (bg: string, color: string, text: string) => (
         <span style={{
@@ -199,26 +196,36 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
     return (
         <form onSubmit={handleSubmit} style={{ height: '100%' }}>
 
-            {/* ── TOP BAR ──────────────────────────────────────────── */}
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: '0.75rem', gap: '1rem',
-            }}>
-                {/* Left: back + title */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
-                    {/* Back button calls onCancel directly — wrapping
-                        BackButton in another <button> caused a React
-                        19 hydration error (nested buttons). */}
-                    <BackButton onClick={onCancel} />
-                    <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
-                        {isCreditMemo ? 'Customer Credit Memo' : 'Customer Invoice'}
-                    </h1>
-                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                        {isCreditMemo ? 'Dr Revenue · Cr Accounts Receivable' : 'Dr Accounts Receivable · Cr Revenue'}
-                    </p>
-                </div>
+            {/* ── PAGE HEADER ──────────────────────────────────────── */}
+            <PageHeader
+                title={isCreditMemo ? 'Customer Credit Memo' : 'Customer Invoice'}
+                subtitle={isCreditMemo ? 'Dr Revenue · Cr Accounts Receivable' : 'Dr Accounts Receivable · Cr Revenue'}
+                icon={<FileText size={22} />}
+                onBack={onCancel}
+                actions={
+                    <>
+                        <button type="button" className="btn btn-outline" onClick={onCancel}
+                            style={{ padding: '0.45rem 1.1rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                            <X size={18} /> Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary"
+                            disabled={createInvoice.isPending || !isBalanced}
+                            title={!isBalanced ? 'Add line amounts before saving' : undefined}
+                            style={{
+                                padding: '0.45rem 1.25rem', fontSize: 'var(--text-sm)', fontWeight: 600,
+                                background: isBalanced ? (isCreditMemo ? 'linear-gradient(135deg,#0f766e,#0d9488)' : 'linear-gradient(135deg,#15803d,#16a34a)') : undefined,
+                            }}>
+                            <Save size={18} /> {createInvoice.isPending ? 'Saving…' : isCreditMemo ? 'Save Credit Memo' : 'Save Invoice'}
+                        </button>
+                    </>
+                }
+            />
 
-                {/* Centre: segmented tab switcher */}
+            {/* Segmented tab switcher */}
+            <div style={{
+                display: 'flex', justifyContent: 'center',
+                marginBottom: '0.75rem',
+            }}>
                 <div style={{
                     display: 'flex', borderRadius: '9px',
                     border: '1.5px solid var(--color-border)',
@@ -240,23 +247,6 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                             {label}
                         </button>
                     ))}
-                </div>
-
-                {/* Right: action buttons */}
-                <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0 }}>
-                    <button type="button" className="btn btn-outline" onClick={onCancel}
-                        style={{ padding: '0.45rem 1.1rem', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                        Cancel
-                    </button>
-                    <button type="submit" className="btn btn-primary"
-                        disabled={createInvoice.isPending || !isBalanced}
-                        title={!isBalanced ? 'Add line amounts before saving' : undefined}
-                        style={{
-                            padding: '0.45rem 1.25rem', fontSize: 'var(--text-sm)', fontWeight: 600,
-                            background: isBalanced ? (isCreditMemo ? 'linear-gradient(135deg,#0f766e,#0d9488)' : 'linear-gradient(135deg,#15803d,#16a34a)') : undefined,
-                        }}>
-                        {createInvoice.isPending ? 'Saving…' : isCreditMemo ? 'Save Credit Memo' : 'Save Invoice'}
-                    </button>
                 </div>
             </div>
 
@@ -307,7 +297,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
                         {/* Customer */}
                         <div>
-                            <label style={lbl}>Customer <span style={{ color: '#ef4444' }}>*</span></label>
+                            <label style={labelStyle}>Customer<span className="required-mark"> *</span></label>
                             <select style={{ ...inp, appearance: 'auto' as any }}
                                 value={header.customer}
                                 onChange={e => setHeader(h => ({ ...h, customer: e.target.value }))} required>
@@ -318,7 +308,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
                         {/* Reference */}
                         <div>
-                            <label style={lbl}>{isCreditMemo ? 'Credit Memo No.' : 'Invoice No. / Reference'} <span style={{ color: '#ef4444' }}>*</span></label>
+                            <label style={labelStyle}>{isCreditMemo ? 'Credit Memo No.' : 'Invoice No. / Reference'}<span className="required-mark"> *</span></label>
                             <input style={inp} type="text"
                                 placeholder={isCreditMemo ? 'ARCM-001' : 'CINV-001'}
                                 value={header.reference}
@@ -328,13 +318,13 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                         {/* Dates */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                             <div>
-                                <label style={lbl}>{isCreditMemo ? 'CM Date' : 'Invoice Date'} <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label style={labelStyle}>{isCreditMemo ? 'CM Date' : 'Invoice Date'}<span className="required-mark"> *</span></label>
                                 <input style={inp} type="date" value={header.invoice_date}
                                     onChange={e => setHeader(h => ({ ...h, invoice_date: e.target.value }))} required />
                             </div>
                             {!isCreditMemo && (
                                 <div>
-                                    <label style={lbl}>Due Date <span style={{ color: '#ef4444' }}>*</span></label>
+                                    <label style={labelStyle}>Due Date<span className="required-mark"> *</span></label>
                                     <input style={inp} type="date" value={header.due_date}
                                         onChange={e => setHeader(h => ({ ...h, due_date: e.target.value }))} required />
                                 </div>
@@ -343,7 +333,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
                         {/* Description */}
                         <div>
-                            <label style={lbl}>Description</label>
+                            <label style={labelStyle}>Description</label>
                             <textarea
                                 style={{ ...inp, minHeight: '60px', maxHeight: '80px', resize: 'vertical' }}
                                 placeholder={isCreditMemo ? 'Reason for credit memo…' : 'Invoice details…'}
@@ -354,7 +344,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
                         {/* Attachment */}
                         <div>
-                            <label style={lbl}>Attachment (optional)</label>
+                            <label style={labelStyle}>Attachment (optional)</label>
                             {!attachment ? (
                                 <label style={{
                                     display: 'flex', alignItems: 'center', gap: '0.4rem',
@@ -412,7 +402,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                         { key: 'geo', label: 'Geo', items: dims?.geos },
                                     ].map(({ key, label, items }) => (
                                         <div key={key}>
-                                            <label style={lbl}>{label} <span style={{ color: '#ef4444' }}>*</span></label>
+                                            <label style={labelStyle}>{label}<span className="required-mark"> *</span></label>
                                             <select style={{ ...inp, appearance: 'auto' as any }}
                                                 value={(header as any)[key]}
                                                 onChange={e => setHeader(h => ({ ...h, [key]: e.target.value }))}

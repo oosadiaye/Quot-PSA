@@ -148,7 +148,7 @@ export default function PaymentVoucherDetail() {
     if (isLoading) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#94a3b8' }}>Loading...</main></div>;
     if (error || !pv) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#dc2626' }}>Payment Voucher not found.</main></div>;
 
-    const statusColor = { DRAFT: '#d97706', CHECKED: '#2563eb', AUDITED: '#7c3aed', APPROVED: '#008751', SCHEDULED: '#0369a1', PAID: '#16a34a', CANCELLED: '#dc2626', REVERSED: '#64748b' }[pv.status] || '#64748b';
+    const statusColor = ({ DRAFT: '#d97706', CHECKED: '#2563eb', AUDITED: '#7c3aed', APPROVED: '#008751', SCHEDULED: '#0369a1', PAID: '#16a34a', CANCELLED: '#dc2626', REVERSED: '#64748b' } as Record<string, string>)[pv.status] || '#64748b';
 
     return (
         <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>

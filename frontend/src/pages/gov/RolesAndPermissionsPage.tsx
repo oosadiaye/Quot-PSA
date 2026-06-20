@@ -411,6 +411,7 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
                         )}
                     </div>
                 ))}
+            </div>
         </div>
     );
 }

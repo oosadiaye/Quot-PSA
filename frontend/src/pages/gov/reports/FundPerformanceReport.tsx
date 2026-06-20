@@ -101,7 +101,7 @@ export default function FundPerformanceReport() {
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <select value={fyId} onChange={e => setFyId(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
-                            {yearOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            {yearOptions.map((opt: any) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                         </select>
                         <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
                             <Printer size={16} /> Print

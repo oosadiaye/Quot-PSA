@@ -117,6 +117,8 @@ function VoucherStatus({ status }: { status: string }) {
 // ─── main component ───────────────────────────────────────────────────────────
 export default function CashAccountsPage() {
     const { formatCurrency } = useCurrency();
+    const labelStyle: React.CSSProperties = { display:'block', marginBottom:'0.5rem', fontSize:'var(--text-xs)', fontWeight:600, textTransform:'uppercase', color:'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize:'11px', color:'var(--color-text-muted)', marginTop:'4px' };
     const [activeTab, setActiveTab] = useState<Tab>('accounts');
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -302,47 +304,47 @@ export default function CashAccountsPage() {
                     <button onClick={() => setShowAccountForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleCreateAccount(accountForm); }}>
-                    <div style={{ display: 'grid', gap: '14px' }}>
+                    <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Account Name *</label>
-                            <input style={inp} required value={accountForm.name} onChange={e => setAF('name', e.target.value)} placeholder="e.g. Main Cash Office" />
+                            <label style={labelStyle}>Account Name<span className="required-mark"> *</span></label>
+                            <input className="input" required value={accountForm.name} onChange={e => setAF('name', e.target.value)} placeholder="e.g. Main Cash Office" />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Account Number *</label>
-                                <input style={inp} required value={accountForm.account_number} onChange={e => setAF('account_number', e.target.value)} placeholder="CASH-001" />
+                                <label style={labelStyle}>Account Number<span className="required-mark"> *</span></label>
+                                <input className="input" required value={accountForm.account_number} onChange={e => setAF('account_number', e.target.value)} placeholder="CASH-001" />
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Type *</label>
-                                <select style={sel} value={accountForm.account_type} onChange={e => setAF('account_type', e.target.value)}>
+                                <label style={labelStyle}>Type<span className="required-mark"> *</span></label>
+                                <select className="input" value={accountForm.account_type} onChange={e => setAF('account_type', e.target.value)}>
                                     {ACCOUNT_TYPES.map(t => <option key={t}>{t}</option>)}
                                 </select>
                             </div>
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>GL Account</label>
-                            <select style={sel} value={accountForm.gl_account} onChange={e => setAF('gl_account', e.target.value)}>
+                            <label style={labelStyle}>GL Account</label>
+                            <select className="input" value={accountForm.gl_account} onChange={e => setAF('gl_account', e.target.value)}>
                                 <option value="">-- Select GL Account --</option>
                                 {(glAccounts as any[] || []).map((a: any) => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
                             </select>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Currency</label>
-                                <select style={sel} value={accountForm.currency} onChange={e => setAF('currency', e.target.value)}>
+                                <label style={labelStyle}>Currency</label>
+                                <select className="input" value={accountForm.currency} onChange={e => setAF('currency', e.target.value)}>
                                     <option value="">-- Select Currency --</option>
                                     {(currencies as any[] || []).map((c: any) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Opening Balance</label>
-                                <input style={inp} type="number" step="0.01" value={accountForm.opening_balance} onChange={e => setAF('opening_balance', e.target.value)} />
+                                <label style={labelStyle}>Opening Balance</label>
+                                <input className="input" type="number" step="0.01" value={accountForm.opening_balance} onChange={e => setAF('opening_balance', e.target.value)} />
                             </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
-                        <button type="button" onClick={() => setShowAccountForm(false)} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                        <button type="submit" disabled={createBankAccount.isPending} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: '#15803d', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <button type="button" className="btn btn-outline" onClick={() => setShowAccountForm(false)}>Cancel</button>
+                        <button type="submit" className="btn btn-primary" disabled={createBankAccount.isPending}>
                             {createBankAccount.isPending ? 'Saving…' : 'Create Account'}
                         </button>
                     </div>
@@ -366,38 +368,38 @@ export default function CashAccountsPage() {
                     <button onClick={() => { setShowFundForm(false); setEditFund(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleSaveFund(fundForm); }}>
-                    <div style={{ display: 'grid', gap: '14px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gap: '1.5rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Fund Name *</label>
-                                <input style={inp} required value={fundForm.name} onChange={e => setFF('name', e.target.value)} placeholder="Ops Petty Cash" />
+                                <label style={labelStyle}>Fund Name<span className="required-mark"> *</span></label>
+                                <input className="input" required value={fundForm.name} onChange={e => setFF('name', e.target.value)} placeholder="Ops Petty Cash" />
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Code *</label>
-                                <input style={inp} required value={fundForm.code} onChange={e => setFF('code', e.target.value)} placeholder="PCF-001" />
+                                <label style={labelStyle}>Code<span className="required-mark"> *</span></label>
+                                <input className="input" required value={fundForm.code} onChange={e => setFF('code', e.target.value)} placeholder="PCF-001" />
                             </div>
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Linked Bank Account (Petty Cash type)</label>
-                            <select style={sel} value={fundForm.bank_account} onChange={e => setFF('bank_account', e.target.value)}>
+                            <label style={labelStyle}>Linked Bank Account (Petty Cash type)</label>
+                            <select className="input" value={fundForm.bank_account} onChange={e => setFF('bank_account', e.target.value)}>
                                 <option value="">— none —</option>
                                 {pettyCashBankAccounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Float Amount *</label>
-                                <input style={inp} type="number" step="0.01" required value={fundForm.float_amount} onChange={e => setFF('float_amount', e.target.value)} placeholder="50000" />
+                                <label style={labelStyle}>Float Amount<span className="required-mark"> *</span></label>
+                                <input className="input" type="number" step="0.01" required value={fundForm.float_amount} onChange={e => setFF('float_amount', e.target.value)} placeholder="50000" />
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Minimum Balance</label>
-                                <input style={inp} type="number" step="0.01" value={fundForm.minimum_balance} onChange={e => setFF('minimum_balance', e.target.value)} placeholder="10000" />
+                                <label style={labelStyle}>Minimum Balance</label>
+                                <input className="input" type="number" step="0.01" value={fundForm.minimum_balance} onChange={e => setFF('minimum_balance', e.target.value)} placeholder="10000" />
                             </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
-                        <button type="button" onClick={() => { setShowFundForm(false); setEditFund(null); }} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                        <button type="submit" disabled={createFund.isPending || updateFund.isPending} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: '#d97706', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <button type="button" className="btn btn-outline" onClick={() => { setShowFundForm(false); setEditFund(null); }}>Cancel</button>
+                        <button type="submit" className="btn btn-primary" disabled={createFund.isPending || updateFund.isPending}>
                             {createFund.isPending || updateFund.isPending ? 'Saving…' : editFund ? 'Update Fund' : 'Create Fund'}
                         </button>
                     </div>
@@ -425,35 +427,35 @@ export default function CashAccountsPage() {
                     <button onClick={() => setShowVoucherForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleCreateVoucher({ ...voucherForm, petty_cash_fund: Number(voucherForm.petty_cash_fund), account: Number(voucherForm.account) }); }}>
-                    <div style={{ display: 'grid', gap: '14px' }}>
+                    <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Petty Cash Fund *</label>
-                            <select style={sel} required value={voucherForm.petty_cash_fund} onChange={e => setVF('petty_cash_fund', e.target.value)}>
+                            <label style={labelStyle}>Petty Cash Fund<span className="required-mark"> *</span></label>
+                            <select className="input" required value={voucherForm.petty_cash_fund} onChange={e => setVF('petty_cash_fund', e.target.value)}>
                                 <option value="">Select fund…</option>
                                 {funds.map((f: any) => <option key={f.id} value={f.id}>{f.name} (Balance: {formatCurrency(f.current_balance)})</option>)}
                             </select>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Voucher Date *</label>
-                                <input style={inp} type="date" required value={voucherForm.voucher_date} onChange={e => setVF('voucher_date', e.target.value)} />
+                                <label style={labelStyle}>Voucher Date<span className="required-mark"> *</span></label>
+                                <input className="input" type="date" required value={voucherForm.voucher_date} onChange={e => setVF('voucher_date', e.target.value)} />
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
-                                <input style={inp} type="number" step="0.01" required value={voucherForm.amount} onChange={e => setVF('amount', e.target.value)} placeholder="0.00" />
+                                <label style={labelStyle}>Amount<span className="required-mark"> *</span></label>
+                                <input className="input" type="number" step="0.01" required value={voucherForm.amount} onChange={e => setVF('amount', e.target.value)} placeholder="0.00" />
                             </div>
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Payee *</label>
-                            <input style={inp} required value={voucherForm.payee} onChange={e => setVF('payee', e.target.value)} placeholder="Who is being paid?" />
+                            <label style={labelStyle}>Payee<span className="required-mark"> *</span></label>
+                            <input className="input" required value={voucherForm.payee} onChange={e => setVF('payee', e.target.value)} placeholder="Who is being paid?" />
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Description *</label>
-                            <input style={inp} required value={voucherForm.description} onChange={e => setVF('description', e.target.value)} placeholder="Office stationery, transport, etc." />
+                            <label style={labelStyle}>Description<span className="required-mark"> *</span></label>
+                            <input className="input" required value={voucherForm.description} onChange={e => setVF('description', e.target.value)} placeholder="Office stationery, transport, etc." />
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Expense Account *</label>
-                            <select style={sel} required value={voucherForm.account} onChange={e => setVF('account', e.target.value)}>
+                            <label style={labelStyle}>Expense Account<span className="required-mark"> *</span></label>
+                            <select className="input" required value={voucherForm.account} onChange={e => setVF('account', e.target.value)}>
                                 <option value="">Select account…</option>
                                 {expenseAccounts.map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                                 {!(expenseAccounts.length) && (glAccounts as any[] || []).map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
@@ -461,8 +463,8 @@ export default function CashAccountsPage() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
-                        <button type="button" onClick={() => setShowVoucherForm(false)} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                        <button type="submit" disabled={createVoucher.isPending} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: '#b45309', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <button type="button" className="btn btn-outline" onClick={() => setShowVoucherForm(false)}>Cancel</button>
+                        <button type="submit" className="btn btn-primary" disabled={createVoucher.isPending}>
                             {createVoucher.isPending ? 'Saving…' : 'Create Voucher'}
                         </button>
                     </div>
@@ -494,36 +496,36 @@ export default function CashAccountsPage() {
                         vouchers_total: replenForm.reimbursement_amount,
                     });
                 }}>
-                    <div style={{ display: 'grid', gap: '14px' }}>
+                    <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Fund to Replenish *</label>
-                            <select style={sel} required value={replenForm.petty_cash_fund} onChange={e => setRF('petty_cash_fund', e.target.value)}>
+                            <label style={labelStyle}>Fund to Replenish<span className="required-mark"> *</span></label>
+                            <select className="input" required value={replenForm.petty_cash_fund} onChange={e => setRF('petty_cash_fund', e.target.value)}>
                                 <option value="">Select fund…</option>
                                 {funds.map((f: any) => <option key={f.id} value={f.id}>{f.name} · Balance: {formatCurrency(f.current_balance)}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Source Bank Account *</label>
-                            <select style={sel} required value={replenForm.bank_account} onChange={e => setRF('bank_account', e.target.value)}>
+                            <label style={labelStyle}>Source Bank Account<span className="required-mark"> *</span></label>
+                            <select className="input" required value={replenForm.bank_account} onChange={e => setRF('bank_account', e.target.value)}>
                                 <option value="">Select bank account…</option>
                                 {cashOnlyAccounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                                 {!cashOnlyAccounts.length && cashBankAccounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Date *</label>
-                                <input style={inp} type="date" required value={replenForm.replenishment_date} onChange={e => setRF('replenishment_date', e.target.value)} />
+                                <label style={labelStyle}>Date<span className="required-mark"> *</span></label>
+                                <input className="input" type="date" required value={replenForm.replenishment_date} onChange={e => setRF('replenishment_date', e.target.value)} />
                             </div>
                             <div>
-                                <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
-                                <input style={inp} type="number" step="0.01" required value={replenForm.reimbursement_amount} onChange={e => setRF('reimbursement_amount', e.target.value)} placeholder="0.00" />
+                                <label style={labelStyle}>Amount<span className="required-mark"> *</span></label>
+                                <input className="input" type="number" step="0.01" required value={replenForm.reimbursement_amount} onChange={e => setRF('reimbursement_amount', e.target.value)} placeholder="0.00" />
                             </div>
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
-                        <button type="button" onClick={() => setShowReplenForm(false)} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                        <button type="submit" disabled={createReplenishment.isPending} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: '#0284c7', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <button type="button" className="btn btn-outline" onClick={() => setShowReplenForm(false)}>Cancel</button>
+                        <button type="submit" className="btn btn-primary" disabled={createReplenishment.isPending}>
                             {createReplenishment.isPending ? 'Saving…' : 'Create Replenishment'}
                         </button>
                     </div>

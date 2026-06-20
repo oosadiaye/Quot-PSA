@@ -156,6 +156,9 @@ export default function VendorCategoryList() {
 
     const isPending = createMutation.isPending || updateMutation.isPending;
 
+    const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
+    const helpStyle: React.CSSProperties = { fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' };
+
     if (isLoading) {
         return (
             <AccountingLayout>
@@ -420,66 +423,34 @@ export default function VendorCategoryList() {
                         <form onSubmit={handleSubmit}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                                        Code *
-                                    </label>
+                                    <label style={labelStyle}>Code<span className="required-mark"> *</span></label>
                                     <input
                                         type="text"
+                                        className="input"
                                         value={form.code}
                                         onChange={(e) => setForm({ ...form, code: e.target.value })}
                                         placeholder="e.g. VC-001"
                                         required
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.625rem 0.875rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--color-border)',
-                                            background: 'var(--color-surface)',
-                                            color: 'var(--color-text)',
-                                            fontSize: 'var(--text-sm)',
-                                            boxSizing: 'border-box',
-                                        }}
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                                        Name *
-                                    </label>
+                                    <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
                                     <input
                                         type="text"
+                                        className="input"
                                         value={form.name}
                                         onChange={(e) => setForm({ ...form, name: e.target.value })}
                                         placeholder="Category name"
                                         required
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.625rem 0.875rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--color-border)',
-                                            background: 'var(--color-surface)',
-                                            color: 'var(--color-text)',
-                                            fontSize: 'var(--text-sm)',
-                                            boxSizing: 'border-box',
-                                        }}
                                     />
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                                        Reconciliation Account (AP) *
-                                    </label>
+                                    <label style={labelStyle}>Reconciliation Account (AP)<span className="required-mark"> *</span></label>
                                     <select
+                                        className="input"
                                         value={form.reconciliation_account}
                                         onChange={(e) => setForm({ ...form, reconciliation_account: e.target.value })}
                                         required
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.625rem 0.875rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--color-border)',
-                                            background: 'var(--color-surface)',
-                                            color: 'var(--color-text)',
-                                            fontSize: 'var(--text-sm)',
-                                        }}
                                     >
                                         <option value="">Select AP account...</option>
                                         {(apAccounts || []).map((acc: any) => (
@@ -490,25 +461,14 @@ export default function VendorCategoryList() {
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                                        Description
-                                    </label>
+                                    <label style={labelStyle}>Description</label>
                                     <textarea
+                                        className="input"
                                         value={form.description}
                                         onChange={(e) => setForm({ ...form, description: e.target.value })}
                                         placeholder="Optional description"
                                         rows={3}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.625rem 0.875rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--color-border)',
-                                            background: 'var(--color-surface)',
-                                            color: 'var(--color-text)',
-                                            fontSize: 'var(--text-sm)',
-                                            resize: 'vertical',
-                                            boxSizing: 'border-box',
-                                        }}
+                                        style={{ width: '100%' }}
                                     />
                                 </div>
                                 <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -528,37 +488,15 @@ export default function VendorCategoryList() {
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
                                 <button
                                     type="button"
+                                    className="btn btn-outline"
                                     onClick={closeModal}
-                                    style={{
-                                        padding: '0.625rem 1.25rem',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--color-border)',
-                                        background: 'transparent',
-                                        color: 'var(--color-text)',
-                                        cursor: 'pointer',
-                                        fontWeight: 500,
-                                        fontSize: 'var(--text-sm)',
-                                    }}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
+                                    className="btn btn-primary"
                                     disabled={isPending}
-                                    style={{
-                                        padding: '0.625rem 1.25rem',
-                                        borderRadius: '8px',
-                                        border: 'none',
-                                        background: 'linear-gradient(135deg, #2471a3, #1a5276)',
-                                        color: 'white',
-                                        cursor: isPending ? 'not-allowed' : 'pointer',
-                                        fontWeight: 600,
-                                        fontSize: 'var(--text-sm)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.5rem',
-                                        opacity: isPending ? 0.7 : 1,
-                                    }}
                                 >
                                     <Save size={16} />
                                     {isPending ? 'Saving...' : (editingCategory ? 'Update Category' : 'Create Category')}

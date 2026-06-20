@@ -48,6 +48,9 @@ export default function MyLeave() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-leave-requests'] }),
   });
 
+  const labelStyle: React.CSSProperties = { display:'block', marginBottom:'0.5rem', fontSize:'var(--text-xs)', fontWeight:600, textTransform:'uppercase', color:'var(--color-text-muted)' };
+  const helpStyle: React.CSSProperties = { fontSize:'11px', color:'var(--color-text-muted)', marginTop:'4px' };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -260,11 +263,12 @@ export default function MyLeave() {
               </div>
             )}
 
-            <Field label="Leave Type">
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Leave Type<span className="required-mark"> *</span></label>
               <select
+                className="input"
                 value={form.leave_type_id || ''}
                 onChange={(e) => setForm({ ...form, leave_type_id: Number(e.target.value) })}
-                style={inputStyle}
               >
                 <option value="">Select leave type</option>
                 {types.data?.results.map((t) => (
@@ -273,67 +277,53 @@ export default function MyLeave() {
                   </option>
                 ))}
               </select>
-            </Field>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Start Date">
-                <input
-                  type="date"
-                  value={form.start_date}
-                  onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="End Date">
-                <input
-                  type="date"
-                  value={form.end_date}
-                  onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                  style={inputStyle}
-                />
-              </Field>
             </div>
 
-            <Field label="Reason">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>Start Date<span className="required-mark"> *</span></label>
+                <input
+                  type="date"
+                  className="input"
+                  value={form.start_date}
+                  onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>End Date<span className="required-mark"> *</span></label>
+                <input
+                  type="date"
+                  className="input"
+                  value={form.end_date}
+                  onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>Reason<span className="required-mark"> *</span></label>
               <textarea
+                className="input"
                 value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
                 rows={3}
-                style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                style={{ width: '100%' }}
                 placeholder="Briefly describe the reason for leave"
               />
-            </Field>
+            </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
               <button
                 type="button"
+                className="btn btn-outline"
                 onClick={() => setFormOpen(false)}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #e2e8f0',
-                  padding: '9px 16px',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  color: '#475569',
-                }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                className="btn btn-primary"
                 disabled={createMut.isPending}
-                style={{
-                  background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-                  color: '#ffffff',
-                  border: 0,
-                  padding: '9px 18px',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  opacity: createMut.isPending ? 0.6 : 1,
-                }}
               >
                 {createMut.isPending ? 'Submitting…' : 'Submit Request'}
               </button>
@@ -342,26 +332,6 @@ export default function MyLeave() {
         </div>
       )}
     </PortalLayout>
-  );
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '9px 11px',
-  border: '1px solid #e2e8f0',
-  borderRadius: 8,
-  fontSize: 13,
-  color: '#0f172a',
-  outline: 'none',
-  background: '#ffffff',
-};
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 5 }}>{label}</div>
-      {children}
-    </label>
   );
 }
 

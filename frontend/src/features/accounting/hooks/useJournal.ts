@@ -1,6 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import { invalidateLedgerCaches } from './invalidateLedger';
+import { broadcastLedgerMutation } from './ledgerEvents';
+
+// Wrap the standard same-tab invalidation with a sibling-tab broadcast
+// so an Appropriation Detail open in tab B refreshes the instant tab A
+// posts a journal. ``invalidateLedgerCaches`` already handles tab A's
+// own caches; ``broadcastLedgerMutation`` is the cross-tab bridge.
+function refreshAfterMutation(
+    qc: ReturnType<typeof useQueryClient>,
+    kind: Parameters<typeof broadcastLedgerMutation>[0] = 'journal_posted',
+): void {
+    invalidateLedgerCaches(qc);
+    broadcastLedgerMutation(kind);
+}
 
 const DIMENSIONS_STALE_TIME = 10 * 60 * 1000; // 10 minutes
 
@@ -69,7 +82,9 @@ export const useCreateJournal = () => {
             const { data } = await apiClient.post('/accounting/journals/', journalData);
             return data;
         },
-        onSuccess: () => invalidateLedgerCaches(queryClient),
+        // Create alone (Draft) doesn't touch the GL, but if the caller
+        // immediately posts there'll be a second invalidation. Cheap.
+        onSuccess: () => refreshAfterMutation(queryClient, 'mutation'),
     });
 };
 
@@ -80,7 +95,7 @@ export const usePostJournal = () => {
             const { data } = await apiClient.post(`/accounting/journals/${id}/post_journal/`);
             return data;
         },
-        onSuccess: () => invalidateLedgerCaches(queryClient),
+        onSuccess: () => refreshAfterMutation(queryClient, 'journal_posted'),
     });
 };
 
@@ -94,7 +109,7 @@ export const useUnpostJournal = () => {
             });
             return data;
         },
-        onSuccess: () => invalidateLedgerCaches(queryClient),
+        onSuccess: () => refreshAfterMutation(queryClient, 'journal_unposted'),
     });
 };
 
@@ -110,7 +125,7 @@ export const useUpdateJournal = () => {
             const { data } = await apiClient.put(`/accounting/journals/${id}/`, payload);
             return data;
         },
-        onSuccess: () => invalidateLedgerCaches(queryClient),
+        onSuccess: () => refreshAfterMutation(queryClient, 'mutation'),
     });
 };
 
@@ -148,7 +163,7 @@ export const useBulkDeleteJournals = () => {
             const { data } = await apiClient.post('/accounting/journals/bulk-delete/', { ids });
             return data;
         },
-        onSuccess: () => invalidateLedgerCaches(queryClient),
+        onSuccess: () => refreshAfterMutation(queryClient, 'mutation'),
     });
 };
 
@@ -171,7 +186,7 @@ export const useBulkPostJournals = () => {
             };
         },
         onSuccess: () => {
-            invalidateLedgerCaches(queryClient);
+            refreshAfterMutation(queryClient, 'journal_posted');
         },
     });
 };

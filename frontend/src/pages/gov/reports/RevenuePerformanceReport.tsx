@@ -107,7 +107,7 @@ export default function RevenuePerformanceReport() {
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                             <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                                             <YAxis tickFormatter={fmtShort} tick={{ fontSize: 11 }} />
-                                            <Tooltip formatter={(v: number) => fmtNGN(v)} />
+                                            <Tooltip formatter={(v) => fmtNGN(Number(v ?? 0))} />
                                             <Bar dataKey="amount" name="Revenue" fill="#008751" radius={[4, 4, 0, 0]} />
                                         </BarChart>
                                     </ResponsiveContainer>

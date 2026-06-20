@@ -12,7 +12,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    ArrowLeft, AlertCircle, ArrowRight, CheckCircle2, Send, Info,
+    X, AlertCircle, ArrowLeftRight, ArrowRight, CheckCircle2, Send, Info,
 } from 'lucide-react';
 import apiClient from '../../api/client';
 import Sidebar from '../../components/Sidebar';
@@ -20,24 +20,6 @@ import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
 import { useAppropriationsList } from '../../hooks/useGovForms';
 import '../../features/accounting/styles/glassmorphism.css';
-
-const selectStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)', textAlign: 'right',
-};
-
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
 
 interface AppropriationRow {
     id: number;
@@ -167,6 +149,14 @@ export default function VirementForm() {
         }
     };
 
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
+
     const fromOpts = (appropriations as AppropriationRow[])
         .filter(a => a.status === 'ACTIVE')
         .map(a => ({
@@ -186,11 +176,31 @@ export default function VirementForm() {
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
+              <form onSubmit={handleSubmit}>
                 <PageHeader
                     title="Virement (Budget Transfer)"
                     subtitle="Transfer approved budget between two Appropriation lines within the same fiscal year"
-                    icon={<ArrowRight size={22} />}
+                    icon={<ArrowLeftRight size={22} />}
                     backButton={true}
+                    actions={
+                        <>
+                            <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                <X size={18} /> Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="btn btn-primary"
+                                disabled={
+                                    createVirement.isPending
+                                    || submitVirement.isPending
+                                    || approveVirement.isPending
+                                    || !from || !to || !amount || overDraw
+                                }
+                            >
+                                <Send size={18} /> Submit & Apply Virement
+                            </button>
+                        </>
+                    }
                 />
 
                 {formError && (
@@ -229,15 +239,15 @@ export default function VirementForm() {
                     </div>
                 </div>
 
-                <form onSubmit={handleSubmit}>
-                    {/* From / To pickers */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
+                {/* From / To pickers */}
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Transfer Lines</h3>
                         <div style={{
                             display: 'grid', gridTemplateColumns: '1fr 60px 1fr',
                             gap: '1rem', alignItems: 'end',
                         }}>
                             <div>
-                                <label style={lblStyle}>From Appropriation *</label>
+                                <label style={labelStyle}>From Appropriation<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     options={fromOpts}
                                     value={fromId}
@@ -272,7 +282,7 @@ export default function VirementForm() {
                             </div>
 
                             <div>
-                                <label style={lblStyle}>To Appropriation *</label>
+                                <label style={labelStyle}>To Appropriation<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     options={toOpts}
                                     value={toId}
@@ -301,80 +311,41 @@ export default function VirementForm() {
                     </div>
 
                     {/* Amount + reason */}
-                    <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Amount & Justification</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
                             <div>
-                                <label style={lblStyle}>Amount (NGN) *</label>
+                                <label style={labelStyle}>Amount (NGN)<span className="required-mark"> *</span></label>
                                 <input
                                     type="number" step="0.01" min="0"
+                                    className="input"
                                     value={amount}
                                     onChange={e => setAmount(e.target.value)}
                                     style={{
-                                        ...inputStyle,
-                                        borderColor: overDraw ? '#ef4444' : inputStyle.border as string,
+                                        textAlign: 'right',
+                                        borderColor: overDraw ? '#ef4444' : undefined,
                                     }}
                                     placeholder="0.00"
                                 />
                                 {overDraw && (
-                                    <div style={{ fontSize: '0.7rem', color: '#b91c1c', marginTop: '0.25rem' }}>
+                                    <p style={{ ...helpStyle, color: '#b91c1c' }}>
                                         Exceeds available NGN {fmtNGN(fromAvailable)}
-                                    </div>
+                                    </p>
                                 )}
                             </div>
                             <div>
-                                <label style={lblStyle}>Reason / Justification *</label>
+                                <label style={labelStyle}>Reason / Justification<span className="required-mark"> *</span></label>
                                 <textarea
+                                    className="input"
                                     value={reason}
                                     onChange={e => setReason(e.target.value)}
                                     placeholder="Business justification — required for audit (minimum 10 characters)."
-                                    style={{
-                                        ...selectStyle,
-                                        minHeight: 80, resize: 'vertical',
-                                        fontFamily: 'inherit', textAlign: 'left',
-                                    }}
+                                    style={{ minHeight: 80, resize: 'vertical', width: '100%' }}
                                 />
                             </div>
                         </div>
                     </div>
-
-                    {/* Actions */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                        <button
-                            type="button"
-                            onClick={() => navigate(-1)}
-                            className="glass-button"
-                            style={{
-                                padding: '0.625rem 1rem', borderRadius: '8px',
-                                border: '1px solid var(--color-border)',
-                                background: 'var(--color-surface)', color: 'var(--color-text)',
-                                fontSize: 'var(--text-sm)', fontWeight: 500, cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', gap: '0.375rem',
-                            }}
-                        >
-                            <ArrowLeft size={15} /> Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={
-                                createVirement.isPending
-                                || submitVirement.isPending
-                                || approveVirement.isPending
-                                || !from || !to || !amount || overDraw
-                            }
-                            className="glass-button"
-                            style={{
-                                padding: '0.625rem 1.25rem', borderRadius: '8px',
-                                border: 'none', background: 'var(--color-primary, #2471a3)',
-                                color: 'white', fontSize: 'var(--text-sm)', fontWeight: 600,
-                                cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', gap: '0.375rem',
-                                opacity: (createVirement.isPending || !from || !to || !amount || overDraw) ? 0.5 : 1,
-                            }}
-                        >
-                            <Send size={15} /> Submit & Apply Virement
-                        </button>
-                    </div>
-                </form>
+              </form>
             </main>
         </div>
     );

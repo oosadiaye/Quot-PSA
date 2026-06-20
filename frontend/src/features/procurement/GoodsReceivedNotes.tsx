@@ -353,7 +353,7 @@ export default function GoodsReceivedNotes() {
                                             {confirmAction?.id === grn.id && (
                                                 <div style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center', marginRight: '0.5rem' }}>
                                                     <span style={{ fontSize: '0.85rem', color: '#dc2626' }}>Confirm?</span>
-                                                    <button onClick={() => handleConfirmedAction(grn.id, confirmAction.action)}
+                                                    <button onClick={() => handleConfirmedAction(grn.id, confirmAction!.action)}
                                                         style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>Yes</button>
                                                     <button onClick={() => setConfirmAction(null)}
                                                         style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>

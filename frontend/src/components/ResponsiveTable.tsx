@@ -12,7 +12,8 @@
  *
  * Part of the responsive rollout (docs/RESPONSIVE_PLAN.md, Phase 3).
  */
-import { ReactNode, useState } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useIsMobile } from '../design';
 

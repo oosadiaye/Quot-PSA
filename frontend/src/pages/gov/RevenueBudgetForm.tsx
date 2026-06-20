@@ -7,29 +7,12 @@
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, AlertCircle, TrendingUp } from 'lucide-react';
+import { Save, X, TrendingUp } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
-import '../../features/accounting/styles/glassmorphism.css';
 import { useNCoASegments, useFiscalYears } from '../../hooks/useGovForms';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
-
-const selectStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
-    border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
-    color: 'var(--color-text)', fontSize: 'var(--text-xs)',
-};
-const lblStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.65rem', fontWeight: 600,
-    color: 'var(--color-text-muted)', marginBottom: '0.25rem',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-};
 
 const MONTHS = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -89,105 +72,116 @@ export default function RevenueBudgetForm() {
     const annualAmount = parseFloat(form.estimated_amount) || 0;
     const equalMonthly = annualAmount > 0 ? (annualAmount / 12).toFixed(2) : '0.00';
 
+    const labelStyle: React.CSSProperties = {
+        display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)',
+        fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)',
+    };
+    const helpStyle: React.CSSProperties = {
+        fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px',
+    };
+
     return (
         <div style={{ display: 'flex' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
-                <div style={{ maxWidth: '900px' }}>
-                    <PageHeader title="New Revenue Budget Target" subtitle="Statistical target — no enforcement, for performance tracking only" icon={<TrendingUp size={22} />} />
+                <form onSubmit={handleSubmit}>
+                    <PageHeader
+                        title="New Revenue Budget Target"
+                        subtitle="Statistical target — no enforcement, for performance tracking only"
+                        icon={<TrendingUp size={22} />}
+                        actions={
+                            <>
+                                <button type="button" className="btn btn-outline" onClick={() => navigate(-1)}>
+                                    <X size={18} /> Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={createMutation.isPending}>
+                                    <Save size={18} /> {createMutation.isPending ? 'Saving...' : 'Create Revenue Target'}
+                                </button>
+                            </>
+                        }
+                    />
 
                     {formError && (
-                        <div style={{ padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                            <AlertCircle size={14} /> {formError}
+                        <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', color: '#dc2626', borderRadius: '8px', marginBottom: '1rem' }}>
+                            {formError}
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit}>
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '6px' }}><TrendingUp size={14} /> Revenue Target Details</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div>
-                                    <label style={lblStyle}>Fiscal Year *</label>
-                                    <select style={selectStyle} required value={form.fiscal_year} onChange={e => set('fiscal_year', e.target.value)}>
-                                        <option value="">Select year...</option>
-                                        {(fiscalYears || []).map((fy: any) => <option key={fy.id} value={fy.id}>{fy.name || fy.year}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={lblStyle}>MDA (Collecting Ministry) *</label>
-                                    <select style={selectStyle} required value={form.administrative} onChange={e => set('administrative', e.target.value)}>
-                                        <option value="">Select MDA...</option>
-                                        {(segments?.administrative || []).map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={lblStyle}>Revenue Account (NCoA Economic) * <span style={{ fontWeight: 400, textTransform: 'none', color: '#94a3b8' }}>type 1 only</span></label>
-                                    <select style={selectStyle} required value={form.economic} onChange={e => set('economic', e.target.value)}>
-                                        <option value="">Select revenue account...</option>
-                                        {revenueAccounts.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={lblStyle}>Fund Source *</label>
-                                    <select style={selectStyle} required value={form.fund} onChange={e => set('fund', e.target.value)}>
-                                        <option value="">Select fund...</option>
-                                        {(segments?.fund || []).map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-                                    </select>
-                                </div>
-                                <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={lblStyle}>Annual Target Amount (NGN) *</label>
-                                    <input style={{ ...inputStyle, fontSize: '18px', fontWeight: 700 }} type="number" step="0.01" min="0.01" required value={form.estimated_amount} onChange={e => set('estimated_amount', e.target.value)} placeholder="0.00" />
-                                </div>
+                    {/* ── Revenue Target Details ───────────────── */}
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Revenue Target Details</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                            <div>
+                                <label style={labelStyle}>Fiscal Year<span className="required-mark"> *</span></label>
+                                <select className="input" required value={form.fiscal_year} onChange={e => set('fiscal_year', e.target.value)}>
+                                    <option value="">Select year...</option>
+                                    {(fiscalYears || []).map((fy: any) => <option key={fy.id} value={fy.id}>{fy.name || fy.year}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>MDA (Collecting Ministry)<span className="required-mark"> *</span></label>
+                                <select className="input" required value={form.administrative} onChange={e => set('administrative', e.target.value)}>
+                                    <option value="">Select MDA...</option>
+                                    {(segments?.administrative || []).map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Revenue Account (NCoA Economic)<span className="required-mark"> *</span></label>
+                                <select className="input" required value={form.economic} onChange={e => set('economic', e.target.value)}>
+                                    <option value="">Select revenue account...</option>
+                                    {revenueAccounts.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                                </select>
+                                <p style={helpStyle}>Type 1 (revenue) accounts only.</p>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Fund Source<span className="required-mark"> *</span></label>
+                                <select className="input" required value={form.fund} onChange={e => set('fund', e.target.value)}>
+                                    <option value="">Select fund...</option>
+                                    {(segments?.fund || []).map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+                                </select>
+                            </div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label style={labelStyle}>Annual Target Amount (NGN)<span className="required-mark"> *</span></label>
+                                <input className="input" style={{ fontSize: '18px', fontWeight: 700 }} type="number" step="0.01" min="0.01" required value={form.estimated_amount} onChange={e => set('estimated_amount', e.target.value)} placeholder="0.00" />
                             </div>
                         </div>
+                    </div>
 
-                        {/* Monthly Spread */}
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>Monthly Target Spread</h3>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12 }}>
-                                    <input type="checkbox" checked={useMonthlySpread} onChange={e => setUseMonthlySpread(e.target.checked)} />
-                                    Custom monthly targets
-                                </label>
+                    {/* ── Monthly Target Spread ────────────────── */}
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                            <h3 style={{ margin: 0 }}>Monthly Target Spread</h3>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12 }}>
+                                <input type="checkbox" checked={useMonthlySpread} onChange={e => setUseMonthlySpread(e.target.checked)} />
+                                Custom monthly targets
+                            </label>
+                        </div>
+                        {useMonthlySpread ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
+                                {MONTHS.map((name, i) => (
+                                    <div key={i}>
+                                        <label style={labelStyle}>{name}</label>
+                                        <input className="input" type="number" step="0.01" placeholder={equalMonthly}
+                                            value={monthly[String(i + 1)] || ''} onChange={e => setMonthly(prev => ({ ...prev, [String(i + 1)]: e.target.value }))} />
+                                    </div>
+                                ))}
                             </div>
-                            {useMonthlySpread ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                                    {MONTHS.map((name, i) => (
-                                        <div key={i}>
-                                            <label style={{ ...lblStyle, fontSize: '10px' }}>{name}</label>
-                                            <input style={{ ...inputStyle, fontSize: '12px', padding: '7px 8px' }} type="number" step="0.01" placeholder={equalMonthly}
-                                                value={monthly[String(i + 1)] || ''} onChange={e => setMonthly(prev => ({ ...prev, [String(i + 1)]: e.target.value }))} />
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={{ color: '#64748b', fontSize: 13 }}>
-                                    Annual target will be divided equally: <strong>{'\u20A6'}{Number(equalMonthly).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</strong> per month
-                                </div>
-                            )}
-                        </div>
+                        ) : (
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
+                                Annual target will be divided equally: <strong>{'₦'}{Number(equalMonthly).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</strong> per month
+                            </div>
+                        )}
+                    </div>
 
-                        <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
-                            <label style={lblStyle}>Description</label>
-                            <textarea style={{ ...inputStyle, minHeight: '50px', fontSize: 13 }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Revenue target description..." />
+                    {/* ── Description ──────────────────────────── */}
+                    <div className="card" style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ marginBottom: '1.5rem' }}>Description</h3>
+                        <div>
+                            <label style={labelStyle}>Description</label>
+                            <textarea className="input" style={{ width: '100%', minHeight: '50px' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Revenue target description..." />
                         </div>
-
-                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button type="button" onClick={() => navigate(-1)} className="glass-button" style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-                                Cancel
-                            </button>
-                            <button type="submit" disabled={createMutation.isPending} style={{
-                                padding: '10px 24px', borderRadius: '8px', border: 'none',
-                                background: 'linear-gradient(135deg, var(--primary, #191e6a) 0%, var(--primary-dark, #0f1240) 100%)', color: '#fff',
-                                fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                                opacity: createMutation.isPending ? 0.7 : 1,
-                                boxShadow: '0 4px 12px rgba(15, 18, 64, 0.3)',
-                            }}>
-                                <Save size={14} /> {createMutation.isPending ? 'Saving...' : 'Create Revenue Target'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
+                    </div>
+                </form>
             </main>
         </div>
     );

@@ -372,7 +372,7 @@ const StockValuation = () => {
                         {/* Product type dropdown */}
                         <select className="input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ minWidth: '160px', width: 'auto', flexShrink: 0 }}>
                             <option value="">All Product Types</option>
-                            {productTypes.map(pt => (
+                            {productTypes.map((pt: any) => (
                                 <option key={pt.id} value={String(pt.id)}>{pt.name_display || pt.name}</option>
                             ))}
                         </select>

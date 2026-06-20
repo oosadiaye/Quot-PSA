@@ -20,12 +20,17 @@ interface Customer {
     is_active?: boolean;
 }
 
-export function useCustomers() {
+interface CustomerFilters {
+    is_active?: boolean;
+    [key: string]: unknown;
+}
+
+export function useCustomers(filters?: CustomerFilters) {
     return useQuery<Customer[]>({
-        queryKey: ['customers'],
+        queryKey: ['customers', filters],
         queryFn: async () => {
             const res = await apiClient.get('/accounting/customer-invoices/', {
-                params: { page_size: 9999 },
+                params: { page_size: 9999, ...filters },
             });
             const data = res.data;
             return Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];

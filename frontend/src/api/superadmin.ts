@@ -122,7 +122,7 @@ export interface PaginatedResponse<T> {
 export interface ImpersonateResponse {
   token: string;
   tenant_domain: string;
-  user?: { id: number; username: string; email: string };
+  user?: { id: number; username: string; email: string; first_name?: string; last_name?: string };
   tenant_name: string;
   session_id: number;
 }

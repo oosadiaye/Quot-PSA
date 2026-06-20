@@ -1,10 +1,11 @@
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
-import { Plus, ArrowRight, Trash2, Sprout, X, Loader2, FileText } from 'lucide-react';
+import { Plus, ArrowRight, Trash2, Sprout, X, Loader2, FileText, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import {
     useApprovalTemplates,
     useCreateApprovalTemplate,
+    useUpdateApprovalTemplate,
     useDeleteApprovalTemplate,
     useApprovalGroups,
     useContentTypes,
@@ -31,6 +32,7 @@ const ApprovalTemplates = () => {
     const { data: contentTypes } = useContentTypes();
     const { data: groupsData } = useApprovalGroups();
     const createTemplate = useCreateApprovalTemplate();
+    const updateTemplate = useUpdateApprovalTemplate();
     const deleteTemplate = useDeleteApprovalTemplate();
     const seedDefaults = useSeedDefaultTemplates();
 
@@ -38,11 +40,16 @@ const ApprovalTemplates = () => {
 
     const [showForm, setShowForm] = useState(false);
     const [seedResult, setSeedResult] = useState<SeedResult | null>(null);
+    // ``editingId`` = null in create mode, a template id in edit mode.
+    // The form fields + steps[] state are shared between both flows;
+    // submit branches on whether ``editingId`` is set.
+    const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState({
         name: '',
         description: '',
         content_type: '',
         approval_type: 'Sequential',
+        is_active: true,
     });
     const [steps, setSteps] = useState<StepInput[]>([{ group: '', sequence: 1 }]);
 
@@ -62,18 +69,55 @@ const ApprovalTemplates = () => {
     };
 
     const resetForm = () => {
-        setForm({ name: '', description: '', content_type: '', approval_type: 'Sequential' });
+        setForm({ name: '', description: '', content_type: '', approval_type: 'Sequential', is_active: true });
         setSteps([{ group: '', sequence: 1 }]);
+        setEditingId(null);
         setShowForm(false);
+    };
+
+    const openCreate = () => {
+        setEditingId(null);
+        setForm({ name: '', description: '', content_type: '', approval_type: 'Sequential', is_active: true });
+        setSteps([{ group: '', sequence: 1 }]);
+        setShowForm(true);
+    };
+
+    const openEdit = (template: any) => {
+        setEditingId(template.id);
+        setForm({
+            name: template.name || '',
+            description: template.description || '',
+            // ``content_type_name`` is the lowercase model string — matches
+            // the ``contentTypes`` dropdown values used at create time.
+            content_type: template.content_type_name || '',
+            approval_type: template.approval_type || 'Sequential',
+            is_active: template.is_active ?? true,
+        });
+        // Steps come back from the API in ``{sequence, group, group_name}``
+        // shape with ``group`` as an FK id. Normalise to the form's
+        // ``{group: stringId, sequence}`` shape so the dropdown matches.
+        const incomingSteps: StepInput[] = (template.steps || []).map((s: any) => ({
+            group: String(s.group),
+            sequence: s.sequence,
+        }));
+        setSteps(incomingSteps.length ? incomingSteps : [{ group: '', sequence: 1 }]);
+        setShowForm(true);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const validSteps = steps.filter(s => s.group);
-        createTemplate.mutate(
-            { ...form, steps: validSteps },
-            { onSuccess: () => resetForm() },
-        );
+        const validSteps = steps.filter(s => s.group).map(s => ({ ...s, group: Number(s.group) }));
+        if (editingId) {
+            updateTemplate.mutate(
+                { id: editingId, data: { ...form, steps: validSteps } },
+                { onSuccess: () => resetForm() },
+            );
+        } else {
+            createTemplate.mutate(
+                { ...form, steps: validSteps },
+                { onSuccess: () => resetForm() },
+            );
+        }
     };
 
     const handleSeed = () => {
@@ -82,6 +126,7 @@ const ApprovalTemplates = () => {
         });
     };
 
+    const submitting = createTemplate.isPending || updateTemplate.isPending;
     const templateList = templates?.results || templates || [];
 
     return (
@@ -103,7 +148,7 @@ const ApprovalTemplates = () => {
                                 {seedDefaults.isPending ? <Loader2 size={16} className="animate-spin" /> : <Sprout size={16} />}
                                 Seed Defaults
                             </button>
-                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <button className="btn btn-primary" onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <Plus size={18} /> New Template
                             </button>
                         </div>
@@ -134,7 +179,9 @@ const ApprovalTemplates = () => {
                 {showForm && (
                     <div className="card" style={{ marginBottom: '2rem', padding: '1.5rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                            <h3 style={{ margin: 0 }}>Create Approval Template</h3>
+                            <h3 style={{ margin: 0 }}>
+                                {editingId ? `Edit "${form.name || 'Template'}"` : 'Create Approval Template'}
+                            </h3>
                             <button onClick={resetForm} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
                                 <X size={18} />
                             </button>
@@ -196,6 +243,17 @@ const ApprovalTemplates = () => {
                                 </div>
                             </div>
 
+                            <div style={{ marginBottom: '1rem' }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-sm)' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.is_active}
+                                        onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                                    />
+                                    Active (uncheck to disable this workflow without deleting it)
+                                </label>
+                            </div>
+
                             {/* Steps Builder */}
                             <div style={{ marginBottom: '1.25rem' }}>
                                 <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -250,9 +308,16 @@ const ApprovalTemplates = () => {
                                 </button>
                             </div>
 
-                            <button type="submit" className="btn btn-primary" disabled={createTemplate.isPending}>
-                                {createTemplate.isPending ? 'Creating...' : 'Create Template'}
-                            </button>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                                <button type="button" className="btn btn-outline" onClick={resetForm}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                                    {submitting
+                                        ? 'Saving...'
+                                        : editingId ? 'Save Changes' : 'Create Template'}
+                                </button>
+                            </div>
                         </form>
                     </div>
                 )}
@@ -271,7 +336,20 @@ const ApprovalTemplates = () => {
                             <div key={template.id} className="card" style={{ padding: '1.5rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                     <div>
-                                        <h3 style={{ marginBottom: '0.25rem' }}>{template.name}</h3>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                            <h3 style={{ marginBottom: '0.25rem' }}>{template.name}</h3>
+                                            {template.is_active === false && (
+                                                <span style={{
+                                                    padding: '1px 8px', borderRadius: 999,
+                                                    background: 'rgba(148, 163, 184, 0.15)',
+                                                    color: '#64748b',
+                                                    fontSize: 10, fontWeight: 700,
+                                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                                }}>
+                                                    Inactive
+                                                </span>
+                                            )}
+                                        </div>
                                         <span style={{
                                             fontSize: 'var(--text-xs)', padding: '0.15rem 0.5rem',
                                             background: 'var(--color-primary)', color: 'white',
@@ -280,13 +358,30 @@ const ApprovalTemplates = () => {
                                             {template.content_type_name}
                                         </span>
                                     </div>
-                                    <button
-                                        className="btn btn-outline"
-                                        style={{ color: 'var(--color-error)', padding: '0.35rem' }}
-                                        onClick={() => deleteTemplate.mutate(template.id)}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                        <button
+                                            className="btn btn-outline"
+                                            style={{ color: '#1e4d8c', padding: '0.4rem 0.55rem' }}
+                                            onClick={() => openEdit(template)}
+                                            title="Edit template"
+                                            aria-label={`Edit ${template.name}`}
+                                        >
+                                            <Pencil size={15} />
+                                        </button>
+                                        <button
+                                            className="btn btn-outline"
+                                            style={{ color: 'var(--color-error)', padding: '0.4rem 0.55rem' }}
+                                            onClick={() => {
+                                                if (window.confirm(`Delete template "${template.name}"?`)) {
+                                                    deleteTemplate.mutate(template.id);
+                                                }
+                                            }}
+                                            title="Delete template"
+                                            aria-label={`Delete ${template.name}`}
+                                        >
+                                            <Trash2 size={15} />
+                                        </button>
+                                    </div>
                                 </div>
                                 <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
                                     {template.description || 'No description'}

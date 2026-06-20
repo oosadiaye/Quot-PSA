@@ -3,6 +3,8 @@ import '../../styles/glassmorphism.css';
 interface StatusBadgeProps {
     status: string;
     className?: string;
+    /** Optional variant hint from callers — accepted but not used in CSS mapping. */
+    variant?: string;
 }
 
 export default function StatusBadge({ status, className = '' }: StatusBadgeProps) {
