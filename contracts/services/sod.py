@@ -11,16 +11,21 @@ blocked from certifying an IPC on it, which is confusing and wrong.
 Bypass paths (any one is enough):
 
   1. ``actor.is_superuser``           — Django superuser
-  2. ``actor.is_staff``               — Django staff (mirrors the DRF
-                                        permission gate so the two
-                                        layers don't disagree)
-  3. ``has_perm('contracts.bypass_sod')`` — explicit per-user/group grant
-  4. ``UserTenantRole(role='admin')`` for the active tenant — the
+  2. ``has_perm('contracts.bypass_sod')`` — explicit per-user/group grant
+  3. ``UserTenantRole(role='admin')`` for the active tenant — the
      project's native "Tenant Admin" signal
-  5. Active assignment to the curated 'All Access' ``core.Role`` —
+  4. Active assignment to the curated 'All Access' ``core.Role`` —
      the SAP PFCG-style "do anything" role granted by tenant admins
      for break-glass or business-driven SoD overrides. Seeded by
      migration ``core.0016_seed_all_access_role``.
+
+DELIBERATELY OMITTED:
+  - ``actor.is_staff`` is NOT a SoD bypass. ``is_staff`` only grants
+    Django admin panel access and is commonly granted by seed scripts
+    (tenants/tasks.py, seed_e2e_tenant.py) to ordinary tenant users.
+    Treating it as a financial-control override would let any such user
+    initiate and approve the same IPC, defeating the five-step payment
+    chain. See production-readiness review B1.
 
 Every bypass is still written to the ContractApprovalStep audit trail
 by the calling service so auditors see exactly when and by whom SoD
@@ -35,8 +40,7 @@ def actor_can_bypass_sod(actor) -> bool:
         return False
     if getattr(actor, "is_superuser", False):
         return True
-    if getattr(actor, "is_staff", False):
-        return True
+    # NOTE: ``is_staff`` is deliberately NOT a bypass — see module docstring.
     has_perm = getattr(actor, "has_perm", None)
     if callable(has_perm) and has_perm("contracts.bypass_sod"):
         return True

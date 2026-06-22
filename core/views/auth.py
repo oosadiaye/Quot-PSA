@@ -406,7 +406,14 @@ def jwt_login_view(request):
 
 @api_view(['POST'])
 def logout_view(request):
-    """Logout — deletes the auth token and marks session inactive."""
+    """Logout — deletes the auth token, marks session inactive, and
+    blacklists any JWT refresh token the client supplied so stolen
+    refresh tokens cannot replay after the user clicks Sign Out.
+
+    Production-readiness review B3: ``BLACKLIST_AFTER_ROTATION=True`` only
+    blacklists on rotation (refresh-call), not on logout. Logout must
+    explicitly blacklist the supplied refresh token.
+    """
     from core.models import UserSession
     if request.user.is_authenticated:
         with schema_context('public'):
@@ -417,6 +424,23 @@ def logout_view(request):
             except Token.DoesNotExist:
                 pass
         logout(request)
+
+    # If the client is using JWT and provides its refresh token in the
+    # request body, blacklist it so it cannot mint fresh access tokens
+    # post-logout. We do NOT fail logout when the token is missing or
+    # invalid — token-auth clients won't have one, and we still want
+    # to clear the session cookie and confirm logout to the client.
+    refresh_token = (request.data or {}).get('refresh') if hasattr(request, 'data') else None
+    if refresh_token:
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            RefreshToken(refresh_token).blacklist()
+        except Exception as exc:
+            logger.info(
+                'logout: refresh token blacklist skipped (%s)',
+                exc.__class__.__name__,
+            )
+
     response = Response({'status': 'logged out successfully'})
     # Always emit a clearing Set-Cookie even when the cookie path
     # isn't currently enabled — covers the case where AUTH_COOKIE_ENABLED

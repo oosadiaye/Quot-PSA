@@ -65,6 +65,11 @@ SHARED_APPS = [
 
     'rest_framework',
     'rest_framework.authtoken',     # tokens in public schema for centralized auth
+    # JWT refresh-token blacklist. Required for BLACKLIST_AFTER_ROTATION
+    # below to actually take effect — without this app + its migration,
+    # ``BLACKLIST_AFTER_ROTATION=True`` is silently a no-op and stolen
+    # refresh tokens replay indefinitely. See production-readiness review B3.
+    'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',               # P7-T1 — OpenAPI 3.1 schema
     'django_filters',
     'corsheaders',
@@ -1018,6 +1023,13 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             # JSON in production, plain text in DEBUG.
             'formatter': 'json' if not DEBUG else 'simple',
+            # Apply the SensitiveDataFilter on console output too — in
+            # production the console handler is shipped to log aggregators
+            # (Datadog, CloudWatch, ELK) via stdout, where any unredacted
+            # token/password/secret would surface. The file handlers below
+            # all carry this filter; the console handler was historically
+            # missing it. See production-readiness review B4.
+            'filters': ['sensitive_data'],
         },
         'security_file': {
             '()': 'logging.handlers.RotatingFileHandler',

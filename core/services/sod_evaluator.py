@@ -81,12 +81,19 @@ def actor_can_bypass(actor: Optional[AbstractUser]) -> bool:
     Mirrors the contract-side bypass so the entire ERP applies the same
     escape hatch. Logs at WARNING when bypass is exercised so audit
     reports surface it.
+
+    DELIBERATELY OMITTED:
+      ``is_staff`` is NOT a bypass. ``is_staff`` only grants Django admin
+      panel access and is commonly granted to ordinary users by seed
+      scripts. Treating it as a financial-control override would let any
+      such user defeat the SoD-protected workflows.
+      See production-readiness review B1.
     """
     if actor is None or not actor.is_authenticated:
         return False
-    if actor.is_superuser or actor.is_staff:
+    if actor.is_superuser:
         logger.warning(
-            'sod_evaluator: bypass via staff/superuser by user_id=%s',
+            'sod_evaluator: bypass via superuser by user_id=%s',
             actor.pk,
         )
         return True

@@ -13,12 +13,17 @@ The system supports:
 - Multi-dimensional tracking (Fund, Function, Program, Geo, MDA/CostCenter)
 """
 
+import logging
+
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from core.models import AuditBaseModel
 from decimal import Decimal
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_dimension_fields():
@@ -803,6 +808,52 @@ class Appropriation(AuditBaseModel):
             f"{self.economic.code} - NGN {self.amount_approved:,.2f}"
         )
 
+    def clean(self):
+        """Validate NCoA → legacy bridges before activation.
+
+        ``Appropriation.total_expended`` walks ``administrative.legacy_mda``,
+        ``fund.legacy_fund``, and ``economic.legacy_account_id`` to find
+        matching journal lines. If ANY of those bridges is null, the
+        computation silently returns Decimal('0') — which inflates
+        ``available_balance`` and permits over-commitment. To prevent that
+        category of error from reaching production, refuse to activate an
+        appropriation whose NCoA segments do not bridge to the legacy
+        chart of accounts.
+
+        DRAFT rows are exempt so operators can stage incomplete data; the
+        validation fires on transition to ACTIVE (or any non-DRAFT status).
+
+        See production-readiness review B7.
+        """
+        super().clean()
+        if self.status == 'DRAFT':
+            return
+        missing = []
+        if self.administrative_id and not getattr(self.administrative, 'legacy_mda', None):
+            missing.append(
+                f"administrative segment '{self.administrative.code}' "
+                "has no legacy_mda bridge"
+            )
+        if self.fund_id and not getattr(self.fund, 'legacy_fund', None):
+            missing.append(
+                f"fund segment '{self.fund.code}' has no legacy_fund bridge"
+            )
+        if self.economic_id and not getattr(self.economic, 'legacy_account_id', None):
+            missing.append(
+                f"economic segment '{self.economic.code}' has no "
+                "legacy_account bridge"
+            )
+        if missing:
+            raise ValidationError({
+                'status': (
+                    f"Cannot move appropriation to status '{self.status}' "
+                    "until all NCoA segments bridge to the legacy chart of "
+                    "accounts. Missing bridges: " + "; ".join(missing) +
+                    ". Without these, total_expended computes as zero and "
+                    "available_balance is inflated, allowing over-commitment."
+                ),
+            })
+
     @property
     def total_warrants_released(self):
         """Sum the amount of warrants currently authorised against this
@@ -1159,6 +1210,23 @@ class Appropriation(AuditBaseModel):
         admin_legacy = getattr(self.administrative, 'legacy_mda', None) if self.administrative_id else None
         fund_legacy  = getattr(self.fund,           'legacy_fund', None) if self.fund_id else None
         if not (admin_legacy and fund_legacy and self.economic_id):
+            # Silent zero-return here used to mask broken NCoA → legacy
+            # bridges. A bridge gap inflates available_balance and
+            # permits over-commitment. Always log so operators can
+            # spot the underlying data problem. See production-readiness
+            # review B7.
+            logger.warning(
+                'Appropriation.total_expended: NCoA → legacy bridge gap, '
+                'returning Decimal(0). appropriation_id=%s '
+                'administrative_id=%s administrative_legacy_mda=%s '
+                'fund_id=%s fund_legacy_fund=%s economic_id=%s',
+                self.pk,
+                self.administrative_id,
+                admin_legacy,
+                self.fund_id,
+                fund_legacy,
+                self.economic_id,
+            )
             return Decimal('0')
 
         # Walk the economic-segment subtree once and reuse for all sources.

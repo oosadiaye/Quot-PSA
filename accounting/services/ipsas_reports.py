@@ -781,7 +781,15 @@ class IPSASReportService:
             econ = None
             try:
                 econ = pi.payment_voucher.ncoa_code.economic
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "ipsas_reports._cash_flow_for_period: failed to resolve "
+                    "NCoA economic classification for payment item pk=%s "
+                    "fiscal_year=%s; defaulting econ to None",
+                    getattr(pi, 'pk', '?'),
+                    fiscal_year,
+                    exc_info=True,
+                )
                 econ = None
             econ_code = getattr(econ, 'code', '') or ''
 
@@ -1533,7 +1541,14 @@ class IPSASReportService:
                     b = a.get('budget') or a.get('orig') or _zero()
                     budget_map[code] = b
                     budget_name_map[code] = a.get('geo__name') or ''
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "ipsas_reports.geographic_distribution_report: UnifiedBudget "
+                    "geo-budget query failed for fiscal_year=%s; emitting empty "
+                    "budget_map and falling through to pro-rata fallback",
+                    fiscal_year,
+                    exc_info=True,
+                )
                 budget_map = {}
 
         # ── Budget per geo (source #2: pro-rata fallback) ────────────
@@ -1714,7 +1729,14 @@ class IPSASReportService:
             from accounting.models import (
                 PensionScheme, ActuarialValuation, PensionContribution,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_pension_ipsas_39: pension model import "
+                "failed for fiscal_year=%s; pension register not available in "
+                "this deployment — emitting placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             return {
                 'number': 8,
                 'title': 'Employee Benefits (IPSAS 39)',
@@ -1728,7 +1750,13 @@ class IPSASReportService:
 
         try:
             schemes = list(PensionScheme.objects.all().order_by('code'))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_pension_ipsas_39: PensionScheme query "
+                "failed for fiscal_year=%s; emitting placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             return {
                 'number': 8,
                 'title': 'Employee Benefits (IPSAS 39)',
@@ -1871,7 +1899,12 @@ class IPSASReportService:
         try:
             from accounting.models import AccountingSettings
             s = AccountingSettings.objects.first()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._pension_gl_codes: AccountingSettings query "
+                "failed; falling back to hard-coded default GL codes",
+                exc_info=True,
+            )
             s = None
 
         def _get(attr: str, default: str) -> str:
@@ -1912,7 +1945,14 @@ class IPSASReportService:
 
         try:
             from accounting.models import SocialBenefitScheme, SocialBenefitClaim
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_social_benefits_ipsas_42: social-benefit "
+                "model import failed for fiscal_year=%s; register not available "
+                "in this deployment — emitting placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             return _wrap_empty(
                 'Social-benefits register not available in this deployment. '
                 'The GL section below shows ledger activity against the '
@@ -1925,7 +1965,14 @@ class IPSASReportService:
                 .filter(status='ACTIVE')
                 .order_by('code')
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_social_benefits_ipsas_42: "
+                "SocialBenefitScheme query failed for fiscal_year=%s; "
+                "emitting placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             return _wrap_empty(
                 'Social-benefits register not available in this deployment. '
                 'The GL section below shows ledger activity against the '
@@ -2018,7 +2065,12 @@ class IPSASReportService:
         try:
             from accounting.models import AccountingSettings
             s = AccountingSettings.objects.first()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._social_benefit_gl_codes: AccountingSettings "
+                "query failed; falling back to default NCoA 25100000",
+                exc_info=True,
+            )
             s = None
         val = getattr(s, 'social_benefit_expense_code', None) if s else None
         if val:
@@ -2052,7 +2104,14 @@ class IPSASReportService:
                 .order_by('-transition_date')
                 .first()
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_ipsas_33_transition: OpeningBalanceSheet "
+                "query failed for fiscal_year=%s; treating as non-first-time-"
+                "adoption year and returning placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             sheet = None
 
         if sheet is None:
@@ -2214,8 +2273,15 @@ class IPSASReportService:
                     'contingent_assets_by_likelihood':     list(cont_assets),
                 },
             }
-        except Exception:
+        except Exception as exc:
             # Deployment has not yet applied S10 migrations.
+            logger.warning(
+                "ipsas_reports._note_provisions_and_contingents: provisions/"
+                "contingents query failed for fiscal_year=%s; S10 migrations "
+                "may not have been applied — emitting placeholder note",
+                fiscal_year,
+                exc_info=True,
+            )
             return {
                 'number': 6,
                 'title': 'Contingent Liabilities',
@@ -2253,7 +2319,14 @@ class IPSASReportService:
                 'additions':           additions,
                 'closing_gross_block': opening_cost,
             }
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_ppe_movement: FixedAsset register query "
+                "failed for fiscal_year=%s; asset-register section will be "
+                "absent from the IPSAS 17 note (GL balances still rendered)",
+                fiscal_year,
+                exc_info=True,
+            )
             register = None
 
         gl_section = cls._gl_balances_for_note(
@@ -2381,7 +2454,14 @@ class IPSASReportService:
                     qs.aggregate(t=Sum('outstanding_balance'))['t'] or _zero()
                 ),
             }
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "ipsas_reports._note_borrowings: Loan register query failed "
+                "for fiscal_year=%s; borrowings note will be absent from the "
+                "financial statements",
+                fiscal_year,
+                exc_info=True,
+            )
             return None
 
     # ------------------------------------------------------------------
