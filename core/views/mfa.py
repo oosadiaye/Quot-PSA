@@ -35,10 +35,15 @@ from __future__ import annotations
 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+import logging
+
 from rest_framework.views import APIView
 from rest_framework import status
 
 from core.services.mfa import MFAService, MFAError
+
+
+logger = logging.getLogger(__name__)
 
 
 class MFAEnrollView(APIView):
@@ -197,11 +202,36 @@ def _mark_session_mfa_verified(request) -> None:
     if token_key:
         try:
             from core.models import UserSession
-            UserSession.objects.filter(
+            updated = UserSession.objects.filter(
                 token_key=token_key, is_active=True,
             ).update(mfa_verified_at=now)
-        except Exception:  # noqa: BLE001 — best-effort dual-write
-            pass
+            if updated == 0:
+                # Token was supplied but no UserSession row matched. This
+                # means the canonical MFA stamp was NOT written and the
+                # gate falls back to the session-cookie path — which is
+                # empty for stateless token clients. Surface so an
+                # operator can investigate token-issue/UserSession sync.
+                # See production-readiness review B5.
+                logger.warning(
+                    'mfa: token-attached UserSession not found for '
+                    'token_key=%s user_id=%s; MFA freshness stamp may '
+                    'not be honored under RequiresMFA',
+                    token_key,
+                    getattr(request.user, 'pk', None),
+                )
+        except Exception:
+            # Schema drift / migration order / lock timeout — log so
+            # operators see the canonical write failing. Silently
+            # swallowing has historically caused token-auth MFA gates
+            # to fail open. See production-readiness review B5.
+            logger.warning(
+                'mfa: UserSession.mfa_verified_at update failed for '
+                'token_key=%s user_id=%s; falling back to session-cookie '
+                'stamp',
+                token_key,
+                getattr(request.user, 'pk', None),
+                exc_info=True,
+            )
 
 
 def _session_mfa_is_fresh(request, max_age_minutes: int = 30) -> bool:

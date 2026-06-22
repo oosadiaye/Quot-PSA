@@ -102,6 +102,83 @@ class TestRequiresMFA:
                 view=None,
             ) is False
 
+    # =========================================================================
+    # B5 — Token-auth path: production frontend uses stateless DRF tokens, so
+    # ``request.session`` is empty. The freshness check MUST honor the
+    # ``UserSession.mfa_verified_at`` column keyed on the token, not the
+    # session cookie. Without this, MFA gates silently fall back to plain
+    # IsAuthenticated under token auth — defeating their purpose.
+    # =========================================================================
+
+    def _token_request(self, user, *, token_key='tok_abc', session=None):
+        """Build a request that carries token auth (request.auth.key)."""
+        req = MagicMock(user=user)
+        req.session = session or {}
+        # ExpiringTokenAuthentication writes (user, token) into request,
+        # so request.auth is the Token model instance whose ``.key``
+        # attribute is the canonical lookup key for UserSession.
+        auth = MagicMock()
+        auth.key = token_key
+        req.auth = auth
+        return req
+
+    def test_token_auth_with_fresh_user_session_allowed(self):
+        """Token-attached UserSession.mfa_verified_at within TTL passes."""
+        user = MagicMock(is_authenticated=True, is_superuser=False)
+        user.has_perm.return_value = False
+        fresh_stamp = timezone.now()
+        # Stub the UserSession lookup performed by
+        # ``accounting.permissions._session_mfa_is_fresh`` (path 1).
+        fake_session_row = MagicMock(mfa_verified_at=fresh_stamp)
+        with patch('accounting.permissions._user_is_mfa_enrolled', return_value=True), \
+             patch('core.models.UserSession.objects') as mgr:
+            mgr.filter.return_value.only.return_value.first.return_value = fake_session_row
+            assert self.perm.has_permission(
+                self._token_request(user), view=None,
+            ) is True
+
+    def test_token_auth_with_stale_user_session_denied(self):
+        """Token-attached UserSession older than TTL is rejected."""
+        user = MagicMock(is_authenticated=True, is_superuser=False)
+        user.has_perm.return_value = False
+        stale_stamp = timezone.now() - timedelta(hours=2)
+        fake_session_row = MagicMock(mfa_verified_at=stale_stamp)
+        with patch('accounting.permissions._user_is_mfa_enrolled', return_value=True), \
+             patch('core.models.UserSession.objects') as mgr:
+            mgr.filter.return_value.only.return_value.first.return_value = fake_session_row
+            assert self.perm.has_permission(
+                self._token_request(user), view=None,
+            ) is False
+
+    def test_token_auth_with_no_user_session_denied(self):
+        """Token supplied but UserSession row missing → MFA gate denies.
+
+        This is the production-readiness B5 regression guard: prior to
+        the explicit token-auth path in ``_session_mfa_is_fresh``, a
+        request with token auth and an empty session cookie would slip
+        through ``RequiresMFA`` because the session lookup returned
+        ``None`` and there was no other check. The gate now demands a
+        UserSession-backed stamp on the token-auth path.
+        """
+        user = MagicMock(is_authenticated=True, is_superuser=False)
+        user.has_perm.return_value = False
+        with patch('accounting.permissions._user_is_mfa_enrolled', return_value=True), \
+             patch('core.models.UserSession.objects') as mgr:
+            mgr.filter.return_value.only.return_value.first.return_value = None
+            assert self.perm.has_permission(
+                self._token_request(user), view=None,
+            ) is False
+
+    def test_token_auth_without_session_cookie_denied(self):
+        """The session-cookie fallback must not auto-pass when empty."""
+        user = MagicMock(is_authenticated=True, is_superuser=False)
+        user.has_perm.return_value = False
+        # No token + empty session = no MFA stamp anywhere → denied.
+        with patch('accounting.permissions._user_is_mfa_enrolled', return_value=True):
+            assert self.perm.has_permission(
+                self._request(user, session={}), view=None,
+            ) is False
+
 
 # =============================================================================
 # MFAService — TOTP + recovery-code logic (mocked UserMFA)
