@@ -31,6 +31,9 @@ Failure policy (mirrors procurement/signals.py template):
 - AssetDisposal GL-post failure: re-raise. A disposal approved but not
   posted to GL leaves the fixed-asset register out of sync with the
   balance sheet — silent asset overstatement.
+- FixedAsset capitalisation failure: re-raise. An asset appearing as
+  capitalised but without a GL counter-entry causes fixed-asset register /
+  balance sheet divergence — partial capitalisation is worse than none.
 
 Idempotency:
 - Skip if JournalHeader.status is already 'Posted'.
@@ -45,6 +48,9 @@ Idempotency:
 - Skip if TSAReconciliation.status is already 'COMPLETED'.
 - Skip if AssetDisposal.status is already 'POSTED' or journal_id
   is set.
+- Skip if a JournalHeader with reference_number='ACQ-<asset_number>'
+  already exists for the FixedAsset (idempotency via
+  FixedAssetPostingService.post_capitalisation with idempotent=True).
 """
 import logging
 
@@ -511,6 +517,7 @@ if document_approval_completed is not None:
     # Receiver 7 — AssetDisposal GL posting
     # -----------------------------------------------------------------------
 
+
     @receiver(
         document_approval_completed,
         dispatch_uid='accounting.assetdisposal',
@@ -578,6 +585,75 @@ if document_approval_completed is not None:
             logger.warning(
                 'Workflow-approved AssetDisposal %s GL posting failed '
                 '(approval will be rolled back): %s',
+                getattr(document, 'pk', '?'),
+                exc,
+            )
+            raise
+
+    # -----------------------------------------------------------------------
+    # Receiver 8 — FixedAsset capitalisation journal posting
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.fixedasset_auto_post',
+    )
+    def auto_post_fixedasset_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Auto-post a FixedAsset's capitalisation journal when its workflow
+        approval completes.
+
+        Trigger: model_name='fixedasset' + action='approve'.
+
+        Workflow approval is the canonical signal that the asset is ready
+        to enter the register; this receiver posts the capitalisation
+        journal so the asset has a complete audit trail by the time it
+        shows in fixed-asset reports.
+
+        payment_method defaults to 'cash' for workflow-driven posts, since
+        workflow-approved fixed assets typically come from direct cash
+        acquisitions (gifts, transfers, manual capitalisation). When the
+        asset originated from an AP invoice path, the InvoiceMatching
+        receiver in procurement/signals.py handles the journal posting
+        separately — this receiver should not be hit in that flow (the
+        AP path stamps ``created_from_journal_line_id`` and the service
+        raises immediately if that field is set).
+
+        Failure policy: re-raise so the workflow approval rolls back if
+        the journal post fails — partial capitalisation is worse than no
+        capitalisation because the asset enters the register without a GL
+        counter-entry.
+
+        Idempotency: the service checks for a pre-existing JournalHeader
+        with ``reference_number='ACQ-<asset_number>'``.  If one exists,
+        ``idempotent=True`` causes it to return the existing journal rather
+        than re-posting.  The receiver is therefore safe to fire multiple
+        times for the same asset without double-booking.
+        """
+        if action != 'approve' or model_name != 'fixedasset':
+            return
+
+        if document is None:
+            return
+
+        try:
+            from accounting.services.fixed_asset_posting import (
+                FixedAssetPostingService,
+                FixedAssetPostingError,
+            )
+
+            FixedAssetPostingService.post_capitalisation(
+                document,
+                payment_method='cash',   # default for workflow-driven posts
+                user=None,               # system post; workflow approval is the authority gate
+                idempotent=True,         # safe to re-fire; no-ops if already posted
+            )
+
+        except Exception as exc:
+            logger.warning(
+                'Workflow-approved FixedAsset %s capitalisation journal posting '
+                'failed (approval will be rolled back): %s',
                 getattr(document, 'pk', '?'),
                 exc,
             )

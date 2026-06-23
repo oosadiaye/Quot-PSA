@@ -44,6 +44,13 @@ Coverage:
   * TSAReconciliation skipped when status is already COMPLETED (idempotency)
   * TSAReconciliation wrong model_name ignored
   * TSAReconciliation failure re-raises (approval rolls back)
+
+  * FixedAsset auto-post fires on approve (service called with idempotent=True)
+  * FixedAsset idempotency owned by service (receiver always calls service)
+  * FixedAsset other model_name ignored
+  * FixedAsset reject action ignored
+  * FixedAsset failure re-raises (approval rolls back)
+  * FixedAsset None document ignored
 """
 from __future__ import annotations
 
@@ -830,5 +837,106 @@ class TestAssetDisposalPost:
         """None document is silently skipped."""
         with patch(self._PATCH_SERVICE) as mock_svc:
             _fire_assetdisposal('assetdisposal', document=None)
+
+        mock_svc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FixedAsset receiver tests
+# ---------------------------------------------------------------------------
+
+def _fire_fixedasset(model_name, document, action='approve'):
+    """Call the fixedasset receiver directly — DB-free."""
+    from accounting.signals.workflow_dispatch import auto_post_fixedasset_on_approval
+
+    auto_post_fixedasset_on_approval(
+        sender=MagicMock(),
+        approval=MagicMock(pk=14),
+        model_name=model_name,
+        document=document,
+        action=action,
+    )
+
+
+class TestFixedAssetAutoPost:
+    """Tests for auto_post_fixedasset_on_approval."""
+
+    _PATCH_SERVICE = (
+        'accounting.services.fixed_asset_posting'
+        '.FixedAssetPostingService.post_capitalisation'
+    )
+
+    def _make_asset(self, asset_number='FA-2026-00001'):
+        doc = MagicMock()
+        doc.pk = 900
+        doc.asset_number = asset_number
+        return doc
+
+    def test_fixedasset_fires_on_approve(self):
+        """Service called once with the asset document when signal fires correctly."""
+        doc = self._make_asset()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_fixedasset('fixedasset', doc)
+
+        mock_svc.assert_called_once_with(
+            doc,
+            payment_method='cash',
+            user=None,
+            idempotent=True,
+        )
+
+    def test_fixedasset_skipped_when_already_capitalised(self):
+        """When idempotent=True the service itself handles the no-op, but the
+        receiver still calls the service once — no pre-check bypasses the
+        service call so the service owns the idempotency logic."""
+        doc = self._make_asset()
+        # Simulate the service returning the existing journal without error
+        # (idempotent=True path — service no-ops internally).
+        with patch(self._PATCH_SERVICE, return_value=MagicMock()) as mock_svc:
+            _fire_fixedasset('fixedasset', doc)
+
+        # Service IS called — it owns the idempotency guard.
+        mock_svc.assert_called_once()
+
+    def test_fixedasset_other_model_name_ignored(self):
+        """Signal for a different model_name must not invoke the service."""
+        doc = self._make_asset()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_fixedasset('assetdisposal', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_fixedasset_reject_action_ignored(self):
+        """Reject action must not trigger the service."""
+        doc = self._make_asset()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_fixedasset('fixedasset', doc, action='reject')
+
+        mock_svc.assert_not_called()
+
+    def test_fixedasset_failure_reraises(self):
+        """Service raises → receiver re-raises (approval rolls back)."""
+        doc = self._make_asset()
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=ValueError('Credit account not found'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger, pytest.raises(ValueError, match='Credit account not found'):
+            _fire_fixedasset('fixedasset', doc)
+
+        # Warning was logged before re-raise.
+        assert mock_logger.warning.called
+        log_msg = mock_logger.warning.call_args[0][0]
+        assert 'FixedAsset' in log_msg
+
+    def test_fixedasset_none_document_ignored(self):
+        """None document is silently skipped."""
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_fixedasset('fixedasset', document=None)
 
         mock_svc.assert_not_called()

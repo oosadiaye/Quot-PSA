@@ -62,122 +62,37 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         Budget check: asset acquisition consumes capital appropriation
         (Economic code 3xxxxxxx). MDA + Fund + Account must have active
         appropriation with sufficient balance.
+
+        Delegates to ``FixedAssetPostingService.post_capitalisation`` so
+        the same posting logic is reusable from the workflow receiver and
+        future batch-import paths.
         """
+        from accounting.services.fixed_asset_posting import (
+            FixedAssetPostingService,
+            FixedAssetPostingError,
+        )
+
         asset = self.get_object()
-
-        if not asset.asset_account:
-            return Response({"error": "Asset account not configured on this asset."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not asset.mda:
-            return Response({"error": "MDA is required for asset acquisition. Assign this asset to an MDA first."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # L4 fix: refuse to acquire (post a separate ACQ JV) when the
-        # asset was already auto-capitalised from an AP invoice line.
-        # ``apply_asset_capitalization`` stamps the source journal-line
-        # FK on the asset; calling ``acquire`` on top would double-book
-        # DR Asset / CR Cash for the same acquisition.
-        if getattr(asset, 'created_from_journal_line_id', None):
-            return Response(
-                {"error": (
-                    "Asset was already capitalised from a vendor invoice "
-                    f"(JournalLine #{asset.created_from_journal_line_id}). "
-                    "The acquisition GL entry has already been booked — "
-                    "calling ``acquire`` again would double-book."
-                )},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ── Budget Validation (capital budget check) ──────────────
-        if asset.mda and asset.asset_account and asset.fund:
-            try:
-                from budget.services import BudgetValidationService, BudgetExceededError
-                from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
-                from accounting.models.advanced import FiscalYear
-
-                admin_seg = AdministrativeSegment.objects.filter(legacy_mda=asset.mda).first()
-                econ_seg = EconomicSegment.objects.filter(legacy_account=asset.asset_account).first()
-                fund_seg = FundSegment.objects.filter(legacy_fund=asset.fund).first()
-                active_fy = FiscalYear.objects.filter(is_active=True).first()
-
-                if admin_seg and econ_seg and fund_seg and active_fy:
-                    try:
-                        BudgetValidationService.validate_expenditure(
-                            administrative_id=admin_seg.pk,
-                            economic_id=econ_seg.pk,
-                            fund_id=fund_seg.pk,
-                            fiscal_year_id=active_fy.pk,
-                            amount=asset.acquisition_cost,
-                            source='ASSET_ACQUISITION',
-                        )
-                    except BudgetExceededError as e:
-                        return Response(
-                            {"error": f"Capital budget validation failed: {str(e)}"},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-            except ImportError:
-                pass  # Budget module not available
-
-        # Determine credit account: use Cash or AP from request or settings
-        from django.conf import settings as django_settings
-        default_gl = getattr(django_settings, 'DEFAULT_GL_ACCOUNTS', {})
-        credit_account_type = request.data.get('payment_method', 'cash')  # 'cash' or 'ap'
-
-        if credit_account_type == 'ap':
-            cr_code = default_gl.get('ACCOUNTS_PAYABLE', '')
-            cr_account = Account.objects.filter(code=cr_code).first() if cr_code else None
-            if not cr_account:
-                cr_account = Account.objects.filter(account_type='Liability', name__icontains='Payable').first()
-        else:
-            cr_code = default_gl.get('CASH_ACCOUNT', '')
-            cr_account = Account.objects.filter(code=cr_code).first() if cr_code else None
-            if not cr_account:
-                cr_account = Account.objects.filter(account_type='Asset', name__icontains='Cash').first()
-
-        if not cr_account:
-            return Response({"error": "Credit account (Cash/AP) not found."}, status=status.HTTP_400_BAD_REQUEST)
-
-        acq_cost = asset.acquisition_cost
-        if not acq_cost or acq_cost <= 0:
-            return Response({"error": "Asset has no acquisition cost."}, status=status.HTTP_400_BAD_REQUEST)
+        payment_method = request.data.get('payment_method', 'cash')
 
         try:
-            with transaction.atomic():
-                journal = JournalHeader.objects.create(
-                    reference_number=f"ACQ-{asset.asset_number or asset.id}",
-                    description=f"Asset Acquisition: {asset.name}",
-                    posting_date=request.data.get('acquisition_date', asset.acquisition_date) or datetime.now().date(),
-                    fund=asset.fund,
-                    function=asset.function,
-                    program=asset.program,
-                    geo=asset.geo,
-                    status='Posted'
-                )
-                JournalLine.objects.create(
-                    header=journal,
-                    account=asset.asset_account,
-                    debit=acq_cost,
-                    credit=Decimal('0.00'),
-                    memo=f"Fixed Asset acquisition: {asset.name}"
-                )
-                JournalLine.objects.create(
-                    header=journal,
-                    account=cr_account,
-                    debit=Decimal('0.00'),
-                    credit=acq_cost,
-                    memo=f"Payment for asset: {asset.name}"
-                )
-                from accounting.services import update_gl_from_journal
-                update_gl_from_journal(journal, fund=asset.fund, function=asset.function,
-                                       program=asset.program, geo=asset.geo)
+            journal = FixedAssetPostingService.post_capitalisation(
+                asset,
+                payment_method=payment_method,
+                user=request.user,
+                idempotent=False,  # view-callers expect 400 on double-post
+            )
+        except FixedAssetPostingError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({
-                "status": "Asset acquisition posted to GL.",
-                "journal_id": journal.id,
-                "asset_id": asset.id,
-                "amount": str(acq_cost)
-            })
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'Asset acquisition posted to GL.',
+            'journal_id': journal.id,
+            'asset_id': asset.id,
+            'amount': str(asset.acquisition_cost),
+        })
 
     @action(detail=True, methods=['post'])
     def calculate_depreciation(self, request, pk=None):
