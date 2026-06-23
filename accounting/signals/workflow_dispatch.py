@@ -19,6 +19,15 @@ Failure policy (mirrors procurement/signals.py template):
 - PaymentVoucherGov / PaymentVoucher auto-post failure: log-only.
   PV approval is high-volume; operators can retry via the existing UI
   without rolling back the approval audit trail.
+- BadDebtWriteOff GL-post failure: re-raise. A write-off approved but
+  not posted leaves the receivable on the books while the approval says
+  it was written off — silent AR overstatement.
+- VendorAdvance disbursement failure: re-raise. An approved advance
+  that fails disbursement journal posting must not leave the VendorAdvance
+  in OUTSTANDING status without a corresponding GL entry.
+- TSAReconciliation completion failure: re-raise. A half-completed
+  reconciliation (some payments marked reconciled, statement not locked)
+  would create duplicate-reconciliation risk on the next cycle.
 
 Idempotency:
 - Skip if JournalHeader.status is already 'Posted'.
@@ -26,6 +35,11 @@ Idempotency:
   is_reconciled is True.
 - Skip if PaymentVoucherGov / PaymentVoucher status is already in a
   terminal state ('PAID', 'REVERSED', 'CANCELLED').
+- Skip if BadDebtWriteOff.status is already 'POSTED' or journal_id
+  is set.
+- Skip if VendorAdvance.status is already 'CLEARED' or
+  disbursement_journal_id is already set.
+- Skip if TSAReconciliation.status is already 'COMPLETED'.
 """
 import logging
 
@@ -292,3 +306,198 @@ if document_approval_completed is not None:
                         model_name,
                         getattr(document, 'pk', '?'),
                     )
+
+    # -----------------------------------------------------------------------
+    # Receiver 4 — BadDebtWriteOff GL posting
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.baddebtwriteoff',
+    )
+    def post_baddebtwriteoff_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Post a BadDebtWriteOff to GL when its workflow approval completes.
+
+        Trigger: model_name='baddebtwriteoff' + action='approve'.
+
+        The write-off journal (DR Allowance / CR AR) is posted automatically
+        so the receivable is removed from the books the moment the approving
+        officer signs off — no separate "Post to GL" click required.
+
+        Failure policy: re-raise. A write-off approved but not posted leaves
+        the receivable on the books while the approval says it was written off
+        — silent AR overstatement. The approval is rolled back so the operator
+        can fix the underlying cause (missing accounts, closed period) and
+        re-approve.
+
+        Idempotency: skips silently if ``status == 'POSTED'`` or
+        ``journal_id`` is already set (posted via the direct UI button).
+        """
+        if action != 'approve' or model_name != 'baddebtwriteoff':
+            return
+
+        if document is None:
+            return
+
+        # Idempotency guards.
+        if getattr(document, 'status', None) == 'POSTED':
+            return
+        if getattr(document, 'journal_id', None):
+            return
+
+        try:
+            from accounting.services.bad_debt_writeoff_posting import (
+                post_bad_debt_writeoff,
+            )
+            post_bad_debt_writeoff(document, user=None)
+
+        except Exception as exc:
+            logger.warning(
+                'Workflow-approved BadDebtWriteOff %s GL posting failed '
+                '(approval will be rolled back): %s',
+                getattr(document, 'pk', '?'),
+                exc,
+            )
+            raise
+
+    # -----------------------------------------------------------------------
+    # Receiver 5 — VendorAdvance disbursement journal posting
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.vendoradvance',
+    )
+    def disburse_vendoradvance_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Post the disbursement journal for a VendorAdvance on approval.
+
+        Trigger: model_name='vendoradvance' + action='approve'.
+
+        The VendorAdvance document is approved through the workflow before
+        the disbursement journal is posted. Once approved, this receiver
+        posts the journal:
+            DR  Vendor-Advance Recon (Special GL)   amount_paid
+            CR  Cash / TSA                                         amount_paid
+
+        Parameter mapping from ``VendorAdvance`` model fields to
+        ``VendorAdvanceService.disburse()``:
+            vendor        → document.vendor
+            amount        → document.amount_paid
+            source_type   → document.source_type
+            source_id     → document.source_id
+            reference     → document.reference
+            posting_date  → document.posting_date
+            actor         → None (workflow approval is the authority gate)
+
+        The service's own idempotency guard will also reject a duplicate
+        ``(source_type, source_id)`` pair — raising ``TransactionPostingError``
+        — so we have two layers of protection.
+
+        Failure policy: re-raise. An approved advance without a posted
+        disbursement journal would inflate the vendor's special-GL advance
+        balance without a corresponding cash credit — silent ledger drift.
+
+        Idempotency: skips silently if ``disbursement_journal_id`` is already
+        set (journal posted via a prior path) or if ``status == 'CLEARED'``
+        (advance was fully recovered — disbursement already happened).
+        """
+        if action != 'approve' or model_name != 'vendoradvance':
+            return
+
+        if document is None:
+            return
+
+        # Idempotency guards.
+        if getattr(document, 'disbursement_journal_id', None):
+            return
+        if getattr(document, 'status', None) == 'CLEARED':
+            return
+
+        try:
+            from accounting.services.vendor_advance import VendorAdvanceService
+            from accounting.models.vendor_advance import VendorAdvance
+
+            VendorAdvanceService.disburse(
+                vendor=document.vendor,
+                amount=document.amount_paid,
+                source_type=document.source_type,
+                source_id=document.source_id,
+                reference=document.reference,
+                posting_date=document.posting_date,
+                actor=None,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                'Workflow-approved VendorAdvance %s disbursement journal '
+                'posting failed (approval will be rolled back): %s',
+                getattr(document, 'pk', '?'),
+                exc,
+            )
+            raise
+
+    # -----------------------------------------------------------------------
+    # Receiver 6 — TSAReconciliation completion
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.tsareconciliation',
+    )
+    def complete_tsareconciliation_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Finalise a TSAReconciliation when its workflow approval completes.
+
+        Trigger: model_name='tsareconciliation' + action='approve'.
+
+        The reconciliation session is completed automatically — flagging all
+        matched PaymentInstruction/RevenueCollection rows as is_reconciled=True
+        and locking the bank statement — when the AG/Treasury approver signs
+        off via the workflow. No separate "Complete" button click required.
+
+        MFA bypass note:
+            The view's ``complete`` action enforces ``RequiresMFA`` + ``CanReconcileTSA``.
+            When this receiver fires, those permission classes are NOT checked
+            again. The workflow approval itself is the authorisation gate — the
+            submitter and approver both authenticated at the point of workflow
+            submission/approval. Do NOT change this behaviour; the MFA gate
+            belongs at the approval call site, not inside this receiver. This
+            is consistent with other re-raise receivers in this module
+            (appropriation, virement) that similarly bypass view-layer
+            permission classes.
+
+        Failure policy: re-raise. A half-completed reconciliation (some
+        payments marked reconciled, bank statement not locked) would create
+        duplicate-reconciliation risk on the next cycle.
+
+        Idempotency: skips silently if ``status == 'COMPLETED'``.
+        """
+        if action != 'approve' or model_name != 'tsareconciliation':
+            return
+
+        if document is None:
+            return
+
+        # Idempotency guard.
+        if getattr(document, 'status', None) == 'COMPLETED':
+            return
+
+        try:
+            from accounting.services.tsa_reconciliation_service import (
+                complete_reconciliation,
+            )
+            complete_reconciliation(document, user=None)
+
+        except Exception as exc:
+            logger.warning(
+                'Workflow-approved TSAReconciliation %s completion failed '
+                '(approval will be rolled back): %s',
+                getattr(document, 'pk', '?'),
+                exc,
+            )
+            raise

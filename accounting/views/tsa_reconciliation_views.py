@@ -674,7 +674,23 @@ class TSAReconciliationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """Close the session and flag matched book records (H1)."""
+        """Close the session and flag matched book records (H1).
+
+        Delegates the actual completion logic to
+        ``accounting.services.tsa_reconciliation_service.complete_reconciliation``
+        so the same path is shared with the ``document_approval_completed``
+        signal receiver.
+
+        MFA note: this action still enforces ``RequiresMFA`` via
+        ``get_permissions()`` above. The extracted service does NOT re-check
+        MFA — the permission gate is applied here at the view layer, and the
+        workflow approval call site is the authorisation gate when triggered
+        via the signal receiver.
+        """
+        from accounting.services.tsa_reconciliation_service import (
+            complete_reconciliation,
+        )
+
         recon: TSAReconciliation = self.get_object()
         if recon.status == 'COMPLETED':
             return Response(
@@ -696,56 +712,8 @@ class TSAReconciliationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            # Lock the recon row.
-            recon = (
-                TSAReconciliation.objects
-                .select_for_update()
-                .get(pk=recon.pk)
-            )
-            if recon.status == 'COMPLETED':
-                return Response(
-                    {'detail': 'Already completed.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            recon.status = 'COMPLETED'
-            recon.completed_at = timezone.now()
-            recon.completed_by = (
-                request.user if request.user.is_authenticated else None
-            )
-            recon.save(update_fields=['status', 'completed_at', 'completed_by'])
-
-            # H1 — flag matched book records as reconciled.
-            if recon.statement_import_id:
-                matched_lines = TSABankStatementLine.objects.filter(
-                    statement_id=recon.statement_import_id,
-                    match_status__in=['AUTO', 'MANUAL'],
-                )
-                matched_payment_ids = [
-                    l.matched_payment_id for l in matched_lines if l.matched_payment_id
-                ]
-                matched_revenue_ids = [
-                    l.matched_revenue_id for l in matched_lines if l.matched_revenue_id
-                ]
-                if matched_payment_ids:
-                    PaymentInstruction.objects.filter(
-                        id__in=matched_payment_ids,
-                    ).update(
-                        is_reconciled=True,
-                        reconciliation=recon,
-                    )
-                if matched_revenue_ids:
-                    RevenueCollection.objects.filter(
-                        id__in=matched_revenue_ids,
-                    ).update(
-                        is_reconciled=True,
-                        reconciliation=recon,
-                    )
-
-                # Lock the statement from further edits.
-                TSABankStatement.objects.filter(
-                    pk=recon.statement_import_id,
-                ).update(status='COMPLETED')
-
+        recon = complete_reconciliation(
+            recon,
+            user=request.user if request.user.is_authenticated else None,
+        )
         return Response(TSAReconciliationSerializer(recon).data)

@@ -1,6 +1,6 @@
 # B6 Workflow Receivers — Implementation Plan (Remaining 10 types)
 
-**Status:** Seven receivers landed:
+**Status:** Ten receivers landed:
 - `journalheader` — reference receiver (prior sprint)
 - `warrant` — reference receiver (prior sprint)
 - `appropriationvirement` — **DONE** (this sprint, `budget/signals.py`)
@@ -8,6 +8,9 @@
 - `appropriation` — **DONE** (this sprint, `budget/signals.py`)
 - `revenuecollection` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service at `accounting/services/revenue_collection_posting.py`)
 - `paymentvoucher` / `paymentvouchergov` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service at `accounting/services/payment_voucher_posting.py`)
+- `baddebtwriteoff` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service extracted to `accounting/services/bad_debt_writeoff_posting.py`; view refactored to call service)
+- `vendoradvance` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; calls `VendorAdvanceService.disburse()` with fields mapped from document; see parameter mapping note in receiver docstring)
+- `tsareconciliation` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service extracted to `accounting/services/tsa_reconciliation_service.py`; view refactored to call service; MFA bypass documented in service docstring)
 
 This document covers the remaining types in priority order.
 
@@ -273,11 +276,11 @@ The HRM module has open PII work (employee data masking, audit trail for sensiti
 | 3 | appropriationvirement | `budget/signals.py` | Yes (`budget/services_virement.py`) | Re-raise | 1h | **DONE** |
 | 4 | revenuecollection | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/revenue_collection_posting.py`) | Log-only | 2h | **DONE** |
 | 5 | revenuebudget | `budget/signals.py` | N/A (simple status flip) | Re-raise | 1h | **DONE** |
-| 6 | baddebtwriteoff | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Re-raise | 2h |
+| 6 | baddebtwriteoff | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/bad_debt_writeoff_posting.py`) | Re-raise | 2h | **DONE** |
 | 7 | assetdisposal | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/asset_posting.py`) | Re-raise | 1.5h |
 | 8 | fixedasset | `accounting/signals/workflow_dispatch.py` | Partial (investigate first) | Re-raise | 2–3h |
-| 9 | vendoradvance | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/vendor_advance.py`) | Re-raise | 2h |
-| 10 | tsareconciliation | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Re-raise | 2h |
+| 9 | vendoradvance | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/vendor_advance.py`) | Re-raise | 2h | **DONE** |
+| 10 | tsareconciliation | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/tsa_reconciliation_service.py`) | Re-raise | 2h | **DONE** |
 | 11a | contract | `contracts/signals.py` (new) | Yes (contracts/services/) | Re-raise | 1.5h |
 | 11b | interimpaymentcertificate | `contracts/signals.py` | Yes (ipc_service.py) | Re-raise | 3h |
 | 11c | contractvariation | `contracts/signals.py` | Yes (variation_service.py) | Re-raise | 1h |

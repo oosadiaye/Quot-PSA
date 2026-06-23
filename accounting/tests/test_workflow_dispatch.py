@@ -27,6 +27,23 @@ Coverage:
   * PaymentVouchergov model_name triggers the same receiver
   * Wrong model_name for PV receiver ignored
   * PaymentVoucher failure logged not raised
+
+  * BadDebtWriteOff GL posting fires on approve
+  * BadDebtWriteOff skipped when status is already POSTED (idempotency)
+  * BadDebtWriteOff skipped when journal_id already set (idempotency)
+  * BadDebtWriteOff wrong model_name ignored
+  * BadDebtWriteOff failure re-raises (approval rolls back)
+
+  * VendorAdvance disbursement fires on approve
+  * VendorAdvance skipped when disbursement_journal_id already set (idempotency)
+  * VendorAdvance skipped when status is CLEARED (idempotency)
+  * VendorAdvance wrong model_name ignored
+  * VendorAdvance failure re-raises (approval rolls back)
+
+  * TSAReconciliation completion fires on approve
+  * TSAReconciliation skipped when status is already COMPLETED (idempotency)
+  * TSAReconciliation wrong model_name ignored
+  * TSAReconciliation failure re-raises (approval rolls back)
 """
 from __future__ import annotations
 
@@ -415,3 +432,296 @@ class TestPaymentVoucherAutoPost:
         assert len(calls) == 2
         assert calls[0] is doc_gov
         assert calls[1] is doc_legacy
+
+
+# ---------------------------------------------------------------------------
+# BadDebtWriteOff receiver tests
+# ---------------------------------------------------------------------------
+
+def _fire_baddebtwriteoff(model_name, document, action='approve'):
+    """Call the baddebtwriteoff receiver directly — DB-free."""
+    from accounting.signals.workflow_dispatch import post_baddebtwriteoff_on_approval
+
+    post_baddebtwriteoff_on_approval(
+        sender=MagicMock(),
+        approval=MagicMock(pk=10),
+        model_name=model_name,
+        document=document,
+        action=action,
+    )
+
+
+class TestBadDebtWriteOffAutoPost:
+    """Tests for post_baddebtwriteoff_on_approval."""
+
+    _PATCH_SERVICE = (
+        'accounting.services.bad_debt_writeoff_posting'
+        '.post_bad_debt_writeoff'
+    )
+
+    def _make_writeoff(self, status='APPROVED', journal_id=None):
+        doc = MagicMock()
+        doc.pk = 500
+        doc.status = status
+        doc.journal_id = journal_id
+        return doc
+
+    def test_baddebtwriteoff_fires_on_approve(self):
+        """Service called once with the document when signal fires correctly."""
+        doc = self._make_writeoff()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_baddebtwriteoff('baddebtwriteoff', doc)
+
+        mock_svc.assert_called_once_with(doc, user=None)
+
+    def test_baddebtwriteoff_skipped_when_already_posted(self):
+        """Write-off with status='POSTED' is silently skipped (idempotency)."""
+        doc = self._make_writeoff(status='POSTED')
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_baddebtwriteoff('baddebtwriteoff', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_baddebtwriteoff_skipped_when_journal_id_set(self):
+        """Write-off with journal_id already set is silently skipped (idempotency)."""
+        doc = self._make_writeoff(journal_id=77)
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_baddebtwriteoff('baddebtwriteoff', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_baddebtwriteoff_other_model_name_ignored(self):
+        """Signal for a different model_name must not invoke the service."""
+        doc = self._make_writeoff()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_baddebtwriteoff('revenuecollection', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_baddebtwriteoff_failure_reraises(self):
+        """Service raises → receiver re-raises (approval rolls back)."""
+        doc = self._make_writeoff()
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=ValueError('GL period closed'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger, pytest.raises(ValueError, match='GL period closed'):
+            _fire_baddebtwriteoff('baddebtwriteoff', doc)
+
+        # Warning was logged before re-raise.
+        assert mock_logger.warning.called
+        log_msg = mock_logger.warning.call_args[0][0]
+        assert 'BadDebtWriteOff' in log_msg
+
+    def test_baddebtwriteoff_none_document_ignored(self):
+        """None document is silently skipped."""
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_baddebtwriteoff('baddebtwriteoff', document=None)
+
+        mock_svc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# VendorAdvance receiver tests
+# ---------------------------------------------------------------------------
+
+def _fire_vendoradvance(model_name, document, action='approve'):
+    """Call the vendoradvance receiver directly — DB-free."""
+    from accounting.signals.workflow_dispatch import disburse_vendoradvance_on_approval
+
+    disburse_vendoradvance_on_approval(
+        sender=MagicMock(),
+        approval=MagicMock(pk=11),
+        model_name=model_name,
+        document=document,
+        action=action,
+    )
+
+
+class TestVendorAdvanceDisburse:
+    """Tests for disburse_vendoradvance_on_approval."""
+
+    _PATCH_SERVICE = (
+        'accounting.services.vendor_advance'
+        '.VendorAdvanceService.disburse'
+    )
+
+    def _make_advance(self, status='OUTSTANDING', disbursement_journal_id=None):
+        doc = MagicMock()
+        doc.pk = 600
+        doc.status = status
+        doc.disbursement_journal_id = disbursement_journal_id
+        doc.vendor = MagicMock()
+        doc.amount_paid = MagicMock()
+        doc.source_type = 'MOBILIZATION'
+        doc.source_id = 1
+        doc.reference = 'DSG/MOB/2026/001'
+        doc.posting_date = MagicMock()
+        return doc
+
+    def test_vendoradvance_fires_on_approve(self):
+        """Service called once with document fields when signal fires correctly."""
+        doc = self._make_advance()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_vendoradvance('vendoradvance', doc)
+
+        mock_svc.assert_called_once_with(
+            vendor=doc.vendor,
+            amount=doc.amount_paid,
+            source_type=doc.source_type,
+            source_id=doc.source_id,
+            reference=doc.reference,
+            posting_date=doc.posting_date,
+            actor=None,
+        )
+
+    def test_vendoradvance_skipped_when_disbursement_journal_set(self):
+        """VendorAdvance with disbursement_journal_id already set is skipped
+        (idempotency — journal already posted via another path)."""
+        doc = self._make_advance(disbursement_journal_id=42)
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_vendoradvance('vendoradvance', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_vendoradvance_skipped_when_status_cleared(self):
+        """VendorAdvance with status='CLEARED' is silently skipped (idempotency)."""
+        doc = self._make_advance(status='CLEARED')
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_vendoradvance('vendoradvance', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_vendoradvance_other_model_name_ignored(self):
+        """Signal for a different model_name must not invoke the service."""
+        doc = self._make_advance()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_vendoradvance('paymentvoucher', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_vendoradvance_failure_reraises(self):
+        """Service raises → receiver re-raises (approval rolls back)."""
+        doc = self._make_advance()
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=RuntimeError('No vendor-advance GL configured'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger, pytest.raises(RuntimeError, match='No vendor-advance GL'):
+            _fire_vendoradvance('vendoradvance', doc)
+
+        assert mock_logger.warning.called
+        log_msg = mock_logger.warning.call_args[0][0]
+        assert 'VendorAdvance' in log_msg
+
+    def test_vendoradvance_none_document_ignored(self):
+        """None document is silently skipped."""
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_vendoradvance('vendoradvance', document=None)
+
+        mock_svc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TSAReconciliation receiver tests
+# ---------------------------------------------------------------------------
+
+def _fire_tsareconciliation(model_name, document, action='approve'):
+    """Call the tsareconciliation receiver directly — DB-free."""
+    from accounting.signals.workflow_dispatch import (
+        complete_tsareconciliation_on_approval,
+    )
+
+    complete_tsareconciliation_on_approval(
+        sender=MagicMock(),
+        approval=MagicMock(pk=12),
+        model_name=model_name,
+        document=document,
+        action=action,
+    )
+
+
+class TestTSAReconciliationComplete:
+    """Tests for complete_tsareconciliation_on_approval."""
+
+    _PATCH_SERVICE = (
+        'accounting.services.tsa_reconciliation_service'
+        '.complete_reconciliation'
+    )
+
+    def _make_recon(self, status='REVIEWED'):
+        doc = MagicMock()
+        doc.pk = 700
+        doc.status = status
+        return doc
+
+    def test_tsareconciliation_fires_on_approve(self):
+        """Service called once with the document when signal fires correctly."""
+        doc = self._make_recon()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_tsareconciliation('tsareconciliation', doc)
+
+        mock_svc.assert_called_once_with(doc, user=None)
+
+    def test_tsareconciliation_skipped_when_already_completed(self):
+        """Reconciliation with status='COMPLETED' is silently skipped (idempotency)."""
+        doc = self._make_recon(status='COMPLETED')
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_tsareconciliation('tsareconciliation', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_tsareconciliation_other_model_name_ignored(self):
+        """Signal for a different model_name must not invoke the service."""
+        doc = self._make_recon()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_tsareconciliation('journalheader', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_tsareconciliation_failure_reraises(self):
+        """Service raises → receiver re-raises (approval rolls back)."""
+        doc = self._make_recon()
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=RuntimeError('DB deadlock on reconciliation'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger, pytest.raises(RuntimeError, match='DB deadlock'):
+            _fire_tsareconciliation('tsareconciliation', doc)
+
+        assert mock_logger.warning.called
+        log_msg = mock_logger.warning.call_args[0][0]
+        assert 'TSAReconciliation' in log_msg
+
+    def test_tsareconciliation_none_document_ignored(self):
+        """None document is silently skipped."""
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_tsareconciliation('tsareconciliation', document=None)
+
+        mock_svc.assert_not_called()
+
+    def test_tsareconciliation_reject_action_ignored(self):
+        """Reject action must not trigger the service."""
+        doc = self._make_recon()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_tsareconciliation('tsareconciliation', doc, action='reject')
+
+        mock_svc.assert_not_called()

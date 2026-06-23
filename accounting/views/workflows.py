@@ -305,54 +305,22 @@ class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
     def post_writeoff(self, request, pk=None):
         """Post write-off — Dr Allowance / Cr AR.
 
-        WS-6 G-A: routed through IPSASJournalService.
+        WS-6 G-A: routed through IPSASJournalService via the extracted
+        ``bad_debt_writeoff_posting`` service so the same path is shared
+        with the ``document_approval_completed`` signal receiver.
         """
-        from accounting.services.ipsas_journal_service import (
-            IPSASJournalService, JournalPostingError,
-        )
+        from accounting.services.bad_debt_writeoff_posting import post_bad_debt_writeoff
+        from accounting.services.ipsas_journal_service import JournalPostingError
 
         try:
             with transaction.atomic():
                 wo = BadDebtWriteOff.objects.select_for_update().get(pk=pk)
                 if wo.status == 'POSTED':
                     return Response({"error": "Already posted."}, status=status.HTTP_400_BAD_REQUEST)
+                if wo.journal_id:
+                    return Response({"error": "Already posted (journal exists)."}, status=status.HTTP_400_BAD_REQUEST)
 
-                ar_account = get_gl_account('ACCOUNTS_RECEIVABLE', 'Asset', 'Receivable')
-                allowance_account = Account.objects.filter(
-                    name__icontains='Allowance', account_type='Asset',
-                ).first()
-
-                if not ar_account or not allowance_account:
-                    return Response({"error": "AR or Allowance account not found."}, status=status.HTTP_400_BAD_REQUEST)
-
-                journal = JournalHeader.objects.create(
-                    reference_number=f"BDWO-{wo.write_off_number}",
-                    description=f"Bad Debt Write-Off {wo.write_off_number}",
-                    posting_date=wo.write_off_date,
-                    status='Draft',
-                    source_module='workflow.bad_debt_writeoff',
-                    source_document_id=wo.pk,
-                )
-
-                amount = wo.amount_written_off
-                JournalLine.objects.create(
-                    header=journal, account=allowance_account,
-                    debit=amount, credit=Decimal('0.00'),
-                    memo=f"Write-off {wo.write_off_number}",
-                    document_number=journal.document_number,
-                )
-                JournalLine.objects.create(
-                    header=journal, account=ar_account,
-                    debit=Decimal('0.00'), credit=amount,
-                    memo=f"AR write-off {wo.write_off_number}",
-                    document_number=journal.document_number,
-                )
-
-                IPSASJournalService.post_journal(journal, user=request.user)
-
-                wo.journal_id = journal.id
-                wo.status = 'POSTED'
-                wo.save()
+                journal = post_bad_debt_writeoff(wo, user=request.user)
 
             return Response({"status": "Write-off posted.", "journal_id": journal.pk})
         except JournalPostingError as e:
