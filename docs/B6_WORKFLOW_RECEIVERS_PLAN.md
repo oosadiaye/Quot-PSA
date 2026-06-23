@@ -1,11 +1,13 @@
 # B6 Workflow Receivers — Implementation Plan (Remaining 10 types)
 
-**Status:** Five receivers landed:
+**Status:** Seven receivers landed:
 - `journalheader` — reference receiver (prior sprint)
 - `warrant` — reference receiver (prior sprint)
 - `appropriationvirement` — **DONE** (this sprint, `budget/signals.py`)
 - `revenuebudget` — **DONE** (this sprint, `budget/signals.py`)
 - `appropriation` — **DONE** (this sprint, `budget/signals.py`)
+- `revenuecollection` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service at `accounting/services/revenue_collection_posting.py`)
+- `paymentvoucher` / `paymentvouchergov` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service at `accounting/services/payment_voucher_posting.py`)
 
 This document covers the remaining types in priority order.
 
@@ -266,10 +268,10 @@ The HRM module has open PII work (employee data masking, audit trail for sensiti
 
 | # | Type | Domain file | Service exists? | Failure policy | Effort |
 |---|---|---|---|---|---|
-| 1 | paymentvoucher / paymentvouchergov | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Log-only | 2h |
+| 1 | paymentvoucher / paymentvouchergov | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/payment_voucher_posting.py`) | Log-only | 2h | **DONE** |
 | 2 | appropriation | `budget/signals.py` | Partial (extract from ViewSet) | Re-raise | 1.5h | **DONE** |
 | 3 | appropriationvirement | `budget/signals.py` | Yes (`budget/services_virement.py`) | Re-raise | 1h | **DONE** |
-| 4 | revenuecollection | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Log-only | 2h |
+| 4 | revenuecollection | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/revenue_collection_posting.py`) | Log-only | 2h | **DONE** |
 | 5 | revenuebudget | `budget/signals.py` | N/A (simple status flip) | Re-raise | 1h | **DONE** |
 | 6 | baddebtwriteoff | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Re-raise | 2h |
 | 7 | assetdisposal | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/asset_posting.py`) | Re-raise | 1.5h |
