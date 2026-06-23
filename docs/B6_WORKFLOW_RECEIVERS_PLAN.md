@@ -1,6 +1,8 @@
 # B6 Workflow Receivers — Implementation Plan (Remaining 10 types)
 
-**Status:** Ten receivers landed:
+**Status:** Accounting receivers: 8 of 8 DONE; remaining: contract chain (6), HRM (2 deferred).
+
+Receivers landed:
 - `journalheader` — reference receiver (prior sprint)
 - `warrant` — reference receiver (prior sprint)
 - `appropriationvirement` — **DONE** (this sprint, `budget/signals.py`)
@@ -11,6 +13,8 @@
 - `baddebtwriteoff` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service extracted to `accounting/services/bad_debt_writeoff_posting.py`; view refactored to call service)
 - `vendoradvance` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; calls `VendorAdvanceService.disburse()` with fields mapped from document; see parameter mapping note in receiver docstring)
 - `tsareconciliation` — **DONE** (B6 partial, `accounting/signals/workflow_dispatch.py`; service extracted to `accounting/services/tsa_reconciliation_service.py`; view refactored to call service; MFA bypass documented in service docstring)
+- `assetdisposal` — **DONE** (B6 final, `accounting/signals/workflow_dispatch.py`; calls `AssetPostingService.post_asset_disposal(disposal)`; receiver normalises `'Approved'` → `'APPROVED'` before service call — see status normalisation note in receiver docstring)
+- `fixedasset` — **BLOCKED** (investigation finding: `apply_asset_capitalization(journal)` takes a JournalHeader not a FixedAsset; `FixedAssetViewSet.acquire` is ViewSet-bound and requires `request.data` for payment method; `FixedAsset` has no `capitalisation_journal_id` field. A dedicated `FixedAssetPostingService.capitalise(asset)` method must be added before this receiver can be wired. Deferred to a future sprint.)
 
 This document covers the remaining types in priority order.
 
@@ -277,8 +281,8 @@ The HRM module has open PII work (employee data masking, audit trail for sensiti
 | 4 | revenuecollection | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/revenue_collection_posting.py`) | Log-only | 2h | **DONE** |
 | 5 | revenuebudget | `budget/signals.py` | N/A (simple status flip) | Re-raise | 1h | **DONE** |
 | 6 | baddebtwriteoff | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/bad_debt_writeoff_posting.py`) | Re-raise | 2h | **DONE** |
-| 7 | assetdisposal | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/asset_posting.py`) | Re-raise | 1.5h |
-| 8 | fixedasset | `accounting/signals/workflow_dispatch.py` | Partial (investigate first) | Re-raise | 2–3h |
+| 7 | assetdisposal | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/asset_posting.py`) | Re-raise | 1.5h | **DONE** |
+| 8 | fixedasset | `accounting/signals/workflow_dispatch.py` | Partial — needs `FixedAssetPostingService.capitalise(asset)` (see BLOCKED note above) | Re-raise | 2–3h | **BLOCKED** |
 | 9 | vendoradvance | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/vendor_advance.py`) | Re-raise | 2h | **DONE** |
 | 10 | tsareconciliation | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/tsa_reconciliation_service.py`) | Re-raise | 2h | **DONE** |
 | 11a | contract | `contracts/signals.py` (new) | Yes (contracts/services/) | Re-raise | 1.5h |

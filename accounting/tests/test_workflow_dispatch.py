@@ -725,3 +725,110 @@ class TestTSAReconciliationComplete:
             _fire_tsareconciliation('tsareconciliation', doc, action='reject')
 
         mock_svc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# AssetDisposal receiver tests
+# ---------------------------------------------------------------------------
+
+def _fire_assetdisposal(model_name, document, action='approve'):
+    """Call the assetdisposal receiver directly -- DB-free."""
+    from accounting.signals.workflow_dispatch import post_assetdisposal_on_approval
+
+    post_assetdisposal_on_approval(
+        sender=MagicMock(),
+        approval=MagicMock(pk=13),
+        model_name=model_name,
+        document=document,
+        action=action,
+    )
+
+
+class TestAssetDisposalPost:
+    """Tests for post_assetdisposal_on_approval."""
+
+    _PATCH_SERVICE = (
+        'accounting.services.asset_posting'
+        '.AssetPostingService.post_asset_disposal'
+    )
+
+    def _make_disposal(self, status='Approved', journal_id=None):
+        doc = MagicMock()
+        doc.pk = 800
+        doc.status = status
+        doc.journal_id = journal_id
+        return doc
+
+    def test_assetdisposal_fires_on_approve_and_normalises_status(self):
+        """Service called once; status normalised to 'APPROVED' BEFORE the
+        service is invoked (workflow sets title-case 'Approved', service
+        requires upper-case 'APPROVED')."""
+        doc = self._make_disposal(status='Approved')
+
+        # Capture doc.status at the moment the service is called.
+        captured_status: list[str] = []
+
+        def capture_and_return(disposal):
+            captured_status.append(disposal.status)
+
+        with patch(self._PATCH_SERVICE, side_effect=capture_and_return):
+            _fire_assetdisposal('assetdisposal', doc)
+
+        # Status was normalised before the call.
+        assert captured_status == ['APPROVED'], (
+            f"Expected 'APPROVED' at call time, got {captured_status}"
+        )
+        # doc.save was called to persist the status normalisation.
+        doc.save.assert_called_once_with(update_fields=['status'])
+
+    def test_assetdisposal_skipped_when_already_posted(self):
+        """Disposal with status='POSTED' is silently skipped (idempotency)."""
+        doc = self._make_disposal(status='POSTED')
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_assetdisposal('assetdisposal', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_assetdisposal_skipped_when_journal_id_set(self):
+        """Disposal with journal_id already set is silently skipped (idempotency --
+        posted via direct UI button before the workflow receiver fired)."""
+        doc = self._make_disposal(journal_id=55)
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_assetdisposal('assetdisposal', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_assetdisposal_other_model_name_ignored(self):
+        """Signal for a different model_name must not invoke the service."""
+        doc = self._make_disposal()
+
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_assetdisposal('fixedasset', doc)
+
+        mock_svc.assert_not_called()
+
+    def test_assetdisposal_failure_reraises(self):
+        """Service raises -> receiver re-raises (approval rolls back)."""
+        doc = self._make_disposal()
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=ValueError('GL period closed'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger, pytest.raises(ValueError, match='GL period closed'):
+            _fire_assetdisposal('assetdisposal', doc)
+
+        # Warning was logged before re-raise.
+        assert mock_logger.warning.called
+        log_msg = mock_logger.warning.call_args[0][0]
+        assert 'AssetDisposal' in log_msg
+
+    def test_assetdisposal_none_document_ignored(self):
+        """None document is silently skipped."""
+        with patch(self._PATCH_SERVICE) as mock_svc:
+            _fire_assetdisposal('assetdisposal', document=None)
+
+        mock_svc.assert_not_called()

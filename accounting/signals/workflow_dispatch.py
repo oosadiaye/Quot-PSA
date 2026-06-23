@@ -28,6 +28,9 @@ Failure policy (mirrors procurement/signals.py template):
 - TSAReconciliation completion failure: re-raise. A half-completed
   reconciliation (some payments marked reconciled, statement not locked)
   would create duplicate-reconciliation risk on the next cycle.
+- AssetDisposal GL-post failure: re-raise. A disposal approved but not
+  posted to GL leaves the fixed-asset register out of sync with the
+  balance sheet — silent asset overstatement.
 
 Idempotency:
 - Skip if JournalHeader.status is already 'Posted'.
@@ -40,6 +43,8 @@ Idempotency:
 - Skip if VendorAdvance.status is already 'CLEARED' or
   disbursement_journal_id is already set.
 - Skip if TSAReconciliation.status is already 'COMPLETED'.
+- Skip if AssetDisposal.status is already 'POSTED' or journal_id
+  is set.
 """
 import logging
 
@@ -496,6 +501,82 @@ if document_approval_completed is not None:
         except Exception as exc:
             logger.warning(
                 'Workflow-approved TSAReconciliation %s completion failed '
+                '(approval will be rolled back): %s',
+                getattr(document, 'pk', '?'),
+                exc,
+            )
+            raise
+
+    # -----------------------------------------------------------------------
+    # Receiver 7 — AssetDisposal GL posting
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.assetdisposal',
+    )
+    def post_assetdisposal_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Post an AssetDisposal to GL when its workflow approval completes.
+
+        Trigger: model_name='assetdisposal' + action='approve'.
+
+        The disposal journal (DR Accum Depr + DR Cash/Loss / CR Asset Cost +
+        CR Gain) is posted automatically so the fixed-asset register is
+        updated the moment the approving officer signs off — no separate
+        "Post to GL" click required.
+
+        Status normalisation:
+            The workflow engine sets ``disposal.status = 'Approved'``
+            (title case via the generic approval state machine).
+            ``AssetPostingService.post_asset_disposal`` guards that
+            ``disposal.status == 'APPROVED'`` (upper case). We normalise
+            here — inside the receiver — so we avoid touching
+            ``workflow/views.py:_trigger_document_action`` and risk
+            breaking the approval-state contract for the other 23+ document
+            types that use title-case 'Approved'. The save is intentionally
+            narrow (``update_fields=['status']``) so it does not re-trigger
+            full model save-time signals inside the workflow's atomic block.
+
+        Failure policy: re-raise. A half-posted disposal leaves the fixed-
+        asset register out of sync with the GL balance sheet — silent asset
+        overstatement. The approval rolls back so the operator can fix the
+        underlying cause (missing accounts, closed period) and re-approve.
+
+        Idempotency: skips silently if ``status == 'POSTED'`` or
+        ``journal_id`` is already set (disposal already posted via the
+        direct UI button before the workflow receiver fires, or a prior
+        run of this receiver succeeded).
+        """
+        if action != 'approve' or model_name != 'assetdisposal':
+            return
+
+        if document is None:
+            return
+
+        # Idempotency guards — already in a terminal posted state.
+        if getattr(document, 'status', None) == 'POSTED':
+            return
+        if getattr(document, 'journal_id', None):
+            return
+
+        # Workflow set 'Approved' (title case); service expects 'APPROVED'
+        # (upper case). Normalise here so we don't have to touch
+        # _trigger_document_action and risk breaking the existing
+        # approval-state contract for the other 23+ document types.
+        if getattr(document, 'status', None) == 'Approved':
+            document.status = 'APPROVED'
+            document.save(update_fields=['status'])
+
+        try:
+            from accounting.services.asset_posting import AssetPostingService
+
+            AssetPostingService.post_asset_disposal(document)
+
+        except Exception as exc:
+            logger.warning(
+                'Workflow-approved AssetDisposal %s GL posting failed '
                 '(approval will be rolled back): %s',
                 getattr(document, 'pk', '?'),
                 exc,
