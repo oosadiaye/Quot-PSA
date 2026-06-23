@@ -1,6 +1,12 @@
 # B6 Workflow Receivers — Implementation Plan (Remaining 10 types)
 
-**Status:** Two reference receivers already landed (journalheader, warrant).
+**Status:** Five receivers landed:
+- `journalheader` — reference receiver (prior sprint)
+- `warrant` — reference receiver (prior sprint)
+- `appropriationvirement` — **DONE** (this sprint, `budget/signals.py`)
+- `revenuebudget` — **DONE** (this sprint, `budget/signals.py`)
+- `appropriation` — **DONE** (this sprint, `budget/signals.py`)
+
 This document covers the remaining types in priority order.
 
 **Reference template:** `procurement/signals.py:auto_post_invoicematching_on_approval`
@@ -261,10 +267,10 @@ The HRM module has open PII work (employee data masking, audit trail for sensiti
 | # | Type | Domain file | Service exists? | Failure policy | Effort |
 |---|---|---|---|---|---|
 | 1 | paymentvoucher / paymentvouchergov | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Log-only | 2h |
-| 2 | appropriation | `budget/signals.py` | Partial (extract from ViewSet) | Re-raise | 1.5h |
-| 3 | appropriationvirement | `budget/signals.py` | Yes (`budget/services_virement.py`) | Re-raise | 1h |
+| 2 | appropriation | `budget/signals.py` | Partial (extract from ViewSet) | Re-raise | 1.5h | **DONE** |
+| 3 | appropriationvirement | `budget/signals.py` | Yes (`budget/services_virement.py`) | Re-raise | 1h | **DONE** |
 | 4 | revenuecollection | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Log-only | 2h |
-| 5 | revenuebudget | `budget/signals.py` | N/A (simple status flip) | Re-raise | 1h |
+| 5 | revenuebudget | `budget/signals.py` | N/A (simple status flip) | Re-raise | 1h | **DONE** |
 | 6 | baddebtwriteoff | `accounting/signals/workflow_dispatch.py` | Partial (extract from ViewSet) | Re-raise | 2h |
 | 7 | assetdisposal | `accounting/signals/workflow_dispatch.py` | Yes (`accounting/services/asset_posting.py`) | Re-raise | 1.5h |
 | 8 | fixedasset | `accounting/signals/workflow_dispatch.py` | Partial (investigate first) | Re-raise | 2–3h |
