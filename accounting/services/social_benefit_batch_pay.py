@@ -223,11 +223,21 @@ class SocialBenefitBatchPayService:
             ))
             JournalLine.objects.bulk_create(lines)
 
+            # Post through the canonical IPSAS posting pipeline instead of a
+            # direct ``status='Posted'`` flip. post_journal runs
+            # validate_journal (double-entry balance + postable-account
+            # checks), the closed-period gate, the SELECT FOR UPDATE
+            # concurrency guard, NCoA→legacy dimension sync, AND — critically
+            # — _update_gl_balances. The previous direct flip left GLBalance
+            # untouched, so social-benefit payments posted a "Posted" journal
+            # that never reached the trial balance (silent understatement).
             from django.utils import timezone
-            now = timezone.now()
-            header.status = 'Posted'
-            header.posted_at = now
-            header.save(update_fields=['status', 'posted_at'])
+            from accounting.services.ipsas_journal_service import (
+                IPSASJournalService,
+            )
+            IPSASJournalService.post_journal(header, user)
+            header.refresh_from_db()
+            now = header.posted_at or timezone.now()
 
             # Flip each claim APPROVED → PAID.
             paid_ids: list[int] = []
