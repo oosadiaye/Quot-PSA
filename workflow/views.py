@@ -1337,45 +1337,58 @@ class WorkflowInstanceViewSet(viewsets.ModelViewSet):
         if not action_name:
             return Response({"error": "Action is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if action_name == 'Submit' and instance.status == 'Draft':
-            instance.status = 'Pending'
-            instance.current_step = instance.workflow.steps.first()
-        elif action_name == 'Approve' and instance.status == 'Pending':
-            next_step = instance.workflow.steps.filter(sequence__gt=instance.current_step.sequence).first()
-            if next_step:
-                instance.current_step = next_step
-            else:
-                instance.status = 'Approved'
-                instance.current_step = None
-                self._trigger_document_approval(instance)
-        elif action_name == 'Reject':
-            instance.status = 'Rejected'
-            instance.current_step = None
+        # Wrap the whole state transition (instance status + linked-document
+        # status + log) in one transaction. Previously a failure to update the
+        # linked document was swallowed while the instance was still saved as
+        # 'Approved' and a 200 returned — leaving the workflow showing
+        # "Approved" while the document (e.g. a Payment Voucher) stayed in its
+        # old status. Now a document-update failure rolls the whole action
+        # back and surfaces a 500, so approval status and document status can
+        # never silently diverge.
+        try:
+            with transaction.atomic():
+                if action_name == 'Submit' and instance.status == 'Draft':
+                    instance.status = 'Pending'
+                    instance.current_step = instance.workflow.steps.first()
+                elif action_name == 'Approve' and instance.status == 'Pending':
+                    next_step = instance.workflow.steps.filter(sequence__gt=instance.current_step.sequence).first()
+                    if next_step:
+                        instance.current_step = next_step
+                    else:
+                        instance.status = 'Approved'
+                        instance.current_step = None
+                        self._trigger_document_approval(instance)
+                elif action_name == 'Reject':
+                    instance.status = 'Rejected'
+                    instance.current_step = None
 
-        instance.save()
+                instance.save()
 
-        WorkflowLog.objects.create(
-            instance=instance,
-            step=instance.current_step,
-            action=action_name,
-            comment=comment,
-            user_display=user_display
-        )
+                WorkflowLog.objects.create(
+                    instance=instance,
+                    step=instance.current_step,
+                    action=action_name,
+                    comment=comment,
+                    user_display=user_display
+                )
+        except Exception as exc:
+            logger.exception(
+                "workflow: process_action '%s' failed for instance %s",
+                action_name, instance.pk,
+            )
+            return Response(
+                {"error": f"Could not complete '{action_name}': {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(WorkflowInstanceSerializer(instance).data)
 
     def _trigger_document_approval(self, instance):
-        try:
-            doc = instance.content_object
-            if hasattr(doc, 'status'):
-                doc.status = 'Approved'
-                doc.save()
-        except Exception as exc:
-            logger.warning(
-                "workflow: could not update document status to Approved "
-                "for approval %s (content_type=%s, object_id=%s): %s",
-                instance.pk,
-                getattr(instance, 'content_type_id', '?'),
-                getattr(instance, 'object_id', '?'),
-                exc,
-            )
+        # Runs inside the process_action atomic block. Must re-raise on
+        # failure so the enclosing transaction rolls back the instance's
+        # 'Approved' status — otherwise the workflow reports Approved while
+        # the linked document was never updated.
+        doc = instance.content_object
+        if hasattr(doc, 'status'):
+            doc.status = 'Approved'
+            doc.save()

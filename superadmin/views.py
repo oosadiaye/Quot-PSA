@@ -701,7 +701,12 @@ def tenant_list(request):
     if not admin_username:
         admin_username = f"admin_{schema_name}"
     if not admin_email:
-        admin_email = f"admin@{schema_name}.dtsg.test"
+        # Derive a routable auto-email from the configured tenant base
+        # domain (the tenant actually lives at
+        # ``<schema>.<TENANT_SUBDOMAIN_BASE>``). The old ``.dtsg.test``
+        # literal was a non-routable legacy domain baked into every
+        # auto-provisioned admin's record.
+        admin_email = f"admin@{schema_name}.{django_settings.TENANT_SUBDOMAIN_BASE}"
 
     with schema_context('public'):
         if Client.objects.filter(schema_name=schema_name).exists():

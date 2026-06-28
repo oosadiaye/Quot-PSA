@@ -9,7 +9,7 @@
  *
  * On submit, triggers NCoA seeding for the selected state/tier.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -50,15 +50,18 @@ export default function GovernmentSetup() {
         staleTime: 60_000,
     });
 
-    // Pre-fill from current config
-    useState(() => {
+    // Pre-fill from current config once the query resolves. This MUST be a
+    // useEffect keyed on `config` — a useState lazy initializer runs only
+    // once at mount when `config` is still undefined (query unresolved), so
+    // the form never pre-filled on revisit.
+    useEffect(() => {
         if (config?.current?.is_configured) {
             setTier(config.current.government_tier);
             setStateCode(config.current.state_nbs_code);
             setLgaCode(config.current.lga_code);
             setLgaName(config.current.lga_name);
         }
-    });
+    }, [config]);
 
     const configureMutation = useMutation({
         mutationFn: async (payload: Record<string, string>) => {

@@ -79,14 +79,26 @@ export default function ExpiredVendors() {
     // Mass direct renew
     const handleMassDirectRenew = async () => {
         let renewed = 0;
+        const failed: number[] = [];
         for (const id of selected) {
             try {
                 await apiClient.post(`/procurement/vendors/${id}/direct_renew/`);
                 renewed++;
-            } catch { /* skip */ }
+            } catch {
+                // Don't silently drop failures — collect them so the
+                // operator learns some vendors are still expired (otherwise
+                // downstream PO issuance fails unexplained).
+                failed.push(id);
+            }
         }
-        flash(`${renewed} vendor(s) renewed`);
-        setSelected(new Set());
+        if (failed.length) {
+            // Keep the failed vendors selected so the user can retry.
+            flash(`${renewed} renewed, ${failed.length} failed — failed vendors kept selected for retry`);
+            setSelected(new Set(failed));
+        } else {
+            flash(`${renewed} vendor(s) renewed`);
+            setSelected(new Set());
+        }
         qc.invalidateQueries({ queryKey: ['vendors-expired'] });
         qc.invalidateQueries({ queryKey: ['vendors'] });
     };

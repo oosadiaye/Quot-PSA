@@ -374,6 +374,12 @@ def mark_commitment_closed_for_po(po) -> int:
                     getattr(po, 'po_number', po.pk), appropriation_ids, exc,
                     exc_info=True,
                 )
+                # Re-raise inside the atomic block so the CLOSED status update
+                # rolls back too — closing the commitment and refreshing the
+                # appropriation cache must succeed together or not at all.
+                # Matches create/cancel/invoiced which all re-raise here;
+                # leaving this one swallowed let budget ceilings drift silently.
+                raise
         return n
 
 
