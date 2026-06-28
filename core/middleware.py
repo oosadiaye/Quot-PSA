@@ -7,7 +7,7 @@ from django.utils.translation import activate
 
 LANGUAGE_SESSION_KEY = '_language'
 from django_tenants.middleware.main import TenantMainMiddleware
-from django_tenants.utils import schema_context
+from django_tenants.utils import schema_context, get_public_schema_name
 from tenants.models import Domain
 
 from .geolocation import detect_language, get_client_ip
@@ -246,6 +246,21 @@ class TenantAccessMiddleware:
 
         user = getattr(request, 'user', None)
         tenant = getattr(request, 'tenant', None)
+
+        # The public (platform) schema is not a tenant anyone is a
+        # "member" of — no ``UserTenantRole`` ever points at it. A request
+        # that resolved to the public schema (e.g. a browser still holding
+        # a login session cookie issues a bare, tenant-header-less call to
+        # an ``AllowAny`` endpoint like ``public-branding``; with no
+        # ``X-Tenant-Domain`` header ``TenantMainMiddleware`` resolves the
+        # host to ``public``) must NOT be run through the membership
+        # check, or every such request 403s with "You do not have access
+        # to this tenant". Public-schema endpoints are already guarded by
+        # their own ``permission_classes`` (``AllowAny`` for public
+        # branding, ``IsSuperAdminUser`` for superadmin), so skipping the
+        # tenant-membership gate here is safe.
+        if tenant is not None and getattr(tenant, 'schema_name', None) == get_public_schema_name():
+            return self.get_response(request)
 
         if user and user.is_authenticated and tenant:
             if not user.is_superuser:
