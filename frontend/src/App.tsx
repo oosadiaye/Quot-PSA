@@ -26,9 +26,6 @@ const AccountProfile = lazy(() => import('./pages/AccountProfile'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
-const LandingPage = lazy(() => import('./pages/public/LandingPage'));
-const PricingPage = lazy(() => import('./pages/public/PricingPage'));
-const ModuleDetailPage = lazy(() => import('./pages/public/ModuleDetailPage'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
@@ -280,15 +277,21 @@ import { App as AntApp } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 
 /**
- * Wrapper that shows a loading screen when `?impersonation=pending` is in the URL,
- * preventing the LandingPage from flashing before ImpersonationHandler redirects.
+ * Root route. The app has no public marketing surface — `/` exists only
+ * to funnel visitors to the login screen, which is the real entry point.
+ *
+ * The `?impersonation=pending` branch must stay ahead of the redirect.
+ * Superadmin impersonation hands off by landing on `/` with that flag
+ * set while `ImpersonationHandler` swaps the session and forwards the
+ * operator into the tenant. Redirecting unconditionally would drop the
+ * query string and strand them on the login page mid-handoff.
  */
-function LandingOrImpersonation() {
+function RootRoute() {
   const [searchParams] = useSearchParams();
   if (searchParams.get('impersonation') === 'pending') {
     return <LoadingScreen message="Setting up impersonation session..." />;
   }
-  return <LandingPage />;
+  return <Navigate to="/login" replace />;
 }
 
 function App() {
@@ -330,9 +333,7 @@ function App() {
                     <ErrorBoundary>
                     <Routes>
                       {/* ── Public / Auth ────────────────────────────── */}
-                      <Route path="/" element={<LandingOrImpersonation />} />
-                      <Route path="/pricing" element={<PricingPage />} />
-                      <Route path="/pricing/:moduleName" element={<ModuleDetailPage />} />
+                      <Route path="/" element={<RootRoute />} />
                       <Route path="/login" element={<Login />} />
                       <Route path="/register" element={<Register />} />
                       <Route path="/forgot-password" element={<ForgotPassword />} />
