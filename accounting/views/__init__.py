@@ -137,3 +137,8 @@ from .ipsas_reports import (  # noqa: F401
 
 # Settings (function-based views)
 from .settings_views import accounting_settings_api, seed_default_coa  # noqa: F401
+
+# Payment batching — bank payment/confirmation letter (additive)
+from .payment_batch import (  # noqa: F401
+    PaymentBatchViewSet, BankLetterSettingsViewSet,
+)
