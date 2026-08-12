@@ -6,6 +6,7 @@ from django.core.validators import MinValueValidator, FileExtensionValidator
 from core.models import AuditBaseModel, ImmutableModelMixin, StatusTransitionMixin, quantize_currency
 from accounting.models import Fund, Function, Program, Geo, Account, MDA, BudgetEncumbrance, WithholdingTax, TaxCode
 from accounting.budget_logic import check_budget_availability, get_active_budget
+from procurement.validators import validate_nuban
 from decimal import Decimal
 from datetime import date
 
@@ -139,7 +140,12 @@ class Vendor(AuditBaseModel):
 
     # Banking details
     bank_name = models.CharField(max_length=100, blank=True, default='')
-    bank_account_number = models.CharField(max_length=20, blank=True, default='')
+    bank_account_number = models.CharField(
+        max_length=20, blank=True, default='',
+        validators=[validate_nuban],
+        help_text='10-digit NUBAN. Optional here; required before the '
+                  'payment can join a bank payment batch.',
+    )
     bank_sort_code = models.CharField(max_length=10, blank=True, default='')
 
     class Meta:

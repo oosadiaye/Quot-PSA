@@ -107,3 +107,29 @@ class TestResolvePayeeSnapshot:
         assert snap['payee_bank'] == ''
         assert snap['payee_account'] == ''
         assert snap['amount'] == Decimal('10.00')
+
+
+@pytest.mark.unit
+class TestNUBANValidator:
+
+    def test_accepts_ten_digits(self):
+        from procurement.validators import validate_nuban
+        validate_nuban('0123456789')   # must not raise
+
+    def test_rejects_nine_digits(self):
+        from django.core.exceptions import ValidationError
+        from procurement.validators import validate_nuban
+        with pytest.raises(ValidationError):
+            validate_nuban('012345678')
+
+    def test_rejects_non_digits(self):
+        from django.core.exceptions import ValidationError
+        from procurement.validators import validate_nuban
+        with pytest.raises(ValidationError):
+            validate_nuban('01234-6789')
+
+    def test_allows_blank(self):
+        """Bank details stay optional on Vendor; completeness is enforced
+        at the batch boundary instead."""
+        from procurement.validators import validate_nuban
+        validate_nuban('')   # must not raise
