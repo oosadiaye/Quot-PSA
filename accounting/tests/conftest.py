@@ -409,3 +409,64 @@ def raw_journal(db):
         return header
 
     return _make
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Payment batching — bank payment/confirmation letter
+# ─────────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def bank_account_for_batch(db, cash_account):
+    """A government bank account that a payment batch can draw on.
+
+    ``currency=None`` is deliberate. ``BankAccount.currency`` is declared
+    ``ForeignKey(..., default=1, null=True)`` — a hardcoded PK default on
+    a nullable FK. In a fresh tenant schema no Currency row exists, so
+    letting the default apply raises a foreign-key IntegrityError. The
+    field is nullable, so passing None is the correct way to opt out.
+    """
+    from accounting.models import BankAccount
+    return BankAccount.objects.create(
+        name='Treasury Main', account_number='0100070001',
+        account_type='Bank', gl_account=cash_account,
+        bank_name='Premium Trust Bank', is_active=True,
+        currency=None,
+    )
+
+
+@pytest.fixture
+def batch_vendor(db):
+    from procurement.models import Vendor
+    return Vendor.objects.create(
+        name='ACME Ltd', code='V-ACME', is_active=True,
+        bank_name='Zenith Bank', bank_account_number='0123456789',
+    )
+
+
+@pytest.fixture
+def vendor_without_bank(db):
+    from procurement.models import Vendor
+    return Vendor.objects.create(name='NoBank Ltd', code='V-NOBANK', is_active=True)
+
+
+@pytest.fixture
+def make_posted_payment(db, bank_account_for_batch, batch_vendor):
+    """Factory for a Posted payment drawn on ``bank_account_for_batch``."""
+    from decimal import Decimal
+    from accounting.models import Payment
+
+    counter = {'n': 0}
+
+    def _make(vendor=None, bank_account=None, status='Posted', amount='100.00'):
+        counter['n'] += 1
+        return Payment.objects.create(
+            payment_number=f'PAY-{counter["n"]:04d}',
+            payment_method='Wire',
+            total_amount=Decimal(amount),
+            status=status,
+            bank_account=bank_account or bank_account_for_batch,
+            vendor=vendor or batch_vendor,
+            reference_number='Supply of stationery',
+        )
+
+    return _make
