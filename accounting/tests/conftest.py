@@ -435,6 +435,24 @@ def bank_account_for_batch(db, cash_account):
 
 
 @pytest.fixture
+def tenant_api_client(db):
+    """``APIClient`` pinned to the pytest tenant.
+
+    django-tenants resolves the tenant from the request host, and
+    ``APIClient`` sends ``testserver`` — which is not a registered
+    ``Domain``. An unregistered host makes django-tenants 404 EVERY url,
+    which looks exactly like a missing route and is a very easy hour to
+    lose.
+
+    ``core.middleware`` resolves ``X-Tenant-Domain`` ahead of the
+    hostname, and that is also how the real SPA selects its tenant, so
+    pinning the header here exercises the same path production uses.
+    """
+    from rest_framework.test import APIClient
+    return APIClient(HTTP_X_TENANT_DOMAIN='pytest.localhost')
+
+
+@pytest.fixture
 def batch_vendor(db):
     from procurement.models import Vendor
     return Vendor.objects.create(
