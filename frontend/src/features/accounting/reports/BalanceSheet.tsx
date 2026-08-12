@@ -7,14 +7,46 @@ import { useCurrency } from '../../../context/CurrencyContext';
 import { exportToCSV, exportToPDF } from '../utils/exportReport';
 import type { ExportOptions } from '../utils/exportReport';
 
+/** One line of a balance-sheet section, after normalisation. */
+export interface BalanceRow {
+    code: string;
+    name: string;
+    amount: number;
+}
+
 interface SectionProps {
     title: string;
     icon: React.ReactNode;
-    rows: { code: string; name: string; amount: number }[];
+    rows: BalanceRow[];
     total: number;
     accentColor: string;
     accentBg: string;
     borderColor: string;
+}
+
+/** Colour for a negative figure — never reuse the section accent, or a
+ *  credit-balance asset is indistinguishable from a normal one. */
+const NEGATIVE_COLOR = '#dc2626';
+
+/**
+ * Render a balance with its sign intact, in accounting convention.
+ *
+ * This report previously wrapped every figure in ``Math.abs()``. That hid
+ * genuine credit balances on asset accounts — the section header showed
+ * "+₦298,583.33" while the summary card below showed the raw
+ * "−₦298,583.33" for the same number, and four negative asset rows
+ * rendered as positive. A Statement of Financial Position that silently
+ * flips signs is worse than one that shows an ugly truth, so negatives
+ * are shown in parentheses (the accounting convention) and in red.
+ */
+function signed(value: number, formatCurrency: (n: number) => string) {
+    const isNegative = value < 0;
+    return {
+        text: isNegative
+            ? `(${formatCurrency(Math.abs(value))})`
+            : formatCurrency(value),
+        isNegative,
+    };
 }
 
 function ReportSection({ title, icon, rows, total, accentColor, accentBg, borderColor }: SectionProps) {
@@ -44,15 +76,32 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
                     {title}
                 </span>
                 <div style={{ flex: 1 }} />
-                <span style={{ fontSize: '15px', fontWeight: 700, color: accentColor }}>
-                    {formatCurrency(Math.abs(total))}
+                <span style={{
+                    fontSize: '15px', fontWeight: 700,
+                    color: signed(total, formatCurrency).isNegative
+                        ? NEGATIVE_COLOR : accentColor,
+                }}>
+                    {signed(total, formatCurrency).text}
                 </span>
             </div>
 
             {/* Rows */}
             {rows.length === 0 ? (
                 <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
-                    No accounts found for this period.
+                    {/* "No accounts found" beside a non-zero total reads as a
+                        contradiction. Equity legitimately has no posted
+                        accounts here — its balance is the accumulated
+                        surplus/deficit derived from income and expense — so
+                        say that instead of implying the section is empty. */}
+                    {total !== 0 ? (
+                        <>
+                            No posted accounts in this section. The balance
+                            above is the accumulated surplus/deficit derived
+                            from income and expense for the period.
+                        </>
+                    ) : (
+                        <>No accounts found for this period.</>
+                    )}
                 </div>
             ) : (
                 <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
@@ -76,11 +125,17 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
                                 <td style={{ padding: '10px 20px', color: '#334155' }}>
                                     {r.name}
                                 </td>
-                                <td style={{
-                                    padding: '10px 20px', textAlign: 'right',
-                                    fontWeight: 600, fontFamily: 'monospace', color: accentColor,
-                                }}>
-                                    {formatCurrency(Math.abs(r.amount))}
+                                <td
+                                    title={r.amount < 0
+                                        ? `${r.name} carries a credit balance of ${formatCurrency(Math.abs(r.amount))} — unusual for this section; check the postings.`
+                                        : undefined}
+                                    style={{
+                                        padding: '10px 20px', textAlign: 'right',
+                                        fontWeight: 600, fontFamily: 'monospace',
+                                        color: r.amount < 0 ? NEGATIVE_COLOR : accentColor,
+                                    }}
+                                >
+                                    {signed(r.amount, formatCurrency).text}
                                 </td>
                             </tr>
                         ))}
@@ -92,9 +147,10 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
                             </td>
                             <td style={{
                                 padding: '12px 20px', textAlign: 'right',
-                                fontWeight: 700, fontSize: '14px', fontFamily: 'monospace', color: accentColor,
+                                fontWeight: 700, fontSize: '14px', fontFamily: 'monospace',
+                                color: total < 0 ? NEGATIVE_COLOR : accentColor,
                             }}>
-                                {formatCurrency(Math.abs(total))}
+                                {signed(total, formatCurrency).text}
                             </td>
                         </tr>
                     </tfoot>
@@ -159,19 +215,19 @@ export default function BalanceSheet() {
                 {
                     title: 'Assets',
                     columns: cols,
-                    rows: assetRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: assetRows.map((r: BalanceRow) => ({ ...r, amount: signed(r.amount, formatCurrency).text })),
                     totals: { code: '', name: 'Total Assets', amount: formatCurrency(totalAssets) },
                 },
                 {
                     title: 'Liabilities',
                     columns: cols,
-                    rows: liabilityRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: liabilityRows.map((r: BalanceRow) => ({ ...r, amount: signed(r.amount, formatCurrency).text })),
                     totals: { code: '', name: 'Total Liabilities', amount: formatCurrency(totalLiabilities) },
                 },
                 {
                     title: 'Equity',
                     columns: cols,
-                    rows: equityRows.map((r: any) => ({ ...r, amount: formatCurrency(Math.abs(r.amount)) })),
+                    rows: equityRows.map((r: BalanceRow) => ({ ...r, amount: signed(r.amount, formatCurrency).text })),
                     totals: { code: '', name: 'Total Equity', amount: formatCurrency(totalEquity) },
                 },
             ],
