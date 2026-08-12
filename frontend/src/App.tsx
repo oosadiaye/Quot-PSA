@@ -27,6 +27,10 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
+const PaymentBatchListPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchListPage'));
+const PaymentBatchDetailPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchDetailPage'));
+const BankLetterPrintPreview = lazy(() => import('./features/accounting/payments/batches/BankLetterPrintPreview'));
+const BankLetterSettingsPage = lazy(() => import('./features/settings/BankLetterSettings'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
 // they render on EVERY authenticated page (no Suspense boundary
 // around them) so lazying them would require wrapping their host
@@ -421,6 +425,9 @@ function App() {
                       <Route path="/settings/backups" element={
                         <ProtectedRoute requiredRole="admin"><TenantSnapshotsPage /></ProtectedRoute>
                       } />
+                      <Route path="/settings/bank-letter" element={
+                        <ProtectedRoute requiredRole="admin"><BankLetterSettingsPage /></ProtectedRoute>
+                      } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════
                           Each group is wrapped in a pathless layout route.
@@ -462,6 +469,15 @@ function App() {
                         } />
                         <Route path="/accounting/payment-reconciliation-queue" element={
                           <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches" element={
+                          <ProtectedRoute><PaymentBatchListPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches/:id" element={
+                          <ProtectedRoute><PaymentBatchDetailPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches/:id/letter" element={
+                          <ProtectedRoute><BankLetterPrintPreview /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>
