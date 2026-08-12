@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
     Banknote, TrendingDown, CreditCard,
@@ -576,8 +577,13 @@ function SummaryCard({ label, value, sub, accent }: SummaryCardProps) {
 // ─── main page ────────────────────────────────────────────────────────────────
 export default function OutgoingPaymentsPage() {
     const { formatCurrency } = useCurrency();
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<ActiveTab>('payments');
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+    // Payments selected for a bank payment batch. Only ``Posted`` rows are
+    // selectable (see the checkbox column) — the batch service rejects
+    // anything that hasn't posted to GL yet.
+    const [selectedPaymentIds, setSelectedPaymentIds] = useState<number[]>([]);
 
     // Payment forms
     const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -842,14 +848,29 @@ export default function OutgoingPaymentsPage() {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
                     <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
                 </div>
-                <button onClick={() => setShowPaymentForm(true)} style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '9px 18px', border: 'none', borderRadius: '9px',
-                    background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
-                    cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-                }}>
-                    <Plus size={15} /> New Payment
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        disabled={selectedPaymentIds.length === 0}
+                        onClick={() => navigate('/accounting/payment-batches', {
+                            state: { presetPaymentIds: selectedPaymentIds },
+                        })}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '9px 18px', border: 'none', borderRadius: '9px',
+                            background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
+                            cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
+                        }}>
+                        Add to Batch ({selectedPaymentIds.length})
+                    </button>
+                    <button onClick={() => setShowPaymentForm(true)} style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '9px 18px', border: 'none', borderRadius: '9px',
+                        background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
+                        cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                    }}>
+                        <Plus size={15} /> New Payment
+                    </button>
+                </div>
             </div>
 
             {loadingPayments ? (
@@ -864,6 +885,7 @@ export default function OutgoingPaymentsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
+                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
                                 {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
@@ -872,6 +894,21 @@ export default function OutgoingPaymentsPage() {
                         <tbody>
                             {paymentsList.map((pay) => (
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {/* Only ``Posted`` payments can join a bank batch — the
+                                            batch service rejects anything still Draft/Cancelled,
+                                            so disable the checkbox rather than let the operator
+                                            pick a row the server will reject. */}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPaymentIds.includes(pay.id)}
+                                            disabled={pay.status !== 'Posted'}
+                                            onChange={(e) => setSelectedPaymentIds(prev => (
+                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
+                                            ))}
+                                            aria-label={`Select payment ${pay.payment_number} for batch`}
+                                        />
+                                    </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_date}</td>
