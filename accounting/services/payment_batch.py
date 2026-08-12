@@ -178,6 +178,14 @@ class PaymentBatchService:
         if missing:
             raise PaymentBatchError(f'Unknown payment ids: {sorted(missing)}')
 
+        # Assign S/N in the order the caller supplied, not the arbitrary
+        # order Postgres returns rows for a pk__in filter. The letter is a
+        # signed document: an operator who picks payments in a deliberate
+        # order must get that order, and two prints of one batch must be
+        # diffable line by line.
+        caller_order = {pk: index for index, pk in enumerate(payment_ids)}
+        payments.sort(key=lambda p: caller_order[p.pk])
+
         next_seq = (batch.lines.aggregate(m=Max('sequence'))['m'] or 0) + 1
         for payment in payments:
             snap = cls._validate_and_snapshot(payment, batch.source_bank_account)

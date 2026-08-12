@@ -324,3 +324,39 @@ class TestBatchTransitions:
         PaymentBatchService.remove_line(batch, line.id, user=None)
         with pytest.raises(ValidationError):
             PaymentBatchService.dispatch(batch, user=None)
+
+
+@pytest.mark.integration
+class TestLineOrdering:
+
+    def test_sn_follows_the_order_the_operator_supplied(
+            self, db, bank_account_for_batch, make_posted_payment):
+        """The letter is a signed document. If the operator picks payments
+        in a deliberate order, the S/N column must reflect it — a
+        pk__in filter returns rows in arbitrary order, so this is not
+        automatic.
+        """
+        from accounting.services.payment_batch import PaymentBatchService
+        payments = [make_posted_payment() for _ in range(4)]
+        # Deliberately NOT ascending-pk order.
+        chosen = [payments[2].id, payments[0].id, payments[3].id, payments[1].id]
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch, batch_date=None,
+            payment_ids=chosen, user=None)
+        by_sequence = list(batch.lines.order_by('sequence')
+                           .values_list('payment_id', flat=True))
+        assert by_sequence == chosen
+
+    def test_added_lines_continue_the_sequence(
+            self, db, bank_account_for_batch, make_posted_payment):
+        from accounting.services.payment_batch import PaymentBatchService
+        first = make_posted_payment()
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch, batch_date=None,
+            payment_ids=[first.id], user=None)
+        second = make_posted_payment()
+        third = make_posted_payment()
+        PaymentBatchService.add_payments(batch, [third.id, second.id], user=None)
+        by_sequence = list(batch.lines.order_by('sequence')
+                           .values_list('payment_id', flat=True))
+        assert by_sequence == [first.id, third.id, second.id]
