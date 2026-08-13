@@ -72,6 +72,10 @@ interface PaymentVoucherRow {
     invoice_vendor?: number | null;
     net_amount?: string;
     gross_amount?: string;
+    /** Invoice this PV was raised against. The API has always returned it
+     *  (accounting/serializers_treasury.py); the type simply never declared
+     *  it, so the allocation auto-match had nothing to read. */
+    invoice_number?: string;
 }
 interface PaymentRow {
     id: number;
@@ -272,6 +276,40 @@ function PaymentFormModal({
         : [];
     const outstandingTotal = selectedVendorInvoices.reduce((s, inv) => s + invoiceOutstanding(inv), 0);
 
+    /**
+     * Describes the relationship between the chosen PV and the allocation
+     * field, so the operator can see WHY an invoice is selected.
+     *
+     * Three states worth distinguishing:
+     *   matched          – the PV's invoice is selected (confirm it)
+     *   unmatchedNumber  – the PV names an invoice with nothing outstanding,
+     *                      so nothing was auto-filled. Silence here would
+     *                      read as "this PV has no invoice", which is wrong
+     *                      and invites allocating against the wrong row.
+     *   neither          – no PV chosen, or the PV names no invoice.
+     */
+    const pvAutoAllocation = (() => {
+        const empty = {
+            matched: false, voucherNumber: '', invoiceNumber: '', unmatchedNumber: '',
+        };
+        if (!form.payment_voucher) return empty;
+        const pv = paymentVouchers.find((p) => String(p.id) === String(form.payment_voucher));
+        const pvInvoiceNumber = (pv?.invoice_number || '').trim();
+        if (!pv || !pvInvoiceNumber) return empty;
+
+        const selected = openInvoices.find((inv) => String(inv.id) === String(form.invoice));
+        const isPvInvoice = Boolean(selected)
+            && (selected!.invoice_number || '').trim().toLowerCase()
+                === pvInvoiceNumber.toLowerCase();
+
+        return {
+            matched: isPvInvoice,
+            voucherNumber: pv.voucher_number || 'This PV',
+            invoiceNumber: pvInvoiceNumber,
+            unmatchedNumber: isPvInvoice ? '' : pvInvoiceNumber,
+        };
+    })();
+
     // When a PV is selected we want to auto-populate the Vendor (and, where
     // sensible, the amount and narration). Similarly, selecting a Vendor
     // first narrows the PV dropdown to only that vendor's approved PVs.
@@ -289,11 +327,42 @@ function PaymentFormModal({
         return Boolean(vendor && pv.payee_name && pv.payee_name.toLowerCase() === vendor.name.toLowerCase());
     });
 
+    /** Did `invoiceId` come from `pvId`'s invoice, rather than being chosen
+     *  by hand? Used to decide whether an allocation may be discarded when
+     *  the PV changes. */
+    const allocationCameFromPv = (pvId: string, invoiceId: string): boolean => {
+        const pv = paymentVouchers.find((p) => String(p.id) === String(pvId));
+        const pvInvoiceNumber = (pv?.invoice_number || '').trim().toLowerCase();
+        if (!pvInvoiceNumber) return false;
+        const selected = openInvoices.find((inv) => String(inv.id) === String(invoiceId));
+        return Boolean(selected)
+            && (selected!.invoice_number || '').trim().toLowerCase() === pvInvoiceNumber;
+    };
+
     const handlePvChange = (pvId: string) => {
-        set('payment_voucher', pvId);
-        if (!pvId) return;
+        // NOTE: everything below runs inside a single setForm updater.
+        //
+        // The original code called ``set('payment_voucher', pvId)`` here
+        // first. React applies queued updaters in order, so a later updater
+        // would already see the NEW voucher id in ``prev`` — making it
+        // impossible to ask "what was the PREVIOUS PV?" and silently
+        // defeating the stale-allocation check below.
+        if (!pvId) {
+            // Clearing the PV clears an allocation that the PV supplied,
+            // but leaves a hand-picked one alone.
+            setForm(prev => ({
+                ...prev,
+                payment_voucher: '',
+                invoice: allocationCameFromPv(prev.payment_voucher, prev.invoice)
+                    ? '' : prev.invoice,
+            }));
+            return;
+        }
         const pv = paymentVouchers.find((p) => String(p.id) === pvId);
-        if (!pv) return;
+        if (!pv) {
+            setForm(prev => ({ ...prev, payment_voucher: pvId }));
+            return;
+        }
         // Resolve the PV's vendor: first via direct FK, then via the
         // payee_name → vendors[] match.
         let vendorId: string | number | null | undefined = pv.vendor ?? pv.invoice_vendor ?? '';
@@ -303,14 +372,54 @@ function PaymentFormModal({
             );
             if (match) vendorId = String(match.id);
         }
-        setForm(prev => ({
-            ...prev,
-            payment_voucher: pvId,
-            vendor: vendorId ? String(vendorId) : prev.vendor,
-            // Only overwrite amount/reference if the user hasn't edited them
-            total_amount: prev.total_amount || pv.net_amount || pv.gross_amount || '',
-            reference_number: prev.reference_number || pv.voucher_number || '',
-        }));
+        // Auto-allocate the invoice the PV was raised against.
+        //
+        // A PV is created FROM a posted vendor invoice and records its
+        // number in ``invoice_number``. Making the operator then hunt for
+        // that same invoice among every open one is busywork, and picking
+        // the wrong row silently mis-allocates the payment. Resolving it
+        // here turns a manual search into a confirmation.
+        //
+        // Matched against ``openInvoices`` (the full list) rather than
+        // ``selectedVendorInvoices``: the latter is derived from
+        // ``form.vendor``, which is only being set in this same update and
+        // so is still stale at this point.
+        let matchedInvoiceId = '';
+        const pvInvoiceNumber = (pv.invoice_number || '').trim();
+        if (pvInvoiceNumber) {
+            const match = openInvoices.find((inv) =>
+                (inv.invoice_number || '').trim().toLowerCase()
+                    === pvInvoiceNumber.toLowerCase()
+                && invoiceOutstanding(inv) > 0.005,
+            );
+            if (match) matchedInvoiceId = String(match.id);
+        }
+
+        setForm(prev => {
+            // Was the CURRENT allocation auto-filled by the PREVIOUS PV?
+            //
+            // This decides what happens when the operator switches to a PV
+            // that resolves no invoice. Without the check, the outgoing PV's
+            // invoice stays attached: pick PV-A (invoice X), then switch to
+            // PV-B for a different amount, and the payment silently
+            // allocates PV-B's cash against PV-A's invoice. A deliberate
+            // manual choice, by contrast, is the operator's and is kept.
+            const prevWasAutoFilled = allocationCameFromPv(prev.payment_voucher, prev.invoice);
+
+            return {
+                ...prev,
+                payment_voucher: pvId,
+                vendor: vendorId ? String(vendorId) : prev.vendor,
+                // Only overwrite amount/reference if the user hasn't edited them
+                total_amount: prev.total_amount || pv.net_amount || pv.gross_amount || '',
+                reference_number: prev.reference_number || pv.voucher_number || '',
+                // The PV is authoritative about which invoice it settles.
+                //   match found            -> use it
+                //   none, was auto-filled  -> clear, so nothing stale carries over
+                //   none, chosen by hand   -> keep the operator's choice
+                invoice: matchedInvoiceId || (prevWasAutoFilled ? '' : prev.invoice),
+            };
+        });
     };
 
     const containerRef = useFocusTrap(true, onClose);
@@ -432,10 +541,23 @@ function PaymentFormModal({
                                     </option>
                                 ))}
                             </select>
-                            {/* Vendor-aware helper. Until a supplier is chosen the
+            {/* Vendor-aware helper. Until a supplier is chosen the
                                 picker has nothing to allocate against, so we say so
-                                instead of silently showing an empty/irrelevant list. */}
-                            {!form.vendor ? (
+                                instead of silently showing an empty/irrelevant list.
+                                The two PV branches come first: when a PV drove the
+                                selection, saying so is more useful than invoice
+                                counts, and an UNMATCHED PV invoice needs surfacing
+                                rather than silently leaving "no allocation". */}
+                            {pvAutoAllocation.matched ? (
+                                <p style={{ fontSize: '11px', color: '#059669', margin: '4px 0 0', fontWeight: 600 }}>
+                                    ✓ Auto-matched from {pvAutoAllocation.voucherNumber} — invoice {pvAutoAllocation.invoiceNumber}
+                                </p>
+                            ) : pvAutoAllocation.unmatchedNumber ? (
+                                <p style={{ fontSize: '11px', color: '#b45309', margin: '4px 0 0' }}>
+                                    {pvAutoAllocation.voucherNumber} references invoice <strong>{pvAutoAllocation.unmatchedNumber}</strong>,
+                                    which has no outstanding balance — allocate manually if this is intended.
+                                </p>
+                            ) : !form.vendor ? (
                                 <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>Select a vendor to see their open invoices.</p>
                             ) : selectedVendorInvoices.length === 0 ? (
                                 <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>No open (unallocated) invoices for this supplier.</p>
