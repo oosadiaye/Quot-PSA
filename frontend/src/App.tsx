@@ -31,6 +31,7 @@ const PaymentBatchListPage = lazy(() => import('./features/accounting/payments/b
 const PaymentBatchDetailPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchDetailPage'));
 const BankLetterPrintPreview = lazy(() => import('./features/accounting/payments/batches/BankLetterPrintPreview'));
 const BankLetterSettingsPage = lazy(() => import('./features/settings/BankLetterSettings'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
 // they render on EVERY authenticated page (no Suspense boundary
 // around them) so lazying them would require wrapping their host
@@ -930,6 +931,14 @@ function App() {
                           <ProtectedRoute><ApprovalHistory /></ProtectedRoute>
                         } />
                       </Route>
+
+                      {/* ── Catch-all ──────────────────────────────────
+                          Must stay LAST. Without it an unmatched URL
+                          rendered an empty document — no shell, no nav,
+                          just the skip link — stranding the user on a
+                          white screen. React Router ranks by specificity,
+                          so "*" only wins when nothing else matches. */}
+                      <Route path="*" element={<NotFound />} />
                     </Routes>
                     </ErrorBoundary>
                   </Suspense>

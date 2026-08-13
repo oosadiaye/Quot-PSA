@@ -71,10 +71,21 @@ def derive_wht_for_invoice(
         ``amount=Decimal('0')`` so callers can suppress prompting.
     """
     if invoice is None and invoice_number:
+        # ``tax_code`` and ``withholding_tax`` are fields of
+        # ``VendorInvoiceLine``, NOT of ``VendorInvoice``. Naming them in
+        # select_related made Django raise FieldError the moment the
+        # queryset was evaluated, so this function failed 100% of the time
+        # on the invoice_number path — the path both production callers
+        # use. The caller in serializers_treasury swallowed it with a bare
+        # ``except Exception``, so every payment voucher silently skipped
+        # withholding instead of deducting it.
+        #
+        # The line-level relations are already covered by the
+        # prefetch_related below, which is where they actually live.
         invoice = (
             VendorInvoice.objects
             .filter(invoice_number=invoice_number)
-            .select_related('vendor', 'tax_code', 'withholding_tax')
+            .select_related('vendor')
             .prefetch_related('lines__withholding_tax__withholding_account')
             .first()
         )

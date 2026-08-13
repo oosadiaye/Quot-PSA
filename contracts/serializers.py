@@ -230,6 +230,15 @@ class ContractSerializer(serializers.ModelSerializer):
     ncoa_economic_name = serializers.CharField(
         source='ncoa_code.economic.name', read_only=True, default='',
     )
+    # The contracts list renders a "Vendor" column keyed on ``vendor_name``,
+    # but the serializer only ever exposed ``vendor`` (the FK id) and
+    # ``vendor_ap_name`` — which is the AP *control account* ("Trade Vendors
+    # (Central)"), not the vendor. Every row therefore showed an em dash even
+    # though all contracts had a vendor set. This is the field the UI expects.
+    vendor_name = serializers.CharField(
+        source='vendor.name', read_only=True, default='')
+    vendor_code = serializers.CharField(
+        source='vendor.code', read_only=True, default='')
     vendor_ap_code = serializers.SerializerMethodField()
     vendor_ap_name = serializers.SerializerMethodField()
 
@@ -289,7 +298,8 @@ class ContractSerializer(serializers.ModelSerializer):
             "id", "contract_number",
             "title", "description", "reference",
             "contract_type", "procurement_method", "status",
-            "vendor", "mda", "ncoa_code", "appropriation", "fiscal_year",
+            "vendor", "vendor_name", "vendor_code",
+            "mda", "ncoa_code", "appropriation", "fiscal_year",
             # Per-segment ids (read-only) for form prefill on edit.
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",
