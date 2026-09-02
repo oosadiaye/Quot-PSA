@@ -1045,6 +1045,12 @@ def tenant_change_plan(request, tenant_id):
                         'is_active': True,
                     },
                 )
+            # Bust the module-enabled cache (core.permissions.ModuleEnabled)
+            try:
+                from core.permissions import invalidate_module_cache
+                invalidate_module_cache(tenant.pk)
+            except Exception:
+                pass
 
     send_plan_change_email(tenant, old_plan, plan)
     cache.delete('superadmin_dashboard_stats')
@@ -1263,7 +1269,8 @@ def global_module_toggle(request):
     tenants_qs = Client.objects.exclude(schema_name='public')
     updated_count = 0
     created_count = 0
-    for tenant in tenants_qs.only('schema_name'):
+    from core.permissions import invalidate_module_cache
+    for tenant in tenants_qs.only('id', 'schema_name'):
         with schema_context(tenant.schema_name):
             _, created = PerTenantModule.objects.update_or_create(
                 module_name=module_info[0],
@@ -1277,6 +1284,11 @@ def global_module_toggle(request):
                 created_count += 1
             else:
                 updated_count += 1
+        # Bust the per-tenant module cache for this toggle.
+        try:
+            invalidate_module_cache(tenant.pk, module_info[0])
+        except Exception:
+            pass
 
     return Response({
         'message': f'Module {"enabled" if is_enabled else "disabled"} globally',
@@ -1533,6 +1545,13 @@ def tenant_modules(request, tenant_id):
                     'is_active': is_active,
                 },
             )
+
+        # Bust the module-enabled cache (core.permissions.ModuleEnabled)
+        try:
+            from core.permissions import invalidate_module_cache
+            invalidate_module_cache(tenant.pk)
+        except Exception:
+            pass
 
     return Response({'message': 'Modules updated successfully'})
 

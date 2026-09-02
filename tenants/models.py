@@ -272,6 +272,27 @@ AVAILABLE_MODULES = [
     ('workflow',   'Workflow & Approvals',   'Approval Templates, Multi-level Workflows, Delegation'),
     ('reporting',  'Financial Reporting',    'IPSAS Statements, COFOG Reports, Budget vs Actual, Revenue Performance'),
     ('audit',      'Audit & Compliance',    'Audit Trail, Transaction Logs, Period Close, Year-End'),
+
+    # ── FUTURE_MODULES.md — 15 independently licensable modules ─────────────
+    # Keys are final; never rename them (they are billing identifiers and
+    # appear in ModulePricing.module_name, plan JSON, and tenant rows).
+    # Every key below FAILS CLOSED in core.permissions.ModuleEnabled until a
+    # TenantModule row is explicitly seeded active for the tenant.
+    ('budget_prep',      'Budget Preparation (MTEF/MTSS)', 'Fiscal Framework, Sector Envelopes, Budget Call Circular, MDA Submissions, Consolidation, hand-off to Appropriation'),
+    ('egp',              'e-Procurement & Tendering',      'Tender Notices, Bidder Registration, Sealed Bids, Bid Opening, Evaluation, Award, public supplier portal'),
+    ('personnel_budget', 'Establishment & Personnel Cost', 'Establishment Posts, Payroll Budget Gate, Personnel Cost Forecast'),
+    ('debt',             'Public Debt Management',        'Debt Instruments, Disbursements, Amortisation, Debt Service, Guarantees & Contingents'),
+    ('transparency',     'Fiscal Transparency Portal',    'Publication Policy, open data exports, citizen budget, redaction, unauthenticated public surface'),
+    ('results',          'Results & Performance (M&E)',   'Results Framework, Outcomes, Outputs, Indicators, Performance Reports'),
+    ('integrations',     'Integration Gateway',           'Remita, NIBSS, GIFMIS, IPPIS, BVN/TIN connectors with idempotent message exchange'),
+    ('revenue_admin',    'Revenue Administration (IGR)',  'Taxpayer Registry, Tax Accounts, Assessments, Demand Notices, Arrears, Enforcement, TCC'),
+    ('cash_planning',    'Cash Planning & Forecasting',   'Cash Plans, Forecast Engine, Cash Position, Warrant Recommendations'),
+    ('staff_advances',   'Staff Advances, Imprest & Travel', 'Staff Advances, Imprest accounts, Travel requests, retirement & payroll recovery'),
+    ('internal_audit',   'Internal Audit Management',     'Audit Universe, Plans, Engagements, Working Papers, Findings, Follow-up'),
+    ('fleet',            'Fleet Management',              'Vehicles extending Fixed Assets, fuel/mileage logs, maintenance, licence & insurance alerts'),
+    ('catalogue',        'Supplier Catalogue',            'Framework agreement catalogues, catalogue-driven requisition, price history'),
+    ('disclosure',       'Asset Declaration',             'Declaration Cycles, Asset Declarations, compliance register, field-level encryption'),
+    ('legal',            'Legal, Risk & Case Tracking',   'Legal Cases, Case Costs, Risk Register, linkage to Provisions'),
 ]
 
 

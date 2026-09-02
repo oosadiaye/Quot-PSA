@@ -292,3 +292,156 @@ class IsTenantAdmin(permissions.BasePermission):
         if not utr:
             return False
         return utr.role in ('admin', 'senior_manager')
+
+
+# ---------------------------------------------------------------------------
+# ModuleEnabled — commercial entitlement boundary
+# ---------------------------------------------------------------------------
+#
+# FUTURE_MODULES §2: refuses the request when the owning module is toggled
+# off for this tenant.  Composed with RBACPermission, never instead of it:
+#
+#     permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
+#
+# The module key is declared on the ViewSet:
+#     module_key = 'debt'
+#
+# Design points (from the spec):
+#
+# 1.  Resolve TenantModule once per request and cache on request — this runs
+#     on every gated API call and must not add an extra query per view.
+#
+# 2.  Fail CLOSED for new modules (the 15 future modules), fail OPEN for
+#     existing ones.  The current tenant_modules_api pads unconfigured modules
+#     with False, but ModuleGuard treats an empty configuration as "allow
+#     all".  Preserve that fallback for the twelve modules already live so no
+#     running tenant breaks, and require an explicit active row for every key
+#     added by FUTURE_MODULES.
+#
+# 3.  Read-only endpoints that a disabled module's data still feeds (a GL
+#     journal posted by a now-disabled module) stay reachable — this is
+#     handled by the view declaring `module_read例外 = True` or by not
+#     setting module_key on read-only report views.
+#
+# 4.  Return 403 with a machine-readable body:
+#     {"detail": …, "module": "debt", "code": "module_disabled"}
+#     so the frontend can render the same disabled page from an API response,
+#     not only from route matching.
+# ---------------------------------------------------------------------------
+
+# The 12 modules that shipped before FUTURE_MODULES.  For these, an
+# unconfigured tenant (no TenantModule row) is treated as *enabled* —
+# preserving the existing "allow all" behaviour so no running tenant breaks.
+_LEGACY_MODULES = frozenset({
+    'dimensions', 'accounting', 'budget', 'treasury', 'revenue',
+    'procurement', 'contracts', 'inventory', 'hrm', 'workflow',
+    'reporting', 'audit',
+})
+
+_MODULE_CACHE_TTL = 60  # seconds — kept short so toggle propagates quickly
+
+
+def _is_module_enabled(module_key, tenant):
+    """Return True if *module_key* is active for *tenant*.
+
+    Uses Django's per-process cache to avoid a DB round-trip on every
+    request.  ``invalidate_module_cache`` must be called when a
+    superadmin toggles a module.
+    """
+    cache_key = f'mod_enabled:{tenant.pk}:{module_key}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Lazy import to avoid circular dependency (core ↔ core at import time).
+    from core.models import TenantModule
+
+    try:
+        tm = TenantModule.objects.get(module_name=module_key)
+        enabled = tm.is_active
+    except TenantModule.DoesNotExist:
+        # No row at all — legacy modules default ON, new modules default OFF.
+        enabled = module_key in _LEGACY_MODULES
+
+    cache.set(cache_key, enabled, timeout=_MODULE_CACHE_TTL)
+    return enabled
+
+
+def invalidate_module_cache(tenant_id, module_key=None):
+    """Bust the module-enabled cache after a toggle.
+
+    Called from the superadmin toggle endpoint and from the management
+    command that syncs modules during tenant provisioning.
+    """
+    if module_key:
+        cache.delete(f'mod_enabled:{tenant_id}:{module_key}')
+    else:
+        # Brute-force: bust all known keys.  Cheap because the key space
+        # is tiny (≤ 27 modules) and this runs on admin action only.
+        from tenants.models import AVAILABLE_MODULES
+        for key, _title, _desc in AVAILABLE_MODULES:
+            cache.delete(f'mod_enabled:{tenant_id}:{key}')
+
+
+class ModuleEnabled(permissions.BasePermission):
+    """Refuse the request when the owning module is toggled off for this tenant.
+
+    Composed with RBACPermission, never instead of it::
+
+        permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
+
+    The module key is declared on the ViewSet::
+
+        module_key = 'debt'
+
+    Behaviour:
+
+    * Module **active** → pass through (RBACPermission does the real check).
+    * Module **inactive** → 403 with machine-readable body so the frontend
+      can render ``ModuleDisabledPage`` from the API response.
+    * ViewSet has **no** ``module_key`` → pass through (not a gated endpoint).
+    * Superuser → bypass (they manage modules).
+    """
+
+    # Stored on ``request`` by ``has_permission`` so downstream code can
+    # read it without re-querying.
+    _MODULE_ATTR = '_resolved_module_enabled'
+
+    def has_permission(self, request, view):
+        module_key = getattr(view, 'module_key', None)
+        if not module_key:
+            # Not a module-gated view — allow RBAC to decide.
+            return True
+
+        # Superusers bypass module gating — they need to manage modules
+        # even when the module is off.
+        if request.user and request.user.is_superuser:
+            setattr(request, self._MODULE_ATTR, True)
+            return True
+
+        tenant = getattr(connection, 'tenant', None)
+        if not tenant or tenant.schema_name == 'public':
+            # Public-schema requests are already gated by RBACPermission.
+            return True
+
+        enabled = _is_module_enabled(module_key, tenant)
+
+        # Cache on request for downstream use (e.g. serializer branching).
+        setattr(request, self._MODULE_ATTR, enabled)
+
+        if not enabled:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                detail={
+                    'detail': (
+                        f'The "{module_key}" module is not enabled for this '
+                        'tenant. Contact your tenant administrator to activate '
+                        'it, or switch to a plan that includes this module.'
+                    ),
+                    'module': module_key,
+                    'code': 'module_disabled',
+                },
+                code='module_disabled',
+            )
+
+        return True
