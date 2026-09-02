@@ -1,6 +1,6 @@
 /**
  * Appropriation admin — Quot PSE
- * Route: /budget/appropriations
+ * Route: /budget/appropriations/admin
  *
  * Lists the full appropriation register with filter + inline drawer
  * to create a new appropriation across all six NCoA dimensions

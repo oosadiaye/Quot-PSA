@@ -789,7 +789,7 @@ function App() {
                       <Route path="/admin/approval-rules" element={<ProtectedRoute requiredRole="admin"><ApprovalRulesPage /></ProtectedRoute>} />
                       <Route path="/admin/audit/overrides" element={<ProtectedRoute requiredRole="admin"><OverrideAuditPage /></ProtectedRoute>} />
                       <Route path="/admin/fiscal-years" element={<ProtectedRoute requiredRole="admin"><FiscalYearAdminPage /></ProtectedRoute>} />
-                      <Route path="/budget/appropriations" element={<ProtectedRoute><AppropriationAdminPage /></ProtectedRoute>} />
+                      <Route path="/budget/appropriations/admin" element={<ProtectedRoute><AppropriationAdminPage /></ProtectedRoute>} />
                       <Route path="/budget/commitment-report" element={<ProtectedRoute><CommitmentReport /></ProtectedRoute>} />
                       <Route path="/settings/government" element={<ProtectedRoute requiredRole="admin"><GovernmentSetup /></ProtectedRoute>} />
                       <Route path="/settings/organizations" element={<ProtectedRoute requiredRole="admin"><OrganizationManagement /></ProtectedRoute>} />
