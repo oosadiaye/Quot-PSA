@@ -731,11 +731,19 @@ class IPCService:
                 },
             )
 
-        # ``this_gross`` is the delta against *certified* (not
-        # submitted) — it represents the new gross certifiable amount
-        # this IPC adds to the books once approved.
+        # ``this_gross`` is the delta against the *highest value
+        # previously SUBMITTED on any IPC* (``previous_submitted``),
+        # NOT against ``previous_certified``. The ceiling check below
+        # already reserves submitted-but-unapproved gross via
+        # ``pending_voucher_amount`` (bumped under the row lock at
+        # submit time, line ~828). Anchoring ``this_gross`` on the
+        # certified baseline instead double-counts that reserved amount
+        # and lets two concurrent submissions over-certify the same
+        # work. Using ``previous_submitted`` is idempotent in the serial
+        # case (both baselines are equal once approved) and closes the
+        # over-certification race. C4 fix.
         this_gross = quantize_currency(
-            cumulative_work_done_to_date - previous_certified
+            cumulative_work_done_to_date - previous_submitted
         )
         if this_gross < ZERO:
             raise CoherenceError(
