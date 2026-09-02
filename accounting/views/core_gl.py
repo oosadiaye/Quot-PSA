@@ -5,13 +5,41 @@ from rest_framework.decorators import action
 from core.permissions import IsApprover
 from django.db.models import Sum, DecimalField
 from django.db.models.functions import Coalesce
-from django.db import transaction, connection
+from django.db import transaction, connection, IntegrityError
 from django.core.exceptions import ValidationError
+# Aliased explicitly: this is a DRF view module, and ``rest_framework``
+# also exports a ``ValidationError``. The journal-line validators raise
+# Django's, so the except clauses name it unambiguously.
+from django.core.exceptions import ValidationError as DjangoValidationError
 from decimal import Decimal
 import pandas as pd
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _integrity_error_message(exc: IntegrityError) -> str:
+    """Turn a Postgres constraint violation into operator-readable text.
+
+    Falls back to a generic message rather than echoing the raw database
+    error, which would leak table and index names to the client.
+    """
+    text = str(exc)
+    if 'uniq_journalheader_reference_number' in text:
+        return (
+            'That reference number is already in use. Note it stays '
+            'reserved even after a journal is deleted, so pick a new one.'
+        )
+    if 'jrn_line_not_both_sides' in text:
+        return 'A journal line cannot have both debit and credit amounts.'
+    if 'jrn_line_at_least_one_side' in text:
+        return 'A journal line must have either a debit or credit amount.'
+    if 'jrn_line_debit_nonneg' in text or 'jrn_line_credit_nonneg' in text:
+        return 'Journal line amounts cannot be negative.'
+    return (
+        'The journal could not be saved because it violates a database '
+        'constraint. Check the reference number and line amounts.'
+    )
 from .common import AccountingPagination
 from ..models import (
     Account, JournalHeader, JournalLine, Currency, GLBalance, MDA,
@@ -651,11 +679,26 @@ class JournalViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-        lines_data = request.data.get('lines', [])
+        # Validate the raw line payload BEFORE any arithmetic. Parsing
+        # Decimals off unvalidated input used to raise InvalidOperation /
+        # DoesNotExist / IntegrityError as unhandled 500s; every one of
+        # those is a client error and must be a 400. See
+        # accounting/services/journal_lines.py.
+        from accounting.services.journal_lines import (
+            assert_accounts_exist, journal_totals, validate_journal_lines,
+        )
+
+        try:
+            lines_data = validate_journal_lines(request.data.get('lines', []))
+            assert_accounts_exist(lines_data)
+        except DjangoValidationError as exc:
+            return Response(
+                {"error": ' '.join(exc.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Validate debits equal credits
-        total_debit = sum(Decimal(str(line.get('debit', 0))) for line in lines_data)
-        total_credit = sum(Decimal(str(line.get('credit', 0))) for line in lines_data)
+        total_debit, total_credit = journal_totals(lines_data)
 
         if total_debit != total_credit:
             return Response(
@@ -663,19 +706,32 @@ class JournalViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        with transaction.atomic():
-            # Create journal header
-            journal = serializer.save()
+        try:
+            with transaction.atomic():
+                # Create journal header
+                journal = serializer.save()
 
-            # Create journal lines
-            for line_data in lines_data:
-                JournalLine.objects.create(
-                    header=journal,
-                    account_id=line_data.get('account'),
-                    debit=line_data.get('debit', 0),
-                    credit=line_data.get('credit', 0),
-                    memo=line_data.get('memo', '')
-                )
+                # Create journal lines
+                for line_data in lines_data:
+                    JournalLine.objects.create(
+                        header=journal,
+                        account_id=line_data['account'],
+                        debit=line_data['debit'],
+                        credit=line_data['credit'],
+                        memo=line_data['memo'],
+                    )
+        except IntegrityError as exc:
+            # Backstop for DB constraints the Python validators above don't
+            # cover. The known one: ``uniq_journalheader_reference_number``
+            # does NOT exclude soft-deleted rows, so a deleted journal keeps
+            # its reference reserved and re-entering it violates the index.
+            # A constraint violation driven by request data is a client
+            # error — surface 400, never an unhandled 500 debug page.
+            logger.warning('Journal create rejected by a DB constraint: %s', exc)
+            return Response(
+                {"error": _integrity_error_message(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
             # NOTE: removed the legacy "auto-post if status is Posted"
             # branch. It used to fire when the request body included
@@ -702,12 +758,25 @@ class JournalViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance, data=request.data, partial=kwargs.get('partial', False))
         serializer.is_valid(raise_exception=True)
 
-        lines_data = request.data.get('lines', None)
+        raw_lines = request.data.get('lines', None)
 
-        # If lines provided, validate and update
-        if lines_data:
-            total_debit = sum(Decimal(str(line.get('debit', 0))) for line in lines_data)
-            total_credit = sum(Decimal(str(line.get('credit', 0))) for line in lines_data)
+        # Same up-front validation as ``create`` — an edit can carry the
+        # same malformed input and must fail the same way, with a 400.
+        lines_data = None
+        if raw_lines:
+            from accounting.services.journal_lines import (
+                assert_accounts_exist, journal_totals, validate_journal_lines,
+            )
+            try:
+                lines_data = validate_journal_lines(raw_lines)
+                assert_accounts_exist(lines_data)
+            except DjangoValidationError as exc:
+                return Response(
+                    {"error": ' '.join(exc.messages)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            total_debit, total_credit = journal_totals(lines_data)
 
             if total_debit != total_credit:
                 return Response(
@@ -723,10 +792,10 @@ class JournalViewSet(viewsets.ModelViewSet):
                 for line_data in lines_data:
                     JournalLine.objects.create(
                         header=instance,
-                        account_id=line_data.get('account'),
-                        debit=line_data.get('debit', 0),
-                        credit=line_data.get('credit', 0),
-                        memo=line_data.get('memo', '')
+                        account_id=line_data['account'],
+                        debit=line_data['debit'],
+                        credit=line_data['credit'],
+                        memo=line_data['memo'],
                     )
 
             journal = serializer.save()

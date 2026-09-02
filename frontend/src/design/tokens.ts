@@ -2,8 +2,8 @@
  * Design tokens that adapt to the current breakpoint.
  *
  * Not every value needs to be a token — only the ones that *should*
- * change with viewport. Static brand colours live in LandingPage
- * constants; changing spacing / type scale lives here.
+ * change with viewport. Static brand colours are supplied at runtime by
+ * BrandingProvider; changing spacing / type scale lives here.
  */
 import type { Breakpoint } from './breakpoints';
 

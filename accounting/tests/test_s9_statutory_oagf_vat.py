@@ -12,6 +12,8 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 
 # =============================================================================
@@ -126,9 +128,18 @@ class TestOAGFMFRExporter:
             parsed = next(csv.reader([line]))
             assert len(parsed) == 4
 
-    def test_missing_fiscal_year_adds_placeholder_note(self):
-        """Budget execution rows degrade gracefully when the FiscalYear
-        row doesn't exist."""
+    def test_missing_fiscal_year_records_partial_failure(self):
+        """Budget execution degrades gracefully when the FiscalYear row
+        doesn't exist — WITHOUT fabricating a zero/placeholder line on a
+        statutory return.
+
+        H8 compliance hardening (commit 5c29b1d): rather than emit a fake
+        'unavailable' budget row (which would still file a zero line to the
+        OAGF), the exporter now leaves the budget_execution section empty
+        and records a ``partial_failure`` so the operator is told to create
+        the FiscalYear and re-run. The overall return still produces (the
+        other sections survive) — it just refuses to invent budget data.
+        """
         from accounting.statutory.oagf import export_oagf_mfr
 
         with patch(
@@ -143,23 +154,42 @@ class TestOAGFMFRExporter:
             fy_filter.return_value.first.return_value = None
             result = export_oagf_mfr(year=2099, month=1)
 
+        # The section is present but carries NO fabricated rows.
         budget_section = next(
             r for r in result.rows if r['section'] == 'budget_execution'
         )
-        assert len(budget_section['items']) == 1
-        assert 'unavailable' in budget_section['items'][0]['label'].lower()
+        assert budget_section['items'] == []
+
+        # The failure is surfaced (not silently zeroed) as a partial failure
+        # naming the budget_execution section.
+        budget_failures = [
+            f for f in result.partial_failures
+            if f['section'] == 'budget_execution'
+        ]
+        assert len(budget_failures) == 1
+        assert 'fiscalyear' in budget_failures[0]['error'].lower() \
+            or 'fiscal year' in budget_failures[0]['error'].lower()
 
     def test_to_decimal_coerces_various_inputs(self):
-        """_to_decimal handles Decimal, int, float, str, and None."""
+        """_to_decimal handles Decimal, int, float, str, and the two
+        legitimate 'no data' markers (None, '')."""
         from accounting.statutory.oagf import _to_decimal
         assert _to_decimal(Decimal('5.5')) == Decimal('5.5')
         assert _to_decimal(5) == Decimal('5')
         assert _to_decimal(5.25) == Decimal('5.25')
         assert _to_decimal('100.50') == Decimal('100.50')
+        # None and empty string are legitimate "no data" markers → zero.
         assert _to_decimal(None) == Decimal('0')
         assert _to_decimal('') == Decimal('0')
-        # Non-parseable falls through to zero, not a raise.
-        assert _to_decimal('not a number') == Decimal('0')
+
+    def test_to_decimal_raises_on_garbage(self):
+        """H8 compliance hardening (commit 5c29b1d): an unparseable numeric
+        input is a statutory-return failure, NOT a silent zero. Previously a
+        single corrupt cell would file a zero line on the OAGF return."""
+        from accounting.statutory.oagf import _to_decimal
+        from accounting.statutory import StatutoryReturnError
+        with pytest.raises(StatutoryReturnError):
+            _to_decimal('not a number')
 
 
 # =============================================================================

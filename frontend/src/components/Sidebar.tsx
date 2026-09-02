@@ -140,6 +140,7 @@ const menuItems: MenuItem[] = [
             // to see "which advances are PENDING and need a PV raised".
             { name: 'Mobilization Advances', path: '/accounting/mobilization-advances', icon: Banknote },
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            { name: 'Payment Batches', path: '/accounting/payment-batches', icon: Layers },
             // H2 follow-up (WS6) — operator surface for cascade failures.
             // Sits next to Outgoing Payments because the failures come
             // from posted-payment cascades; this is the same operator
@@ -325,6 +326,7 @@ const menuItems: MenuItem[] = [
             // compose every AIE printout. Configure once at onboarding;
             // future signatory changes only need a new image upload.
             { name: 'Warrant Printout', path: '/settings/warrant-printout', icon: FileSignature },
+            { name: 'Bank Letter', path: '/settings/bank-letter', icon: Landmark },
             { name: 'Backups', path: '/settings/backups', icon: Archive },
         ],
     },

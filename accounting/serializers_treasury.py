@@ -1,10 +1,13 @@
 """
 Treasury & Revenue API Serializers — Quot PSE
 """
+import logging
 from decimal import Decimal
 from rest_framework import serializers
 from accounting.models.treasury import TreasuryAccount, PaymentVoucherGov, PaymentInstruction
 from accounting.models.revenue import RevenueHead, RevenueCollection
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Treasury Account ─────────────────────────────────────────────────
@@ -190,7 +193,20 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
                     invoice_number=pv.invoice_number,
                 )
             except Exception:
-                derived_wht = None  # never block PV creation on WHT lookup
+                # Deliberately non-fatal: a WHT lookup failure must not
+                # block disbursement. But it MUST be visible — this bare
+                # except hid a FieldError in derive_wht_for_invoice that
+                # made every PV silently skip withholding. WHT is remitted
+                # to FIRS, so "quietly deducted nothing" is the worst
+                # possible failure mode. Log loudly and carry on.
+                logger.exception(
+                    'WHT derivation failed for PV %s (invoice %s); the '
+                    'voucher will be created WITHOUT a withholding '
+                    'deduction. Investigate — this is a statutory '
+                    'deduction, not an optional one.',
+                    pv.voucher_number, pv.invoice_number,
+                )
+                derived_wht = None
 
         # Decide whether to inject the auto-derived WHT.
         # If the operator sent deductions but none of them is WHT, AND

@@ -78,6 +78,8 @@ from .views import (
     FundPerformanceView,
     # Settings
     accounting_settings_api, seed_default_coa,
+    # Payment batching
+    PaymentBatchViewSet, BankLetterSettingsViewSet,
 )
 
 router = DefaultRouter()
@@ -96,6 +98,9 @@ router.register(r'mdas', MDAViewSet, basename='mda')
 router.register(r'vendor-invoices', VendorInvoiceViewSet, basename='vendor-invoice')
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'payment-allocations', PaymentAllocationViewSet, basename='payment-allocation')
+router.register(r'payment-batches', PaymentBatchViewSet, basename='payment-batch')
+router.register(r'bank-letter-settings', BankLetterSettingsViewSet,
+                basename='bank-letter-settings')
 
 # ─── Receivables ───────────────────────────────────────────────
 router.register(r'customer-invoices', CustomerInvoiceViewSet, basename='customer-invoice')

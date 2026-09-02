@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
     Banknote, TrendingDown, CreditCard,
@@ -71,6 +72,10 @@ interface PaymentVoucherRow {
     invoice_vendor?: number | null;
     net_amount?: string;
     gross_amount?: string;
+    /** Invoice this PV was raised against. The API has always returned it
+     *  (accounting/serializers_treasury.py); the type simply never declared
+     *  it, so the allocation auto-match had nothing to read. */
+    invoice_number?: string;
 }
 interface PaymentRow {
     id: number;
@@ -271,6 +276,40 @@ function PaymentFormModal({
         : [];
     const outstandingTotal = selectedVendorInvoices.reduce((s, inv) => s + invoiceOutstanding(inv), 0);
 
+    /**
+     * Describes the relationship between the chosen PV and the allocation
+     * field, so the operator can see WHY an invoice is selected.
+     *
+     * Three states worth distinguishing:
+     *   matched          – the PV's invoice is selected (confirm it)
+     *   unmatchedNumber  – the PV names an invoice with nothing outstanding,
+     *                      so nothing was auto-filled. Silence here would
+     *                      read as "this PV has no invoice", which is wrong
+     *                      and invites allocating against the wrong row.
+     *   neither          – no PV chosen, or the PV names no invoice.
+     */
+    const pvAutoAllocation = (() => {
+        const empty = {
+            matched: false, voucherNumber: '', invoiceNumber: '', unmatchedNumber: '',
+        };
+        if (!form.payment_voucher) return empty;
+        const pv = paymentVouchers.find((p) => String(p.id) === String(form.payment_voucher));
+        const pvInvoiceNumber = (pv?.invoice_number || '').trim();
+        if (!pv || !pvInvoiceNumber) return empty;
+
+        const selected = openInvoices.find((inv) => String(inv.id) === String(form.invoice));
+        const isPvInvoice = Boolean(selected)
+            && (selected!.invoice_number || '').trim().toLowerCase()
+                === pvInvoiceNumber.toLowerCase();
+
+        return {
+            matched: isPvInvoice,
+            voucherNumber: pv.voucher_number || 'This PV',
+            invoiceNumber: pvInvoiceNumber,
+            unmatchedNumber: isPvInvoice ? '' : pvInvoiceNumber,
+        };
+    })();
+
     // When a PV is selected we want to auto-populate the Vendor (and, where
     // sensible, the amount and narration). Similarly, selecting a Vendor
     // first narrows the PV dropdown to only that vendor's approved PVs.
@@ -288,11 +327,42 @@ function PaymentFormModal({
         return Boolean(vendor && pv.payee_name && pv.payee_name.toLowerCase() === vendor.name.toLowerCase());
     });
 
+    /** Did `invoiceId` come from `pvId`'s invoice, rather than being chosen
+     *  by hand? Used to decide whether an allocation may be discarded when
+     *  the PV changes. */
+    const allocationCameFromPv = (pvId: string, invoiceId: string): boolean => {
+        const pv = paymentVouchers.find((p) => String(p.id) === String(pvId));
+        const pvInvoiceNumber = (pv?.invoice_number || '').trim().toLowerCase();
+        if (!pvInvoiceNumber) return false;
+        const selected = openInvoices.find((inv) => String(inv.id) === String(invoiceId));
+        return Boolean(selected)
+            && (selected!.invoice_number || '').trim().toLowerCase() === pvInvoiceNumber;
+    };
+
     const handlePvChange = (pvId: string) => {
-        set('payment_voucher', pvId);
-        if (!pvId) return;
+        // NOTE: everything below runs inside a single setForm updater.
+        //
+        // The original code called ``set('payment_voucher', pvId)`` here
+        // first. React applies queued updaters in order, so a later updater
+        // would already see the NEW voucher id in ``prev`` — making it
+        // impossible to ask "what was the PREVIOUS PV?" and silently
+        // defeating the stale-allocation check below.
+        if (!pvId) {
+            // Clearing the PV clears an allocation that the PV supplied,
+            // but leaves a hand-picked one alone.
+            setForm(prev => ({
+                ...prev,
+                payment_voucher: '',
+                invoice: allocationCameFromPv(prev.payment_voucher, prev.invoice)
+                    ? '' : prev.invoice,
+            }));
+            return;
+        }
         const pv = paymentVouchers.find((p) => String(p.id) === pvId);
-        if (!pv) return;
+        if (!pv) {
+            setForm(prev => ({ ...prev, payment_voucher: pvId }));
+            return;
+        }
         // Resolve the PV's vendor: first via direct FK, then via the
         // payee_name → vendors[] match.
         let vendorId: string | number | null | undefined = pv.vendor ?? pv.invoice_vendor ?? '';
@@ -302,14 +372,54 @@ function PaymentFormModal({
             );
             if (match) vendorId = String(match.id);
         }
-        setForm(prev => ({
-            ...prev,
-            payment_voucher: pvId,
-            vendor: vendorId ? String(vendorId) : prev.vendor,
-            // Only overwrite amount/reference if the user hasn't edited them
-            total_amount: prev.total_amount || pv.net_amount || pv.gross_amount || '',
-            reference_number: prev.reference_number || pv.voucher_number || '',
-        }));
+        // Auto-allocate the invoice the PV was raised against.
+        //
+        // A PV is created FROM a posted vendor invoice and records its
+        // number in ``invoice_number``. Making the operator then hunt for
+        // that same invoice among every open one is busywork, and picking
+        // the wrong row silently mis-allocates the payment. Resolving it
+        // here turns a manual search into a confirmation.
+        //
+        // Matched against ``openInvoices`` (the full list) rather than
+        // ``selectedVendorInvoices``: the latter is derived from
+        // ``form.vendor``, which is only being set in this same update and
+        // so is still stale at this point.
+        let matchedInvoiceId = '';
+        const pvInvoiceNumber = (pv.invoice_number || '').trim();
+        if (pvInvoiceNumber) {
+            const match = openInvoices.find((inv) =>
+                (inv.invoice_number || '').trim().toLowerCase()
+                    === pvInvoiceNumber.toLowerCase()
+                && invoiceOutstanding(inv) > 0.005,
+            );
+            if (match) matchedInvoiceId = String(match.id);
+        }
+
+        setForm(prev => {
+            // Was the CURRENT allocation auto-filled by the PREVIOUS PV?
+            //
+            // This decides what happens when the operator switches to a PV
+            // that resolves no invoice. Without the check, the outgoing PV's
+            // invoice stays attached: pick PV-A (invoice X), then switch to
+            // PV-B for a different amount, and the payment silently
+            // allocates PV-B's cash against PV-A's invoice. A deliberate
+            // manual choice, by contrast, is the operator's and is kept.
+            const prevWasAutoFilled = allocationCameFromPv(prev.payment_voucher, prev.invoice);
+
+            return {
+                ...prev,
+                payment_voucher: pvId,
+                vendor: vendorId ? String(vendorId) : prev.vendor,
+                // Only overwrite amount/reference if the user hasn't edited them
+                total_amount: prev.total_amount || pv.net_amount || pv.gross_amount || '',
+                reference_number: prev.reference_number || pv.voucher_number || '',
+                // The PV is authoritative about which invoice it settles.
+                //   match found            -> use it
+                //   none, was auto-filled  -> clear, so nothing stale carries over
+                //   none, chosen by hand   -> keep the operator's choice
+                invoice: matchedInvoiceId || (prevWasAutoFilled ? '' : prev.invoice),
+            };
+        });
     };
 
     const containerRef = useFocusTrap(true, onClose);
@@ -431,10 +541,23 @@ function PaymentFormModal({
                                     </option>
                                 ))}
                             </select>
-                            {/* Vendor-aware helper. Until a supplier is chosen the
+            {/* Vendor-aware helper. Until a supplier is chosen the
                                 picker has nothing to allocate against, so we say so
-                                instead of silently showing an empty/irrelevant list. */}
-                            {!form.vendor ? (
+                                instead of silently showing an empty/irrelevant list.
+                                The two PV branches come first: when a PV drove the
+                                selection, saying so is more useful than invoice
+                                counts, and an UNMATCHED PV invoice needs surfacing
+                                rather than silently leaving "no allocation". */}
+                            {pvAutoAllocation.matched ? (
+                                <p style={{ fontSize: '11px', color: '#059669', margin: '4px 0 0', fontWeight: 600 }}>
+                                    ✓ Auto-matched from {pvAutoAllocation.voucherNumber} — invoice {pvAutoAllocation.invoiceNumber}
+                                </p>
+                            ) : pvAutoAllocation.unmatchedNumber ? (
+                                <p style={{ fontSize: '11px', color: '#b45309', margin: '4px 0 0' }}>
+                                    {pvAutoAllocation.voucherNumber} references invoice <strong>{pvAutoAllocation.unmatchedNumber}</strong>,
+                                    which has no outstanding balance — allocate manually if this is intended.
+                                </p>
+                            ) : !form.vendor ? (
                                 <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>Select a vendor to see their open invoices.</p>
                             ) : selectedVendorInvoices.length === 0 ? (
                                 <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>No open (unallocated) invoices for this supplier.</p>
@@ -576,8 +699,13 @@ function SummaryCard({ label, value, sub, accent }: SummaryCardProps) {
 // ─── main page ────────────────────────────────────────────────────────────────
 export default function OutgoingPaymentsPage() {
     const { formatCurrency } = useCurrency();
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<ActiveTab>('payments');
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+    // Payments selected for a bank payment batch. Only ``Posted`` rows are
+    // selectable (see the checkbox column) — the batch service rejects
+    // anything that hasn't posted to GL yet.
+    const [selectedPaymentIds, setSelectedPaymentIds] = useState<number[]>([]);
 
     // Payment forms
     const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -842,14 +970,29 @@ export default function OutgoingPaymentsPage() {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
                     <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
                 </div>
-                <button onClick={() => setShowPaymentForm(true)} style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '9px 18px', border: 'none', borderRadius: '9px',
-                    background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
-                    cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-                }}>
-                    <Plus size={15} /> New Payment
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        disabled={selectedPaymentIds.length === 0}
+                        onClick={() => navigate('/accounting/payment-batches', {
+                            state: { presetPaymentIds: selectedPaymentIds },
+                        })}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '9px 18px', border: 'none', borderRadius: '9px',
+                            background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
+                            cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
+                        }}>
+                        Add to Batch ({selectedPaymentIds.length})
+                    </button>
+                    <button onClick={() => setShowPaymentForm(true)} style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '9px 18px', border: 'none', borderRadius: '9px',
+                        background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
+                        cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                    }}>
+                        <Plus size={15} /> New Payment
+                    </button>
+                </div>
             </div>
 
             {loadingPayments ? (
@@ -864,6 +1007,7 @@ export default function OutgoingPaymentsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
+                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
                                 {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
@@ -872,6 +1016,21 @@ export default function OutgoingPaymentsPage() {
                         <tbody>
                             {paymentsList.map((pay) => (
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {/* Only ``Posted`` payments can join a bank batch — the
+                                            batch service rejects anything still Draft/Cancelled,
+                                            so disable the checkbox rather than let the operator
+                                            pick a row the server will reject. */}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPaymentIds.includes(pay.id)}
+                                            disabled={pay.status !== 'Posted'}
+                                            onChange={(e) => setSelectedPaymentIds(prev => (
+                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
+                                            ))}
+                                            aria-label={`Select payment ${pay.payment_number} for batch`}
+                                        />
+                                    </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_date}</td>

@@ -429,7 +429,10 @@ class TestHappyPath:
         Asserts ContractBalance progression at each stage.
         """
         bal = ContractBalance.objects.get(pk=activated_contract.pk)
-        assert bal.contract_ceiling == Decimal("100000000.00")
+        # 5% upfront retention (draft_contract fixture retention_rate=5.00)
+        # reduces the IPC ceiling: 100,000,000 - 5,000,000 = 95,000,000.
+        # See Contract.contract_ceiling (contracts/models/contract.py).
+        assert bal.contract_ceiling == Decimal("95000000.00")
         assert bal.cumulative_gross_certified == Decimal("0.00")
         assert bal.pending_voucher_amount == Decimal("0.00")
 

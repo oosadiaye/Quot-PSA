@@ -26,10 +26,12 @@ const AccountProfile = lazy(() => import('./pages/AccountProfile'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
-const LandingPage = lazy(() => import('./pages/public/LandingPage'));
-const PricingPage = lazy(() => import('./pages/public/PricingPage'));
-const ModuleDetailPage = lazy(() => import('./pages/public/ModuleDetailPage'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
+const PaymentBatchListPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchListPage'));
+const PaymentBatchDetailPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchDetailPage'));
+const BankLetterPrintPreview = lazy(() => import('./features/accounting/payments/batches/BankLetterPrintPreview'));
+const BankLetterSettingsPage = lazy(() => import('./features/settings/BankLetterSettings'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
 // they render on EVERY authenticated page (no Suspense boundary
 // around them) so lazying them would require wrapping their host
@@ -279,15 +281,21 @@ import { App as AntApp } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 
 /**
- * Wrapper that shows a loading screen when `?impersonation=pending` is in the URL,
- * preventing the LandingPage from flashing before ImpersonationHandler redirects.
+ * Root route. The app has no public marketing surface — `/` exists only
+ * to funnel visitors to the login screen, which is the real entry point.
+ *
+ * The `?impersonation=pending` branch must stay ahead of the redirect.
+ * Superadmin impersonation hands off by landing on `/` with that flag
+ * set while `ImpersonationHandler` swaps the session and forwards the
+ * operator into the tenant. Redirecting unconditionally would drop the
+ * query string and strand them on the login page mid-handoff.
  */
-function LandingOrImpersonation() {
+function RootRoute() {
   const [searchParams] = useSearchParams();
   if (searchParams.get('impersonation') === 'pending') {
     return <LoadingScreen message="Setting up impersonation session..." />;
   }
-  return <LandingPage />;
+  return <Navigate to="/login" replace />;
 }
 
 function App() {
@@ -329,9 +337,7 @@ function App() {
                     <ErrorBoundary>
                     <Routes>
                       {/* ── Public / Auth ────────────────────────────── */}
-                      <Route path="/" element={<LandingOrImpersonation />} />
-                      <Route path="/pricing" element={<PricingPage />} />
-                      <Route path="/pricing/:moduleName" element={<ModuleDetailPage />} />
+                      <Route path="/" element={<RootRoute />} />
                       <Route path="/login" element={<Login />} />
                       <Route path="/register" element={<Register />} />
                       <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -420,6 +426,9 @@ function App() {
                       <Route path="/settings/backups" element={
                         <ProtectedRoute requiredRole="admin"><TenantSnapshotsPage /></ProtectedRoute>
                       } />
+                      <Route path="/settings/bank-letter" element={
+                        <ProtectedRoute requiredRole="admin"><BankLetterSettingsPage /></ProtectedRoute>
+                      } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════
                           Each group is wrapped in a pathless layout route.
@@ -461,6 +470,15 @@ function App() {
                         } />
                         <Route path="/accounting/payment-reconciliation-queue" element={
                           <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches" element={
+                          <ProtectedRoute><PaymentBatchListPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches/:id" element={
+                          <ProtectedRoute><PaymentBatchDetailPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-batches/:id/letter" element={
+                          <ProtectedRoute><BankLetterPrintPreview /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>
@@ -771,7 +789,7 @@ function App() {
                       <Route path="/admin/approval-rules" element={<ProtectedRoute requiredRole="admin"><ApprovalRulesPage /></ProtectedRoute>} />
                       <Route path="/admin/audit/overrides" element={<ProtectedRoute requiredRole="admin"><OverrideAuditPage /></ProtectedRoute>} />
                       <Route path="/admin/fiscal-years" element={<ProtectedRoute requiredRole="admin"><FiscalYearAdminPage /></ProtectedRoute>} />
-                      <Route path="/budget/appropriations" element={<ProtectedRoute><AppropriationAdminPage /></ProtectedRoute>} />
+                      <Route path="/budget/appropriations/admin" element={<ProtectedRoute><AppropriationAdminPage /></ProtectedRoute>} />
                       <Route path="/budget/commitment-report" element={<ProtectedRoute><CommitmentReport /></ProtectedRoute>} />
                       <Route path="/settings/government" element={<ProtectedRoute requiredRole="admin"><GovernmentSetup /></ProtectedRoute>} />
                       <Route path="/settings/organizations" element={<ProtectedRoute requiredRole="admin"><OrganizationManagement /></ProtectedRoute>} />
@@ -913,6 +931,14 @@ function App() {
                           <ProtectedRoute><ApprovalHistory /></ProtectedRoute>
                         } />
                       </Route>
+
+                      {/* ── Catch-all ──────────────────────────────────
+                          Must stay LAST. Without it an unmatched URL
+                          rendered an empty document — no shell, no nav,
+                          just the skip link — stranding the user on a
+                          white screen. React Router ranks by specificity,
+                          so "*" only wins when nothing else matches. */}
+                      <Route path="*" element={<NotFound />} />
                     </Routes>
                     </ErrorBoundary>
                   </Suspense>

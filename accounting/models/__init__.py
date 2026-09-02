@@ -38,6 +38,9 @@ from accounting.models.payment_reconciliation import (  # noqa: F401
     PaymentCascadeFailure,
 )
 from accounting.models.async_export import AsyncExportJob  # noqa: F401
+from accounting.models.payment_batch import (  # noqa: F401
+    BankLetterSettings, PaymentBatch, PaymentBatchLine,
+)
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -241,4 +244,9 @@ __all__ = [
 
     # async_export.py — off-worker report export (additive)
     'AsyncExportJob',
+
+    # payment_batch.py — bank payment/confirmation letter (additive)
+    'BankLetterSettings',
+    'PaymentBatch',
+    'PaymentBatchLine',
 ]

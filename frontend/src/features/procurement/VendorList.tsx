@@ -699,7 +699,21 @@ const VendorList = () => {
                                     {vendors?.map((vendor: any) => (
                                         <tr key={vendor.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                             <td style={tdStyle}><span style={{ fontWeight: 600 }}>{vendor.code}</span></td>
-                                            <td style={tdStyle}>{vendor.name}</td>
+                                            <td style={tdStyle}>
+                                                {vendor.name}
+                                                {(!vendor.bank_name || !vendor.bank_account_number) && (
+                                                    <span
+                                                        title="Add bank name and 10-digit NUBAN before this vendor can be paid in a bank payment batch."
+                                                        style={{
+                                                            marginLeft: 8, padding: '1px 6px', borderRadius: 4,
+                                                            background: '#fef3c7', color: '#92400e',
+                                                            fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        Bank details missing
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td style={tdStyle}>{vendor.category_name || '-'}</td>
                                             <td style={tdStyle}>{vendor.registration_number || '-'}</td>
                                             <td style={tdStyle}>{vendor.expiry_date || '-'}</td>

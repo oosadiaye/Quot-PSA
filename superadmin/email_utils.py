@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from django.core.mail.backends.smtp import EmailBackend
 
 from .models import SuperAdminSettings
@@ -39,7 +40,9 @@ def _get_from_email(sa_settings=None):
         sa_settings = SuperAdminSettings.load()
     if sa_settings and sa_settings.smtp_from_email:
         return f"{sa_settings.smtp_from_name} <{sa_settings.smtp_from_email}>"
-    return 'noreply@dtsg.test'
+    # Fall back to the configured platform From address, not a non-routable
+    # legacy ``dtsg.test`` literal.
+    return settings.DEFAULT_FROM_EMAIL
 
 
 def send_test_email(to_email):

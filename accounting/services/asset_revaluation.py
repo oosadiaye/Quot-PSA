@@ -291,11 +291,10 @@ class AssetRevaluationRunService:
         if revaluation.status != 'DRAFT':
             raise ValueError(f"Cannot post revaluation in status: {revaluation.status}")
 
-        gain_account = Account.objects.filter(code=revaluation.revaluation_gain_account).first()
         loss_account = Account.objects.filter(code=revaluation.revaluation_loss_account).first()
         surplus_account = Account.objects.filter(code=revaluation.revaluation_surplus_account).first()
 
-        if not all([gain_account, loss_account, surplus_account]):
+        if not all([loss_account, surplus_account]):
             raise ValueError("Required revaluation accounts not found")
 
         journal_lines = []
@@ -318,9 +317,7 @@ class AssetRevaluationRunService:
                 })
 
             if detail.accum_depr_adjustment != 0:
-                accum_depr_account = Account.objects.filter(
-                    code=f"{asset.asset_code}-AD"
-                ).first() or asset.asset_account
+                accum_depr_account = asset.accumulated_depreciation_account or asset.asset_account
 
                 journal_lines.append({
                     'account_id': accum_depr_account.id if accum_depr_account else None,
@@ -343,13 +340,7 @@ class AssetRevaluationRunService:
                 'credit_amount': total_surplus_journal,
                 'cost_center_id': None,
             })
-            journal_lines.append({
-                'account_id': gain_account.id,
-                'description': 'Revaluation gain on asset disposal',
-                'debit_amount': Decimal('0'),
-                'credit_amount': total_surplus_journal,
-                'cost_center_id': None,
-            })
+
 
         if total_loss_journal > 0:
             journal_lines.append({
@@ -366,7 +357,7 @@ class AssetRevaluationRunService:
                 journal_type='REV',
                 reference=f"REV-{revaluation.revaluation_number}",
                 description=f"Asset Revaluation: {revaluation.revaluation_number}",
-                status='POSTED',
+                status='Posted',
                 created_by=user,
                 fiscal_period=revaluation.fiscal_period,
                 source_module='assets',

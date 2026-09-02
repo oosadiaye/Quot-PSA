@@ -10,7 +10,10 @@ Provides XBRL/iXBRL export for financial reports:
 from datetime import date, datetime
 from typing import Dict, Any, List, Tuple
 from dataclasses import dataclass, asdict
+from xml.sax.saxutils import escape
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import connection
 from accounting.models import XBRLReport
 
 
@@ -328,6 +331,28 @@ class XBRLExportService:
 '''
 
     @classmethod
+    def _entity_identifier(cls) -> Tuple[str, str]:
+        """Resolve the reporting entity's ``(scheme, identifier)`` from the
+        ACTIVE tenant.
+
+        XBRL statutory filings must carry the filer's own identity. The
+        previous hardcoded ``DTSG`` / ``http://dtsg-erp.com`` stamped every
+        tenant's regulatory submission with one legacy entity — a real
+        cross-tenant compliance defect. We derive the identifier from the
+        active ``connection.tenant`` (its registered name, falling back to
+        the schema name). The scheme is a stable authority URI, overridable
+        per deployment via ``settings.XBRL_ENTITY_SCHEME``.
+        """
+        tenant = getattr(connection, 'tenant', None)
+        identifier = (
+            getattr(tenant, 'name', None)
+            or getattr(tenant, 'schema_name', None)
+            or 'UNKNOWN'
+        )
+        scheme = getattr(settings, 'XBRL_ENTITY_SCHEME', 'https://quotpse.ng/entity')
+        return scheme, identifier
+
+    @classmethod
     def _generate_xbrl_context(
         cls,
         context_id: str,
@@ -335,11 +360,14 @@ class XBRLExportService:
         period_type: str
     ) -> str:
         """Generate XBRL context element."""
+        scheme, identifier = cls._entity_identifier()
+        scheme = escape(scheme, {'"': '&quot;'})
+        identifier = escape(identifier)
         if period_type == 'instant':
             return f'''
     <xbrli:context id="{context_id}">
         <xbrli:entity>
-            <xbrli:identifier scheme="http://dtsg-erp.com">DTSG</xbrli:identifier>
+            <xbrli:identifier scheme="{scheme}">{identifier}</xbrli:identifier>
         </xbrli:entity>
         <xbrli:period>
             <xbrli:instant>{period_date.isoformat()}</xbrli:instant>
@@ -351,7 +379,7 @@ class XBRLExportService:
             return f'''
     <xbrli:context id="{context_id}">
         <xbrli:entity>
-            <xbrli:identifier scheme="http://dtsg-erp.com">DTSG</xbrli:identifier>
+            <xbrli:identifier scheme="{scheme}">{identifier}</xbrli:identifier>
         </xbrli:entity>
         <xbrli:period>
             <xbrli:startDate>{start_date.isoformat()}</xbrli:startDate>
@@ -362,13 +390,16 @@ class XBRLExportService:
 
     @classmethod
     def _generate_xbrl_units(cls) -> str:
-        """Generate XBRL unit elements."""
+        """Generate XBRL unit elements.
+
+        Reporting currency is the Naira (NGN) — this is a Nigerian
+        public-sector IFMIS. The previous default unit was EUR with no NGN
+        declared at all, so monetary facts (which reference the currency
+        unit) were tagged in the wrong currency on every statutory export.
+        """
         return '''
-    <xbrli:unit id="EUR">
-        <xbrli:measure>iso4217:EUR</xbrli:measure>
-    </xbrli:unit>
-    <xbrli:unit id="USD">
-        <xbrli:measure>iso4217:USD</xbrli:measure>
+    <xbrli:unit id="NGN">
+        <xbrli:measure>iso4217:NGN</xbrli:measure>
     </xbrli:unit>
     <xbrli:unit id="shares">
         <xbrli:measure>xbrli:shares</xbrli:measure>
@@ -390,7 +421,7 @@ class XBRLExportService:
             sign = ''
 
         return f'''
-    <dtsg:{concept_id} contextRef="{context_id}" decimals="2" unitRef="USD">{sign}{value:.2f}</dtsg:{concept_id}>
+    <dtsg:{concept_id} contextRef="{context_id}" decimals="2" unitRef="NGN">{sign}{value:.2f}</dtsg:{concept_id}>
 '''
 
     @classmethod
