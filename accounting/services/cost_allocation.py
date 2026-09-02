@@ -190,6 +190,10 @@ class CostAllocationService:
             Tuple of (success, message, journal_id)
         """
         from accounting.models import JournalHeader, JournalLine
+        from accounting.services.ipsas_journal_service import (
+            IPSASJournalService,
+            JournalPostingError,
+        )
 
         try:
             run = CostAllocationRun.objects.get(id=run_id)
@@ -204,47 +208,58 @@ class CostAllocationService:
 
         journal = None
 
-        with transaction.atomic():
-            journal = JournalHeader.objects.create(
-                posting_date=run.run_date,
-                description=f"Cost Allocation FY{run.fiscal_year} P{run.period}",
-                reference_number=f"ALLOC-{run.fiscal_year}{run.period:02d}-{run.id}",
-                status='Draft',
-                source_module='accounting',
-                source_document_id=run.pk,
-            )
+        try:
+            with transaction.atomic():
+                journal = JournalHeader.objects.create(
+                    posting_date=run.run_date,
+                    description=f"Cost Allocation FY{run.fiscal_year} P{run.period}",
+                    reference_number=f"ALLOC-{run.fiscal_year}{run.period:02d}-{run.id}",
+                    status='Draft',
+                    source_module='accounting',
+                    source_document_id=run.pk,
+                )
 
-            for detail in run.details.all():
-                if detail.allocated_amount <= 0:
-                    continue
+                for detail in run.details.all():
+                    if detail.allocated_amount <= 0:
+                        continue
 
-                if detail.source_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=detail.source_account,
-                        credit=detail.allocated_amount,
-                        memo=f"Allocation: {detail.rule_name} -> {detail.target_cost_center}"
-                    )
+                    if detail.source_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=detail.source_account,
+                            credit=detail.allocated_amount,
+                            memo=f"Allocation: {detail.rule_name} -> {detail.target_cost_center}"
+                        )
 
-                if detail.target_account:
-                    JournalLine.objects.create(
-                        header=journal,
-                        account=detail.target_account,
-                        debit=detail.allocated_amount,
-                        memo=f"Allocation: {detail.source_cost_center} -> {detail.target_cost_center}"
-                    )
+                    if detail.target_account:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=detail.target_account,
+                            debit=detail.allocated_amount,
+                            memo=f"Allocation: {detail.source_cost_center} -> {detail.target_cost_center}"
+                        )
 
-                detail.journal_line_id = journal.id
-                detail.save()
+                    detail.journal_line_id = journal.id
+                    detail.save()
 
-            journal.status = 'Posted'
-            journal.save()
+                # Route through the canonical, atomic IPSAS poster so the
+                # journal is balance-checked, rolls into GLBalance, passes
+                # the period gate, and writes a TransactionAuditLog. The
+                # previous code set status='Posted' directly, which skipped
+                # all of those (a "ghost" journal that never hit the
+                # ledger). C2 fix.
+                journal = IPSASJournalService.post_journal(journal, user)
 
-            run.status = 'POSTED'
-            run.posted_at = timezone.now()
-            run.posted_by = user
-            run.journal_id = journal.id
-            run.save()
+                run.status = 'POSTED'
+                run.posted_at = timezone.now()
+                run.posted_by = user
+                run.journal_id = journal.id
+                run.save()
+        except JournalPostingError as exc:
+            # Leaving the atomic block on exception rolls back the journal
+            # and its lines. Preserve the (success, message, journal_id)
+            # contract so callers don't break.
+            return False, f"Allocation posting failed: {exc}", 0
 
         return True, f"Posted allocation journal {journal.id}", journal.id
 
