@@ -22,6 +22,7 @@ describe('apiClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   it('creates axios instance with correct baseURL', async () => {
@@ -47,7 +48,7 @@ describe('apiClient', () => {
   })
 
   describe('request interceptor', () => {
-    it('injects auth token when present in localStorage', async () => {
+    it('injects auth token when present in sessionStorage', async () => {
       vi.resetModules()
       await import('../client')
 
@@ -55,7 +56,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token-123')
+      sessionStorage.setItem('authToken', 'test-token-123')
 
       const config = {
         url: '/accounting/journals/',
@@ -73,7 +74,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token')
+      sessionStorage.setItem('authToken', 'test-token')
       localStorage.setItem('tenantDomain', 'acme.localhost')
 
       const config = {
@@ -92,7 +93,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'stale-token')
+      sessionStorage.setItem('authToken', 'stale-token')
 
       const config = {
         url: '/core/auth/login/',
@@ -110,7 +111,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token')
+      sessionStorage.setItem('authToken', 'test-token')
       localStorage.setItem('tenantDomain', 'null')
 
       const config = {
