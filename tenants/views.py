@@ -48,6 +48,11 @@ from django_tenants.utils import schema_context
 from .models import Client, TenantModule, TenantSubscription, SubscriptionPlan, AVAILABLE_MODULES, TenantPayment, UserTenantRole, Role, get_tenant_settings
 # Per-tenant schema models (live in each tenant's own PostgreSQL schema)
 from core.models import TenantModule as PerTenantModule, Role as PerTenantRole
+from core.permissions import (
+    active_module_keys,
+    validate_module_activation,
+    ModuleDependencyError,
+)
 from .serializers import (
     TenantSerializer, TenantModuleSerializer,
     SubscriptionPlanSerializer, SubscriptionPlanListSerializer,
@@ -259,13 +264,30 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
 
         results = []
         with schema_context(tenant.schema_name):
+            # Proposed state: current active set + everything the payload asks
+            # to activate, so prerequisites shipped in the same request count.
+            proposed_active = active_module_keys()
             for mod in modules_data:
+                name = mod.get('module_name')
+                if name and bool(mod.get('is_active', True)):
+                    proposed_active.add(name)
+            for mod in modules_data:
+                name = mod.get('module_name')
+                is_active = bool(mod.get('is_active', True))
+                try:
+                    validate_module_activation(name, is_active, proposed_active)
+                except ModuleDependencyError as exc:
+                    return Response(
+                        {'error': str(exc), 'module': exc.module_name,
+                         'missing': list(exc.missing)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 obj, _ = PerTenantModule.objects.update_or_create(
-                    module_name=mod.get('module_name'),
+                    module_name=name,
                     defaults={
                         'module_title': mod.get('module_title', ''),
                         'description': mod.get('description', ''),
-                        'is_active': mod.get('is_active', True),
+                        'is_active': is_active,
                     },
                 )
                 results.append({'module_name': obj.module_name, 'is_active': obj.is_active})
@@ -283,7 +305,19 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
 
         updated = []
         with schema_context(tenant.schema_name):
+            proposed_active = active_module_keys()
             for module_name, is_active in modules.items():
+                if is_active:
+                    proposed_active.add(module_name)
+            for module_name, is_active in modules.items():
+                try:
+                    validate_module_activation(module_name, is_active, proposed_active)
+                except ModuleDependencyError as exc:
+                    return Response(
+                        {'error': str(exc), 'module': exc.module_name,
+                         'missing': list(exc.missing)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 title, desc = '', ''
                 for key, t, d in AVAILABLE_MODULES:
                     if key == module_name:
@@ -310,7 +344,16 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
         with schema_context(tenant.schema_name):
             try:
                 module = PerTenantModule.objects.get(module_name=module_name)
-                module.is_active = not module.is_active
+                new_active = not module.is_active
+                try:
+                    validate_module_activation(module_name, new_active)
+                except ModuleDependencyError as exc:
+                    return Response(
+                        {'error': str(exc), 'module': exc.module_name,
+                         'missing': list(exc.missing)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                module.is_active = new_active
                 module.save()
                 return Response({
                     'status': 'Module activated' if module.is_active else 'Module deactivated',
@@ -332,6 +375,14 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Tenant not found'}, status=status.HTTP_404_NOT_FOUND)
 
         with schema_context(tenant.schema_name):
+            try:
+                validate_module_activation(module_name, True)
+            except ModuleDependencyError as exc:
+                return Response(
+                    {'error': str(exc), 'module': exc.module_name,
+                     'missing': list(exc.missing)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             obj, _ = PerTenantModule.objects.update_or_create(
                 module_name=module_name,
                 defaults={'is_active': True},
@@ -376,6 +427,19 @@ class TenantModuleViewSet(viewsets.ModelViewSet):
 
         created_modules = []
         with schema_context(tenant.schema_name):
+            # Everything in this payload is being activated — validate each
+            # module against the full proposed set first so iteration order
+            # cannot matter (personnel_budget requires hrm/budget/accounting).
+            all_active = {key for key, _t, _d in AVAILABLE_MODULES}
+            for mod_name, _mod_title, _mod_desc in AVAILABLE_MODULES:
+                try:
+                    validate_module_activation(mod_name, True, all_active)
+                except ModuleDependencyError as exc:
+                    return Response(
+                        {'error': str(exc), 'module': exc.module_name,
+                         'missing': list(exc.missing)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
             for mod_name, mod_title, mod_desc in AVAILABLE_MODULES:
                 module, _created = PerTenantModule.objects.update_or_create(
                     module_name=mod_name,

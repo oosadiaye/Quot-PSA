@@ -383,6 +383,87 @@ def invalidate_module_cache(tenant_id, module_key=None):
             cache.delete(f'mod_enabled:{tenant_id}:{key}')
 
 
+# ---------------------------------------------------------------------------
+# Hard module dependencies (FUTURE_MODULES §3 invariant 5)
+# ---------------------------------------------------------------------------
+# A module listed here can only be ACTIVATED when every key in its dependency
+# set is already active for the tenant.  This is enforced at save time by the
+# module-toggle endpoints (tenants/views.py and superadmin/views.py) with a
+# named error, never silently accepted.
+#
+# Only modules with a *hard* dependency appear here.  Cross-module references
+# that should degrade gracefully (FUTURE_MODULES §3 invariant 4) are handled
+# elsewhere and are deliberately NOT hard deps.
+MODULE_DEPENDENCIES = {
+    # §5.3 G3 — personnel cost is the largest recurrent line; it reads the
+    # establishment (hrm), binds to appropriation lines (budget) and posts to
+    # the GL (accounting).  models.py documents this as a hard dependency.
+    'personnel_budget': ('hrm', 'budget', 'accounting'),
+}
+
+
+class ModuleDependencyError(Exception):
+    """Named error raised when a module with hard dependencies is activated
+    without its prerequisite modules.
+
+    Invariant 5 requires activation be *rejected at save time with a named
+    error* — this is that error.  ``.module_name`` is the module being
+    activated and ``.missing`` is the tuple of prerequisite keys that are not
+    active for the tenant.
+    """
+
+    def __init__(self, module_name, missing):
+        self.module_name = module_name
+        self.missing = tuple(missing)
+        super().__init__(self._message())
+
+    def _message(self):
+        deps = ', '.join(self.missing)
+        return (
+            f'Cannot activate module "{self.module_name}": it has hard '
+            f'dependencies that are not enabled for this tenant ({deps}).'
+            ' Enable the prerequisite modules first.'
+        )
+
+
+def active_module_keys():
+    """Return the set of module keys currently active in the *active schema*.
+
+    Must be called inside a ``schema_context(tenant.schema_name)`` block, or
+    while the connection is already routed to the tenant schema, because
+    ``core.TenantModule`` is a per-schema table.
+    """
+    from core.models import TenantModule
+    return set(
+        TenantModule.objects.filter(is_active=True)
+        .values_list('module_name', flat=True)
+    )
+
+
+def validate_module_activation(module_name, is_active, active_keys=None):
+    """Validate that *module_name* may be switched to *is_active*.
+
+    Returns ``None`` when activation is permitted.  Raises
+    ``ModuleDependencyError`` when a module with hard dependencies is being
+    *activated* but one or more prerequisites are not in ``active_keys``.
+
+    ``active_keys`` defaults to the active set of the current schema (via
+    :func:`active_module_keys`); callers inside a tenant ``schema_context``
+    may pass an explicit set to validate a *proposed* state without writing.
+    """
+    if not is_active:
+        # Deactivation is always allowed (invariant 2 / DoD).
+        return None
+    deps = MODULE_DEPENDENCIES.get(module_name)
+    if not deps:
+        return None
+    if active_keys is None:
+        active_keys = active_module_keys()
+    missing = [dep for dep in deps if dep not in active_keys]
+    if missing:
+        raise ModuleDependencyError(module_name, missing)
+
+
 class ModuleEnabled(permissions.BasePermission):
     """Refuse the request when the owning module is toggled off for this tenant.
 

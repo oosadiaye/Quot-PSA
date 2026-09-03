@@ -238,3 +238,71 @@ class TestFutureModuleViewSetsGated:
             urls_mod = importlib.import_module(f'{app}.urls')
             assert urls_mod.router is not None, f'{app}.urls must define router'
             assert urls_mod.router.registry, f'{app}.urls router has no registrations'
+
+
+class TestHardDependencyValidation:
+    """FUTURE_MODULES §3 invariant 5 — hard deps reject activation at save time.
+
+    Pure-logic checks on ``validate_module_activation`` / ``ModuleDependencyError``;
+    ``active_keys`` is passed explicitly so no database is required.
+    """
+
+    def test_personnel_budget_declares_its_hard_deps(self):
+        from core.permissions import MODULE_DEPENDENCIES
+        assert MODULE_DEPENDENCIES['personnel_budget'] == ('hrm', 'budget', 'accounting')
+
+    def test_activation_rejected_when_dependency_missing(self):
+        from core.permissions import validate_module_activation, ModuleDependencyError
+        try:
+            validate_module_activation('personnel_budget', True, {'hrm', 'budget'})
+        except ModuleDependencyError as exc:
+            assert exc.module_name == 'personnel_budget'
+            assert exc.missing == ('accounting',)
+            assert 'personnel_budget' in str(exc)
+            return
+        raise AssertionError('expected ModuleDependencyError')
+
+    def test_activation_rejected_when_no_dependencies_active(self):
+        from core.permissions import validate_module_activation, ModuleDependencyError
+        try:
+            validate_module_activation('personnel_budget', True, set())
+        except ModuleDependencyError as exc:
+            assert sorted(exc.missing) == ['accounting', 'budget', 'hrm']
+            return
+        raise AssertionError('expected ModuleDependencyError')
+
+    def test_activation_allowed_when_all_dependencies_active(self):
+        from core.permissions import validate_module_activation
+        # No exception means success.
+        validate_module_activation(
+            'personnel_budget', True, {'hrm', 'budget', 'accounting'}
+        )
+
+    def test_deactivation_is_always_allowed(self):
+        """Invariant 5 targets activation only — turning a module OFF never
+        depends on its prerequisites (invariant 2 keeps GL balances intact)."""
+        from core.permissions import validate_module_activation
+        validate_module_activation('personnel_budget', False, {'hrm'})
+
+    def test_module_without_hard_deps_activates_freely(self):
+        from core.permissions import validate_module_activation
+        validate_module_activation('debt', True, set())
+        validate_module_activation('transparency', True, set())
+
+    def test_missing_deps_reported_in_registry_order(self):
+        """The named error lists dependencies in their declared order."""
+        from core.permissions import validate_module_activation, ModuleDependencyError
+        try:
+            validate_module_activation('personnel_budget', True, set())
+        except ModuleDependencyError as exc:
+            assert exc.missing == ('hrm', 'budget', 'accounting')
+            assert exc.module_name == 'personnel_budget'
+            return
+        raise AssertionError('expected ModuleDependencyError')
+
+    def test_error_has_named_message(self):
+        """Invariant 5 expects a *named* error, not silent acceptance."""
+        from core.permissions import ModuleDependencyError
+        err = ModuleDependencyError('personnel_budget', ['hrm'])
+        assert 'personnel_budget' in str(err)
+        assert 'hrm' in str(err)

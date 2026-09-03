@@ -25,6 +25,12 @@ from tenants.models import (
 # Per-tenant schema models — live in each tenant's own PostgreSQL schema.
 # Superadmin cross-tenant operations must wrap queries in schema_context().
 from core.models import TenantModule as PerTenantModule
+from core.permissions import (
+    active_module_keys,
+    validate_module_activation,
+    ModuleDependencyError,
+    MODULE_DEPENDENCIES,
+)
 from .models import (
     SuperAdminProfile, SuperAdminSettings, ImpersonationLog,
     Referrer, Referral, Commission, CommissionPayout,
@@ -1271,7 +1277,26 @@ def global_module_toggle(request):
     created_count = 0
     from core.permissions import invalidate_module_cache
     for tenant in tenants_qs.only('id', 'schema_name'):
+        def _title_desc(key):
+            for k, t, d in AVAILABLE_MODULES:
+                if k == key:
+                    return t, d
+            return key, ''
         with schema_context(tenant.schema_name):
+            # A global ENABLE must satisfy hard dependencies (invariant 5):
+            # auto-activate the prerequisite rows so this tenant is never left
+            # in a contradictory state.  Deactivation is never touched.
+            if is_enabled:
+                for dep_key in MODULE_DEPENDENCIES.get(module_info[0], ()):
+                    dt, dd = _title_desc(dep_key)
+                    PerTenantModule.objects.update_or_create(
+                        module_name=dep_key,
+                        defaults={
+                            'module_title': dt,
+                            'description': dd,
+                            'is_active': True,
+                        },
+                    )
             _, created = PerTenantModule.objects.update_or_create(
                 module_name=module_info[0],
                 defaults={
@@ -1531,11 +1556,27 @@ def tenant_modules(request, tenant_id):
     _module_map = {k: (t, d) for k, t, d in AVAILABLE_MODULES}
 
     with schema_context(tenant.schema_name):
+        # Proposed state: current active set + payload activations, so a module
+        # and its prerequisites shipped in the same request validate together.
+        proposed_active = active_module_keys()
+        for mod in modules_data:
+            module_name = mod.get('module_name')
+            is_active = mod.get('is_active', False)
+            if module_name and module_name in _module_map and is_active:
+                proposed_active.add(module_name)
         for mod in modules_data:
             module_name = mod.get('module_name')
             is_active = mod.get('is_active', False)
             if not module_name or module_name not in _module_map:
                 continue
+            try:
+                validate_module_activation(module_name, is_active, proposed_active)
+            except ModuleDependencyError as exc:
+                return Response(
+                    {'error': str(exc), 'module': exc.module_name,
+                     'missing': list(exc.missing)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             title, desc = _module_map[module_name]
             PerTenantModule.objects.update_or_create(
                 module_name=module_name,

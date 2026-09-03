@@ -26,6 +26,7 @@ Usage:
 from django.core.management.base import BaseCommand, CommandError
 from django.core.management import call_command
 from django.db import connection
+from django_tenants.utils import schema_context
 
 # NBS state code -> state name lookup
 NBS_STATE_NAMES = {
@@ -96,6 +97,14 @@ class Command(BaseCommand):
         tenant = self._create_tenant(schema, name, domain, tier, state_code,
                                      state_name, lga_code, lga_name)
         self.stdout.write(self.style.SUCCESS(f'  Tenant created: {tenant.schema_name}'))
+
+        # Step 1b: Seed the global commercial catalogue (public schema).
+        # ModulePricing is a shared/public-schema catalogue (price, tagline,
+        # feature bullets, icon) — FUTURE_MODULES DoD line 760.  Idempotent.
+        self.stdout.write('Step 1b: Seeding module pricing catalogue...')
+        with schema_context('public'):
+            call_command('seed_module_pricing')
+        self.stdout.write(self.style.SUCCESS('  Module pricing catalogue ready'))
 
         if skip_seed:
             self.stdout.write(self.style.WARNING('  Skipping seed data (--skip-seed)'))
@@ -298,37 +307,44 @@ class Command(BaseCommand):
         self.stdout.write(f'  Fiscal/Budget periods: {FiscalPeriod.objects.filter(fiscal_year=year).count()} fiscal, {BudgetPeriod.objects.filter(fiscal_year=year).count()} budget')
 
     def _enable_government_modules(self):
-        """Seed core.TenantModule records so the sidebar shows all government modules."""
+        """Seed core.TenantModule rows for ALL registry modules so the sidebar
+        reflects the full catalogue with the correct default activation state.
+
+        Legacy modules default ON (preserving current behaviour).  Of the 15
+        future modules, only ``personnel_budget`` defaults ON for government
+        tenants — FUTURE_MODULES §5.3 calls it a control rather than a feature
+        and recommends the Accountant-General explicitly opt out.  The other 14
+        future modules default OFF and are activated deliberately via the
+        module settings.
+        """
+        from tenants.models import AVAILABLE_MODULES
+        from core.permissions import _LEGACY_MODULES
         from core.models import TenantModule
 
-        modules = [
-            ('dimensions', 'NCoA Dimensions', 'NCoA 6-segment classification'),
-            ('accounting', 'General Ledger', 'Chart of Accounts, Journals, AP/AR, Fixed Assets, IPSAS'),
-            ('budget', 'Budget & Appropriation', 'Appropriations, Warrants, Budget Execution'),
-            ('treasury', 'Treasury & TSA', 'Treasury Single Account, Payment Vouchers'),
-            ('revenue', 'Revenue (IGR)', 'Revenue Heads, Revenue Collection, PAYE'),
-            ('procurement', 'Procurement', 'Purchase Requisitions, POs, GRN, BPP Due Process'),
-            ('inventory', 'Stores & Inventory', 'Government Stores, Stock Management'),
-            ('hrm', 'Human Resources', 'Employees, Leave, Payroll, Pension'),
-            ('workflow', 'Workflow & Approvals', 'Approval Templates, Multi-level Workflows'),
-            ('reporting', 'Financial Reporting', 'IPSAS Statements, Budget vs Actual'),
-            ('audit', 'Audit & Compliance', 'Audit Trail, Transaction Logs'),
-        ]
+        # FUTURE_MODULES §5.3: default ON for every government tenant.
+        default_on_future = {'personnel_budget'}
 
         created_count = 0
-        for module_name, title, desc in modules:
+        for module_name, title, desc in AVAILABLE_MODULES:
+            default_active = (
+                module_name in _LEGACY_MODULES or module_name in default_on_future
+            )
             _, was_created = TenantModule.objects.get_or_create(
                 module_name=module_name,
                 defaults={
                     'module_title': title,
                     'description': desc,
-                    'is_active': True,
+                    'is_active': default_active,
                 },
             )
             if was_created:
                 created_count += 1
 
-        self.stdout.write(f'  {created_count} modules enabled ({TenantModule.objects.count()} total)')
+        active_count = TenantModule.objects.filter(is_active=True).count()
+        self.stdout.write(
+            f'  {created_count} modules seeded '
+            f'({active_count} active, {TenantModule.objects.count()} total)'
+        )
 
     def _print_summary(self, tier, state_name):
         from accounting.models.ncoa import (
