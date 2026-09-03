@@ -33,6 +33,23 @@ v1_patterns = [
     path('superadmin/', include('superadmin.urls')),
     path('contracts/', include('contracts.urls', namespace='contracts')),
     path('', include('snapshots.urls')),
+
+    # Future modules (FUTURE_MODULES.md) — switchable per-tenant.
+    path('personnel-budget/', include('personnel_budget.urls')),
+    path('cash-planning/', include('cash_planning.urls')),
+    path('staff-advances/', include('staff_advances.urls')),
+    path('budget-prep/', include('budget_prep.urls')),
+    path('debt/', include('debt.urls')),
+    path('transparency/', include('transparency.urls')),
+    path('integrations/', include('integrations.urls')),
+    path('egp/', include('egp.urls')),
+    path('results/', include('results.urls')),
+    path('revenue-admin/', include('revenue_admin.urls')),
+    path('internal-audit/', include('internal_audit.urls')),
+    path('fleet/', include('fleet.urls')),
+    path('catalogue/', include('catalogue.urls')),
+    path('disclosure/', include('disclosure.urls')),
+    path('legal/', include('legal.urls')),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3

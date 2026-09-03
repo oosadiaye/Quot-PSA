@@ -338,6 +338,25 @@ const menuItems: MenuItem[] = [
             { name: 'Snapshots', path: '/admin/snapshots', icon: Archive },
         ],
     },
+    // ── Future modules (FUTURE_MODULES.md) ─────────────────────────
+    // Each is an independently licensable, per-tenant switchable module.
+    // Leaf items (no subItems) render as direct links and are hidden by
+    // ``isModuleEnabled`` when the tenant has the module disabled.
+    { name: 'Budget Preparation', icon: Landmark, path: '/budget-prep', requiredPerm: null, module: 'budget_prep' },
+    { name: 'e-Procurement', icon: ShoppingCart, path: '/egp', requiredPerm: null, module: 'egp' },
+    { name: 'Establishment & Payroll', icon: Users, path: '/personnel-budget', requiredPerm: null, module: 'personnel_budget' },
+    { name: 'Public Debt', icon: Wallet, path: '/debt', requiredPerm: null, module: 'debt' },
+    { name: 'Fiscal Transparency', icon: Search, path: '/transparency', requiredPerm: null, module: 'transparency' },
+    { name: 'Results & M&E', icon: Target, path: '/results', requiredPerm: null, module: 'results' },
+    { name: 'Integration Gateway', icon: GitBranch, path: '/integrations', requiredPerm: null, module: 'integrations' },
+    { name: 'Revenue Administration', icon: Receipt, path: '/revenue-admin', requiredPerm: null, module: 'revenue_admin' },
+    { name: 'Cash Planning', icon: Banknote, path: '/cash-planning', requiredPerm: null, module: 'cash_planning' },
+    { name: 'Advances & Travel', icon: Briefcase, path: '/staff-advances', requiredPerm: null, module: 'staff_advances' },
+    { name: 'Internal Audit', icon: Shield, path: '/internal-audit', requiredPerm: null, module: 'internal_audit' },
+    { name: 'Fleet Management', icon: Truck, path: '/fleet', requiredPerm: null, module: 'fleet' },
+    { name: 'Supplier Catalogue', icon: BookOpen, path: '/catalogue', requiredPerm: null, module: 'catalogue' },
+    { name: 'Asset Declaration', icon: ClipboardCheck, path: '/disclosure', requiredPerm: null, module: 'disclosure' },
+    { name: 'Legal & Risk', icon: Scale, path: '/legal', requiredPerm: null, module: 'legal' },
 ];
 
 const Sidebar = () => {

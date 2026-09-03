@@ -266,6 +266,23 @@ const VariationList       = lazy(() => import('./features/contracts/variations/V
 const VariationForm       = lazy(() => import('./features/contracts/variations/VariationForm'));
 const VariationDetail     = lazy(() => import('./features/contracts/variations/VariationDetail'));
 
+// ── Future modules (FUTURE_MODULES.md) — data-driven CRUD pages ──────
+const BudgetPrep        = lazy(() => import('./features/budget-prep'));
+const EGPModule         = lazy(() => import('./features/egp'));
+const PersonnelBudget   = lazy(() => import('./features/personnel-budget'));
+const DebtModule        = lazy(() => import('./features/debt'));
+const Transparency      = lazy(() => import('./features/transparency'));
+const ResultsModule     = lazy(() => import('./features/results'));
+const Integrations      = lazy(() => import('./features/integrations'));
+const RevenueAdmin      = lazy(() => import('./features/revenue-admin'));
+const CashPlanning      = lazy(() => import('./features/cash-planning'));
+const StaffAdvances     = lazy(() => import('./features/staff-advances'));
+const InternalAudit     = lazy(() => import('./features/internal-audit'));
+const FleetPage         = lazy(() => import('./features/fleet'));
+const CataloguePage     = lazy(() => import('./features/catalogue'));
+const Disclosure        = lazy(() => import('./features/disclosure'));
+const LegalPage         = lazy(() => import('./features/legal'));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -930,6 +947,57 @@ function App() {
                         <Route path="/workflow/instances" element={
                           <ProtectedRoute><ApprovalHistory /></ProtectedRoute>
                         } />
+                      </Route>
+
+                      {/* ── Future modules (FUTURE_MODULES.md) ─────────
+                          Each independently licensable module gets its own
+                          ModuleGuard layout route. Nav entries are added in
+                          Sidebar.tsx; the guard blocks direct URL access when
+                          the tenant has the module disabled. */}
+                      <Route element={<ModuleGuard module="budget_prep" />}>
+                        <Route path="/budget-prep" element={<ProtectedRoute><BudgetPrep /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="egp" />}>
+                        <Route path="/egp" element={<ProtectedRoute><EGPModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="personnel_budget" />}>
+                        <Route path="/personnel-budget" element={<ProtectedRoute><PersonnelBudget /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="debt" />}>
+                        <Route path="/debt" element={<ProtectedRoute><DebtModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="transparency" />}>
+                        <Route path="/transparency" element={<ProtectedRoute><Transparency /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="results" />}>
+                        <Route path="/results" element={<ProtectedRoute><ResultsModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="integrations" />}>
+                        <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="revenue_admin" />}>
+                        <Route path="/revenue-admin" element={<ProtectedRoute><RevenueAdmin /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="cash_planning" />}>
+                        <Route path="/cash-planning" element={<ProtectedRoute><CashPlanning /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="staff_advances" />}>
+                        <Route path="/staff-advances" element={<ProtectedRoute><StaffAdvances /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="internal_audit" />}>
+                        <Route path="/internal-audit" element={<ProtectedRoute><InternalAudit /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="fleet" />}>
+                        <Route path="/fleet" element={<ProtectedRoute><FleetPage /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="catalogue" />}>
+                        <Route path="/catalogue" element={<ProtectedRoute><CataloguePage /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="disclosure" />}>
+                        <Route path="/disclosure" element={<ProtectedRoute><Disclosure /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="legal" />}>
+                        <Route path="/legal" element={<ProtectedRoute><LegalPage /></ProtectedRoute>} />
                       </Route>
 
                       {/* ── Catch-all ──────────────────────────────────

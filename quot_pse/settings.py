@@ -99,6 +99,23 @@ TENANT_APPS = [
     'simple_history',
     'contracts',      # Contract & Milestone Payment Management (overpayment prevention)
 
+    # Future modules — fully integrated & switchable per-tenant (FUTURE_MODULES.md)
+    'personnel_budget',
+    'cash_planning',
+    'staff_advances',
+    'budget_prep',
+    'debt',
+    'transparency',
+    'integrations',
+    'egp',
+    'results',
+    'revenue_admin',
+    'internal_audit',
+    'fleet',
+    'catalogue',
+    'disclosure',
+    'legal',
+
     # Stub apps — deleted for public sector, kept for migration history only
     'sales',
     'production',

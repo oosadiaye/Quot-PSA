@@ -182,3 +182,59 @@ class TestAuditCommandContract:
                 assert label == module, (
                     f'label {label} must equal its future module {module}'
                 )
+
+
+class TestFutureModuleViewSetsGated:
+    """§2 enforcement for the 15 new apps.
+
+    Every ViewSet in a future-module app must declare ``module_key`` equal to
+    the app's module and compose ``ModuleEnabled`` in its permission tuple so
+    that toggling the module off refuses requests (fail-closed for new
+    modules). This is the same contract the CI ``audit_module_gating``
+    command enforces at runtime; this test pins it statically in the
+    no-DB fast tier.
+    """
+
+    FUTURE_APPS = [
+        'personnel_budget', 'cash_planning', 'staff_advances', 'budget_prep',
+        'debt', 'transparency', 'integrations', 'egp', 'results',
+        'revenue_admin', 'internal_audit', 'fleet', 'catalogue', 'disclosure',
+        'legal',
+    ]
+
+    def _view_module(self, app):
+        import importlib
+        return importlib.import_module(f'{app}.views')
+
+    def _viewset_classes(self, module):
+        import inspect
+        from rest_framework.viewsets import ViewSetMixin
+        return [
+            obj for _name, obj in vars(module).items()
+            if inspect.isclass(obj)
+            and issubclass(obj, ViewSetMixin)
+            and obj is not ViewSetMixin
+        ]
+
+    def test_every_app_has_gated_viewsets(self):
+        from core.permissions import ModuleEnabled
+        for app in self.FUTURE_APPS:
+            viewsets = self._viewset_classes(self._view_module(app))
+            assert viewsets, f'{app} exports no ViewSet classes'
+            for vs in viewsets:
+                assert getattr(vs, 'module_key', None) == app, (
+                    f'{app}:{vs.__name__} must declare module_key={app!r}'
+                )
+                perms = getattr(vs, 'permission_classes', [])
+                assert ModuleEnabled in perms, (
+                    f'{app}:{vs.__name__} must compose ModuleEnabled'
+                )
+
+    def test_router_registers_viewsets(self):
+        """Each future app wires a working DefaultRouter (no import break)."""
+        import importlib
+        from rest_framework.routers import DefaultRouter
+        for app in self.FUTURE_APPS:
+            urls_mod = importlib.import_module(f'{app}.urls')
+            assert urls_mod.router is not None, f'{app}.urls must define router'
+            assert urls_mod.router.registry, f'{app}.urls router has no registrations'
