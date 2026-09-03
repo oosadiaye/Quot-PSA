@@ -109,6 +109,12 @@ class PayrollPostingService(BasePostingService):
         total_pension = Decimal(str(line_totals['total_pension'] or 0))
         total_other = total_deductions - total_tax - total_pension
 
+        # G3 payroll budget gate: salary posting must not bypass the
+        # appropriation/commitment control that the rest of the GL honours.
+        # Lazy import keeps accounting decoupled from personnel_budget — if the
+        # module (or its service) is unavailable the core flow is unaffected.
+        _enforce_payroll_budget(payroll_run, total_gross)
+
         description = f"Payroll Run: {payroll_run.run_number}"
         if allocation_warning:
             description = (
@@ -267,3 +273,29 @@ class PayrollPostingService(BasePostingService):
         logger.info(f"Created payroll reversal journal {reversal_journal.reference_number} for {original_journal.reference_number}")
 
         return reversal_journal
+
+
+def _enforce_payroll_budget(payroll_run, total_gross):
+    """Run the personnel_budget G3 gate before a payroll run posts to the GL.
+
+    Enforces the central ``check_policy`` engine against the salary expense
+    account, so payroll honours the same appropriation/commitment control as
+    journals, POs, and vouchers. Additionally, when a ``PayrollBudgetBinding``
+    is present its governing STRICT level is honoured exactly.
+
+    Uses a lazy import so ``accounting`` never hard-depends on the
+    personnel_budget module; a missing/broken module fails open (logs and
+    continues), matching how the rest of the legacy flow tolerates optional
+    future modules.
+    """
+    try:
+        from personnel_budget.services import assert_payroll_budget_ok
+        assert_payroll_budget_ok(payroll_run, requested_amount=total_gross)
+    except ImportError:
+        logger.warning(
+            'personnel_budget module unavailable; skipping payroll budget '
+            'gate (accounting decoupled).',
+            exc_info=True,
+        )
+    except Exception:
+        raise
