@@ -90,6 +90,11 @@ CATALOGUE: list[tuple[str, str, str, str, str, str, int]] = [
     ('accounting.fixedasset.dispose', 'accounting', 'fixedasset', 'dispose','Dispose / write-off fixed asset',           'high',     220),
     ('accounting.report.financials',  'accounting', 'report', 'financials','View IPSAS financial statements',            'low',      230),
     ('accounting.report.trialbal',    'accounting', 'report', 'trialbal',  'View trial balance',                         'low',      240),
+    ('accounting.payment_batch.view',     'accounting', 'payment_batch', 'view',     'View bank payment letters',              'low',      250),
+    ('accounting.payment_batch.create',   'accounting', 'payment_batch', 'create',   'Compile a bank payment letter',          'medium',   260),
+    ('accounting.payment_batch.dispatch', 'accounting', 'payment_batch', 'dispatch', 'Dispatch signed letter to the bank',     'critical', 270),
+    ('accounting.payment_batch.confirm',  'accounting', 'payment_batch', 'confirm',  'Record the bank\'s confirmation',        'high',     280),
+    ('accounting.payment_batch.cancel',   'accounting', 'payment_batch', 'cancel',   'Cancel / recall a bank payment letter',  'high',     290),
 
     # ─────── TREASURY / TSA ─────────────────────────────────────────
     ('treasury.tsa.view',             'treasury', 'tsa',      'view',      'View TSA bank accounts',                     'low',      10),
@@ -470,6 +475,27 @@ SOD_RULES: list[dict] = [
         'permission_b': 'treasury.voucher.pay',
         'scope': 'same_document', 'severity': 'block',
         'description': 'Authorisation and cash-out must be in different hands.',
+    },
+    {
+        'code': 'sod.payment_batch.create_dispatch',
+        'name': 'Bank letter — compiler cannot dispatch own letter',
+        'permission_a': 'accounting.payment_batch.create',
+        'permission_b': 'accounting.payment_batch.dispatch',
+        'scope': 'same_document', 'severity': 'block',
+        'description': 'A dispatched batch instructs the bank to move real money to '
+                       'named vendors. The officer who compiled the letter must not '
+                       'also be the one who releases it. Deactivate this rule if your '
+                       'treasury runs a different control.',
+    },
+    {
+        'code': 'sod.payment_batch.dispatch_confirm',
+        'name': 'Bank letter — dispatcher cannot confirm own letter',
+        'permission_a': 'accounting.payment_batch.dispatch',
+        'permission_b': 'accounting.payment_batch.confirm',
+        'scope': 'same_document', 'severity': 'block',
+        'description': 'Confirmation records that the bank actually paid, and makes the '
+                       'batch terminal (it can no longer be cancelled). Independent of '
+                       'the officer who sent the instruction.',
     },
     {
         'code': 'sod.transfer.create_approve',

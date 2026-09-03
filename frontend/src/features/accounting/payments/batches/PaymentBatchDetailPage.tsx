@@ -10,9 +10,34 @@ import {
     useRemoveBatchLine, type PaymentBatchLine,
 } from '../../hooks/usePaymentBatches';
 
+interface SoDViolationPayload {
+    rule_code: string;
+    rule_name: string;
+    reason: string;
+}
+
 function apiError(e: unknown): string {
-    const r = (e as { response?: { data?: { error?: string } } }).response;
-    return r?.data?.error || 'The operation failed. Please try again.';
+    const r = (e as {
+        response?: {
+            data?: { error?: string; code?: string; violations?: SoDViolationPayload[] };
+        };
+    }).response;
+    const data = r?.data;
+
+    // Segregation-of-duties refusals name the rule that blocked the action.
+    // Which rules apply is tenant configuration — an admin can deactivate or
+    // re-scope any of them on the SoD rules page — so a generic "forbidden"
+    // would leave the operator with no idea what to change or who to ask.
+    if (data?.code === 'sod_violation' && data.violations?.length) {
+        const rules = data.violations
+            .map((v) => `${v.rule_name} (${v.rule_code})`)
+            .join('; ');
+        return `Blocked by segregation of duties — ${rules}. `
+            + 'Another officer must perform this step, or an administrator can '
+            + 'adjust the rule under Admin → SoD Rules.';
+    }
+
+    return data?.error || 'The operation failed. Please try again.';
 }
 
 function formatDate(iso: string | null): string {

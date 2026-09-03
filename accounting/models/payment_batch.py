@@ -132,8 +132,14 @@ class PaymentBatch(AuditBaseModel):
         return agg['total'] or Decimal('0')
 
 
-class PaymentBatchLine(models.Model):
-    """One vendor row on the letter. All payee data is frozen at add-time."""
+class PaymentBatchLine(AuditBaseModel):
+    """One vendor row on the letter. All payee data is frozen at add-time.
+
+    Audited (``AuditBaseModel``) because a line IS the instruction to pay
+    one named vendor a named sum. "Who put this vendor on the letter?" is
+    the first question an auditor asks about a disputed payment, and a
+    plain ``models.Model`` cannot answer it.
+    """
 
     batch = models.ForeignKey(PaymentBatch, on_delete=models.CASCADE, related_name='lines')
     payment = models.ForeignKey(
