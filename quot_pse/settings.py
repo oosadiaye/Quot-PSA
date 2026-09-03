@@ -453,6 +453,13 @@ REST_FRAMEWORK = {
         'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
         'snapshot_create':    f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
         'snapshot_download':  f'{SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR}/hour',
+        # FUTURE_MODULES §5.5 — the public, unauthenticated transparency
+        # portal has its OWN throttle scope, separate from authenticated
+        # traffic. Unauthenticated burst from the public internet needs a
+        # tighter ceiling than the trusted tenant API.
+        'transparency_public': os.getenv(
+            'TRANSPARENCY_PUBLIC_THROTTLE_RATE', '30/min',
+        ),
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',

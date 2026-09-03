@@ -18,7 +18,6 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
-
 v1_patterns = [
     # ─── Quot PSE: Nigeria Government IFMIS API ───────────────────────
     path('accounting/', include('accounting.urls')),
@@ -81,6 +80,15 @@ urlpatterns = [
     path('api/v1/', include((v1_patterns, 'v1'))),
     # Backward compat — remove after all clients migrate to /api/v1/
     path('api/', include(v1_patterns)),
+
+    # FUTURE_MODULES §5.5 — the public transparency portal lives in its OWN
+    # URL namespace, OUTSIDE the authenticated /api/v1/ tree, so its removal
+    # when the module is off is enforced at the routing layer (the portal
+    # returns 404 while the global master switch is disabled).
+    path('public/transparency/', include(
+        ('transparency.public_urls', 'transparency'),
+        namespace='transparency-public',
+    )),
 ]
 
 # ── Media serving in development ─────────────────────────────────────

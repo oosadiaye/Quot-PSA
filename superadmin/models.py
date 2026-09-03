@@ -59,6 +59,18 @@ class SuperAdminSettings(models.Model):
     support_email = models.EmailField(blank=True, default='')
     smtp_enabled = models.BooleanField(default=False)
 
+    # Transparency public portal (FUTURE_MODULES §5.5).
+    # Global master switch for the unauthenticated, read-only citizen portal.
+    # "Off" is enforced at the routing layer: when False every public
+    # transparency endpoint returns 404, so no public surface is exposed.
+    transparency_portal_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            'Master switch for the public, unauthenticated fiscal '
+            'transparency portal. When off, the public namespace returns 404.'
+        ),
+    )
+
     class Meta:
         verbose_name = 'SuperAdmin Settings'
         verbose_name_plural = 'SuperAdmin Settings'
@@ -74,6 +86,76 @@ class SuperAdminSettings(models.Model):
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class PublishedSnapshot(models.Model):
+    """Public materialization of an approved fiscal transparency publication.
+
+    FUTURE_MODULES §5.5 requires the public portal to be served *from
+    ReportSnapshot data, never from live transactional tables*, and to be
+    globally reachable in the *public* PostgreSQL schema.
+
+    ``Publication`` and ``ReportSnapshot`` are tenant-schema models, so they are
+    not visible from the public schema.  ``PublishedSnapshot`` is the public,
+    shared-schema materialized view of an approved publication: a superadmin /
+    publish pipeline copies the (redacted) snapshot payload + content hash into
+    this table (see ``publish_transparency_datasets``), and the unauthenticated
+    portal reads *only* from here.
+
+    Rows are write-once for a given (dataset, FY, period, content_hash): a new
+    filing for the same period is a new row, preserving the as-filed version.
+    """
+
+    dataset_key = models.CharField(max_length=30, db_index=True)
+    title = models.CharField(max_length=255)
+    aggregation = models.CharField(max_length=100, default='', blank=True)
+    fiscal_year = models.IntegerField(db_index=True)
+    period = models.IntegerField(default=0, db_index=True)
+
+    payload = models.JSONField(help_text='Public snapshot payload (redacted).')
+    content_hash = models.CharField(max_length=64, db_index=True)
+
+    source_publication_id = models.PositiveBigIntegerField(
+        default=0, db_index=True,
+        help_text='Opaque pk of the tenant schema Publication this materializes.',
+    )
+    published_at = models.DateTimeField(db_index=True)
+    is_public = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-published_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['dataset_key', 'fiscal_year', 'period', 'content_hash'],
+                name='unique_published_snapshot_slot',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['dataset_key', 'fiscal_year', 'period'],
+                name='pub_snap_lookup_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'PublishedSnapshot {self.dataset_key} FY{self.fiscal_year} '
+            f'P{self.period} ({self.content_hash[:8]})'
+        )
+
+
+def transparency_portal_enabled():
+    """Return True when the public transparency portal master switch is on.
+
+    Read in the public schema.  Used by the public portal routing gate so that
+    "off" is enforced at the routing layer (404) and not only in templates.
+    """
+    try:
+        return SuperAdminSettings.load().transparency_portal_enabled
+    except Exception:
+        # Fail closed — if settings cannot be read the portal must not serve.
+        return False
 
 
 class EmailTemplate(models.Model):
