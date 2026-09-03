@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +295,7 @@ class ApprovalPagination(PageNumberPagination):
 
 
 class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
     """ViewSet for managing global approval settings per module.
 
     Admin-only — tampering with these settings (thresholds, auto-approval,
@@ -301,7 +304,7 @@ class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
     queryset = GlobalApprovalSettings.objects.all()
     pagination_class = ApprovalPagination
     filterset_fields = ['module', 'approval_mode']
-    permission_classes = [IsAdminUser]
+    permission_classes = [ModuleEnabled, IsAdminUser]
     
     @action(detail=False, methods=['get'])
     def check(self, request):
@@ -410,6 +413,7 @@ class GlobalApprovalSettingsViewSet(viewsets.ModelViewSet):
 
 
 class ApprovalGroupViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
     """Admin-only: defines WHO can approve what.
 
     Exposing write-access here would let any authenticated user add
@@ -419,10 +423,11 @@ class ApprovalGroupViewSet(viewsets.ModelViewSet):
     queryset = ApprovalGroup.objects.all()
     serializer_class = ApprovalGroupSerializer
     pagination_class = ApprovalPagination
-    permission_classes = [IsAdminUser]
+    permission_classes = [ModuleEnabled, IsAdminUser]
 
 
 class ApprovalTemplateViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
     """Admin-only: configures approval chain templates per document type.
 
     Users may read templates to understand flow, but only admins may
@@ -431,7 +436,7 @@ class ApprovalTemplateViewSet(viewsets.ModelViewSet):
     queryset = ApprovalTemplate.objects.all().prefetch_related('steps')
     serializer_class = ApprovalTemplateSerializer
     pagination_class = ApprovalPagination
-    permission_classes = [IsAdminUser]
+    permission_classes = [ModuleEnabled, IsAdminUser]
 
     @action(detail=False, methods=['get'])
     def content_types(self, request):
@@ -636,6 +641,8 @@ class ApprovalTemplateViewSet(viewsets.ModelViewSet):
             'total_templates': len(default_templates),
         })
 class ApprovalViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Approval.objects.all().select_related('content_type', 'requested_by', 'template')
     serializer_class = ApprovalSerializer
     filterset_fields = ['status', 'content_type']
@@ -1176,6 +1183,8 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             )
             raise
 class ApprovalStepViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ApprovalStep.objects.all().select_related('approval', 'approver_group', 'approver')
     serializer_class = ApprovalStepSerializer
     pagination_class = ApprovalPagination
@@ -1212,6 +1221,7 @@ class ApprovalStepViewSet(viewsets.ModelViewSet):
 
 
 class ApprovalLogViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "workflow"
     """Read-only audit trail for approvals.
 
     Scoping: a non-staff user only sees logs whose approval they could
@@ -1224,7 +1234,7 @@ class ApprovalLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ApprovalLog.objects.all().select_related('approval', 'step', 'user')
     serializer_class = ApprovalLogSerializer
     pagination_class = ApprovalPagination
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1253,6 +1263,8 @@ class ApprovalLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ApprovalDelegationViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ApprovalDelegation.objects.all().select_related('delegator', 'delegate')
     serializer_class = ApprovalDelegationSerializer
     pagination_class = ApprovalPagination
@@ -1309,6 +1321,8 @@ def _emit_legacy_workflow_warning(viewset_name: str) -> None:
 
 
 class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """DEPRECATED — use ApprovalTemplateViewSet."""
     queryset = WorkflowDefinition.objects.all().prefetch_related('steps')
     serializer_class = WorkflowDefinitionSerializer
@@ -1319,6 +1333,8 @@ class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
 
 
 class WorkflowInstanceViewSet(viewsets.ModelViewSet):
+    module_key = "workflow"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """DEPRECATED — use ApprovalViewSet."""
     queryset = WorkflowInstance.objects.all().prefetch_related('logs', 'workflow__steps')
     serializer_class = WorkflowInstanceSerializer

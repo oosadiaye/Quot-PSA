@@ -63,6 +63,8 @@ from contracts.services import (
     RetentionService,
 )
 from contracts.views._helpers import translate_service_errors
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 def _scope_to_org(qs, request, contract_path: str = "contract__mda_id"):
@@ -88,6 +90,7 @@ def _scope_to_org(qs, request, contract_path: str = "contract__mda_id"):
 # ── Measurement Books ──────────────────────────────────────────────────
 
 class MeasurementBookViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
     queryset = MeasurementBook.objects.select_related("contract").order_by(
         "-measurement_date", "-id",
     )
@@ -98,7 +101,7 @@ class MeasurementBookViewSet(viewsets.ModelViewSet):
     # against any contract. Now reads require ``view_contract`` and
     # writes require ``add_contract``/``change_contract`` (the same
     # gate as the contract header itself).
-    permission_classes = [CanViewContracts, CanManageContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts, CanManageContracts]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = MeasurementBookFilter
     ordering_fields = ["measurement_date", "created_at"]
@@ -116,6 +119,7 @@ class MeasurementBookViewSet(viewsets.ModelViewSet):
 # ── Interim Payment Certificates ──────────────────────────────────────
 
 class IPCViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "contracts"
     """IPCs are never created via POST to the collection endpoint;
     they are always born through ``/ipcs/submit/`` which runs the full
     ceiling + monotonicity + fiscal-year guard set.
@@ -127,7 +131,7 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
         .order_by("-created_at")
     )
     serializer_class = IPCSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = IPCFilter
     ordering_fields = ["created_at", "posting_date", "this_certificate_gross"]
@@ -331,6 +335,7 @@ class IPCViewSet(viewsets.ReadOnlyModelViewSet):
 # ── Mobilization payments ─────────────────────────────────────────────
 
 class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "contracts"
     # ``contract__vendor`` and ``payment_voucher`` are accessed by the
     # serializer's display fields (contract_number, vendor_name,
     # payment_voucher_number). Without these in select_related the
@@ -340,7 +345,7 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
         "contract", "contract__vendor", "payment_voucher",
     ).order_by("-created_at")
     serializer_class = MobilizationPaymentSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_class = MobilizationPaymentFilter
 
@@ -474,11 +479,12 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
 # ── Retention releases ────────────────────────────────────────────────
 
 class RetentionReleaseViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "contracts"
     queryset = RetentionRelease.objects.select_related("contract").order_by(
         "-created_at",
     )
     serializer_class = RetentionReleaseSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_class = RetentionReleaseFilter
 

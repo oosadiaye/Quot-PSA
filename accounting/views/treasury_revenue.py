@@ -20,13 +20,16 @@ from accounting.serializers_treasury import (
     RevenueHeadSerializer, RevenueCollectionSerializer,
 )
 from core.mixins import OrganizationFilterMixin
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     org_filter_admin_field = 'mda'
     """TSA account management — Main TSA, sub-accounts, zero-balance accounts."""
     serializer_class = TreasuryAccountSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['account_type', 'is_active', 'mda']
     search_fields = ['account_number', 'account_name']
@@ -369,9 +372,10 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     org_filter_admin_field = 'appropriation__administrative'
     """Government Payment Voucher — create, approve, schedule, pay."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'payment_type', 'tsa_account']
     search_fields = ['voucher_number', 'payee_name', 'narration']
@@ -643,9 +647,10 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class PaymentInstructionViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """Payment instructions sent to CBN/bank for TSA settlement."""
     serializer_class = PaymentInstructionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status']
     search_fields = ['beneficiary_name', 'batch_reference', 'bank_reference']
@@ -658,9 +663,10 @@ class PaymentInstructionViewSet(viewsets.ModelViewSet):
 
 
 class RevenueHeadViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """Revenue head classification — maps to NCoA economic segment."""
     serializer_class = RevenueHeadSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['revenue_type', 'is_active']
     search_fields = ['code', 'name']
@@ -671,9 +677,10 @@ class RevenueHeadViewSet(viewsets.ModelViewSet):
 
 
 class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     org_filter_admin_field = 'collecting_mda'
     """Revenue receipt — individual IGR collection transactions."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'revenue_head', 'collection_channel']
     search_fields = ['receipt_number', 'payer_name', 'payer_tin', 'payment_reference']

@@ -9,9 +9,13 @@ from ..models import (
     Account, JournalHeader, JournalLine, BudgetEncumbrance, TransactionSequence,
 )
 from ..serializers import VendorInvoiceSerializer, PaymentSerializer, PaymentAllocationSerializer
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     # Tenant MDA-isolation: in SEPARATED mode the queryset is auto-
     # filtered to the operator's active MDA. In UNIFIED mode every
     # invoice is visible. Mirrors PaymentVoucher / Treasury / Revenue
@@ -1641,6 +1645,8 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     # Tenant MDA-isolation: the Payment doesn't carry an MDA directly,
     # so we filter through ``allocations__invoice__mda``. In UNIFIED
     # mode every payment is visible; in SEPARATED mode the operator
@@ -2466,6 +2472,8 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class PaymentAllocationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PaymentAllocation.objects.select_related('payment', 'invoice')
     serializer_class = PaymentAllocationSerializer
     filterset_fields = ['payment', 'invoice']

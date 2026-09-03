@@ -42,6 +42,8 @@ from accounting.serializers_reconciliation import (
 from accounting.services.tsa_bank_reconciliation import (
     parse_statement_file, auto_match_statement,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # =============================================================================
@@ -172,6 +174,7 @@ def _compute_book_balance_at(tsa: TreasuryAccount, as_of):
 # =============================================================================
 
 class TSABankStatementViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """
     List / retrieve / upload bank statements.
 
@@ -180,7 +183,7 @@ class TSABankStatementViewSet(viewsets.ModelViewSet):
         statement_file   — the CSV/TSV file
         opening_balance  — optional opening balance (defaults to 0)
     """
-    permission_classes = [CanReconcileTSA]
+    permission_classes = [ModuleEnabled, CanReconcileTSA]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['tsa_account', 'status']
@@ -378,9 +381,10 @@ class TSABankStatementViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class TSABankStatementLineViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
     """Read + custom match/unmatch/ignore actions on a single parsed line."""
     serializer_class = TSABankStatementLineSerializer
-    permission_classes = [CanReconcileTSA]
+    permission_classes = [ModuleEnabled, CanReconcileTSA]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['statement', 'match_status']
 
@@ -562,6 +566,7 @@ class TSABankStatementLineViewSet(viewsets.ReadOnlyModelViewSet):
 # =============================================================================
 
 class TSAReconciliationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """
     Create / list / complete reconciliation sessions per TSA.
 
@@ -574,7 +579,7 @@ class TSAReconciliationViewSet(viewsets.ModelViewSet):
     as reconciled (H1) and lock the statement.
     """
     serializer_class = TSAReconciliationSerializer
-    permission_classes = [CanReconcileTSA]
+    permission_classes = [ModuleEnabled, CanReconcileTSA]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['tsa_account', 'status']
     ordering_fields = ['period_end', 'created_at']

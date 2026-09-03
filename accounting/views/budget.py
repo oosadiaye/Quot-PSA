@@ -17,14 +17,20 @@ from ..serializers import (
     BudgetAmendmentSerializer, BudgetTransferSerializer, BudgetCheckLogSerializer,
     BudgetForecastSerializer, BudgetAnomalySerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class BudgetPeriodViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetPeriod.objects.all()
     serializer_class = BudgetPeriodSerializer
     filterset_fields = ['fiscal_year', 'period_type', 'status']
 
 class BudgetViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Budget.objects.all().select_related('period', 'mda', 'account', 'fund', 'function', 'program', 'geo')
     serializer_class = BudgetSerializer
     filterset_fields = ['period', 'mda', 'account', 'fund', 'function', 'program', 'geo', 'control_level']
@@ -581,11 +587,15 @@ class BudgetViewSet(viewsets.ModelViewSet):
         return Response(predictions)
 
 class BudgetEncumbranceViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetEncumbrance.objects.all().select_related('budget')
     serializer_class = BudgetEncumbranceSerializer
     filterset_fields = ['budget', 'reference_type', 'status']
 
 class BudgetAmendmentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetAmendment.objects.all().select_related('budget', 'requested_by', 'approved_by')
     serializer_class = BudgetAmendmentSerializer
     filterset_fields = ['budget', 'amendment_type', 'status']
@@ -620,6 +630,8 @@ class BudgetAmendmentViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class BudgetTransferViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetTransfer.objects.all().select_related('from_budget', 'to_budget', 'requested_by', 'approved_by')
     serializer_class = BudgetTransferSerializer
     filterset_fields = ['status']
@@ -694,16 +706,22 @@ class BudgetTransferViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class BudgetCheckLogViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetCheckLog.objects.all().select_related('budget', 'override_by')
     serializer_class = BudgetCheckLogSerializer
     filterset_fields = ['budget', 'check_result', 'transaction_type']
 
 class BudgetForecastViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetForecast.objects.all().select_related('budget')
     serializer_class = BudgetForecastSerializer
     filterset_fields = ['budget']
 
 class BudgetAnomalyViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetAnomaly.objects.all().select_related('budget', 'reviewed_by')
     serializer_class = BudgetAnomalySerializer
     filterset_fields = ['budget', 'anomaly_type', 'reviewed']

@@ -14,6 +14,8 @@ from ..serializers import (
 )
 from core.utils import api_response
 from core.security.client_ip import get_trusted_client_ip as _audit_client_ip
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # V7 — message returned by the legacy single-actor reopen path once
@@ -99,6 +101,8 @@ def _execute_period_reopen(*, period, user, request, reason, prior_state):
 
 
 class FiscalPeriodViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = FiscalPeriod.objects.all()
     serializer_class = FiscalPeriodSerializer
     filterset_fields = ['fiscal_year', 'period_type', 'status']
@@ -493,6 +497,8 @@ class FiscalPeriodViewSet(viewsets.ModelViewSet):
 
 
 class FiscalYearViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = FiscalYear.objects.all()
     serializer_class = FiscalYearSerializer
     filterset_fields = ['year', 'status', 'period_type']
@@ -744,6 +750,8 @@ class FiscalYearViewSet(viewsets.ModelViewSet):
 
 
 class PeriodAccessViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PeriodAccess.objects.all()
     serializer_class = PeriodAccessSerializer
     filterset_fields = ['period', 'user', 'access_type', 'is_active']
@@ -757,12 +765,16 @@ class PeriodAccessViewSet(viewsets.ModelViewSet):
 
 
 class PeriodCloseCheckViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PeriodCloseCheck.objects.all().select_related('period', 'checked_by')
     serializer_class = PeriodCloseCheckSerializer
     filterset_fields = ['period']
 
 
 class PeriodCloseChecklistView(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """
     Period-close pre-flight checklist.
 
@@ -880,6 +892,8 @@ class PeriodCloseChecklistView(viewsets.ViewSet):
 
 
 class FiscalPeriodReopenApprovalViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """V7 — Two-actor approval queue for fiscal period reopen.
 
     Stage 1 (``FiscalPeriodViewSet.reopen_request``) creates a row

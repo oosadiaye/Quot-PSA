@@ -14,6 +14,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from decimal import Decimal
 import pandas as pd
 from django.utils import timezone
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,8 @@ from ..serializers import (
 
 
 class AccountViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Account.objects.all()
     serializer_class = AccountSerializer
 
@@ -614,6 +618,8 @@ class AccountViewSet(viewsets.ModelViewSet):
         return Response({'status': f'{count} account(s) deleted successfully.', 'deleted': count})
 
 class JournalViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = JournalHeader.objects.select_related(
         'fund', 'function', 'program', 'geo'
     ).prefetch_related('lines', 'lines__account')
@@ -1656,6 +1662,8 @@ class JournalViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 class CurrencyViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Currency.objects.all()
     serializer_class = CurrencySerializer
     filterset_fields = ['is_active', 'is_base_currency']
@@ -1738,6 +1746,8 @@ class CurrencyViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 class GLBalanceViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Read-only viewset for GL balance reporting.
 
     Uses ``AccountingPagination`` (max_page_size=10000) instead of the
@@ -1844,6 +1854,8 @@ class GLBalanceViewSet(viewsets.ReadOnlyModelViewSet):
 # ============================================================================
 
 class MDAViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = MDA.objects.all()
     serializer_class = MDASerializer
     filterset_fields = ['mda_type', 'is_active', 'parent_mda']

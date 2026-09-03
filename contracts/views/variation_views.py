@@ -31,16 +31,19 @@ from contracts.serializers import (
 )
 from contracts.services import ContractClosureService, VariationService
 from contracts.views._helpers import translate_service_errors
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class ContractVariationViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
     queryset = (
         ContractVariation.objects
         .select_related("contract", "approved_by")
         .order_by("-created_at")
     )
     serializer_class = ContractVariationSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = VariationFilter
     ordering_fields = ["created_at", "amount", "variation_number"]
@@ -112,13 +115,14 @@ class ContractVariationViewSet(viewsets.ModelViewSet):
 
 
 class CompletionCertificateViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "contracts"
     queryset = (
         CompletionCertificate.objects
         .select_related("contract", "certified_by")
         .order_by("-issued_date", "-id")
     )
     serializer_class = CompletionCertificateSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_class = CompletionCertificateFilter
 
