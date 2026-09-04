@@ -32,11 +32,12 @@ class PaymentBatchSerializer(serializers.ModelSerializer):
                   'source_bank_account_name', 'addressee_bank_name',
                   'addressee_account_no', 'status', 'total_amount',
                   'line_count', 'lines', 'notes', 'cancelled_reason',
-                  'dispatched_at', 'confirmed_at', 'created_at', 'updated_at']
+                  'dispatched_at', 'confirmed_at', 'bank_reference',
+                  'created_at', 'updated_at']
         read_only_fields = ['id', 'batch_number', 'addressee_bank_name',
                             'addressee_account_no', 'status', 'total_amount',
                             'line_count', 'lines', 'cancelled_reason',
-                            'dispatched_at', 'confirmed_at',
+                            'dispatched_at', 'confirmed_at', 'bank_reference',
                             'created_at', 'updated_at']
 
     def get_line_count(self, obj) -> int:
@@ -60,7 +61,16 @@ class RemoveLineSerializer(serializers.Serializer):
 
 
 class CancelBatchSerializer(serializers.Serializer):
+    # Blank is accepted here and rejected in the service ONLY for a
+    # Dispatched batch — cancelling a Draft needs no ceremony, and the
+    # status is not known until the service loads the row.
     reason = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class ConfirmBatchSerializer(serializers.Serializer):
+    """Confirmation is terminal, so it carries evidence."""
+
+    bank_reference = serializers.CharField(max_length=100)
 
 
 class BankLetterSettingsSerializer(serializers.ModelSerializer):
