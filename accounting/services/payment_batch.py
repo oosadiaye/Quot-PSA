@@ -193,17 +193,52 @@ class PaymentBatchService:
           would stop advancing and start colliding.
 
         A counter row always exists to lock, and the value is an integer.
+
+        Adoption: a tenant that already issued batches under the old
+        MAX(batch_number) scheme has no counter row yet. Seeding a fresh
+        counter at 1 would re-issue numbers that already exist and die on
+        the unique constraint, so the first creation for a year adopts the
+        highest number already on the books. That scan happens once per
+        year, only when the counter is created.
         """
         from accounting.models import TransactionSequence
 
-        seq, _ = TransactionSequence.objects.select_for_update().get_or_create(
-            name=f'payment_batch_{year}',
-            defaults={'prefix': f'{BATCH_NUMBER_PREFIX}/{year}/'},
-        )
+        name = f'payment_batch_{year}'
+        try:
+            seq = TransactionSequence.objects.select_for_update().get(name=name)
+        except TransactionSequence.DoesNotExist:
+            seq, _ = TransactionSequence.objects.select_for_update().get_or_create(
+                name=name,
+                defaults={
+                    'prefix': f'{BATCH_NUMBER_PREFIX}/{year}/',
+                    'next_value': PaymentBatchService._highest_issued(year) + 1,
+                },
+            )
+
         value = seq.next_value
         seq.next_value += 1
         seq.save(update_fields=['next_value'])
         return value
+
+    @staticmethod
+    def _highest_issued(year: int) -> int:
+        """Largest sequence already issued for ``year``, or 0.
+
+        Parses the trailing component as an integer rather than taking a
+        string MAX — the same reason the counter exists at all, since
+        'PB/2026/10000' sorts below 'PB/2026/9999'.
+        """
+        from accounting.models import PaymentBatch
+
+        prefix = f'{BATCH_NUMBER_PREFIX}/{year}/'
+        highest = 0
+        for number in (PaymentBatch.objects
+                       .filter(batch_number__startswith=prefix)
+                       .values_list('batch_number', flat=True)):
+            tail = number.rsplit('/', 1)[-1]
+            if tail.isdigit():
+                highest = max(highest, int(tail))
+        return highest
 
     @classmethod
     @transaction.atomic
@@ -307,7 +342,22 @@ class PaymentBatchService:
         # or re-scopes from the SoD-rules page. Ship a system rule pairing
         # create × dispatch (see seed_permission_catalog) and the default
         # is four-eyes; deactivate that row and this call becomes a no-op.
-        enforce_action(user, PERM_DISPATCH, batch)
+        #
+        # The map is REQUIRED, not decorative. check_action matches every
+        # same_document rule naming ``dispatch`` — which includes the
+        # dispatch × confirm rule, whose other side is ``confirm``. The
+        # evaluator has no conventional attribute for that verb, so it
+        # falls back to ``created_by_id`` and reports a violation against
+        # anyone who compiled the batch, blocking dispatch for a rule that
+        # has nothing to say about it. Naming the attribute resolves the
+        # verb properly: has this user already CONFIRMED this batch?
+        enforce_action(
+            user, PERM_DISPATCH, batch,
+            document_actor_attr_map={
+                PERM_CREATE: 'created_by_id',
+                PERM_CONFIRM: 'confirmed_by_id',
+            },
+        )
 
         batch.status = batch.STATUS_DISPATCHED
         batch.dispatched_at = timezone.now()
@@ -343,7 +393,10 @@ class PaymentBatchService:
         # passed explicitly — the RULE itself still lives in the database.
         enforce_action(
             user, PERM_CONFIRM, batch,
-            document_actor_attr_map={PERM_DISPATCH: 'dispatched_by_id'},
+            document_actor_attr_map={
+                PERM_CREATE: 'created_by_id',
+                PERM_DISPATCH: 'dispatched_by_id',
+            },
         )
 
         batch.status = batch.STATUS_CONFIRMED

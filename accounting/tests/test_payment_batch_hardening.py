@@ -350,6 +350,61 @@ class TestBatchNumberAllocation:
         assert a.batch_number == 'PB/2033/0001'
         assert b.batch_number == 'PB/2034/0001'
 
+    def test_adopts_numbers_issued_before_the_counter_existed(
+        self, db, bank_account_for_batch, make_posted_payment, maker_user,
+    ):
+        """The bug a live tenant found and an empty test schema could not.
+
+        Tenants that issued batches under the old MAX(batch_number) scheme
+        have no counter row. Seeding a fresh counter at 1 re-issues
+        PB/YYYY/0001 and dies on the unique constraint.
+        """
+        from datetime import date
+        from accounting.models import PaymentBatch, TransactionSequence
+        from accounting.services.payment_batch import PaymentBatchService
+
+        # A batch from the old scheme — no counter row accompanies it.
+        PaymentBatch.objects.create(
+            batch_number='PB/2040/0001',
+            batch_date=date(2040, 2, 1),
+            source_bank_account=bank_account_for_batch,
+            addressee_bank_name='Premium Trust Bank',
+            addressee_account_no='0100070001',
+        )
+        assert not TransactionSequence.objects.filter(
+            name='payment_batch_2040').exists()
+
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch,
+            batch_date=date(2040, 3, 1),
+            payment_ids=[make_posted_payment().pk],
+            user=maker_user,
+        )
+        assert batch.batch_number == 'PB/2040/0002'
+
+    def test_adoption_reads_the_numeric_tail_not_the_string(
+        self, db, bank_account_for_batch, make_posted_payment, maker_user,
+    ):
+        """A string MAX would adopt 0999 and collide on the next issue."""
+        from datetime import date
+        from accounting.models import PaymentBatch
+        from accounting.services.payment_batch import PaymentBatchService
+
+        for number in ('PB/2041/0999', 'PB/2041/1000'):
+            PaymentBatch.objects.create(
+                batch_number=number, batch_date=date(2041, 2, 1),
+                source_bank_account=bank_account_for_batch,
+                addressee_bank_name='Premium Trust Bank',
+                addressee_account_no='0100070001')
+
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch,
+            batch_date=date(2041, 3, 1),
+            payment_ids=[make_posted_payment().pk],
+            user=maker_user,
+        )
+        assert batch.batch_number == 'PB/2041/1001'
+
     def test_survives_past_the_four_digit_pad(self, db):
         """String MAX() broke here: 'PB/2035/10000' sorts below '.../9999'."""
         from accounting.models import TransactionSequence
@@ -476,6 +531,38 @@ def sod_dispatch_rule(db):
     return rule
 
 
+@pytest.fixture
+def sod_confirm_rule(db):
+    """The seeded dispatch × confirm rule.
+
+    Present so the dispatch tests run against the SAME rule set a real
+    tenant has, rather than an isolated one that hides interference
+    between rules sharing a permission.
+    """
+    from core.models import PermissionDefinition, SoDRule
+
+    dispatch_perm, _ = PermissionDefinition.objects.get_or_create(
+        code='accounting.payment_batch.dispatch',
+        defaults={'module': 'accounting', 'resource': 'payment_batch',
+                  'action': 'dispatch', 'description': 'Dispatch letter to the bank'},
+    )
+    confirm_perm, _ = PermissionDefinition.objects.get_or_create(
+        code='accounting.payment_batch.confirm',
+        defaults={'module': 'accounting', 'resource': 'payment_batch',
+                  'action': 'confirm', 'description': "Record the bank's confirmation"},
+    )
+    rule, _ = SoDRule.objects.get_or_create(
+        code='sod.payment_batch.dispatch_confirm',
+        defaults={
+            'name': 'Bank letter — dispatcher cannot confirm own letter',
+            'permission_a': dispatch_perm, 'permission_b': confirm_perm,
+            'scope': 'same_document', 'severity': 'block',
+            'is_active': True, 'is_system': True,
+        },
+    )
+    return rule
+
+
 @pytest.mark.integration
 class TestDispatchSegregationIsConfigurable:
     """The matrix is data. These tests prove the code reads it."""
@@ -499,6 +586,32 @@ class TestDispatchSegregationIsConfigurable:
         with pytest.raises(SoDViolation) as exc:
             PaymentBatchService.dispatch(batch, maker_user)
         assert 'sod.payment_batch.create_dispatch' in str(exc.value)
+
+    def test_only_the_relevant_rule_is_reported(
+        self, db, bank_account_for_batch, make_posted_payment,
+        maker_user, sod_dispatch_rule, sod_confirm_rule,
+    ):
+        """A live run surfaced this; an isolated rule set could not.
+
+        ``check_action`` matches every same_document rule naming
+        ``dispatch`` — including dispatch × confirm, whose other side is
+        ``confirm``. The evaluator has no conventional actor attribute for
+        that verb and falls back to ``created_by_id``, so without an
+        explicit mapping the compiler of a batch is blocked by a rule about
+        confirmation. The operator then reads a banner naming a rule that
+        has nothing to do with what they tried to do.
+        """
+        from accounting.services.payment_batch import PaymentBatchService
+        from core.services.sod_evaluator import SoDViolation
+
+        batch = self._draft(bank_account_for_batch, make_posted_payment, maker_user)
+
+        with pytest.raises(SoDViolation) as exc:
+            PaymentBatchService.dispatch(batch, maker_user)
+
+        codes = {v.rule_code for v in exc.value.violations}
+        assert codes == {'sod.payment_batch.create_dispatch'}, (
+            f'dispatch reported irrelevant rules: {sorted(codes)}')
 
     def test_a_second_officer_can_dispatch(
         self, db, bank_account_for_batch, make_posted_payment,
