@@ -10,6 +10,7 @@ from accounting.models import BankAccount, BankLetterSettings, PaymentBatch
 from accounting.serializers import PaymentSerializer
 from accounting.serializers_payment_batch import (
     AddLinesSerializer, BankLetterSettingsSerializer, CancelBatchSerializer,
+    ConfirmBatchSerializer,
     PaymentBatchCreateSerializer, PaymentBatchSerializer, RemoveLineSerializer,
 )
 from accounting.services.payment_batch import PaymentBatchService
@@ -221,9 +222,12 @@ class PaymentBatchViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):
+        payload = ConfirmBatchSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
         batch = self.get_object()
         try:
-            PaymentBatchService.confirm(batch, request.user)
+            PaymentBatchService.confirm(
+                batch, request.user, payload.validated_data['bank_reference'])
         except SoDViolation as exc:
             return _sod_forbidden(exc)
         except DjangoValidationError as exc:

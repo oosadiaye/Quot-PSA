@@ -113,6 +113,19 @@ class PaymentBatch(AuditBaseModel):
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='confirmed_payment_batches')
+    # Confirmation is the terminal state — a Confirmed batch can never be
+    # cancelled, because the bank has acted. An irreversible step taken on
+    # the strength of "someone said it cleared" is not auditable, so the
+    # bank's own reference for the transfer is required to reach it.
+    bank_reference = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="The bank's advice / transaction reference confirming the "
+                  "instruction was executed.",
+    )
+    confirmation_document = models.FileField(
+        upload_to='bank_letters/confirmations/%Y/', null=True, blank=True,
+        help_text='Optional scan of the bank advice or stamped letter.',
+    )
     cancelled_reason = models.TextField(blank=True, default='')
     notes = models.TextField(blank=True, default='')
 

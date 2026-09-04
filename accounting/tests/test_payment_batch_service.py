@@ -266,7 +266,7 @@ class TestBatchTransitions:
         from accounting.services.payment_batch import PaymentBatchService
         batch, _ = self._batch(bank_account_for_batch, make_posted_payment)
         PaymentBatchService.dispatch(batch, user=None)
-        PaymentBatchService.confirm(batch, user=None)
+        PaymentBatchService.confirm(batch, user=None, bank_reference='FT-0001')
         with pytest.raises(ValidationError):
             PaymentBatchService.cancel(batch, user=None, reason='nope')
 
@@ -276,7 +276,7 @@ class TestBatchTransitions:
         from accounting.services.payment_batch import PaymentBatchService
         batch, _ = self._batch(bank_account_for_batch, make_posted_payment)
         with pytest.raises(ValidationError):
-            PaymentBatchService.confirm(batch, user=None)
+            PaymentBatchService.confirm(batch, user=None, bank_reference='FT-0001')
 
     def test_cancel_releases_payments_back_to_eligible(
             self, db, bank_account_for_batch, make_posted_payment):

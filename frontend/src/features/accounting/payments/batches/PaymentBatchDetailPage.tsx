@@ -68,6 +68,13 @@ export default function PaymentBatchDetailPage() {
     const navigate = useNavigate();
     const { formatCurrency } = useCurrency();
     const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+    // Which justification dialog is open, if any. Both actions used to fire
+    // straight through — cancel sent the literal string 'Cancelled by
+    // operator', which satisfied the server's "reason required" check
+    // without anyone ever explaining anything. A control the UI answers on
+    // the operator's behalf is not a control.
+    const [prompt, setPrompt] = useState<'confirm' | 'cancel' | null>(null);
+    const [promptText, setPromptText] = useState('');
 
     const { data: batch, isLoading } = usePaymentBatch(batchId);
     const removeLine = useRemoveBatchLine(batchId);
@@ -100,6 +107,11 @@ export default function PaymentBatchDetailPage() {
         { label: 'Lines', value: String(batch.line_count) },
         { label: 'Dispatched', value: formatDate(batch.dispatched_at) },
         { label: 'Confirmed', value: formatDate(batch.confirmed_at) },
+        // Only meaningful once confirmed; showing an empty slot before that
+        // just adds a dash to scan past.
+        ...(batch.bank_reference
+            ? [{ label: 'Bank Ref.', value: batch.bank_reference, mono: true }]
+            : []),
     ];
 
     return (
@@ -191,7 +203,7 @@ export default function PaymentBatchDetailPage() {
                                 ...btnBase,
                                 background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff',
                             }}
-                            onClick={() => run(confirmBatch.mutateAsync(), 'Batch confirmed by the bank')}
+                            onClick={() => setPrompt('confirm')}
                         >
                             <CheckCircle size={15} /> Mark confirmed
                         </button>
@@ -199,16 +211,97 @@ export default function PaymentBatchDetailPage() {
                     {batch.status !== 'Confirmed' && batch.status !== 'Cancelled' && (
                         <button
                             style={{ ...ghostBtn, color: '#dc2626', borderColor: '#fecaca' }}
-                            onClick={() => run(
-                                cancelBatch.mutateAsync({ reason: 'Cancelled by operator' }),
-                                'Batch cancelled — its payments are eligible again',
-                            )}
+                            onClick={() => setPrompt('cancel')}
                         >
                             <XCircle size={15} /> Cancel batch
                         </button>
                     )}
                 </div>
             </div>
+
+            {prompt && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="batch-prompt-title"
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 50,
+                        background: 'rgba(15,23,42,0.45)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '20px',
+                    }}
+                    onClick={() => setPrompt(null)}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            background: '#fff', borderRadius: '12px', padding: '22px',
+                            width: '100%', maxWidth: '480px',
+                            boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                        }}
+                    >
+                        <h3 id="batch-prompt-title" style={{
+                            margin: '0 0 6px', fontSize: '16px', fontWeight: 700, color: '#0f172a',
+                        }}>
+                            {prompt === 'confirm'
+                                ? 'Record the bank confirmation'
+                                : 'Why is this batch being cancelled?'}
+                        </h3>
+                        <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
+                            {prompt === 'confirm'
+                                ? `Confirming ${batch.batch_number} is final — it can no longer be `
+                                  + 'cancelled. Enter the advice or transaction reference the bank gave you.'
+                                : batch.status === 'Dispatched'
+                                    ? `${batch.batch_number} is already with ${batch.addressee_bank_name}. `
+                                      + 'Confirm with the bank that it was not actioned before releasing '
+                                      + 'these payments, and record what you were told.'
+                                    : 'This releases the batch\'s payments back into the eligible pool.'}
+                        </p>
+                        <input
+                            autoFocus
+                            value={promptText}
+                            onChange={(e) => setPromptText(e.target.value)}
+                            placeholder={prompt === 'confirm'
+                                ? 'e.g. FT26090400123456'
+                                : 'e.g. Bank confirmed instruction not actioned — ref 4471'}
+                            style={{
+                                width: '100%', padding: '10px 12px', fontSize: '13px',
+                                border: '1px solid #cbd5e1', borderRadius: '8px',
+                                fontFamily: 'inherit', boxSizing: 'border-box',
+                            }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                            <button style={ghostBtn} onClick={() => { setPrompt(null); setPromptText(''); }}>
+                                Back
+                            </button>
+                            <button
+                                disabled={!promptText.trim()}
+                                style={{
+                                    ...btnBase,
+                                    background: promptText.trim()
+                                        ? (prompt === 'confirm'
+                                            ? 'linear-gradient(135deg,#10b981,#059669)'
+                                            : 'linear-gradient(135deg,#ef4444,#dc2626)')
+                                        : '#e2e8f0',
+                                    color: promptText.trim() ? '#fff' : '#94a3b8',
+                                    cursor: promptText.trim() ? 'pointer' : 'not-allowed',
+                                }}
+                                onClick={() => {
+                                    const text = promptText.trim();
+                                    const action = prompt === 'confirm'
+                                        ? run(confirmBatch.mutateAsync({ bank_reference: text }),
+                                            'Batch confirmed by the bank')
+                                        : run(cancelBatch.mutateAsync({ reason: text }),
+                                            'Batch cancelled — its payments are eligible again');
+                                    action.finally(() => { setPrompt(null); setPromptText(''); });
+                                }}
+                            >
+                                {prompt === 'confirm' ? 'Mark confirmed' : 'Cancel batch'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Lines */}
             <div style={{

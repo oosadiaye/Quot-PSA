@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.utils import timezone
 
 from core.services.sod_evaluator import enforce_action
@@ -133,7 +133,48 @@ class PaymentBatchService:
                 f'{who}: missing bank name or account number. The bank '
                 f'cannot execute a line with blank details — add them on '
                 f'the vendor record first.')
+
+        cls._assert_within_voucher_authority(payment, snap['amount'], who)
         return snap
+
+    @staticmethod
+    def _assert_within_voucher_authority(payment, amount, who: str) -> None:
+        """Never instruct the bank for more than the PV authorised.
+
+        ``Payment.payment_voucher`` is a plain FK, so a voucher MAY be
+        settled by several payments — a legitimate pattern for staged
+        settlement of one authority. This deliberately does not forbid
+        that; forbidding it would need a business rule nobody has stated,
+        and a OneToOneField would break real part-payment workflows.
+
+        What it forbids is the consequence: the batched total against one
+        voucher exceeding that voucher's net. Beyond that line the excess
+        has no authority behind it — the PV approved N and the bank is
+        being told to move more than N.
+
+        Lines already sitting in an active batch count toward the total,
+        so the guard holds across batches, not just within one.
+        """
+        pv = getattr(payment, 'payment_voucher', None)
+        authorised = getattr(pv, 'net_amount', None) if pv else None
+        if authorised is None:
+            return  # No voucher, no ceiling to test against.
+
+        from accounting.models import PaymentBatchLine
+
+        already = (
+            PaymentBatchLine.objects
+            .filter(payment__payment_voucher_id=pv.pk, is_active_membership=True)
+            .aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        )
+        if already + amount > authorised:
+            raise PaymentBatchError(
+                f'{who}: this line would take the total batched against '
+                f'voucher {getattr(pv, "voucher_number", pv.pk)} to '
+                f'{already + amount:,.2f}, but the voucher authorises only '
+                f'{authorised:,.2f}. Already batched: {already:,.2f}. '
+                f'Check whether this payment duplicates one already on a '
+                f'letter.')
 
     @staticmethod
     def _next_sequence(year: int) -> int:
@@ -277,12 +318,25 @@ class PaymentBatchService:
 
     @classmethod
     @transaction.atomic
-    def confirm(cls, batch, user):
+    def confirm(cls, batch, user, bank_reference: str = ''):
         """Record the bank's confirmation that the payments were made."""
         if batch.status != batch.STATUS_DISPATCHED:
             raise PaymentBatchError(
                 f'Only Dispatched batches can be confirmed; '
                 f'{batch.batch_number} is {batch.status}.')
+
+        # Confirmation is terminal: ``cancel`` refuses on a Confirmed batch
+        # because the bank has acted. Taking an irreversible step on the
+        # strength of an unrecorded verbal assurance leaves an auditor with
+        # nothing to test, so the bank's own reference is required to get
+        # here. It is the number the treasury officer already has in hand
+        # from the advice — not extra paperwork.
+        if not (bank_reference or '').strip():
+            raise PaymentBatchError(
+                f'Confirming {batch.batch_number} is final — it can no longer '
+                f"be cancelled. Record the bank's advice or transaction "
+                f'reference so the confirmation can be traced back to the '
+                f'bank that gave it.')
 
         # Same rule-driven SoD gate. ``dispatched_by`` is not one of the
         # evaluator's conventional actor attributes, so the mapping is
@@ -295,8 +349,9 @@ class PaymentBatchService:
         batch.status = batch.STATUS_CONFIRMED
         batch.confirmed_at = timezone.now()
         batch.confirmed_by = user
+        batch.bank_reference = bank_reference.strip()
         batch.save(update_fields=['status', 'confirmed_at', 'confirmed_by',
-                                  'updated_at'])
+                                  'bank_reference', 'updated_at'])
         return batch
 
     @classmethod

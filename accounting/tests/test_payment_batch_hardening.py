@@ -61,6 +61,241 @@ class TestLineAmountComesFromThePayment:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Voucher authority ceiling
+# ─────────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def gov_voucher(db):
+    """A minimal PaymentVoucherGov authorising 600.00 net.
+
+    Built inline rather than imported from contracts' conftest: the six
+    NCoA segments are the only heavyweight part and each is a
+    ``get_or_create`` on a fixed code, so the cost is one-time per schema.
+    """
+    from accounting.models import (
+        AdministrativeSegment, EconomicSegment, FunctionalSegment,
+        ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
+        PaymentVoucherGov, TreasuryAccount,
+    )
+
+    admin, _ = AdministrativeSegment.objects.get_or_create(
+        code='050101000000',
+        defaults={'name': 'Ministry of Works', 'level': 'ORGANIZATION',
+                  'sector_code': '05', 'organization_code': '01',
+                  'is_mda': True, 'mda_type': 'MINISTRY', 'is_active': True})
+    econ, _ = EconomicSegment.objects.get_or_create(
+        code='22010101',
+        defaults={'name': 'Construction Expenditure', 'account_type_code': '2',
+                  'is_posting_level': True, 'normal_balance': 'DEBIT',
+                  'is_active': True})
+    func, _ = FunctionalSegment.objects.get_or_create(
+        code='70111',
+        defaults={'name': 'Executive and Legislative Organs',
+                  'division_code': '701', 'group_code': '1',
+                  'class_code': '1', 'is_active': True})
+    prog, _ = ProgrammeSegment.objects.get_or_create(
+        code='01010001000100',
+        defaults={'name': 'Test Programme', 'policy_code': '01',
+                  'programme_code': '01', 'project_code': '000100',
+                  'objective_code': '01', 'activity_code': '00',
+                  'is_active': True})
+    fund, _ = FundSegment.objects.get_or_create(
+        code='01100',
+        defaults={'name': 'Consolidated Revenue Fund', 'main_fund_code': '01',
+                  'sub_fund_code': '1', 'fund_source_code': '00',
+                  'is_active': True})
+    geo, _ = GeographicSegment.objects.get_or_create(
+        code='52500000',
+        defaults={'name': 'Delta State', 'zone_code': '5',
+                  'state_code': '25', 'is_active': True})
+    ncoa, _ = NCoACode.objects.get_or_create(
+        administrative=admin, economic=econ, functional=func,
+        programme=prog, fund=fund, geographic=geo,
+        defaults={'is_active': True, 'description': 'Batch guard test code'})
+
+    # PaymentVoucherGov.tsa_account is NOT NULL — the voucher names the
+    # treasury account the cash comes out of. SUB_ACCOUNT rather than
+    # MAIN_TSA so the "one active MAIN_TSA per MDA" constraint stays free
+    # for any other fixture in the same schema.
+    tsa, _ = TreasuryAccount.objects.get_or_create(
+        account_number='9900112233',
+        defaults={'account_name': 'Works MDA Sub-Account', 'bank': 'CBN',
+                  'account_type': 'SUB_ACCOUNT', 'is_active': True})
+
+    return PaymentVoucherGov.objects.create(
+        voucher_number='PV/2026/9001', payment_type='VENDOR',
+        ncoa_code=ncoa, tsa_account=tsa,
+        payee_name='ACME Ltd', payee_account='0123456789',
+        payee_bank='Zenith Bank',
+        gross_amount=Decimal('600.00'), net_amount=Decimal('600.00'),
+    )
+
+
+@pytest.fixture
+def make_voucher_payment(db, bank_account_for_batch, batch_vendor):
+    """Posted payment created WITH its voucher already attached.
+
+    ``Payment`` carries ``ImmutableModelMixin``, so a Posted row refuses
+    later edits ("Cannot modify a posted transaction"). The voucher link
+    therefore has to exist at insert time rather than being bolted on
+    afterwards — which is also how the real flow works, since the PV
+    authorises the payment before it is posted.
+    """
+    from accounting.models import Payment
+
+    counter = {'n': 0}
+
+    def _make(voucher, amount):
+        counter['n'] += 1
+        return Payment.objects.create(
+            payment_number=f'PAYV-{counter["n"]:04d}',
+            payment_method='Wire',
+            total_amount=Decimal(amount),
+            status='Posted',
+            bank_account=bank_account_for_batch,
+            vendor=batch_vendor,
+            payment_voucher=voucher,
+            reference_number='Contract certificate',
+        )
+
+    return _make
+
+
+@pytest.mark.integration
+class TestVoucherAuthorityCeiling:
+    """One PV may be settled by several payments; their total may not
+    exceed what the voucher authorised."""
+
+    def test_staged_settlement_within_authority_is_allowed(
+        self, db, bank_account_for_batch, make_voucher_payment,
+        maker_user, gov_voucher,
+    ):
+        """400 + 200 against a 600 voucher — legitimate, must not block."""
+        from accounting.services.payment_batch import PaymentBatchService
+
+        first = make_voucher_payment(gov_voucher, '400.00')
+        second = make_voucher_payment(gov_voucher, '200.00')
+
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch, batch_date=None,
+            payment_ids=[first.pk, second.pk], user=maker_user,
+        )
+        assert batch.total_amount == Decimal('600.00')
+
+    def test_exceeding_the_voucher_is_refused(
+        self, db, bank_account_for_batch, make_voucher_payment,
+        maker_user, gov_voucher,
+    ):
+        """400 + 400 against a 600 voucher — the excess has no authority."""
+        from accounting.services.payment_batch import (
+            PaymentBatchError, PaymentBatchService,
+        )
+
+        first = make_voucher_payment(gov_voucher, '400.00')
+        second = make_voucher_payment(gov_voucher, '400.00')
+
+        with pytest.raises(PaymentBatchError) as exc:
+            PaymentBatchService.create_batch(
+                bank_account=bank_account_for_batch, batch_date=None,
+                payment_ids=[first.pk, second.pk], user=maker_user,
+            )
+        assert 'PV/2026/9001' in str(exc.value)
+        assert 'authorises only' in str(exc.value)
+
+    def test_guard_holds_across_separate_batches(
+        self, db, bank_account_for_batch, make_voucher_payment,
+        maker_user, gov_voucher,
+    ):
+        """Splitting the over-payment across two letters must not evade it."""
+        from accounting.services.payment_batch import (
+            PaymentBatchError, PaymentBatchService,
+        )
+
+        first = make_voucher_payment(gov_voucher, '500.00')
+        second = make_voucher_payment(gov_voucher, '500.00')
+
+        PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch, batch_date=None,
+            payment_ids=[first.pk], user=maker_user,
+        )
+        with pytest.raises(PaymentBatchError):
+            PaymentBatchService.create_batch(
+                bank_account=bank_account_for_batch, batch_date=None,
+                payment_ids=[second.pk], user=maker_user,
+            )
+
+    def test_a_payment_with_no_voucher_has_no_ceiling(
+        self, db, bank_account_for_batch, make_posted_payment, maker_user,
+    ):
+        from accounting.services.payment_batch import PaymentBatchService
+
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account_for_batch, batch_date=None,
+            payment_ids=[make_posted_payment(amount='9999.00').pk],
+            user=maker_user,
+        )
+        assert batch.total_amount == Decimal('9999.00')
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Confirmation evidence
+# ─────────────────────────────────────────────────────────────────────
+
+@pytest.mark.integration
+class TestConfirmationRequiresBankEvidence:
+
+    def _dispatched(self, bank_account, make_posted_payment, user):
+        from accounting.services.payment_batch import PaymentBatchService
+        batch = PaymentBatchService.create_batch(
+            bank_account=bank_account, batch_date=None,
+            payment_ids=[make_posted_payment().pk], user=user,
+        )
+        PaymentBatchService.dispatch(batch, user)
+        return batch
+
+    def test_blank_reference_is_refused(
+        self, db, bank_account_for_batch, make_posted_payment, maker_user,
+    ):
+        from accounting.services.payment_batch import (
+            PaymentBatchError, PaymentBatchService,
+        )
+        batch = self._dispatched(
+            bank_account_for_batch, make_posted_payment, maker_user)
+
+        with pytest.raises(PaymentBatchError) as exc:
+            PaymentBatchService.confirm(batch, maker_user, '  ')
+        assert 'final' in str(exc.value)
+
+    def test_reference_is_recorded_on_the_batch(
+        self, db, bank_account_for_batch, make_posted_payment, maker_user,
+    ):
+        from accounting.models import PaymentBatch
+        from accounting.services.payment_batch import PaymentBatchService
+
+        batch = self._dispatched(
+            bank_account_for_batch, make_posted_payment, maker_user)
+        PaymentBatchService.confirm(batch, maker_user, '  FT26090400123456 ')
+
+        batch.refresh_from_db()
+        assert batch.status == PaymentBatch.STATUS_CONFIRMED
+        assert batch.bank_reference == 'FT26090400123456'
+        assert batch.confirmed_by_id == maker_user.pk
+
+    def test_api_rejects_a_confirm_with_no_reference(
+        self, db, tenant_api_client, bank_account_for_batch,
+        make_posted_payment, superuser,
+    ):
+        batch = self._dispatched(
+            bank_account_for_batch, make_posted_payment, superuser)
+        tenant_api_client.force_authenticate(user=superuser)
+
+        resp = tenant_api_client.post(
+            f'/api/v1/accounting/payment-batches/{batch.pk}/confirm/',
+            {}, format='json')
+        assert resp.status_code == 400
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Batch numbering — a real row to lock, and an integer to increment
 # ─────────────────────────────────────────────────────────────────────
 
