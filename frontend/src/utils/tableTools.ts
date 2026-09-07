@@ -29,7 +29,15 @@
    OPT OUT
    -------
    `data-plain-table` (already used by the bank letter and warrant
-   printout) or `data-no-tools` on the table or any ancestor.
+   printout) or `data-no-tools` — no toolbar, no totals, no sorting.
+
+   `data-no-sort` keeps the filter and totals but leaves ordering to the
+   page. Needed where a page already sorts on header click: React binds
+   through delegation, so there is no onclick attribute in the DOM for
+   us to detect, and both handlers would fire. JournalList is the case
+   that matters — its sort sets an `ordering` parameter on the API call,
+   so a client-side reorder would shuffle one page against the server's
+   own ordering and look like corrupted paging.
    ═══════════════════════════════════════════════════════════════════ */
 
 type ColKind = 'number' | 'date' | 'text';
@@ -46,23 +54,47 @@ const clean = (s: string) => s.replace(NBSP, ' ').trim();
 
 /** Parse a displayed figure. Handles ₦ and other symbols, thousands
  *  separators, and the accounting convention of parentheses for
- *  negatives — (1,234.56) is -1234.56, not 1234.56. */
+ *  negatives — (1,234.56) is -1234.56, not 1234.56.
+ *
+ *  Deliberately strict about what counts as a figure. An earlier version
+ *  stripped every non-digit, which turned the document number JV-000118
+ *  into -118 and totalled the Document No column to -2,348.00 — a
+ *  reference column presented as money. Anything still carrying a letter
+ *  or a path separator after the currency symbol and Dr/Cr suffix come
+ *  off is an identifier, not an amount. */
 function parseNumber(raw: string): number | null {
   let s = clean(raw);
   if (!s || s === '—' || s === '-' || s === '–' || s === 'N/A') return null;
 
   let negative = false;
   if (/^\(.*\)$/.test(s)) { negative = true; s = s.slice(1, -1); }
-  // Strip currency symbols, spaces and the Dr/Cr suffix used on the
-  // trial balance. Keep digits, separators and a leading sign.
-  s = s.replace(/(?:Dr|Cr)\.?$/i, '').replace(/[^\d.,+-]/g, '');
-  if (!s || !/\d/.test(s)) return null;
+
+  // Currency symbols, spaces and the trial balance's Dr/Cr suffix are
+  // presentation; everything else must already look like a number.
+  s = s.replace(/(?:Dr|Cr)\.?$/i, '')
+       .replace(/[₦$£€¥]/g, '')
+       .replace(/\s/g, '')
+       .trim();
+
+  // An identifier (JV-000118, PB/2026/0001, DEMO-REG-REV-2026-12-03)
+  // must not reach Number().
+  if (!/^[+-]?[\d,]*\.?\d+$/.test(s)) return null;
+
   if (s.startsWith('-')) { negative = true; s = s.slice(1); }
   else if (s.startsWith('+')) { s = s.slice(1); }
   s = s.replace(/,/g, '');
   const n = Number(s);
   if (!isFinite(n)) return null;
   return negative ? -n : n;
+}
+
+/** Does this cell read as a *formatted* figure rather than a bare
+ *  integer? Every monetary value in this application renders with two
+ *  decimals, so a decimal point or a thousands separator is what
+ *  separates ₦11,100.00 from the NCoA code 11100100 — both of which are
+ *  valid numbers, only one of which should ever be summed. */
+function looksLikeMoney(raw: string): boolean {
+  return /[.,]/.test(clean(raw)) && parseNumber(raw) !== null;
 }
 
 /** DD/MM/YYYY first — the house format — then ISO. */
@@ -84,6 +116,30 @@ function cellText(row: HTMLTableRowElement, index: number): string {
  *  majority so a stray "—" or a code that happens to be digits does not
  *  flip an entire column. */
 function columnKind(rows: HTMLTableRowElement[], index: number): ColKind {
+  let filled = 0, numeric = 0, dated = 0, money = 0;
+  for (const row of rows.slice(0, 40)) {
+    const text = cellText(row, index);
+    if (!text) continue;
+    filled++;
+    if (parseDate(text) !== null) dated++;
+    else if (parseNumber(text) !== null) {
+      numeric++;
+      if (looksLikeMoney(text)) money++;
+    }
+  }
+  if (filled < 2) return 'text';
+  if (dated / filled > 0.7) return 'date';
+  // Sorting wants any numeric column ordered by value; totalling wants
+  // only real figures. `money` is what renderTotals consults, so a
+  // column of bare integers still sorts numerically without being added
+  // up as if it were currency.
+  if (numeric / filled > 0.7) return money / filled > 0.7 ? 'number' : 'text';
+  return 'text';
+}
+
+/** Sort key type — looser than the totals test above. A column of plain
+ *  integers (a line count, a quantity) should still order by value. */
+function sortKind(rows: HTMLTableRowElement[], index: number): ColKind {
   let filled = 0, numeric = 0, dated = 0;
   for (const row of rows.slice(0, 40)) {
     const text = cellText(row, index);
@@ -128,7 +184,7 @@ function applySort(table: Tagged) {
   const rows = bodyRows(table);
   if (rows.length < 2) return;
 
-  const kind = columnKind(rows, state.index);
+  const kind = sortKind(rows, state.index);
   const sign = state.dir === 'asc' ? 1 : -1;
 
   // Decorate–sort–undecorate keeps the comparator cheap and the sort
@@ -337,6 +393,9 @@ function attach(table: HTMLTableElement) {
   table.setAttribute('data-tools-ready', '');
 
   const head = table.tHead!;
+  const pageOwnsSort = !!table.closest('[data-no-sort]');
+
+  if (!pageOwnsSort) {
   head.addEventListener('click', (e) => {
     const th = (e.target as HTMLElement).closest('th');
     if (!th || !head.contains(th)) return;
@@ -352,9 +411,10 @@ function attach(table: HTMLTableElement) {
     e.preventDefault();
     toggleSort(table as Tagged, (th as HTMLTableCellElement).cellIndex);
   });
+  }
 
   ensureToolbar(table);
-  markHeaders(table as Tagged);
+  if (!pageOwnsSort) markHeaders(table as Tagged);
   refresh(table);
 }
 
@@ -377,7 +437,11 @@ function schedule() {
       try {
         if (table[SORT_KEY]) applySort(table);
         ensureToolbar(table);
-        markHeaders(table);
+        if (!table.closest('[data-no-sort]')) markHeaders(table);
+        // A filter survives a re-render only if it is re-applied: React
+        // hands back fresh rows with no display style of ours on them.
+        const input = table.querySelector('caption[data-tools-bar] .tt-filter') as HTMLInputElement | null;
+        if (input && input.value) applyFilter(table, input.value);
         refresh(table);
       } catch { /* never break a page */ }
     });

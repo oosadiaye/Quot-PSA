@@ -414,7 +414,8 @@ const StockValuation = () => {
                 {/* ── Table ────────────────────────────────────────────────── */}
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                     <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+                        {/* data-no-sort: this page sorts on header click itself; tableTools keeps its filter and totals but leaves ordering alone. */}
+                        <table data-no-sort style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                                     {(

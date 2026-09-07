@@ -298,7 +298,8 @@ export default function GLReports() {
                             ...(shouldVirtualize ? { maxHeight: '70vh', overflowY: 'auto' } : {}),
                         }}
                     >
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        {/* data-no-sort: this page sorts on header click itself; tableTools keeps its filter and totals but leaves ordering alone. */}
+                        <table data-no-sort style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead style={shouldVirtualize ? { position: 'sticky', top: 0, zIndex: 2 } : undefined}>
                                 <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
                                     <th style={thStyle()} onClick={() => handleSort('account_code')}>
@@ -549,7 +550,8 @@ export default function GLReports() {
 
                                     {/* Journal Lines Table */}
                                     <div style={{ overflow: 'hidden', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        {/* data-no-sort: this page sorts on header click itself; tableTools keeps its filter and totals but leaves ordering alone. */}
+                                        <table data-no-sort style={{ width: '100%', borderCollapse: 'collapse' }}>
                                             <thead>
                                                 <tr style={{ background: 'var(--color-surface)' }}>
                                                     <th style={{ padding: '0.75rem 1rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', textAlign: 'left' }}>Account Code</th>
