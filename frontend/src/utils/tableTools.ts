@@ -52,6 +52,14 @@ interface Tagged extends HTMLTableElement { [SORT_KEY]?: SortState | null; }
 
 const clean = (s: string) => s.replace(NBSP, ' ').trim();
 
+/** A ledger writes nil as a dash, not as 0.00. Those cells carry no
+ *  value and must not count toward a column's type: a Balance column
+ *  showing 100.00 / — / 50.00 is still a money column, and counting the
+ *  dash as an unparseable value drops it below the threshold and loses
+ *  the total. */
+const BLANKISH = new Set(['', '—', '-', '–', 'N/A', 'n/a', 'nil', '--']);
+const isBlankish = (s: string) => BLANKISH.has(clean(s));
+
 /** Parse a displayed figure. Handles ₦ and other symbols, thousands
  *  separators, and the accounting convention of parentheses for
  *  negatives — (1,234.56) is -1234.56, not 1234.56.
@@ -119,7 +127,7 @@ function columnKind(rows: HTMLTableRowElement[], index: number): ColKind {
   let filled = 0, numeric = 0, dated = 0, money = 0;
   for (const row of rows.slice(0, 40)) {
     const text = cellText(row, index);
-    if (!text) continue;
+    if (isBlankish(text)) continue;
     filled++;
     if (parseDate(text) !== null) dated++;
     else if (parseNumber(text) !== null) {
@@ -143,7 +151,7 @@ function sortKind(rows: HTMLTableRowElement[], index: number): ColKind {
   let filled = 0, numeric = 0, dated = 0;
   for (const row of rows.slice(0, 40)) {
     const text = cellText(row, index);
-    if (!text) continue;
+    if (isBlankish(text)) continue;
     filled++;
     if (parseDate(text) !== null) dated++;
     else if (parseNumber(text) !== null) numeric++;
