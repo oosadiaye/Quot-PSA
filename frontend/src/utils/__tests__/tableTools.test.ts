@@ -203,6 +203,19 @@ describe('tableTools', () => {
       expect(t.querySelector('caption[data-tools-bar]')).toBeNull();
     });
 
+    it('declines a table with more than one tbody', async () => {
+      // Everything reads tBodies[0]. No table in the app has several
+      // bodies today; if one appears, being visibly inert beats putting
+      // a gutter on the first group only and misaligning the rest.
+      const t = makeTable(['Account', 'Amount'], [['A', '1.00'], ['B', '2.00']]);
+      const second = t.createTBody();
+      const r = second.insertRow();
+      r.insertCell().textContent = 'C';
+      r.insertCell().textContent = '3.00';
+      await settle();
+      expect(t.hasAttribute('data-tools-ready')).toBe(false);
+    });
+
     it('skips an empty-state table', async () => {
       // "No employees found" is one row; a filter and a Σ 1 rows footer
       // on it reads as a bug.
@@ -249,6 +262,49 @@ describe('tableTools', () => {
       sortBy(t, 'Date');
       expect(columnValues(t, 'Date'))
         .toEqual(['03/01/2026', '15/06/2026', '01/12/2026']);
+    });
+  });
+
+  describe('row numbers', () => {
+    it('numbers the rows on screen', async () => {
+      const t = makeTable(
+        ['Head', 'Amount'],
+        [['A', '1.00'], ['B', '2.00'], ['C', '3.00']],
+      );
+      await settle();
+      const nums = Array.from(t.querySelectorAll('tbody td.tt-gutter'))
+        .map((c) => c.textContent);
+      expect(nums).toEqual(['1', '2', '3']);
+    });
+
+    it('renumbers what remains after a filter', async () => {
+      // Row 2 is the second row you can see, not the second record —
+      // the only reading that holds when the list is server-paginated.
+      const t = makeTable(
+        ['Head', 'Amount'],
+        [['FAAC one', '1.00'], ['Other', '2.00'], ['FAAC two', '3.00']],
+      );
+      await settle();
+      const input = t.querySelector('.tt-filter') as HTMLInputElement;
+      input.value = 'FAAC';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const nums = Array.from(t.querySelectorAll('tbody td.tt-gutter'))
+        .map((c) => c.textContent)
+        .filter((v) => v !== '');
+      expect(nums).toEqual(['1', '2']);
+    });
+
+    it('keeps sorting on the right column once a gutter shifts it', async () => {
+      // The gutter moves every cellIndex by one. Sort state is stored
+      // page-relative, so this must still order Amount, not Head.
+      const t = makeTable(
+        ['Head', 'Amount'],
+        [['C', '300.00'], ['A', '100.00'], ['B', '200.00']],
+      );
+      await settle();
+      sortBy(t, 'Amount');
+      expect(columnValues(t, 'Amount')).toEqual(['100.00', '200.00', '300.00']);
+      expect(columnValues(t, 'Head')).toEqual(['A', 'B', 'C']);
     });
   });
 

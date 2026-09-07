@@ -182,6 +182,16 @@ function eligible(table: HTMLTableElement): boolean {
   const head = table.tHead;
   const body = table.tBodies[0];
   if (!head || !body) return false;
+
+  // Everything here reads tBodies[0]. No table in the app currently has
+  // more than one body — checked by walking table open/close tags rather
+  // than counting <tbody> per file, which conflates separate tables — so
+  // rather than half-support a shape that does not exist, decline it. A
+  // grouped table added later gets no gutter and no totals, which is
+  // visibly inert, instead of a gutter on its first group only, which
+  // would silently misalign every column below the fold.
+  if (table.tBodies.length > 1) return false;
+
   if (head.rows.length === 0 || body.rows.length < 2) return false;
   // A layout table has no real header cells.
   return head.rows[head.rows.length - 1].querySelectorAll('th').length >= 2;
@@ -439,6 +449,32 @@ function columnLetter(index: number): string {
   return out;
 }
 
+/** Make clipped text recoverable.
+ *
+ *  One line per row is what takes the Revenue list from 5 visible rows
+ *  to 16, but it means a value wider than its column is cut off with an
+ *  ellipsis and no way to read the rest. A native title tooltip restores
+ *  it without giving up the density.
+ *
+ *  Only visible rows are measured: reading scrollWidth forces layout, so
+ *  this stays proportional to what is on screen rather than to the page
+ *  size. */
+function markTruncated(table: HTMLTableElement) {
+  for (const row of visibleRows(table)) {
+    for (const cell of Array.from(row.cells)) {
+      if (cell.classList.contains('tt-gutter')) continue;
+      const text = clean(cell.textContent || '');
+      if (cell.scrollWidth > cell.clientWidth + 1) {
+        if (cell.getAttribute('title') !== text) cell.setAttribute('title', text);
+      } else if (cell.hasAttribute('title')) {
+        // The column may have widened; do not leave a stale tooltip on a
+        // cell that now shows its value in full.
+        cell.removeAttribute('title');
+      }
+    }
+  }
+}
+
 /* ── toolbar ───────────────────────────────────────────────────────── */
 
 function ensureToolbar(table: HTMLTableElement) {
@@ -474,8 +510,11 @@ function ensureToolbar(table: HTMLTableElement) {
     table.insertBefore(cap, table.firstChild);
     input.addEventListener('input', () => {
       applyFilter(table, input.value);
-      renderTotals(table);
-      updateCount(table);
+      // refresh(), not renderTotals() alone: the row numbers have to
+      // renumber with the filter too. Calling the parts individually
+      // left the gutter stale until the observer ticked — invisible in
+      // the browser behind a 120ms debounce, immediate in a unit test.
+      refresh(table);
     });
     // Stop a click in the toolbar from reaching a row handler beneath.
     cap.addEventListener('click', (e) => {
@@ -513,6 +552,7 @@ function refresh(table: HTMLTableElement) {
   renderTotals(table);
   syncGutter(table);
   syncColumnLetters(table);
+  markTruncated(table);
   updateCount(table);
 }
 
