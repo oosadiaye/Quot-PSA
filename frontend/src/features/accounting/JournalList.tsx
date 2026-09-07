@@ -494,7 +494,8 @@ const JournalList = () => {
             )}
 
             <div className="card glass animate-fade" style={{ padding: 0, overflowX: 'auto' }}>
-                <table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse' }}>
+                {/* data-no-sort: this page sorts on header click itself; tableTools keeps its filter and totals but leaves ordering alone. */}
+                <table data-no-sort style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
                             <th style={{ padding: '1rem 0.75rem 1rem 1.5rem', width: '40px' }}>

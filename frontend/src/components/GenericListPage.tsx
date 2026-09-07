@@ -509,7 +509,11 @@ const GenericListPage = ({ title, subtitle, endpoint, columns, actions, onRowCli
                             padding: '0.75rem 1rem', borderTop: '1px solid var(--color-border, #e8ecf1)',
                         }}>
                             <div style={{ fontSize: 'var(--text-xs, 13px)', color: 'var(--color-text-muted, #64748b)' }}>
-                                Showing {((page - 1) * pageSize) + 1}\u2013{Math.min(page * pageSize, totalCount)} of {totalCount}
+                                {/* The en dash must be an expression: in JSX *text* a
+                                    \u2013 sequence is literal characters, not an escape,
+                                    so it rendered as "1\u201325 of 72" on every page
+                                    using this list. */}
+                                Showing {((page - 1) * pageSize) + 1}{'\u2013'}{Math.min(page * pageSize, totalCount)} of {totalCount}
                             </div>
                             <div style={{ display: 'flex', gap: '6px' }}>
                                 <button

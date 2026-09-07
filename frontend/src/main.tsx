@@ -2,6 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './styles/responsive.css'
+// Last, deliberately: the spreadsheet register style for every list view
+// has to win over the per-page table styling it replaces.
+import './styles/ledger-grid.css'
+import { initTableTools } from './utils/tableTools'
 import App from './App.tsx'
 import { consumeTenantBootstrap } from './utils/tenantBootstrap'
 
@@ -18,3 +22,7 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+// Sort / filter / totals on every list view. Attaches to tables already
+// on the page, so no page component needs to know about it.
+initTableTools()

@@ -231,7 +231,7 @@ export default function WarrantPrintLayout({
             </p>
 
             {/* ── Lines table ── */}
-            <table style={{
+            <table data-plain-table style={{
                 width: '100%', borderCollapse: 'collapse',
                 fontSize: f(12), marginBottom: f(14),
             }}>
