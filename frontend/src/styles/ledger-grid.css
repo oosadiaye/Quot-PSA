@@ -285,6 +285,48 @@ table:not([data-plain-table]) thead th.tt-sortable:focus-visible {
   outline-offset: -2px;
 }
 
+/* Row-number gutter and column letters — the spreadsheet's own chrome.
+   Frozen to the left so the number stays with its row on a wide
+   register that scrolls sideways. */
+table:not([data-plain-table]) td.tt-gutter,
+table:not([data-plain-table]) th.tt-corner {
+  background: var(--grid-gutter) !important;
+  border: 1px solid var(--grid-line) !important;
+  color: var(--grid-ink-3) !important;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  text-align: center;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  padding: 0 4px !important;
+  user-select: none;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+table:not([data-plain-table]) th.tt-corner { z-index: 4; }
+table:not([data-plain-table]) tbody tr:hover td.tt-gutter {
+  background: var(--grid-gutter-hot, var(--grid-accent-wash)) !important;
+  color: var(--grid-ink) !important;
+}
+
+table:not([data-plain-table]) thead tr[data-tools-letters] th {
+  background: var(--grid-gutter) !important;
+  border: 1px solid var(--grid-line) !important;
+  color: var(--grid-ink-3) !important;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: .08em;
+  text-align: center !important;
+  text-transform: none;
+  padding: 1px 4px !important;
+  height: 17px;
+  cursor: default;
+}
+
 /* Computed totals. Distinguished from a page-authored tfoot by the
    accent top rule, so nobody mistakes a derived figure for one the
    backend produced. */

@@ -32,6 +32,35 @@ function makeTable(headers: string[], rows: string[][]): HTMLTableElement {
 /** The enhancer runs off a MutationObserver; give it a tick to attach. */
 const settle = () => new Promise((r) => setTimeout(r, 200));
 
+/** Locate a column by its header text rather than by position.
+ *
+ *  Positional indices were how these tests first broke: adding the
+ *  row-number gutter shifted every column by one and three assertions
+ *  started reading the wrong cell. A test that names the column it means
+ *  survives any decoration added to the left of it. */
+function colIndex(table: HTMLTableElement, header: string): number {
+  const rows = Array.from(table.tHead!.rows);
+  const fieldRow = rows.find((r) => !r.hasAttribute('data-tools-letters'))!;
+  return Array.from(fieldRow.cells).findIndex(
+    (c) => (c.textContent || '').trim() === header,
+  );
+}
+
+/** Visible values of a named column, in the order they now appear. */
+function columnValues(table: HTMLTableElement, header: string): (string | null)[] {
+  const i = colIndex(table, header);
+  return Array.from(table.tBodies[0].rows)
+    .filter((r) => !r.hasAttribute('data-tools-row'))
+    .map((r) => r.cells[i]?.textContent ?? null);
+}
+
+/** Click a named column header. */
+function sortBy(table: HTMLTableElement, header: string) {
+  const fieldRow = Array.from(table.tHead!.rows)
+    .find((r) => !r.hasAttribute('data-tools-letters'))!;
+  (fieldRow.cells[colIndex(table, header)] as HTMLElement).click();
+}
+
 function totalsFor(table: HTMLTableElement): Record<string, string> {
   const foot = table.querySelector('tfoot[data-tools-foot]');
   if (!foot) return {};
@@ -194,13 +223,10 @@ describe('tableTools', () => {
         ],
       );
       await settle();
-      const amountHeader = t.tHead!.rows[0].cells[1] as HTMLElement;
-      amountHeader.click();
-      const order = Array.from(t.tBodies[0].rows)
-        .filter((r) => !r.hasAttribute('data-tools-row'))
-        .map((r) => r.cells[1].textContent);
+      sortBy(t, 'Amount');
       // A lexical sort would give 1,169… 4,770… 537,115 — plausible and wrong.
-      expect(order).toEqual(['537,115.85', '1,169,161.80', '4,770,750.44']);
+      expect(columnValues(t, 'Amount'))
+        .toEqual(['537,115.85', '1,169,161.80', '4,770,750.44']);
     });
 
     it('still orders a bare integer column numerically', async () => {
@@ -210,11 +236,8 @@ describe('tableTools', () => {
         [['A', '10'], ['B', '9'], ['C', '100']],
       );
       await settle();
-      (t.tHead!.rows[0].cells[1] as HTMLElement).click();
-      const order = Array.from(t.tBodies[0].rows)
-        .filter((r) => !r.hasAttribute('data-tools-row'))
-        .map((r) => r.cells[1].textContent);
-      expect(order).toEqual(['9', '10', '100']);
+      sortBy(t, '# Lines');
+      expect(columnValues(t, '# Lines')).toEqual(['9', '10', '100']);
     });
 
     it('sorts DD/MM/YYYY chronologically', async () => {
@@ -223,11 +246,9 @@ describe('tableTools', () => {
         [['A', '01/12/2026'], ['B', '03/01/2026'], ['C', '15/06/2026']],
       );
       await settle();
-      (t.tHead!.rows[0].cells[1] as HTMLElement).click();
-      const order = Array.from(t.tBodies[0].rows)
-        .filter((r) => !r.hasAttribute('data-tools-row'))
-        .map((r) => r.cells[1].textContent);
-      expect(order).toEqual(['03/01/2026', '15/06/2026', '01/12/2026']);
+      sortBy(t, 'Date');
+      expect(columnValues(t, 'Date'))
+        .toEqual(['03/01/2026', '15/06/2026', '01/12/2026']);
     });
   });
 

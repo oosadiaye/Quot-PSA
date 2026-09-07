@@ -115,6 +115,19 @@ function parseDate(raw: string): number | null {
   return null;
 }
 
+/** 1 when the row-number gutter is present, 0 otherwise.
+ *
+ *  Every column index is stored relative to the page's own columns and
+ *  offset by this at the moment it is used. Storing raw cellIndex would
+ *  silently sort the wrong column the first time someone turned the
+ *  gutter off with a sort already active. */
+function gutterOffset(table: HTMLTableElement): number {
+  const head = table.tHead;
+  if (!head || head.rows.length === 0) return 0;
+  const fieldRow = Array.from(head.rows).find((r) => !r.hasAttribute('data-tools-letters'));
+  return fieldRow?.cells[0]?.classList.contains('tt-corner') ? 1 : 0;
+}
+
 function cellText(row: HTMLTableRowElement, index: number): string {
   const cell = row.cells[index];
   return cell ? clean(cell.textContent || '') : '';
@@ -192,13 +205,14 @@ function applySort(table: Tagged) {
   const rows = bodyRows(table);
   if (rows.length < 2) return;
 
-  const kind = sortKind(rows, state.index);
+  const col = state.index + gutterOffset(table);
+  const kind = sortKind(rows, col);
   const sign = state.dir === 'asc' ? 1 : -1;
 
   // Decorate–sort–undecorate keeps the comparator cheap and the sort
   // stable on equal keys (ties hold their original ledger order).
   const decorated = rows.map((row, i) => {
-    const text = cellText(row, state.index);
+    const text = cellText(row, col);
     let key: number | string | null;
     if (kind === 'number') key = parseNumber(text);
     else if (kind === 'date') key = parseDate(text);
@@ -230,8 +244,12 @@ function markHeaders(table: Tagged) {
   if (!head) return;
   const headerRow = head.rows[head.rows.length - 1];
   const state = table[SORT_KEY];
+  const offset = gutterOffset(table);
 
-  Array.from(headerRow.cells).forEach((th, index) => {
+  Array.from(headerRow.cells).forEach((th, cellIdx) => {
+    // The gutter corner is not a column anyone sorts by.
+    if (th.classList.contains('tt-corner')) return;
+    const index = cellIdx - offset;
     th.classList.add('tt-sortable');
     th.setAttribute('role', 'button');
     th.setAttribute('tabindex', '0');
@@ -325,6 +343,102 @@ function renderTotals(table: HTMLTableElement) {
   if (!existing) table.appendChild(foot);
 }
 
+/* ── row-number gutter ─────────────────────────────────────────────── */
+
+/** The numbered column down the left, as the approved mockup showed.
+ *
+ *  Inserting a cell into rows React rendered is more invasive than the
+ *  caption and tfoot, so this is written to be idempotent: every pass
+ *  removes what it previously added and rebuilds, which means a React
+ *  re-render can never leave two gutters or a gutter on some rows only.
+ *
+ *  Numbers follow what is on screen, not the underlying record — after a
+ *  sort or a filter row 3 is the third row you can see. That matches a
+ *  spreadsheet, and it is the only reading that stays true when the list
+ *  is server-paginated.
+ *
+ *  Off via `data-grid-rownums="off"` on <body>. */
+function syncGutter(table: HTMLTableElement) {
+  const wanted = document.body.getAttribute('data-grid-rownums') !== 'off';
+
+  table.querySelectorAll('.tt-gutter, .tt-corner').forEach((n) => n.remove());
+  if (!wanted) return;
+
+  const head = table.tHead;
+  if (!head) return;
+  const headerCols = head.rows[head.rows.length - 1].cells.length;
+
+  for (const row of Array.from(head.rows)) {
+    const th = document.createElement('th');
+    th.className = 'tt-corner';
+    th.setAttribute('aria-hidden', 'true');
+    row.insertBefore(th, row.firstChild);
+  }
+
+  let n = 0;
+  for (const row of Array.from(table.tBodies[0]?.rows || [])) {
+    const td = document.createElement('td');
+    td.className = 'tt-gutter';
+    // A full-width message row ("No records found") keeps its colspan;
+    // the gutter simply sits beside it, so the widths still add up.
+    const isMessage = row.cells.length === 1 &&
+      (row.cells[0].colSpan >= headerCols || row.cells[0].colSpan > 1);
+    if (!row.hasAttribute('data-tt-hidden') && !isMessage) {
+      n += 1;
+      td.textContent = String(n);
+    }
+    row.insertBefore(td, row.firstChild);
+  }
+
+  for (const foot of Array.from(table.tFoot ? [table.tFoot] : [])) {
+    for (const row of Array.from(foot.rows)) {
+      const td = document.createElement('td');
+      td.className = 'tt-gutter';
+      row.insertBefore(td, row.firstChild);
+    }
+  }
+}
+
+/** Column letters (A, B, C…) above the field names.
+ *
+ *  Opt-in rather than default. They are authentic to a spreadsheet and
+ *  useful when an auditor cites "column F", but they cost a row of
+ *  vertical space on every list and the letters match nothing the user
+ *  can export — so the default is off and a tenant that wants them sets
+ *  `data-grid-letters="on"` on <body>. */
+function syncColumnLetters(table: HTMLTableElement) {
+  const wanted = document.body.getAttribute('data-grid-letters') === 'on';
+  const existing = table.querySelector('tr[data-tools-letters]');
+  if (!wanted) { existing?.remove(); return; }
+
+  const head = table.tHead;
+  if (!head || head.rows.length === 0) return;
+  const fieldRow = Array.from(head.rows).find((r) => !r.hasAttribute('data-tools-letters'));
+  if (!fieldRow) return;
+
+  const count = fieldRow.cells.length;
+  const row = existing || head.insertRow(0);
+  row.setAttribute('data-tools-letters', '');
+  row.replaceChildren();
+
+  for (let i = 0; i < count; i++) {
+    const th = document.createElement('th');
+    th.className = 'tt-letter';
+    // The first slot is the gutter corner when row numbers are on.
+    const isCorner = fieldRow.cells[i]?.classList.contains('tt-corner');
+    th.textContent = isCorner ? '' : columnLetter(i - (fieldRow.cells[0]?.classList.contains('tt-corner') ? 1 : 0));
+    row.appendChild(th);
+  }
+  if (head.rows[0] !== row) head.insertBefore(row, head.rows[0]);
+}
+
+function columnLetter(index: number): string {
+  if (index < 0) return '';
+  let n = index, out = '';
+  do { out = String.fromCharCode(65 + (n % 26)) + out; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return out;
+}
+
 /* ── toolbar ───────────────────────────────────────────────────────── */
 
 function ensureToolbar(table: HTMLTableElement) {
@@ -391,7 +505,14 @@ function updateCount(table: HTMLTableElement) {
 /* ── wiring ────────────────────────────────────────────────────────── */
 
 function refresh(table: HTMLTableElement) {
+  // Totals are computed on the page's own columns, before the gutter
+  // and letters go back on — so a derived footer never has to reason
+  // about decorations we added ourselves.
+  table.querySelectorAll('.tt-gutter, .tt-corner').forEach((n) => n.remove());
+  table.querySelector('tr[data-tools-letters]')?.remove();
   renderTotals(table);
+  syncGutter(table);
+  syncColumnLetters(table);
   updateCount(table);
 }
 
@@ -409,15 +530,19 @@ function attach(table: HTMLTableElement) {
     if (!th || !head.contains(th)) return;
     // Ignore the select-all checkbox cell.
     if (th.querySelector('input,button')) return;
-    toggleSort(table as Tagged, (th as HTMLTableCellElement).cellIndex);
+    if (th.classList.contains('tt-corner') || th.classList.contains('tt-letter')) return;
+    toggleSort(table as Tagged,
+      (th as HTMLTableCellElement).cellIndex - gutterOffset(table));
   });
   head.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const th = (e.target as HTMLElement).closest('th');
     if (!th || !head.contains(th)) return;
     if (th.querySelector('input,button')) return;
+    if (th.classList.contains('tt-corner') || th.classList.contains('tt-letter')) return;
     e.preventDefault();
-    toggleSort(table as Tagged, (th as HTMLTableCellElement).cellIndex);
+    toggleSort(table as Tagged,
+      (th as HTMLTableCellElement).cellIndex - gutterOffset(table));
   });
   }
 
