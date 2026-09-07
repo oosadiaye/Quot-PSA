@@ -1,0 +1,233 @@
+/* ═══════════════════════════════════════════════════════════════════
+   ledger-grid.css — the spreadsheet register style for every list view.
+
+   WHY A STYLESHEET AND NOT A COMPONENT
+   ------------------------------------
+   117 files render a <table>. Only 4 route through ResponsiveTable /
+   GenericListPage; the rest hand-roll markup and style it with inline
+   `style={{...}}` objects (37 files define their own local `th`/`td`
+   consts). Converting all of them to a shared component is the correct
+   end state but is a multi-week refactor with real regression risk
+   across screens that post to the general ledger.
+
+   Loading one stylesheet last reaches every one of them today. Inline
+   styles beat stylesheet rules, so the handful of properties those
+   inline objects actually set — padding, font-size, border, height,
+   white-space — carry `!important` here. Nothing else does. As pages
+   migrate to a shared component, the corresponding `!important` can be
+   dropped without touching this file's structure.
+
+   OPT OUT
+   -------
+   Add `data-plain-table` to a <table> (or any ancestor) to exclude it.
+   Used by the bank payment letter, which reproduces a signed OAG form
+   and must keep its own ruled layout.
+
+   DENSITY
+   -------
+   Compact by default, matching the approved mockup. Set
+   `data-grid-density="comfortable"` on <body> to relax it.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Grid chrome. Neutrals sit against the app's existing indigo
+     (--color-primary #242a88) rather than beside it. */
+  --grid-cell:        #ffffff;
+  --grid-band:        #f6f7f9;
+  --grid-gutter:      #edeff2;
+  --grid-line:        #c8cdd4;
+  --grid-line-strong: #9aa3ae;
+  --grid-ink:         #1a1f26;
+  --grid-ink-2:       #48525e;
+  --grid-ink-3:       #6e7986;
+  --grid-accent:      #2a5db0;
+  --grid-accent-wash: #dce6f5;
+  --grid-neg:         #b3261e;
+
+  /* Compact — the approved default. */
+  --grid-row-h:    26px;
+  --grid-cell-pad: 3px 8px;
+  --grid-font:     13px;
+  --grid-head-pad: 5px 8px;
+}
+
+body[data-grid-density="comfortable"] {
+  --grid-row-h:    34px;
+  --grid-cell-pad: 7px 10px;
+  --grid-font:     13.5px;
+  --grid-head-pad: 7px 10px;
+}
+
+/* ── The table itself ─────────────────────────────────────────────── */
+table:not([data-plain-table]):not([data-plain-table] table) {
+  border-collapse: collapse !important;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--grid-ink);
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+table:not([data-plain-table]):not([data-plain-table] table) thead th {
+  background: var(--grid-gutter) !important;
+  border: 1px solid var(--grid-line) !important;
+  padding: var(--grid-head-pad) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--grid-ink-2) !important;
+  white-space: nowrap !important;
+  vertical-align: middle;
+  /* Header holds while the body scrolls. Pages that already scroll a
+     wrapper get this for free; pages that scroll the window do not,
+     which is harmless. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* ── Body cells ───────────────────────────────────────────────────── */
+table:not([data-plain-table]):not([data-plain-table] table) tbody td {
+  border: 1px solid var(--grid-line) !important;
+  padding: var(--grid-cell-pad) !important;
+  height: var(--grid-row-h) !important;
+  font-size: var(--grid-font) !important;
+  line-height: 1.35 !important;
+  background: var(--grid-cell);
+  vertical-align: middle;
+  /* One line per row is the whole point of the compact register: it is
+     what takes the Revenue list from 5 visible rows to 10. Cells that
+     would overflow are clipped with an ellipsis and remain readable via
+     the row's detail view. */
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+/* Figures line up on the decimal point wherever a page has already
+   marked a column as right-aligned. */
+table:not([data-plain-table]):not([data-plain-table] table) tbody td[align="right"],
+table:not([data-plain-table]):not([data-plain-table] table) tbody td[style*="right"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Row states ───────────────────────────────────────────────────── */
+table:not([data-plain-table]):not([data-plain-table] table) tbody tr:hover td {
+  background: var(--grid-accent-wash);
+}
+table:not([data-plain-table]):not([data-plain-table] table) tbody tr[aria-selected="true"] td {
+  background: var(--grid-accent-wash);
+  box-shadow: inset 0 1px 0 var(--grid-accent), inset 0 -1px 0 var(--grid-accent);
+}
+
+/* Banding is off by default — gridlines already carry the eye across a
+   row, and banding on top of them reads as noise. Opt in per page. */
+body[data-grid-banding="on"]
+  table:not([data-plain-table]):not([data-plain-table] table) tbody tr:nth-child(even) td {
+  background: var(--grid-band);
+}
+
+/* ── Totals row ───────────────────────────────────────────────────── */
+table:not([data-plain-table]):not([data-plain-table] table) tfoot td,
+table:not([data-plain-table]):not([data-plain-table] table) tfoot th {
+  border: 1px solid var(--grid-line-strong) !important;
+  background: var(--grid-gutter) !important;
+  padding: var(--grid-cell-pad) !important;
+  height: var(--grid-row-h) !important;
+  font-size: var(--grid-font) !important;
+  font-weight: 700 !important;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* ── Codes and references ─────────────────────────────────────────── */
+/* CSS cannot know which column holds an NCoA code or a receipt number,
+   so pages mark those cells with `data-code`. Digits then stay on one
+   line and compare vertically down the column. */
+table:not([data-plain-table]) td[data-code] {
+  font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: calc(var(--grid-font) - 1px) !important;
+  letter-spacing: 0.02em;
+}
+
+/* Negative figures in the accounting convention. */
+table:not([data-plain-table]) td[data-negative] { color: var(--grid-neg) !important; }
+
+/* ── Status tokens ────────────────────────────────────────────────── */
+/* The badge is what actually sets row height: `.badge-glass` carries
+   6px/12px padding and a 20px radius from glassmorphism.css, making it
+   29.8px tall inside a cell that only needs 26px. Shrinking it in place
+   is what takes the row from 37px to the compact spec — so these
+   selectors must cover both the class-based badges and any inline-styled
+   pill, which is why both forms appear here. */
+table:not([data-plain-table]):not([data-plain-table] table) tbody td .badge-glass,
+table:not([data-plain-table]):not([data-plain-table] table) tbody td [class*="badge-"],
+table:not([data-plain-table]):not([data-plain-table] table) tbody td span[style*="border-radius"] {
+  padding: 1px 6px !important;
+  font-size: 10px !important;
+  border-radius: 2px !important;
+  line-height: 1.6 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+  backdrop-filter: none !important;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ── Action buttons ───────────────────────────────────────────────── */
+/* Icon buttons shrink to fit the row instead of setting its height. */
+table:not([data-plain-table]):not([data-plain-table] table) tbody td button {
+  padding: 2px 5px !important;
+  min-height: 0 !important;
+  line-height: 1 !important;
+}
+table:not([data-plain-table]):not([data-plain-table] table) tbody td button svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+/* Checkbox columns should not set the row height either. */
+table:not([data-plain-table]):not([data-plain-table] table) tbody td input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  vertical-align: middle;
+}
+
+/* ── Container ────────────────────────────────────────────────────── */
+/* A scroll frame keeps a wide register on the page instead of pushing
+   the body sideways. */
+table:not([data-plain-table]):not([data-plain-table] table) {
+  border: 1px solid var(--grid-line-strong);
+}
+
+/* ── Print ────────────────────────────────────────────────────────── */
+/* Screen chrome is for operating the register. On paper the gridlines
+   stay (an auditor reads a ruled sheet) but the interaction states go. */
+@media print {
+  table:not([data-plain-table]):not([data-plain-table] table) tbody tr:hover td { background: transparent; }
+  table:not([data-plain-table]):not([data-plain-table] table) thead th,
+  table:not([data-plain-table]):not([data-plain-table] table) tfoot td { position: static; }
+}
+
+/* ── Dark scheme ──────────────────────────────────────────────────── */
+/* The app ships light-only today. These tokens are declared so the grid
+   does not become the one surface that breaks if a dark theme lands. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="dark"] {
+    --grid-cell:        #1b2027;
+    --grid-band:        #20262e;
+    --grid-gutter:      #262d36;
+    --grid-line:        #38424e;
+    --grid-line-strong: #55606e;
+    --grid-ink:         #e4e9ef;
+    --grid-ink-2:       #b3bcc7;
+    --grid-ink-3:       #8894a2;
+    --grid-accent:      #6fa0e8;
+    --grid-accent-wash: #23324a;
+    --grid-neg:         #ee8a82;
+  }
+}

@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './styles/responsive.css'
+// Last, deliberately: the spreadsheet register style for every list view
+// has to win over the per-page table styling it replaces.
+import './styles/ledger-grid.css'
 import App from './App.tsx'
 import { consumeTenantBootstrap } from './utils/tenantBootstrap'
 
