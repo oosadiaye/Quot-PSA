@@ -348,6 +348,38 @@ td.tt-total-label {
   white-space: nowrap;
 }
 
+/* ── Narrow screens ───────────────────────────────────────────────── */
+/* One line per row is what buys the density, but it also fixes the
+   table's width — and most pages put their table in a container with
+   `overflow: visible`, so on a phone the right-hand columns were simply
+   clipped away with no way to reach them. Status, Balance and Actions
+   became unreachable rather than merely cramped.
+
+   Before this stylesheet, cells wrapped and a narrow screen grew taller
+   instead. `display: block` turns the table itself into the scroll
+   container, so the register keeps its alignment and pans sideways the
+   way a spreadsheet does, without depending on a wrapper the page may
+   not provide.
+
+   Confined to narrow viewports: on desktop the table stays a real
+   `table` element and the column-sizing algorithm is untouched. */
+@media (max-width: 1024px) {
+  table:not([data-plain-table]):not([data-plain-table] table) {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* The gutter can no longer stick to a viewport it no longer scrolls
+     with; it sticks to the table's own scroll box instead, which is what
+     keeps the row number beside its row while panning. */
+  table:not([data-plain-table]) td.tt-gutter,
+  table:not([data-plain-table]) th.tt-corner {
+    position: sticky;
+    left: 0;
+  }
+}
+
 /* ── Print ────────────────────────────────────────────────────────── */
 /* Screen chrome is for operating the register. On paper the gridlines
    stay (an auditor reads a ruled sheet) but the interaction states go. */
