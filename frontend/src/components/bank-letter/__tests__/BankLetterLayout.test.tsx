@@ -37,6 +37,9 @@ function makeBatch(lineCount: number, amount = '100.00'): PaymentBatch {
     cancelled_reason: '',
     dispatched_at: null,
     confirmed_at: null,
+    // Empty until the batch is confirmed; the column is a non-null
+    // CharField with default '', so the API always sends the key.
+    bank_reference: '',
     lines: Array.from({ length: lineCount }, (_, i) => ({
       id: i + 1,
       sequence: i + 1,
