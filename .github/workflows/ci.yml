@@ -41,7 +41,13 @@ jobs:
       DB_PASSWORD: quot
       DB_HOST: localhost
       DB_PORT: "5432"
-      DEBUG: "1"
+      # Must be the literal "True": settings.py:36 parses DEBUG with a
+      # strict `os.getenv('DEBUG', 'False') == 'True'`, so "1" reads as
+      # False and CI silently ran in non-DEBUG mode — which is what made
+      # snapshots.E001 a hard ERROR instead of a warning. Left strict on
+      # purpose: DEBUG governs whether stack traces are served, so a
+      # parser that fails closed is the safer one to keep.
+      DEBUG: "True"
       SECRET_KEY: ci-insecure-key-not-for-prod
       ALLOWED_HOSTS: "*"
 
@@ -202,7 +208,13 @@ jobs:
       DB_PASSWORD: quot
       DB_HOST: localhost
       DB_PORT: "5432"
-      DEBUG: "1"
+      # Must be the literal "True": settings.py:36 parses DEBUG with a
+      # strict `os.getenv('DEBUG', 'False') == 'True'`, so "1" reads as
+      # False and CI silently ran in non-DEBUG mode — which is what made
+      # snapshots.E001 a hard ERROR instead of a warning. Left strict on
+      # purpose: DEBUG governs whether stack traces are served, so a
+      # parser that fails closed is the safer one to keep.
+      DEBUG: "True"
       SECRET_KEY: ci-insecure-key-not-for-prod
       ALLOWED_HOSTS: "*"
       # Loosen rates so the suite (which makes ~80 API calls) doesn't
