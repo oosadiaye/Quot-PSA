@@ -23,14 +23,24 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U quot"
+          --health-cmd "pg_isready -U quot -d quot_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
 
     env:
       DJANGO_SETTINGS_MODULE: quot_pse.settings
-      DATABASE_URL: postgres://quot:quot@localhost:5432/quot_test
+      # settings.py reads discrete DB_* variables (settings.py:157-161);
+      # it never looks at DATABASE_URL. With only DATABASE_URL set,
+      # os.getenv falls back to its defaults — database quot_pse, user
+      # dtsg, empty password — and Django dies with
+      # "fe_sendauth: no password supplied" against a service that
+      # actually created quot_test/quot. These must match that service.
+      DB_NAME: quot_test
+      DB_USER: quot
+      DB_PASSWORD: quot
+      DB_HOST: localhost
+      DB_PORT: "5432"
       DEBUG: "1"
       SECRET_KEY: ci-insecure-key-not-for-prod
       ALLOWED_HOSTS: "*"
@@ -174,14 +184,24 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U quot"
+          --health-cmd "pg_isready -U quot -d quot_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
 
     env:
       DJANGO_SETTINGS_MODULE: quot_pse.settings
-      DATABASE_URL: postgres://quot:quot@localhost:5432/quot_test
+      # settings.py reads discrete DB_* variables (settings.py:157-161);
+      # it never looks at DATABASE_URL. With only DATABASE_URL set,
+      # os.getenv falls back to its defaults — database quot_pse, user
+      # dtsg, empty password — and Django dies with
+      # "fe_sendauth: no password supplied" against a service that
+      # actually created quot_test/quot. These must match that service.
+      DB_NAME: quot_test
+      DB_USER: quot
+      DB_PASSWORD: quot
+      DB_HOST: localhost
+      DB_PORT: "5432"
       DEBUG: "1"
       SECRET_KEY: ci-insecure-key-not-for-prod
       ALLOWED_HOSTS: "*"
