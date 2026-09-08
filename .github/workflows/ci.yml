@@ -49,27 +49,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpq-dev
 
+      # Install from requirements.txt, not a hand-listed subset. The
+      # inline list this replaced had drifted: it pinned Django 4.2,
+      # which requirements.txt documents as too old for django-tenants
+      # 3.10 and the 5.x model features in use, and it omitted
+      # python-dotenv, drf-spectacular, cryptography, numpy and pandas —
+      # all imported at app-registry boot, so `manage.py check` died
+      # before a single test ran. It also installed reportlab, which the
+      # codebase never imports. The e2e job already installs this way;
+      # the two jobs now agree.
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install \
-            'Django==4.2.28' \
-            django-tenants \
-            djangorestframework \
-            djangorestframework-simplejwt \
-            django-filter \
-            django-cors-headers \
-            django-celery-beat \
-            django-simple-history \
-            psycopg2-binary \
-            Pillow \
-            openpyxl \
-            reportlab \
-            pytest==7.4.4 \
-            pytest-django \
-            pytest-cov \
-            ruff \
-            bandit
+          pip install -r requirements.txt
 
       # ── Linters + security (advisory on main; enforced on PRs once clean)
       - name: Lint (ruff)
@@ -138,8 +130,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `tsc -b` (build mode), not bare `tsc`. The root tsconfig.json is
+      # a Vite project-references stub — "files": [] plus references to
+      # tsconfig.app.json / tsconfig.node.json — so `tsc --noEmit` reads
+      # it, finds zero files, and exits 0 without checking anything.
+      # Only build mode follows the references.
       - name: TypeScript check
-        run: npx tsc --noEmit
+        run: npx tsc -b --noEmit
 
       - name: Build (production bundle)
         run: npm run build
