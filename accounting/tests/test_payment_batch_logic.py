@@ -68,8 +68,12 @@ class TestResolvePayeeSnapshot:
         assert snap['payee_bank'] == 'Zenith Bank'
         assert snap['payee_account'] == '0123456789'
         assert snap['purpose'] == 'Supply of stationery'
-        # net, not gross — the bank credits the vendor after WHT
-        assert snap['amount'] == Decimal('900.00')
+        # Identity comes from the PV; the SUM never does. The bank is told
+        # to move the cash this Payment actually disburses (1000.00), not
+        # the voucher's net (900.00) — one PV may be settled by several
+        # payments, and billing each line the full voucher would instruct
+        # the bank to pay it more than once.
+        assert snap['amount'] == Decimal('1000.00')
 
     def test_falls_back_to_vendor_when_no_pv(self):
         from decimal import Decimal

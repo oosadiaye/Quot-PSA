@@ -32,6 +32,8 @@ export interface PaymentBatch {
   cancelled_reason: string;
   dispatched_at: string | null;
   confirmed_at: string | null;
+  /** The bank's advice reference, recorded when the batch was confirmed. */
+  bank_reference: string;
 }
 
 export interface BankLetterSettings {
@@ -135,8 +137,8 @@ export function useDispatchBatch(id: number) {
 }
 
 export function useConfirmBatch(id: number) {
-  return useBatchMutation<void>(
-    async () => (await apiClient.post(`${BASE}/${id}/confirm/`)).data,
+  return useBatchMutation<{ bank_reference: string }>(
+    async (vars) => (await apiClient.post(`${BASE}/${id}/confirm/`, vars)).data,
   );
 }
 

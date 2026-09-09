@@ -31,8 +31,16 @@ class OrganizationFilterMixin:
     org_filter_field: str | None = None
     org_filter_admin_field: str | None = None
 
-    def get_queryset(self):
-        qs = super().get_queryset()
+    def apply_org_filter(self, qs, *, field=None, admin_field=None):
+        """Apply the active organization's MDA isolation to ANY queryset.
+
+        ``get_queryset`` uses this with the ViewSet's declared
+        ``org_filter_field`` / ``org_filter_admin_field``. Custom actions
+        that build their own queryset — an eligibility picker, a report
+        feed — must call this explicitly with the field path appropriate
+        to *that* model, otherwise the action silently returns rows from
+        every MDA while the ViewSet's own list endpoint is filtered.
+        """
         request = getattr(self, 'request', None)
         if not request:
             return qs
@@ -51,16 +59,23 @@ class OrganizationFilterMixin:
             return qs
 
         # Standard MDA → filter to own data
-        if self.org_filter_admin_field and org.administrative_segment_id:
+        if admin_field and org.administrative_segment_id:
             return qs.filter(**{
-                f'{self.org_filter_admin_field}_id': org.administrative_segment_id,
+                f'{admin_field}_id': org.administrative_segment_id,
             })
-        elif self.org_filter_field and org.legacy_mda_id:
+        elif field and org.legacy_mda_id:
             return qs.filter(**{
-                f'{self.org_filter_field}_id': org.legacy_mda_id,
+                f'{field}_id': org.legacy_mda_id,
             })
 
         return qs
+
+    def get_queryset(self):
+        return self.apply_org_filter(
+            super().get_queryset(),
+            field=self.org_filter_field,
+            admin_field=self.org_filter_admin_field,
+        )
 
 
 class OrganizationPermission(BasePermission):

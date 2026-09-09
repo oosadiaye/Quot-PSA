@@ -13,10 +13,19 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.utils import timezone
 
+from core.services.sod_evaluator import enforce_action
+
 BATCH_NUMBER_PREFIX = 'PB'
+
+# Permission codes from the seeded catalogue. Referenced here only so the
+# SoD evaluator can look up whichever rules a tenant has configured
+# against them — the pairings themselves are database rows, not constants.
+PERM_CREATE = 'accounting.payment_batch.create'
+PERM_DISPATCH = 'accounting.payment_batch.dispatch'
+PERM_CONFIRM = 'accounting.payment_batch.confirm'
 
 
 def format_batch_number(year: int, sequence: int) -> str:
@@ -39,9 +48,17 @@ def resolve_payee_snapshot(payment) -> dict:
     ``Payment.payment_voucher`` is nullable (mandatory only when
     ``AccountingSettings.require_pv_before_payment`` is on).
 
-    ``amount`` uses the PV **net** amount: the bank credits the vendor
-    after withholding tax. Where no PV exists, ``payment.total_amount`` is
-    already the disbursed figure.
+    ``amount`` is ALWAYS ``payment.total_amount`` — the cash actually
+    leaving the government account, which is what the bank is being told
+    to move and what was posted to the GL.
+
+    It is deliberately NOT ``pv.net_amount``. ``Payment.payment_voucher``
+    is a plain FK with no uniqueness, so one PV may be settled by several
+    payments; taking the PV net would put the FULL voucher amount on every
+    one of those lines and instruct the bank to pay it more than once. A
+    single partial settlement over-instructs the same way. The PV remains
+    the source for payee *identity* (it snapshots the authorised payee at
+    authorisation time) — but never for the sum.
     """
     pv = getattr(payment, 'payment_voucher', None)
     vendor = getattr(payment, 'vendor', None)
@@ -56,9 +73,7 @@ def resolve_payee_snapshot(payment) -> dict:
     if not purpose:
         purpose = getattr(payment, 'reference_number', '') or ''
 
-    amount = (getattr(pv, 'net_amount', None) if pv else None)
-    if amount is None:
-        amount = getattr(payment, 'total_amount', None) or Decimal('0')
+    amount = getattr(payment, 'total_amount', None) or Decimal('0')
 
     return {
         'payee_name': pick('payee_name', 'name'),
@@ -118,7 +133,112 @@ class PaymentBatchService:
                 f'{who}: missing bank name or account number. The bank '
                 f'cannot execute a line with blank details — add them on '
                 f'the vendor record first.')
+
+        cls._assert_within_voucher_authority(payment, snap['amount'], who)
         return snap
+
+    @staticmethod
+    def _assert_within_voucher_authority(payment, amount, who: str) -> None:
+        """Never instruct the bank for more than the PV authorised.
+
+        ``Payment.payment_voucher`` is a plain FK, so a voucher MAY be
+        settled by several payments — a legitimate pattern for staged
+        settlement of one authority. This deliberately does not forbid
+        that; forbidding it would need a business rule nobody has stated,
+        and a OneToOneField would break real part-payment workflows.
+
+        What it forbids is the consequence: the batched total against one
+        voucher exceeding that voucher's net. Beyond that line the excess
+        has no authority behind it — the PV approved N and the bank is
+        being told to move more than N.
+
+        Lines already sitting in an active batch count toward the total,
+        so the guard holds across batches, not just within one.
+        """
+        pv = getattr(payment, 'payment_voucher', None)
+        authorised = getattr(pv, 'net_amount', None) if pv else None
+        if authorised is None:
+            return  # No voucher, no ceiling to test against.
+
+        from accounting.models import PaymentBatchLine
+
+        already = (
+            PaymentBatchLine.objects
+            .filter(payment__payment_voucher_id=pv.pk, is_active_membership=True)
+            .aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        )
+        if already + amount > authorised:
+            raise PaymentBatchError(
+                f'{who}: this line would take the total batched against '
+                f'voucher {getattr(pv, "voucher_number", pv.pk)} to '
+                f'{already + amount:,.2f}, but the voucher authorises only '
+                f'{authorised:,.2f}. Already batched: {already:,.2f}. '
+                f'Check whether this payment duplicates one already on a '
+                f'letter.')
+
+    @staticmethod
+    def _next_sequence(year: int) -> int:
+        """Allocate the next per-year batch sequence under a row lock.
+
+        Uses the codebase's own ``TransactionSequence`` counter rather than
+        ``MAX(batch_number)``. Two reasons the old approach was unsafe:
+
+        * ``select_for_update()`` over a filter matching ZERO rows locks
+          nothing, so the first batch of each new year raced — two
+          creators both computed 1 and the loser died on the unique
+          constraint with an unhandled IntegrityError (a 500, not a
+          clean 400).
+        * String ordering on a 4-digit pad breaks at 10 000: the text
+          ``'PB/2026/10000'`` sorts BELOW ``'PB/2026/9999'``, so the max
+          would stop advancing and start colliding.
+
+        A counter row always exists to lock, and the value is an integer.
+
+        Adoption: a tenant that already issued batches under the old
+        MAX(batch_number) scheme has no counter row yet. Seeding a fresh
+        counter at 1 would re-issue numbers that already exist and die on
+        the unique constraint, so the first creation for a year adopts the
+        highest number already on the books. That scan happens once per
+        year, only when the counter is created.
+        """
+        from accounting.models import TransactionSequence
+
+        name = f'payment_batch_{year}'
+        try:
+            seq = TransactionSequence.objects.select_for_update().get(name=name)
+        except TransactionSequence.DoesNotExist:
+            seq, _ = TransactionSequence.objects.select_for_update().get_or_create(
+                name=name,
+                defaults={
+                    'prefix': f'{BATCH_NUMBER_PREFIX}/{year}/',
+                    'next_value': PaymentBatchService._highest_issued(year) + 1,
+                },
+            )
+
+        value = seq.next_value
+        seq.next_value += 1
+        seq.save(update_fields=['next_value'])
+        return value
+
+    @staticmethod
+    def _highest_issued(year: int) -> int:
+        """Largest sequence already issued for ``year``, or 0.
+
+        Parses the trailing component as an integer rather than taking a
+        string MAX — the same reason the counter exists at all, since
+        'PB/2026/10000' sorts below 'PB/2026/9999'.
+        """
+        from accounting.models import PaymentBatch
+
+        prefix = f'{BATCH_NUMBER_PREFIX}/{year}/'
+        highest = 0
+        for number in (PaymentBatch.objects
+                       .filter(batch_number__startswith=prefix)
+                       .values_list('batch_number', flat=True)):
+            tail = number.rsplit('/', 1)[-1]
+            if tail.isdigit():
+                highest = max(highest, int(tail))
+        return highest
 
     @classmethod
     @transaction.atomic
@@ -126,15 +246,8 @@ class PaymentBatchService:
         from accounting.models import PaymentBatch
         batch_date = batch_date or _date.today()
 
-        # Serialise number allocation against concurrent creators.
         year = batch_date.year
-        prefix = f'{BATCH_NUMBER_PREFIX}/{year}/'
-        last = (PaymentBatch.objects
-                .select_for_update()
-                .filter(batch_number__startswith=prefix)
-                .order_by('-batch_number')
-                .first())
-        next_seq = (int(last.batch_number.rsplit('/', 1)[1]) + 1) if last else 1
+        next_seq = cls._next_sequence(year)
 
         batch = PaymentBatch.objects.create(
             batch_number=format_batch_number(year, next_seq),
@@ -190,7 +303,8 @@ class PaymentBatchService:
         for payment in payments:
             snap = cls._validate_and_snapshot(payment, batch.source_bank_account)
             PaymentBatchLine.objects.create(
-                batch=batch, payment=payment, sequence=next_seq, **snap)
+                batch=batch, payment=payment, sequence=next_seq,
+                created_by=user, **snap)
             next_seq += 1
         return batch
 
@@ -222,6 +336,29 @@ class PaymentBatchService:
         if not batch.lines.filter(is_active_membership=True).exists():
             raise PaymentBatchError(
                 f'{batch.batch_number} has no lines — nothing to instruct.')
+
+        # Segregation of duties. NOTHING is hardcoded here: the evaluator
+        # reads core.SoDRule rows, which a tenant admin edits, deactivates
+        # or re-scopes from the SoD-rules page. Ship a system rule pairing
+        # create × dispatch (see seed_permission_catalog) and the default
+        # is four-eyes; deactivate that row and this call becomes a no-op.
+        #
+        # The map is REQUIRED, not decorative. check_action matches every
+        # same_document rule naming ``dispatch`` — which includes the
+        # dispatch × confirm rule, whose other side is ``confirm``. The
+        # evaluator has no conventional attribute for that verb, so it
+        # falls back to ``created_by_id`` and reports a violation against
+        # anyone who compiled the batch, blocking dispatch for a rule that
+        # has nothing to say about it. Naming the attribute resolves the
+        # verb properly: has this user already CONFIRMED this batch?
+        enforce_action(
+            user, PERM_DISPATCH, batch,
+            document_actor_attr_map={
+                PERM_CREATE: 'created_by_id',
+                PERM_CONFIRM: 'confirmed_by_id',
+            },
+        )
+
         batch.status = batch.STATUS_DISPATCHED
         batch.dispatched_at = timezone.now()
         batch.dispatched_by = user
@@ -231,17 +368,43 @@ class PaymentBatchService:
 
     @classmethod
     @transaction.atomic
-    def confirm(cls, batch, user):
+    def confirm(cls, batch, user, bank_reference: str = ''):
         """Record the bank's confirmation that the payments were made."""
         if batch.status != batch.STATUS_DISPATCHED:
             raise PaymentBatchError(
                 f'Only Dispatched batches can be confirmed; '
                 f'{batch.batch_number} is {batch.status}.')
+
+        # Confirmation is terminal: ``cancel`` refuses on a Confirmed batch
+        # because the bank has acted. Taking an irreversible step on the
+        # strength of an unrecorded verbal assurance leaves an auditor with
+        # nothing to test, so the bank's own reference is required to get
+        # here. It is the number the treasury officer already has in hand
+        # from the advice — not extra paperwork.
+        if not (bank_reference or '').strip():
+            raise PaymentBatchError(
+                f'Confirming {batch.batch_number} is final — it can no longer '
+                f"be cancelled. Record the bank's advice or transaction "
+                f'reference so the confirmation can be traced back to the '
+                f'bank that gave it.')
+
+        # Same rule-driven SoD gate. ``dispatched_by`` is not one of the
+        # evaluator's conventional actor attributes, so the mapping is
+        # passed explicitly — the RULE itself still lives in the database.
+        enforce_action(
+            user, PERM_CONFIRM, batch,
+            document_actor_attr_map={
+                PERM_CREATE: 'created_by_id',
+                PERM_DISPATCH: 'dispatched_by_id',
+            },
+        )
+
         batch.status = batch.STATUS_CONFIRMED
         batch.confirmed_at = timezone.now()
         batch.confirmed_by = user
+        batch.bank_reference = bank_reference.strip()
         batch.save(update_fields=['status', 'confirmed_at', 'confirmed_by',
-                                  'updated_at'])
+                                  'bank_reference', 'updated_at'])
         return batch
 
     @classmethod
@@ -254,6 +417,21 @@ class PaymentBatchService:
                 f'acted on it. Cancellation is not possible.')
         if batch.status == batch.STATUS_CANCELLED:
             raise PaymentBatchError(f'{batch.batch_number} is already cancelled.')
+
+        # Cancelling a DISPATCHED batch is materially different from
+        # cancelling a Draft: the letter is physically with the bank. If
+        # the bank acted on it and the confirmation was never recorded,
+        # releasing these payments lets them be re-batched and re-sent.
+        # Draft cancellation stays frictionless; this one must be justified
+        # in writing, because that text is the audit trail for a decision
+        # that can end in a double payment.
+        if batch.status == batch.STATUS_DISPATCHED and not (reason or '').strip():
+            raise PaymentBatchError(
+                f'{batch.batch_number} has already been dispatched to '
+                f'{batch.addressee_bank_name}. Recalling it requires a written '
+                f'reason — confirm with the bank that the instruction was not '
+                f'acted on before releasing these payments.')
+
         batch.status = batch.STATUS_CANCELLED
         batch.cancelled_reason = reason
         batch.save(update_fields=['status', 'cancelled_reason', 'updated_at'])
