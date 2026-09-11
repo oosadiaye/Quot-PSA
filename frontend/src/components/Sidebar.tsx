@@ -437,23 +437,6 @@ const Sidebar = () => {
         }
     }, [isMobile, drawerOpen]);
 
-    useEffect(() => {
-        const activeParent = menuItems.find(
-            (item) =>
-                item.subItems?.some((sub) => isActive(sub.path)) ||
-                location.pathname === item.path ||
-                location.pathname.startsWith(item.path)
-        );
-        // Open the group containing the current page, closing any other.
-        // Collapsing the group you are standing in would hide the page
-        // you are looking at, so this is the one case that opens a group
-        // on the user's behalf — and even here it replaces rather than
-        // adds, so the one-at-a-time rule still holds.
-        if (activeParent?.subItems && expandedMenu !== activeParent.name) {
-            setExpandedMenu(activeParent.name);
-        }
-    }, [location.pathname, location.search]);
-
     /** Accordion toggle: open this group, or close it if it is already
      *  open. Never leaves two open. */
     const toggleMenu = (menuName: string) => {
@@ -504,12 +487,44 @@ const Sidebar = () => {
         }
         return location.pathname === path;
     };
-    const isParentActive = (item: MenuItem) => {
-        if (item.subItems) {
-            return item.subItems.some((sub) => isActive(sub.path)) || location.pathname.startsWith(item.path);
+    /** The single group that owns the current route.
+     *
+     *  Specificity has to be resolved across *all* groups before any
+     *  prefix matching, because `menuItems` lists General Ledger
+     *  (path '/accounting') above Treasury (path
+     *  '/accounting/tsa-accounts'). One `find` with a prefix clause
+     *  returns General Ledger for every '/accounting/*' route and never
+     *  reaches the group that actually owns it — so opening Payment
+     *  Batches expanded General Ledger and highlighted both.
+     *
+     *  Hence three passes, strongest signal first: an exact submenu hit,
+     *  then an exact group path, then the longest prefix. The prefix
+     *  pass requires a '/' boundary so '/accounting' cannot claim
+     *  '/accounting-archive', and takes the longest match so a nested
+     *  group beats its parent.
+     */
+    const activeParent: MenuItem | undefined =
+        menuItems.find((i) => i.subItems?.some((sub) => isActive(sub.path)))
+        ?? menuItems.find((i) => location.pathname === i.path)
+        ?? menuItems
+            .filter((i) => i.path && location.pathname.startsWith(`${i.path}/`))
+            .sort((a, b) => b.path.length - a.path.length)[0];
+
+    // Open the group containing the current page, closing any other.
+    // Collapsing the group you are standing in would hide the page you
+    // are looking at, so this is the one case that opens a group on the
+    // user's behalf — and even here it replaces rather than adds, so
+    // the one-at-a-time rule still holds.
+    useEffect(() => {
+        if (activeParent?.subItems && expandedMenu !== activeParent.name) {
+            setExpandedMenu(activeParent.name);
         }
-        return isActive(item.path);
-    };
+    }, [location.pathname, location.search]);
+
+    // Highlight follows the same single owner, so two groups can never
+    // both read as active.
+    const isParentActive = (item: MenuItem) =>
+        item.subItems ? activeParent?.name === item.name : isActive(item.path);
 
     return (
         <>
