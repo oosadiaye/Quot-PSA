@@ -80,6 +80,7 @@ import OrganizationSwitcher from './OrganizationSwitcher';
 import NotificationBell from './NotificationBell';
 import BackButton from './BackButton';
 
+import { findActiveParent, isMenuPathActive } from './sidebarMenu';
 interface SubItem {
     name: string;
     path: string;
@@ -362,26 +363,39 @@ const Sidebar = () => {
     // expanded menu groups after each click. localStorage survives
     // remount AND full page reload, so the sidebar stays open on the
     // group the user was working in until they explicitly collapse it.
-    const EXPANDED_MENUS_STORAGE_KEY = 'quotpse.sidebar.expandedMenus.v1';
-    const [expandedMenus, setExpandedMenus] = useState<string[]>(() => {
+    // Accordion: at most ONE group open at a time. Opening a group closes
+    // whichever was open before.
+    //
+    // Held as a single name rather than a list so the invariant is
+    // structural — with an array, "only one open" is a rule every call
+    // site has to remember, and the nav had drifted into a state where
+    // groups accumulated until the sidebar was mostly submenu.
+    //
+    // Still persisted, and that is not optional: the Sidebar is rendered
+    // by every page layout separately (~96 call sites), so it unmounts
+    // and remounts on EVERY route change. Plain state would collapse the
+    // group on the very click that navigated into it.
+    //
+    // Key bumped to v2 — v1 stored an array and would parse to a useless
+    // value here.
+    const EXPANDED_MENU_STORAGE_KEY = 'quotpse.sidebar.expandedMenu.v2';
+    const [expandedMenu, setExpandedMenu] = useState<string | null>(() => {
         try {
-            const raw = window.localStorage.getItem(EXPANDED_MENUS_STORAGE_KEY);
-            if (!raw) return [];
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+            const raw = window.localStorage.getItem(EXPANDED_MENU_STORAGE_KEY);
+            return raw ? (JSON.parse(raw) as string | null) : null;
         } catch {
-            return [];
+            return null;
         }
     });
     // Write back on every change.
     useEffect(() => {
         try {
             window.localStorage.setItem(
-                EXPANDED_MENUS_STORAGE_KEY,
-                JSON.stringify(expandedMenus),
+                EXPANDED_MENU_STORAGE_KEY,
+                JSON.stringify(expandedMenu),
             );
         } catch { /* storage quota / private mode — ignore */ }
-    }, [expandedMenus]);
+    }, [expandedMenu]);
 
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -424,24 +438,10 @@ const Sidebar = () => {
         }
     }, [isMobile, drawerOpen]);
 
-    useEffect(() => {
-        const activeParent = menuItems.find(
-            (item) =>
-                item.subItems?.some((sub) => isActive(sub.path)) ||
-                location.pathname === item.path ||
-                location.pathname.startsWith(item.path)
-        );
-        if (activeParent?.subItems && !expandedMenus.includes(activeParent.name)) {
-            setExpandedMenus((prev) =>
-                prev.includes(activeParent.name) ? prev : [...prev, activeParent.name]
-            );
-        }
-    }, [location.pathname, location.search]);
-
+    /** Accordion toggle: open this group, or close it if it is already
+     *  open. Never leaves two open. */
     const toggleMenu = (menuName: string) => {
-        setExpandedMenus((prev) =>
-            prev.includes(menuName) ? prev.filter((m) => m !== menuName) : [...prev, menuName]
-        );
+        setExpandedMenu((prev) => (prev === menuName ? null : menuName));
     };
 
     const isModuleEnabled = (moduleKey: string | null): boolean => {
@@ -479,21 +479,28 @@ const Sidebar = () => {
         navigate('/login');
     };
 
-    const isActive = (path: string) => {
-        // For paths with a query string (e.g. /accounting/ar?tab=payments),
-        // compare both pathname and search so the highlight works correctly.
-        if (path.includes('?')) {
-            const [p, q] = path.split('?');
-            return location.pathname === p && location.search === `?${q}`;
+    const isActive = (path: string) =>
+        isMenuPathActive(path, location.pathname, location.search);
+    // Which group owns this route — see sidebarMenu.ts. Shared with the
+    // highlight below so the group that opens and the group that
+    // highlights can never be different groups.
+    const activeParent = findActiveParent(menuItems, location.pathname, location.search);
+
+    // Open the group containing the current page, closing any other.
+    // Collapsing the group you are standing in would hide the page you
+    // are looking at, so this is the one case that opens a group on the
+    // user's behalf — and even here it replaces rather than adds, so
+    // the one-at-a-time rule still holds.
+    useEffect(() => {
+        if (activeParent?.subItems && expandedMenu !== activeParent.name) {
+            setExpandedMenu(activeParent.name);
         }
-        return location.pathname === path;
-    };
-    const isParentActive = (item: MenuItem) => {
-        if (item.subItems) {
-            return item.subItems.some((sub) => isActive(sub.path)) || location.pathname.startsWith(item.path);
-        }
-        return isActive(item.path);
-    };
+    }, [location.pathname, location.search]);
+
+    // Highlight follows the same single owner, so two groups can never
+    // both read as active.
+    const isParentActive = (item: MenuItem) =>
+        item.subItems ? activeParent?.name === item.name : isActive(item.path);
 
     return (
         <>
@@ -708,7 +715,7 @@ const Sidebar = () => {
                                 {item.name}
                             </span>
                             {item.subItems ? (
-                                expandedMenus.includes(item.name) ?
+                                expandedMenu === item.name ?
                                     <ChevronDown size={14} style={{ color: parentActive ? ACTIVE_FG : INACTIVE_CHEVRON }} /> :
                                     <ChevronRight size={14} style={{ color: parentActive ? ACTIVE_FG : INACTIVE_CHEVRON }} />
                             ) : null}
@@ -750,7 +757,7 @@ const Sidebar = () => {
                                 </Link>
                             )}
 
-                            {item.subItems && expandedMenus.includes(item.name) && (
+                            {item.subItems && expandedMenu === item.name && (
                                 <div style={{
                                     marginLeft: '12px',
                                     borderLeft: '1.5px solid #e2e8f0',
