@@ -80,6 +80,7 @@ import OrganizationSwitcher from './OrganizationSwitcher';
 import NotificationBell from './NotificationBell';
 import BackButton from './BackButton';
 
+import { findActiveParent, isMenuPathActive } from './sidebarMenu';
 interface SubItem {
     name: string;
     path: string;
@@ -478,37 +479,12 @@ const Sidebar = () => {
         navigate('/login');
     };
 
-    const isActive = (path: string) => {
-        // For paths with a query string (e.g. /accounting/ar?tab=payments),
-        // compare both pathname and search so the highlight works correctly.
-        if (path.includes('?')) {
-            const [p, q] = path.split('?');
-            return location.pathname === p && location.search === `?${q}`;
-        }
-        return location.pathname === path;
-    };
-    /** The single group that owns the current route.
-     *
-     *  Specificity has to be resolved across *all* groups before any
-     *  prefix matching, because `menuItems` lists General Ledger
-     *  (path '/accounting') above Treasury (path
-     *  '/accounting/tsa-accounts'). One `find` with a prefix clause
-     *  returns General Ledger for every '/accounting/*' route and never
-     *  reaches the group that actually owns it — so opening Payment
-     *  Batches expanded General Ledger and highlighted both.
-     *
-     *  Hence three passes, strongest signal first: an exact submenu hit,
-     *  then an exact group path, then the longest prefix. The prefix
-     *  pass requires a '/' boundary so '/accounting' cannot claim
-     *  '/accounting-archive', and takes the longest match so a nested
-     *  group beats its parent.
-     */
-    const activeParent: MenuItem | undefined =
-        menuItems.find((i) => i.subItems?.some((sub) => isActive(sub.path)))
-        ?? menuItems.find((i) => location.pathname === i.path)
-        ?? menuItems
-            .filter((i) => i.path && location.pathname.startsWith(`${i.path}/`))
-            .sort((a, b) => b.path.length - a.path.length)[0];
+    const isActive = (path: string) =>
+        isMenuPathActive(path, location.pathname, location.search);
+    // Which group owns this route — see sidebarMenu.ts. Shared with the
+    // highlight below so the group that opens and the group that
+    // highlights can never be different groups.
+    const activeParent = findActiveParent(menuItems, location.pathname, location.search);
 
     // Open the group containing the current page, closing any other.
     // Collapsing the group you are standing in would hide the page you
