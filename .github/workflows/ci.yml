@@ -100,6 +100,7 @@ jobs:
             accounting/tests/test_s20*.py \
             accounting/tests/test_s21*.py \
             accounting/tests/test_s25*.py \
+            core/tests/test_clear_orphaned_integrations.py \
             core/tests/test_s23*.py \
             core/tests/test_s24*.py \
             -v \
