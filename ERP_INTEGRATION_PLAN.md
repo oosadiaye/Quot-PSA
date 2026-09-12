@@ -45,11 +45,52 @@ Checked, not assumed:
 | **491 registered API endpoints** across 10 apps | `router.register` count in `*/urls.py` |
 | OpenAPI schema is published | `drf-spectacular` 0.29.0, `/api/schema/`, `/api/docs/` |
 | **No outbound integration exists** | `requests`/`httpx` imported in exactly one file, `superadmin/views.py` |
-| `integrations/` app is a **dead stub** | No models, no migrations, not in `INSTALLED_APPS` |
+| `integrations/` app is a **dead stub with live schema** | No source in git, but 3 orphan tables + a recorded migration in 2 tenants — see §2.1 |
 | Encrypted credential storage exists | `superadmin/encryption.py` — Fernet, `EncryptedCharField` |
 | Per-tenant module switching exists | `core.TenantModule`, per-tenant schema |
 | Chart is a **6-segment NCoA** | Administrative, Economic, Functional, Programme, Fund, Geographic |
 | Async worker is optional, not installed | `django-celery-beat` commented out in `requirements.txt` |
+
+### 2.1 An abandoned build left schema behind
+
+`integrations/` has no source in git — but it is not simply absent. Two tenant
+schemas carry **applied migration state and real tables** from a previous
+attempt:
+
+| Schema | `integrations_*` tables | `django_migrations` rows | Data rows |
+|---|---|---|---|
+| `delta_state` | 3 | 1 (`0001_initial`, applied 2026-09-02) | **0** |
+| `office_of_accountant_general_delta_state` | 3 | 1 | **0** |
+| other 7 schemas | 0 | 0 | 0 |
+
+The tables are `integrations_integrationendpoint`, `integrations_integrationrun`
+and `integrations_integrationmessage` — which are precisely the model names in
+the `FUTURE_MODULES.md` G7 spec. Someone built that module, migrated it into two
+tenants, and the source was later removed without unapplying it.
+
+**This is a trap for whoever starts Phase 1.** Django records migrations per
+schema. A fresh `integrations/0001_initial` would be **skipped** in those two
+tenants because a migration of that name is already recorded, while running
+normally everywhere else. The result is divergent schemas: `showmigrations`
+reports the app as applied, and the tables do not match the models. It surfaces
+at runtime as `relation ... does not exist` on the two tenants that matter most —
+Delta State is the live demo tenant.
+
+Nothing outside `integrations_*` references these tables (the only foreign keys
+are among themselves), and every table is empty, so cleanup is low-risk:
+
+1. Drop the three tables in the two affected schemas.
+2. Delete the `integrations` rows from `django_migrations` in those schemas.
+3. Then create the app fresh.
+
+This should be a reviewed management command, not an ad-hoc SQL session, because
+it has to run against every tenant a customer has — and it should be written so
+that re-running it is harmless. **Phase 0 owns this**; Phase 1 must not begin
+until it is done.
+
+The incident is also evidence for the plan itself: a partial integration build
+already failed here once and left residue. The `EntityBinding` and `ExternalRef`
+discipline in §4 exists so that the next one fails visibly rather than silently.
 
 The two that shape the plan most:
 
@@ -238,7 +279,7 @@ larger than ours.
 
 | Phase | What lands | Est. | Depends on |
 |---|---|---|---|
-| **0** | **Decisions** (§9) and one pilot customer with a named counterpart system | 0.25 | — |
+| **0** | **Decisions** (§9), **clearing the orphaned `integrations` schema (§2.1)**, and one pilot customer with a named counterpart system | 0.25 | — |
 | **1** | **Inbound foundation** — machine identity (API keys/OAuth client credentials, scoped, rotatable), staging, `ExternalRef`, run log, replay. No adapter yet. | 1.5–2 | — |
 | **2** | **`generic-csv` adapter** — SFTP/upload, mapping UI, completeness report, reconciliation. Serves FreeBalance and any system with no API. | 1–1.5 | 1 |
 | **3** | **Outbound foundation** — HTTP client policy, retry with backoff, circuit breaker, credential rotation, **and a real worker** (Celery is not currently installed) | 1–1.5 | 1 |
@@ -330,7 +371,11 @@ These are yours, not mine, and each one changes the build:
    commented out in `requirements.txt`. Adopting it is a deployment change
    (broker, worker process, monitoring) that should be decided on its own merits.
 4. **Does any target customer already license an iPaaS?** Changes §8 materially.
-5. **Who owns the mapping?** A finance user maintaining `ValueMap` rows is the
+5. **Clear the orphaned `integrations` schema?** (§2.1) Three empty tables and a
+   recorded migration sit in two tenants, including the Delta State demo. They
+   block Phase 1 and are safe to remove, but dropping tables in a tenant is your
+   call, not mine. Needed before any code is written under that app label.
+6. **Who owns the mapping?** A finance user maintaining `ValueMap` rows is the
    design assumption. If it will in practice be an engineer, the UI investment in
    Phase 2 can be cut.
 
