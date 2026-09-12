@@ -27,7 +27,14 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   fs.mkdirSync(path.dirname(STORAGE_PATH), { recursive: true });
 
   // 1. API login — single call.
-  const apiCtx = await request.newContext({ baseURL: apiBase });
+  // See api.ts — E2E_API_HOST_HEADER lets a local run connect by IP
+  // while still presenting the tenant hostname django-tenants needs.
+  const apiCtx = await request.newContext({
+    baseURL: apiBase,
+    extraHTTPHeaders: process.env.E2E_API_HOST_HEADER
+      ? { Host: process.env.E2E_API_HOST_HEADER }
+      : {},
+  });
   const apiRes = await apiCtx.post('/api/v1/core/auth/login/', {
     data: { username, password },
   });
