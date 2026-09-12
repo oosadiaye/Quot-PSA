@@ -258,6 +258,17 @@ export const AppropriationList = () => {
     const initialUrlParams = useMemo(() => new URLSearchParams(window.location.search), []);
     const [filterMdaId, setFilterMdaId] = useState<string>(initialUrlParams.get('mda') || '');
     const [filterFyId, setFilterFyId] = useState<string>(initialUrlParams.get('fy') || '');
+    // Budget code lookup. This page is an MDA rollup, but a budget code
+    // belongs to a *line*, so a hit switches the panel to the matching
+    // lines rather than trying to express them as MDA totals.
+    const [budgetCodeQuery, setBudgetCodeQuery] = useState<string>(initialUrlParams.get('budget_code') || '');
+    const [budgetCodeDebounced, setBudgetCodeDebounced] = useState<string>(budgetCodeQuery);
+    useEffect(() => {
+        // Each keystroke would otherwise fire its own request; the last
+        // one to return wins, which is not always the last one typed.
+        const t = setTimeout(() => setBudgetCodeDebounced(budgetCodeQuery.trim()), 300);
+        return () => clearTimeout(t);
+    }, [budgetCodeQuery]);
 
 
     // NCoA Administrative Segments for the MDA filter dropdown.
@@ -342,6 +353,44 @@ export const AppropriationList = () => {
         staleTime: 30_000,
     });
     const rollupRows = rollupData ?? [];
+
+    /** Budget lines matching the code being searched.
+     *
+     *  Partial match on purpose: operators remember a series
+     *  ("BL-2026") more reliably than a full reference, and several
+     *  lines share one code by design, so an exact-only lookup would
+     *  answer "not found" far too often. The FY and MDA filters still
+     *  apply so a search narrows what is on screen rather than
+     *  replacing the page context.
+     */
+    type BudgetCodeHit = {
+        id: number;
+        budget_code?: string;
+        administrative_code?: string;
+        administrative_name?: string;
+        economic_code?: string;
+        economic_name?: string;
+        fiscal_year_label?: string;
+        amount_approved?: string | number;
+        status?: string;
+        description?: string;
+    };
+    const { data: codeHits, isFetching: codeSearching } = useQuery({
+        queryKey: ['appropriations-by-code', budgetCodeDebounced, filterFyId, filterMdaId],
+        enabled: budgetCodeDebounced.length > 0,
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            params.set('budget_code__icontains', budgetCodeDebounced);
+            if (filterFyId) params.set('fiscal_year', filterFyId);
+            if (filterMdaId) params.set('administrative', filterMdaId);
+            params.set('page_size', '200');
+            const res = await apiClient.get(`/budget/appropriations/?${params.toString()}`);
+            return (res.data?.results || res.data || []) as BudgetCodeHit[];
+        },
+        staleTime: 10_000,
+    });
+    const isCodeSearch = budgetCodeDebounced.length > 0;
+    const codeRows = codeHits ?? [];
 
     // Bulk-delete selection — keyed by composite rollup id ("<mda>-<fy>")
     // so the same MDA can be selected for different FYs without collision.
@@ -679,6 +728,36 @@ export const AppropriationList = () => {
                             placeholder="All MDAs — type to filter…"
                         />
                     </div>
+                    <div style={{ minWidth: 220, flex: '0 1 240px' }}>
+                        <label style={filterLabelStyle}>Budget Code</label>
+                        <input
+                            value={budgetCodeQuery}
+                            onChange={(e) => setBudgetCodeQuery(e.target.value)}
+                            placeholder="e.g. BL-2026"
+                            aria-label="Search budget code"
+                            data-testid="budget-code-search"
+                            style={{
+                                width: '100%', padding: '0.55rem 0.75rem',
+                                border: '1px solid #cbd5e1', borderRadius: 8,
+                                fontSize: 13, fontFamily: 'var(--font-mono, monospace)',
+                                background: '#fff', color: '#0f172a',
+                            }}
+                        />
+                    </div>
+                    {budgetCodeQuery && (
+                        <button
+                            type="button"
+                            onClick={() => setBudgetCodeQuery('')}
+                            style={{
+                                padding: '0.55rem 1rem',
+                                background: '#fff', color: '#475569',
+                                border: '1px solid #cbd5e1', borderRadius: 8,
+                                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                            }}
+                        >
+                            Clear Code
+                        </button>
+                    )}
                     {filterMdaId && (
                         <button
                             type="button"
@@ -784,8 +863,74 @@ export const AppropriationList = () => {
                     </div>
                 )}
 
+                {/* ── Budget code results ─────────────────────────
+                    Shown instead of the rollup while a code is being
+                    searched: a budget code identifies lines, and an MDA
+                    total cannot answer "where is BL-2026-0101?".     */}
+                {isCodeSearch && (
+                    <div data-testid="budget-code-results" style={{
+                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                        overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                        marginBottom: 18,
+                    }}>
+                        <div style={{
+                            padding: '14px 18px', borderBottom: '1px solid #e2e8f0',
+                            background: '#fff', fontSize: 14, fontWeight: 600, color: '#0f172a',
+                        }}>
+                            Budget lines matching{' '}
+                            <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                                {budgetCodeDebounced}
+                            </span>
+                            <span data-testid="budget-code-count" style={{ fontSize: 12, color: '#64748b', fontWeight: 400, marginLeft: 8 }}>
+                                ({codeSearching ? 'searching…' : `${codeRows.length} ${codeRows.length === 1 ? 'line' : 'lines'}`})
+                            </span>
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                <thead>
+                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Budget Code</th>
+                                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>MDA</th>
+                                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Economic</th>
+                                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>FY</th>
+                                        <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>Amount (NGN)</th>
+                                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {!codeSearching && codeRows.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                                                No budget line carries a code matching
+                                                {' '}<strong>{budgetCodeDebounced}</strong>.
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {codeRows.map((r) => (
+                                        <tr
+                                            key={r.id}
+                                            onClick={() => nav(`/budget/appropriations/${r.id}`)}
+                                            style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                                        >
+                                            <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{r.budget_code}</td>
+                                            <td style={{ padding: '10px 14px' }}>{r.administrative_name || r.administrative_code}</td>
+                                            <td style={{ padding: '10px 14px' }}>{r.economic_code} {r.economic_name}</td>
+                                            <td style={{ padding: '10px 14px' }}>{r.fiscal_year_label}</td>
+                                            <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                                {Number(r.amount_approved || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                                            </td>
+                                            <td style={{ padding: '10px 14px' }}>{r.status}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
                 {/* ── Rollup table card ───────────────────────── */}
                 <div style={{
+                    display: isCodeSearch ? 'none' : undefined,
                     background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
                     overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                 }}>

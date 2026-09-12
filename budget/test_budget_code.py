@@ -212,3 +212,50 @@ class AbsentColumnVersusBlankCellTests(SimpleTestCase):
         self.assertEqual(
             budget_code_update(iter(self.WITH), 'BL-1'), {'budget_code': 'BL-1'},
         )
+
+
+class SearchAndFilterTests(SimpleTestCase):
+    """A code you cannot search for is only half a feature.
+
+    These read the viewset's declared configuration rather than issuing
+    requests, so they run in the no-DB tier. The behaviour they stand in
+    for is covered end-to-end by e2e/modules/budget-code.spec.ts.
+    """
+
+    def test_appropriations_offer_exact_and_partial_lookups(self):
+        from budget.views import AppropriationViewSet
+        lookups = AppropriationViewSet.filterset_fields['budget_code']
+        # Exact finds one line; icontains gathers a whole series, which is
+        # what operators actually remember.
+        self.assertIn('exact', lookups)
+        self.assertIn('icontains', lookups)
+
+    def test_converting_to_dict_form_kept_the_existing_filters(self):
+        # filterset_fields moved from a list to a dict so budget_code could
+        # declare two lookups. Every previously filterable field must still
+        # be filterable under its plain '?field=' name.
+        from budget.views import AppropriationViewSet
+        fields = AppropriationViewSet.filterset_fields
+        for name in ('status', 'appropriation_type', 'fiscal_year',
+                     'administrative', 'fund', 'economic'):
+            self.assertIn(name, fields, f'{name} lost its filter')
+            self.assertIn('exact', fields[name])
+
+    def test_budget_code_reachable_from_the_generic_search_box(self):
+        from budget.views import AppropriationViewSet
+        self.assertIn('budget_code', AppropriationViewSet.search_fields)
+
+    def test_revenue_budgets_are_searchable_at_all(self):
+        # RevenueBudgetViewSet had no SearchFilter, so '?search=' was
+        # accepted and quietly ignored — the whole list came back looking
+        # like a filter that had matched everything.
+        from rest_framework.filters import SearchFilter
+        from budget.views import RevenueBudgetViewSet
+        self.assertIn(SearchFilter, RevenueBudgetViewSet.filter_backends)
+        self.assertIn('budget_code', RevenueBudgetViewSet.search_fields)
+
+    def test_revenue_budgets_offer_the_same_lookups(self):
+        from budget.views import RevenueBudgetViewSet
+        lookups = RevenueBudgetViewSet.filterset_fields['budget_code']
+        self.assertIn('exact', lookups)
+        self.assertIn('icontains', lookups)

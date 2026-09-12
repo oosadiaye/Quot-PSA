@@ -286,11 +286,25 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     # one appropriation row). Without this filter, the frontend would
     # have to fetch every appropriation under the MDA and filter
     # client-side — fine for 10 lines, slow for 1000.
-    filterset_fields = [
-        'status', 'appropriation_type', 'fiscal_year',
-        'administrative', 'fund', 'economic',
+    # Dict form so budget_code can offer a partial match alongside the
+    # exact lookups. Every other entry keeps its plain '?field=' name,
+    # so existing callers are unaffected.
+    filterset_fields = {
+        'status': ['exact'],
+        'appropriation_type': ['exact'],
+        'fiscal_year': ['exact'],
+        'administrative': ['exact'],
+        'fund': ['exact'],
+        'economic': ['exact'],
+        # '?budget_code=BL-2026-0142' for one line,
+        # '?budget_code__icontains=BL-2026' to gather a whole series.
+        'budget_code': ['exact', 'icontains'],
+    }
+    # Also reachable from the generic '?search=' box, which is what the
+    # shared list toolbar uses.
+    search_fields = [
+        'administrative__name', 'economic__name', 'description', 'budget_code',
     ]
-    search_fields = ['administrative__name', 'economic__name', 'description']
     ordering_fields = ['amount_approved', 'created_at']
     ordering = ['-created_at']
 
@@ -2253,8 +2267,19 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_admin_field = 'administrative'
     serializer_class = RevenueBudgetSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['fiscal_year', 'status', 'administrative']
+    # SearchFilter was absent here, so '?search=' silently returned the
+    # whole list rather than erroring — a filter that looks applied and
+    # is not.
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'fiscal_year': ['exact'],
+        'status': ['exact'],
+        'administrative': ['exact'],
+        'budget_code': ['exact', 'icontains'],
+    }
+    search_fields = [
+        'administrative__name', 'economic__name', 'description', 'budget_code',
+    ]
     ordering = ['fiscal_year', 'administrative', 'economic']
 
     def get_queryset(self):
