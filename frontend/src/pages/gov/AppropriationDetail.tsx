@@ -797,9 +797,15 @@ export default function AppropriationDetail() {
                                     )}
                                 </table>
                             </div>
-                            {appro.description && (
-                                <div style={{ marginTop: '0.75rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
-                                    {appro.description}
+                            {(appro.description || appro.budget_code) && (
+                                <div style={{ marginTop: '0.75rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+                                    {appro.description && <span>{appro.description}</span>}
+                                    {appro.budget_code && (
+                                        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono, monospace)' }}>
+                                            Budget line{' '}
+                                            <strong style={{ color: 'var(--color-text)' }}>{appro.budget_code}</strong>
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>

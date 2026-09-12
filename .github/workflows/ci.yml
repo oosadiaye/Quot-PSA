@@ -102,6 +102,7 @@ jobs:
             accounting/tests/test_s25*.py \
             core/tests/test_s23*.py \
             core/tests/test_s24*.py \
+            budget/test_*.py \
             -v \
             --cov=accounting --cov=core --cov=budget \
             --cov-report=xml \
