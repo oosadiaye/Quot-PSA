@@ -91,6 +91,8 @@ jobs:
       - name: Pytest — no-DB fast tier
         run: |
           pytest \
+            workflow/tests/test_approval_rules.py \
+            budget/test_workflow_dispatch.py \
             accounting/tests/test_s14*.py \
             accounting/tests/test_s15*.py \
             accounting/tests/test_s16*.py \
