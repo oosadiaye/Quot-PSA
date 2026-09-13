@@ -107,6 +107,16 @@ jobs:
             --cov-report=xml \
             --cov-report=term
 
+      # Tenant-schema tier. The fast tier above is deliberately no-DB,
+      # but auth is exercised through APIClient and django-tenants
+      # resolves the schema from the Host header before routing, so
+      # these need a real tenant. --nomigrations builds the schema from
+      # the models directly: ~40s instead of ~10 minutes, and migration
+      # drift is already covered by the makemigrations --check step.
+      - name: Pytest - tenant auth tier
+        run: |
+          pytest core/tests/test_auth_and_rbac.py -v --nomigrations
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

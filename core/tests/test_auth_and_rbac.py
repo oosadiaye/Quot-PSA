@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.test import TestCase
+from django_tenants.test.cases import FastTenantTestCase
 from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -9,12 +10,16 @@ from rest_framework import status
 
 from core.authentication import ExpiringTokenAuthentication
 
+#: Host the provisioned test tenant answers on. Requests arriving
+#: without it are rejected by the tenant middleware before routing.
+TENANT_HOST = FastTenantTestCase.get_test_tenant_domain()
 
-class AuthenticationTests(TestCase):
+
+class AuthenticationTests(FastTenantTestCase):
     """Tests for centralized login, logout, and token authentication."""
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=TENANT_HOST)
         self.user = User.objects.create_user(
             username='testuser', password='TestPass123!', email='test@example.com'
         )
@@ -115,11 +120,11 @@ class ExpiringTokenTests(TestCase):
             self.auth.authenticate_credentials(token.key)
 
 
-class RBACPermissionTests(TestCase):
+class RBACPermissionTests(FastTenantTestCase):
     """Tests for RBAC permission class."""
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=TENANT_HOST)
         self.user = User.objects.create_user(
             username='rbacuser', password='TestPass123!'
         )
@@ -138,16 +143,16 @@ class RBACPermissionTests(TestCase):
         self.assertIn('tenants', response.data)
 
     def test_unauthenticated_cannot_access_users(self):
-        client = APIClient()
+        client = APIClient(HTTP_HOST=TENANT_HOST)
         response = client.get('/api/core/users/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class UserSerializerTests(TestCase):
+class UserSerializerTests(FastTenantTestCase):
     """Tests for user serializer security."""
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=TENANT_HOST)
         self.regular_user = User.objects.create_user(
             username='regular', password='TestPass123!'
         )
@@ -168,11 +173,11 @@ class UserSerializerTests(TestCase):
         self.assertIn('is_superuser', response.data)
 
 
-class ChangePasswordTests(TestCase):
+class ChangePasswordTests(FastTenantTestCase):
     """Tests for password change endpoint."""
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=TENANT_HOST)
         self.user = User.objects.create_user(
             username='pwuser', password='OldPass123!'
         )
@@ -196,11 +201,11 @@ class ChangePasswordTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TenantSelectionTests(TestCase):
+class TenantSelectionTests(FastTenantTestCase):
     """Tests for tenant selection / switching endpoints."""
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(HTTP_HOST=TENANT_HOST)
         self.user = User.objects.create_user(
             username='tenantuser', password='TestPass123!'
         )
@@ -224,13 +229,13 @@ class TenantSelectionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_unauthenticated_cannot_select_tenant(self):
-        client = APIClient()
+        client = APIClient(HTTP_HOST=TENANT_HOST)
         response = client.post('/api/core/auth/select-tenant/', {
             'tenant_id': 1
         })
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_unauthenticated_cannot_list_tenants(self):
-        client = APIClient()
+        client = APIClient(HTTP_HOST=TENANT_HOST)
         response = client.get('/api/core/auth/my-tenants/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

@@ -405,6 +405,13 @@ def jwt_login_view(request):
 
 
 @api_view(['POST'])
+# Logout is not a privileged operation and must never refuse. Without
+# this the view inherits the global RBACPermission, which for a view
+# with no queryset or model returns `request.method in SAFE_METHODS` -
+# so every POST from a non-admin was rejected with 403 and the token
+# was left valid. A user who clicks Sign Out, is refused, and keeps a
+# working credential is worse off than one who never clicked it.
+@permission_classes([AllowAny])
 def logout_view(request):
     """Logout — deletes the auth token, marks session inactive, and
     blacklists any JWT refresh token the client supplied so stolen
@@ -423,7 +430,11 @@ def logout_view(request):
                 token.delete()
             except Token.DoesNotExist:
                 pass
-        logout(request)
+        # DRF hands the view a rest_framework.request.Request;
+        # django.contrib.auth.logout asserts on HttpRequest and raised
+        # AssertionError here, which aborted the handler before the
+        # refresh-token blacklisting below ever ran.
+        logout(request._request)
 
     # If the client is using JWT and provides its refresh token in the
     # request body, blacklist it so it cannot mint fresh access tokens
