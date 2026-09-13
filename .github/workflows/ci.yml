@@ -91,6 +91,7 @@ jobs:
       - name: Pytest — no-DB fast tier
         run: |
           pytest \
+            superadmin/tests/test_ai_foundation.py \
             accounting/tests/test_s14*.py \
             accounting/tests/test_s15*.py \
             accounting/tests/test_s16*.py \
