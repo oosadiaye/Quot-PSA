@@ -3889,3 +3889,68 @@ class ThresholdCheckView(APIView):
             category=ser.validated_data['category'],
         )
         return Response(result)
+
+
+class SplitPurchaseScanView(APIView):
+    """Scan committed purchase orders for threshold evasion and duplicates.
+
+    ``POST /api/v1/procurement/split-scan/`` with optional ``since``,
+    ``until`` (YYYY-MM-DD) and ``judge_limit``.
+
+    Advisory only — it writes nothing and blocks nothing. The orders it
+    reports have in most cases already been paid; the value is entirely
+    in where a reviewer looks first.
+
+    The arithmetic runs whether or not AI is configured. When the
+    reconciliation-style capability is off, unconfigured or unreachable,
+    every cluster still appears with verdict UNCLEAR: a control that stops
+    working because a third party is down is not a control.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from datetime import date, timedelta
+
+        from django.db import connection
+
+        from procurement.services.split_detection import detect
+        from superadmin.ai_models import AICapability, TenantAISetting
+
+        def _date(key, default):
+            raw = request.data.get(key)
+            if not raw:
+                return default
+            try:
+                return date.fromisoformat(str(raw))
+            except ValueError:
+                return default
+
+        until = _date('until', date.today())
+        # A year by default: threshold evasion is a pattern over months,
+        # and a fortnight's window would miss most of it.
+        since = _date('since', until - timedelta(days=365))
+        if since > until:
+            return Response(
+                {'detail': 'since must not be after until.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            judge_limit = min(int(request.data.get('judge_limit', 10)), 25)
+        except (TypeError, ValueError):
+            judge_limit = 10
+
+        tenant = getattr(connection, 'tenant', None)
+        setting = None
+        if tenant is not None and getattr(tenant, 'schema_name', 'public') != 'public':
+            setting = (
+                TenantAISetting.objects.select_related('provider')
+                .filter(tenant=tenant, capability=AICapability.DETECTION)
+                .first()
+            )
+
+        return Response(detect(
+            since=since, until=until,
+            tenant=tenant, setting=setting, judge_limit=judge_limit,
+        ))

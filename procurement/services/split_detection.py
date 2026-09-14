@@ -296,6 +296,191 @@ def build_cluster_prompt(
 VERDICTS = ("DIVIDED", "SEPARATE", "UNCLEAR")
 
 
+# ── Loading (needs a database) ───────────────────────────────────────
+
+
+#: Orders that represent a commitment. Draft and Rejected never bound the
+#: organisation to anything, so including them would report intentions as
+#: findings.
+COMMITTED_STATUSES = ("Approved", "Posted", "Closed")
+
+
+def load_ceilings() -> list[Ceiling]:
+    """Flatten ``ProcurementThreshold`` into the rungs the detector uses.
+
+    The table stores bands (0–2.5m Accounting Officer, 2.5m–10m PTB, …).
+    What matters here is the **edge**: the value at which authority
+    changes hands, and who it changes to. So each band's ``max_amount``
+    becomes a ceiling, labelled with the authority of the band above it.
+
+    Read from the table rather than hard-coded because BPP revises these
+    by circular, and a detector quoting a superseded figure would be
+    reporting against a rule nobody is breaking.
+    """
+    from procurement.models import ProcurementThreshold
+
+    ceilings: list[Ceiling] = []
+    rows = list(
+        ProcurementThreshold.objects
+        .filter(is_active=True)
+        .order_by("category", "min_amount")
+    )
+    by_category: dict[str, list] = {}
+    for row in rows:
+        by_category.setdefault(row.category, []).append(row)
+
+    for category, band in by_category.items():
+        for lower, upper in zip(band, band[1:]):
+            if lower.max_amount is None:
+                continue
+            ceilings.append(Ceiling(
+                category=category,
+                limit=Decimal(str(lower.max_amount)),
+                escalates_to=upper.authority_level,
+            ))
+    return ceilings
+
+
+def load_purchases(*, since: date, until: date) -> list[PurchaseRecord]:
+    """Committed purchase orders in a date range.
+
+    ``PurchaseOrder.total_amount`` is a **property** computed from the
+    order's lines, not a column, so it cannot be filtered or summed in
+    SQL. The range therefore has to bound the work instead — which is
+    also why callers pass one rather than scanning the whole ledger.
+    """
+    from procurement.models import PurchaseOrder
+
+    rows = (
+        PurchaseOrder.objects
+        .filter(
+            status__in=COMMITTED_STATUSES,
+            order_date__gte=since,
+            order_date__lte=until,
+        )
+        .select_related("vendor")
+        .prefetch_related("lines")
+    )
+
+    records: list[PurchaseRecord] = []
+    for po in rows:
+        if po.vendor_id is None:
+            continue
+        records.append(PurchaseRecord(
+            purchase_id=po.id,
+            vendor_id=po.vendor_id,
+            vendor_name=str(po.vendor),
+            order_date=po.order_date,
+            amount=Decimal(str(po.total_amount or 0)),
+            reference=po.po_number or "",
+            description=(po.notes or "")[:300],
+            category=_category_for(po),
+        ))
+    return records
+
+
+def _category_for(po) -> str:
+    """Which BPP ladder an order is judged against.
+
+    Falls back to goods and services, which is the lowest ceiling of the
+    three and therefore the conservative default: it flags more, and a
+    reviewer dismissing a wrongly-categorised cluster costs far less than
+    a works contract judged against a ceiling five times too high.
+    """
+    purchase_type = getattr(po, "purchase_type", None)
+    name = (str(getattr(purchase_type, "name", "")) or "").upper()
+    if "WORK" in name or "CONSTRUCT" in name:
+        return "WORKS"
+    if "CONSULT" in name:
+        return "CONSULTANCY"
+    return "GOODS_SERVICES"
+
+
+def detect(
+    *,
+    since: date,
+    until: date,
+    tenant=None,
+    setting=None,
+    judge_limit: int = 10,
+) -> dict:
+    """Run both detectors, and optionally have a model judge the clusters.
+
+    The arithmetic runs regardless. Judging is an enhancement layered on
+    top: when AI is switched off, unconfigured or unreachable, every
+    cluster still appears with verdict UNCLEAR and the report is still
+    worth reading. A control that stops working because a third party is
+    down is not a control.
+    """
+    records = load_purchases(since=since, until=until)
+    ceilings = load_ceilings()
+    clusters = find_split_clusters(records, ceilings)
+    duplicates = find_duplicate_candidates(records)
+
+    usable = bool(setting is not None and getattr(setting, "is_usable", False))
+    judged: list[dict] = []
+
+    for cluster in clusters:
+        verdict = {"verdict": "UNCLEAR", "confidence": 0.0, "reason": ""}
+        if usable and len(judged) < judge_limit:
+            verdict = _judge(cluster, records, tenant, setting)
+        judged.append({
+            "vendor_id": cluster.vendor_id,
+            "vendor_name": cluster.vendor_name,
+            "purchase_ids": list(cluster.purchase_ids),
+            "total": str(cluster.total),
+            "ceiling": str(cluster.ceiling),
+            "excess": str(cluster.excess),
+            "escalates_to": cluster.escalates_to,
+            "first_date": cluster.first_date.isoformat(),
+            "last_date": cluster.last_date.isoformat(),
+            "span_days": cluster.span_days,
+            **verdict,
+        })
+
+    return {
+        "window": {"since": since.isoformat(), "until": until.isoformat()},
+        "orders_examined": len(records),
+        "ai_judging": usable,
+        "split_clusters": judged,
+        "duplicate_candidates": [
+            {
+                "vendor_id": d.vendor_id,
+                "vendor_name": d.vendor_name,
+                "purchase_ids": [d.left_id, d.right_id],
+                "amount": str(d.amount),
+                "difference": str(d.difference),
+                "days_apart": d.days_apart,
+            }
+            for d in duplicates
+        ],
+    }
+
+
+def _judge(cluster, records, tenant, setting) -> dict:
+    """One judging call. Never raises — see :func:`detect`."""
+    from superadmin.ai_client import call_model
+
+    try:
+        result = call_model(
+            tenant=tenant,
+            setting=setting,
+            prompt=build_cluster_prompt(cluster, records),
+            system=(
+                "You review Nigerian public-sector procurement for threshold "
+                "evasion. You advise; a procurement officer decides. Ordinary "
+                "recurring supply is normal — say SEPARATE when it is."
+            ),
+            max_tokens=400,
+            subject={"model": "PurchaseOrderCluster",
+                     "ids": list(cluster.purchase_ids)},
+        )
+    except Exception:                                 # noqa: BLE001
+        return {"verdict": "UNCLEAR", "confidence": 0.0,
+                "reason": "The AI provider could not be reached."}
+    return parse_verdict(result.text)
+
+
 def parse_verdict(text: str) -> dict:
     """Read a judgement, defaulting to UNCLEAR.
 
