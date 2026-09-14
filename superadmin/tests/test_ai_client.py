@@ -22,7 +22,7 @@ from decimal import Decimal
 
 from django.test import SimpleTestCase, override_settings
 
-from superadmin.ai_client import _headers, _hash_payload
+from superadmin.ai_client import _CHAT_PATH, _headers, _hash_payload, models_url
 from superadmin.ai_models import AIProvider, compute_cost, pricing_for
 
 KEK = "d" * 64
@@ -160,11 +160,64 @@ class HeaderTests(SimpleTestCase):
         assert "Authorization" not in h
         assert h["anthropic-version"]
 
+    def test_gemini_uses_a_google_api_key_header(self):
+        # Not a bearer token. Google reads Authorization as an OAuth 2
+        # access token and rejects an API key sent that way with 401
+        # regardless of how valid it is, so the bearer branch could never
+        # have authenticated Gemini at all. Confirmed against the live
+        # endpoint: Bearer -> 401 "Expected OAuth 2 access token",
+        # x-goog-api-key -> 400 "API key not valid".
+        h = _headers(_provider(AIProvider.Key.GEMINI))
+        assert h["x-goog-api-key"] == "sk-secret-value"
+        assert "Authorization" not in h
+
     def test_the_key_appears_exactly_once(self):
-        for key in (AIProvider.Key.OPENROUTER, AIProvider.Key.ANTHROPIC):
+        for key in AIProvider.Key:
             h = _headers(_provider(key))
             occurrences = sum("sk-secret-value" in v for v in h.values())
             assert occurrences == 1, f"{key}: key present in {occurrences} headers"
+
+    def test_every_provider_has_an_auth_scheme(self):
+        # A provider added to Key without a branch here would silently
+        # fall through to the bearer default — which is exactly how the
+        # Gemini bug got in.
+        for key in AIProvider.Key:
+            h = _headers(_provider(key))
+            assert any("sk-secret-value" in v for v in h.values()), key
+
+
+class EndpointTests(SimpleTestCase):
+    """Paths are relative to a base_url that ends at the version segment.
+
+    Checked against the live endpoints, where a correct path answers
+    401/403 and a wrong one answers 404.
+    """
+
+    def test_models_url_is_uniform_across_providers(self):
+        # The whole reason base_url carries the version: one models path
+        # works for all four, so the connection test needs no special cases.
+        p = _provider(AIProvider.Key.ANTHROPIC)
+        p.base_url = "https://api.anthropic.com/v1"
+        assert models_url(p) == "https://api.anthropic.com/v1/models"
+
+    def test_models_url_tolerates_a_trailing_slash(self):
+        p = _provider()
+        p.base_url = "https://openrouter.ai/api/v1/"
+        assert models_url(p) == "https://openrouter.ai/api/v1/models"
+
+    def test_anthropic_chat_path_does_not_repeat_the_version(self):
+        # Was "/v1/messages" against a base already ending in /v1, which
+        # would have produced /v1/v1/messages.
+        assert _CHAT_PATH[AIProvider.Key.ANTHROPIC] == "/messages"
+
+    def test_gemini_chat_path_is_the_openai_compatible_one(self):
+        # Was "/v1beta/models" — a catalogue listing, not a chat endpoint,
+        # so a Gemini completion would have POSTed to the model list.
+        assert _CHAT_PATH[AIProvider.Key.GEMINI].endswith("/chat/completions")
+
+    def test_every_provider_has_a_chat_path(self):
+        for key in AIProvider.Key:
+            assert _CHAT_PATH.get(key), f"{key} has no chat path"
 
 
 class PayloadHashTests(SimpleTestCase):

@@ -164,13 +164,11 @@ class AIProviderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            url = provider.base_url.rstrip("/") + "/models"
-            headers = (
-                {"x-api-key": provider.api_key, "anthropic-version": "2023-06-01"}
-                if provider.key == AIProvider.Key.ANTHROPIC
-                else {"Authorization": f"Bearer {provider.api_key}"}
+            from superadmin.ai_client import _headers, models_url
+
+            response = requests.get(
+                models_url(provider), headers=_headers(provider), timeout=20,
             )
-            response = requests.get(url, headers=headers, timeout=20)
             models = []
             if response.ok:
                 payload = response.json()
@@ -203,13 +201,11 @@ class AIProviderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            url = provider.base_url.rstrip("/") + "/models"
-            headers = (
-                {"x-api-key": provider.api_key, "anthropic-version": "2023-06-01"}
-                if provider.key == AIProvider.Key.ANTHROPIC
-                else {"Authorization": f"Bearer {provider.api_key}"}
+            from superadmin.ai_client import _headers, models_url
+
+            response = requests.get(
+                models_url(provider), headers=_headers(provider), timeout=30,
             )
-            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             raw = response.json().get("data") or []
             provider.available_models = [

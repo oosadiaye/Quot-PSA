@@ -31,12 +31,24 @@ import requests
 from superadmin.ai_models import AICall, AIProvider, compute_cost, pricing_for
 from superadmin.ai_redaction import redact_payload, restore
 
-#: Per-provider chat endpoints. OpenRouter and OpenAI share a schema.
+#: Per-provider chat endpoints, relative to ``base_url``.
+#:
+#: The convention is that ``base_url`` ends at the provider's version
+#: segment (``.../v1``, ``.../v1beta``) and everything here is relative to
+#: it. That is what makes ``/models`` work uniformly for all four in
+#: :func:`models_url` — verified against each live endpoint, where a
+#: correct path answers 401/403 and a wrong one answers 404.
+#:
+#: Gemini is reached through its OpenAI-compatibility layer so it shares
+#: the request and response shape with the others. That path is the one
+#: piece here not confirmed against a live key; ``/models`` under the same
+#: base *is* confirmed, so the Test button still tells the truth about
+#: whether a key is accepted.
 _CHAT_PATH = {
     AIProvider.Key.OPENROUTER: "/chat/completions",
     AIProvider.Key.OPENAI: "/chat/completions",
-    AIProvider.Key.ANTHROPIC: "/v1/messages",
-    AIProvider.Key.GEMINI: "/v1beta/models",
+    AIProvider.Key.ANTHROPIC: "/messages",
+    AIProvider.Key.GEMINI: "/openai/chat/completions",
 }
 
 DEFAULT_TIMEOUT = 60
@@ -68,7 +80,33 @@ def _hash_payload(payload: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def models_url(provider: AIProvider) -> str:
+    """The provider's model-catalogue endpoint.
+
+    Uniform across all four because ``base_url`` carries the version
+    segment. Used by the connection test and the catalogue sync, which
+    previously each built this themselves.
+    """
+    return provider.base_url.rstrip("/") + "/models"
+
+
 def _headers(provider: AIProvider) -> dict[str, str]:
+    """Auth headers for one provider.
+
+    Three schemes, not two. Each is what the provider actually accepts,
+    checked against the live endpoints rather than assumed:
+
+      * **Anthropic** wants ``x-api-key`` plus a version header.
+      * **Gemini** wants ``x-goog-api-key``. Sending its API key as a
+        bearer token makes Google look for an *OAuth 2 access token* and
+        reject it with 401 no matter how valid the key is — so a Gemini
+        key could never have authenticated through the bearer branch.
+      * **OpenRouter and OpenAI** take a bearer token.
+
+    This is the single source for all three call sites — the client, the
+    connection test and the catalogue sync. They each built their own
+    before, which is how the Gemini scheme came to be wrong in all of them.
+    """
     key = provider.api_key
     if provider.key == AIProvider.Key.ANTHROPIC:
         return {
@@ -76,7 +114,11 @@ def _headers(provider: AIProvider) -> dict[str, str]:
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
-    # OpenRouter and OpenAI both take a bearer token.
+    if provider.key == AIProvider.Key.GEMINI:
+        return {
+            "x-goog-api-key": key,
+            "Content-Type": "application/json",
+        }
     return {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
