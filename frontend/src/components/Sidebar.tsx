@@ -176,6 +176,9 @@ const menuItems: MenuItem[] = [
             { name: 'Add Suppliers', path: '/procurement/vendors', icon: Building },
             { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
             { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
+            // Advisory: orders that clear a ceiling individually but not
+            // together. Reports only — see features/procurement/SplitPurchaseScan.
+            { name: 'Split & Duplicate Scan', path: '/procurement/split-scan', icon: AlertTriangle },
         ],
     },
     {
