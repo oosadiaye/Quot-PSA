@@ -5,7 +5,7 @@ import {
   UserOutlined, AppstoreOutlined, AuditOutlined, ClusterOutlined,
   SettingOutlined, ReloadOutlined, LogoutOutlined,
   TeamOutlined, CustomerServiceOutlined, GlobalOutlined,
-  FileTextOutlined, NotificationOutlined, MailOutlined,
+  FileTextOutlined, NotificationOutlined, MailOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import { useState, lazy, Suspense } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -28,6 +28,7 @@ const PlatformConfigTab = lazy(() => import('./tabs/PlatformConfigTab'));
 const BillingTab = lazy(() => import('./tabs/BillingTab'));
 const AnnouncementsTab = lazy(() => import('./tabs/AnnouncementsTab'));
 const EmailTemplatesTab = lazy(() => import('./tabs/EmailTemplatesTab'));
+const AIProvidersTab = lazy(() => import('./tabs/AIProvidersTab'));
 
 const TAB_MAP: Record<string, React.LazyExoticComponent<React.ComponentType>> = {
   overview: OverviewTab,
@@ -45,6 +46,7 @@ const TAB_MAP: Record<string, React.LazyExoticComponent<React.ComponentType>> = 
   billing: BillingTab,
   announcements: AnnouncementsTab,
   'email-templates': EmailTemplatesTab,
+  ai: AIProvidersTab,
 };
 
 const SuperAdminDashboard = () => {
@@ -217,6 +219,7 @@ const SuperAdminDashboard = () => {
               { key: 'announcements', label: 'Announcements', icon: <NotificationOutlined /> },
               { key: 'email-templates', label: 'Email Templates', icon: <MailOutlined /> },
               { key: 'platform', label: 'Platform', icon: <GlobalOutlined /> },
+              { key: 'ai', label: 'AI Providers', icon: <RobotOutlined /> },
               { type: 'divider' },
               { key: 'audit', label: 'Audit Logs', icon: <AuditOutlined /> },
               { key: 'health', label: 'System Health', icon: <ClusterOutlined /> },
