@@ -46,6 +46,12 @@ cryptography>=42,<49
 # Whitelist-based HTML sanitizer for superadmin announcement/ticket fields.
 bleach>=6.1,<7
 
+# ── Outbound HTTP ──────────────────────────────────────────────────────
+# Imported lazily by superadmin/views.py (two call sites) and by the AI
+# provider client. Undeclared until now, so those paths raised
+# ImportError at use in any environment that did not happen to have it.
+requests==2.32.3
+
 # ── Configuration ──────────────────────────────────────────────────────
 python-dotenv==1.2.2
 

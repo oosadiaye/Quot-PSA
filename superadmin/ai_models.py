@@ -240,8 +240,12 @@ class AICall(models.Model):
 
     prompt_tokens = models.PositiveIntegerField(default=0)
     completion_tokens = models.PositiveIntegerField(default=0)
+    #: Eight places, not six. OpenRouter's cheapest models price around
+    #: 3e-8 USD per token, so a short call costs ~3e-7 - which rounds to
+    #: zero at six places. Individually irrelevant; across a hundred
+    #: thousand calls it is money the monthly ceiling never counts.
     cost_usd = models.DecimalField(
-        max_digits=10, decimal_places=6, default=Decimal("0.000000"),
+        max_digits=12, decimal_places=8, default=Decimal("0.00000000"),
     )
     latency_ms = models.PositiveIntegerField(default=0)
 
@@ -265,3 +269,40 @@ class AICall(models.Model):
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+def compute_cost(
+    *, prompt_tokens: int, completion_tokens: int, pricing: dict | None,
+) -> Decimal:
+    """USD for one call from token counts and per-token prices.
+
+    ``pricing`` is the provider's own shape, e.g.
+    ``{"prompt": "0.00000003", "completion": "0.00000015"}`` - strings,
+    because these are decimal fractions that must not pass through a
+    float on the way to money.
+
+    Unknown pricing returns zero rather than guessing. A wrong estimate
+    is worse than a known gap: a ceiling enforced against invented
+    numbers stops the wrong tenants.
+    """
+    if not pricing:
+        return Decimal("0")
+    def _rate(key: str) -> Decimal:
+        raw = pricing.get(key)
+        if raw in (None, ""):
+            return Decimal("0")
+        try:
+            return Decimal(str(raw))
+        except (ArithmeticError, ValueError):
+            return Decimal("0")
+    return (
+        Decimal(prompt_tokens) * _rate("prompt")
+        + Decimal(completion_tokens) * _rate("completion")
+    )
+
+
+def pricing_for(provider, model_id: str) -> dict | None:
+    """Find a model's pricing in ``provider.available_models``."""
+    for entry in provider.available_models or []:
+        if isinstance(entry, dict) and entry.get("id") == model_id:
+            return entry.get("pricing")
+    return None
