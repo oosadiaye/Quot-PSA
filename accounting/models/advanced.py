@@ -1430,6 +1430,22 @@ class BankStatementLine(models.Model):
     match_status = models.CharField(max_length=20, choices=MATCH_STATUS_CHOICES, default='UNMATCHED')
     matched_transaction_type = models.CharField(max_length=20, blank=True, default='')
     matched_transaction_id = models.IntegerField(null=True, blank=True)
+    #: The full set of ledger transactions settling this line.
+    #:
+    #: ``matched_transaction_id`` holds a single id, which is all the
+    #: exact-amount rule matcher ever needed. It cannot represent one bank
+    #: transfer covering several payment vouchers — and a bundle is
+    #: precisely the case that rule cannot match, so recording one voucher
+    #: out of three would lose the other two silently at the moment the
+    #: reconciliation looked finished.
+    #:
+    #: Both fields are maintained: this carries every id, and
+    #: ``matched_transaction_id`` keeps the first so existing readers
+    #: (``auto_match_statement``, the lines endpoint) are unaffected.
+    matched_transaction_ids = models.JSONField(default=list, blank=True)
+    #: Human-readable provenance — how the match was arrived at, e.g.
+    #: "AI-proposed BUNDLE accepted by A. Okafor; variance -50.00".
+    match_note = models.TextField(blank=True, default='')
     matched_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:
