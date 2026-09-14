@@ -69,6 +69,7 @@ import {
     Handshake,
     FileSignature,
     Archive,
+    Sparkles,
 } from 'lucide-react';
 import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
@@ -328,6 +329,10 @@ const menuItems: MenuItem[] = [
             { name: 'Warrant Printout', path: '/settings/warrant-printout', icon: FileSignature },
             { name: 'Bank Letter', path: '/settings/bank-letter', icon: Landmark },
             { name: 'Backups', path: '/settings/backups', icon: Archive },
+            // What AI is switched on for this organisation, what it sends
+            // and where. Read-only apart from an off switch — enabling is
+            // a platform decision, see features/settings/AISettings.tsx.
+            { name: 'AI', path: '/settings/ai', icon: Sparkles },
         ],
     },
     {

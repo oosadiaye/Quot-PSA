@@ -16,6 +16,7 @@ from .views.organization import (
     sync_from_ncoa,
 )
 from .views.audit import AuditLogListView
+from .views.ai import ai_status, ai_calls, ai_disable_all
 from .views.notifications import NotificationViewSet
 # S6-04 — MFA endpoints.
 from .views.mfa import (
@@ -102,4 +103,10 @@ urlpatterns = [
     path('organizations/sync-from-ncoa/', sync_from_ncoa, name='org-sync-from-ncoa'),
     # Audit Trail
     path('audit-trail/', AuditLogListView.as_view(), name='audit-trail'),
+    # AI — the tenant's own view of what is switched on for it. The
+    # superadmin counterpart lives under /superadmin/ai/ and is the
+    # only place credentials or other tenants are reachable.
+    path('ai/status/', ai_status, name='tenant-ai-status'),
+    path('ai/calls/', ai_calls, name='tenant-ai-calls'),
+    path('ai/disable-all/', ai_disable_all, name='tenant-ai-disable-all'),
 ]

@@ -216,6 +216,7 @@ const InventorySettingsPage   = lazy(() => import('./features/settings/Inventory
 const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManagement'));
 const BankAccountSettings = lazy(() => import('./features/settings/BankAccountSettings'));
 const BrandingSettings = lazy(() => import('./features/settings/BrandingSettings'));
+const AISettingsPage = lazy(() => import('./features/settings/AISettings'));
 const WarrantPrintoutSettingsPage = lazy(() => import('./features/settings/WarrantPrintoutSettings'));
 const WarrantPrintPreview = lazy(() => import('./pages/gov/WarrantPrintPreview'));
 const BatchWarrantPrintPreview = lazy(() => import('./pages/gov/BatchWarrantPrintPreview'));
@@ -419,6 +420,9 @@ function App() {
                       } />
                       <Route path="/settings/bank-accounts" element={
                         <ProtectedRoute requiredRole="admin"><BankAccountSettings /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/ai" element={
+                        <ProtectedRoute requiredRole="admin"><AISettingsPage /></ProtectedRoute>
                       } />
                       <Route path="/settings/branding" element={
                         <ProtectedRoute requiredRole="admin"><BrandingSettings /></ProtectedRoute>
