@@ -42,6 +42,7 @@ interface AIProvider {
     display_name: string;
     base_url: string;
     available_models: { id: string; label?: string; pricing?: Record<string, string> }[];
+    default_model_id: string;
     is_enabled: boolean;
     api_key_masked: string;
     is_configured: boolean;
@@ -171,6 +172,17 @@ export default function AIProvidersTab() {
         onError: (err) => message.error(formatApiError(err, 'Could not save the key.')),
     });
 
+    const setDefaultModel = useMutation({
+        mutationFn: async ({ id, model }: { id: number; model: string }) =>
+            (await apiClient.patch(`/superadmin/ai/providers/${id}/`,
+                { default_model_id: model })).data,
+        onSuccess: (_d, v) => {
+            message.success(v.model ? `Default model set to ${v.model}` : 'Default model cleared.');
+            invalidate();
+        },
+        onError: (err) => message.error(formatApiError(err, 'Could not set the model.')),
+    });
+
     const testConnection = useMutation({
         mutationFn: async (id: number) =>
             (await apiClient.post(`/superadmin/ai/providers/${id}/test/`)).data,
@@ -270,9 +282,12 @@ export default function AIProvidersTab() {
             title: 'API key',
             dataIndex: 'api_key_masked',
             render: (masked: string, p: AIProvider) => (
-                <Space>
+                <Space wrap={false}>
                     {p.is_configured
-                        ? <Text code>{masked}</Text>
+                        // nowrap: the masked tail is four characters and must
+                        // not break across lines — a key shown as "...6b8 / 5"
+                        // is unreadable as the identifier it exists to be.
+                        ? <Text code style={{ whiteSpace: 'nowrap' }}>{masked}</Text>
                         : <Tag color="default">not set</Tag>}
                     <Button size="small" icon={<KeyOutlined />}
                         onClick={() => { setKeyModal(p); form.resetFields(); }}>
@@ -294,16 +309,44 @@ export default function AIProvidersTab() {
             ),
         },
         {
-            title: 'Models',
-            dataIndex: 'available_models',
-            render: (models: AIProvider['available_models'], p: AIProvider) => (
-                <Space>
-                    <Text>{models?.length ?? 0}</Text>
-                    <Button size="small" icon={<ReloadOutlined />}
-                        loading={syncModels.isPending}
-                        onClick={() => syncModels.mutate(p.id)}>Sync</Button>
-                </Space>
-            ),
+            title: 'Model',
+            dataIndex: 'default_model_id',
+            render: (current: string, p: AIProvider) => {
+                const models = p.available_models ?? [];
+                return (
+                    <Space orientation="vertical" size={4} style={{ minWidth: 260 }}>
+                        <Select
+                            showSearch
+                            allowClear
+                            // OpenRouter alone returns 445, so this has to be
+                            // searchable and virtualised rather than a list
+                            // anyone is expected to scroll.
+                            virtual
+                            size="small"
+                            style={{ width: 260 }}
+                            value={current || undefined}
+                            placeholder={models.length ? 'Type to search…' : 'Sync to load models'}
+                            disabled={!models.length}
+                            optionFilterProp="label"
+                            loading={setDefaultModel.isPending}
+                            onChange={(model: string | undefined) =>
+                                setDefaultModel.mutate({ id: p.id, model: model ?? '' })}
+                            options={models.map((m) => ({
+                                value: m.id, label: m.label || m.id,
+                            }))}
+                        />
+                        <Space size={6}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                                {models.length} available
+                            </Text>
+                            <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }}
+                                icon={<ReloadOutlined />}
+                                loading={syncModels.isPending}
+                                onClick={() => syncModels.mutate(p.id)}>Sync</Button>
+                        </Space>
+                    </Space>
+                );
+            },
         },
         {
             title: 'Enabled',
@@ -602,8 +645,12 @@ export default function AIProvidersTab() {
                                 // A model id belongs to exactly one provider's
                                 // catalogue. Carrying the old one over would
                                 // save, then fail at call time with a 404 from
-                                // the new provider.
-                                settingForm.setFieldValue('model_id', undefined);
+                                // the new provider. The chosen provider's
+                                // default takes its place when it has one.
+                                const chosen = (providers.data ?? []).find((p) => p.id === id);
+                                settingForm.setFieldValue(
+                                    'model_id', chosen?.default_model_id || undefined,
+                                );
                             }}
                             options={(providers.data ?? []).map((p) => ({
                                 value: p.id,

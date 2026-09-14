@@ -65,6 +65,22 @@ class AIProvider(models.Model):
     #: [{"id": "claude-opus-5", "label": "Opus 5", "vision": true}]
     available_models = models.JSONField(default=list, blank=True)
 
+    #: Which of those to reach for by default.
+    #:
+    #: Advisory, not binding. The model a call actually uses is
+    #: ``TenantAISetting.model_id``, which is pinned per capability — so
+    #: changing this does not silently re-point live capabilities at a
+    #: different model, and an operator who deliberately set a cheap model
+    #: for matching keeps it. It pre-fills the capability form and gives
+    #: the provider row something to show besides a count of 445.
+    default_model_id = models.CharField(
+        max_length=128, blank=True, default='',
+        help_text=(
+            "Pre-selected when configuring a new capability. Existing "
+            "capabilities keep the model they were saved with."
+        ),
+    )
+
     is_enabled = models.BooleanField(
         default=False,
         help_text="Platform-wide master switch. Off means no tenant may use it.",

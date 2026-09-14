@@ -44,7 +44,7 @@ class AIProviderSerializer(serializers.ModelSerializer):
         model = AIProvider
         fields = [
             "id", "key", "key_display", "display_name", "base_url",
-            "available_models", "is_enabled", "sort_order",
+            "available_models", "default_model_id", "is_enabled", "sort_order",
             "api_key", "api_key_masked", "is_configured", "is_usable",
             "sends_document_images", "sends_ledger_amounts", "retains_data",
             "is_broker", "data_policy_url",
