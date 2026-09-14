@@ -91,6 +91,32 @@ class CostTests(SimpleTestCase):
         assert isinstance(cost, Decimal)
 
 
+    def test_a_negative_rate_is_a_sentinel_not_a_discount(self):
+        # OpenRouter reports "-1" for auto-routed models. Found in live
+        # data, not in fixtures: one 19-token call recorded -$19.
+        # A negative cost subtracts from the running total, so a tenant
+        # on auto-routing would never reach the monthly ceiling.
+        cost = compute_cost(
+            prompt_tokens=11, completion_tokens=8,
+            pricing={"prompt": "-1", "completion": "-1"},
+        )
+        assert cost == Decimal("0")
+
+    def test_a_negative_rate_does_not_cancel_a_real_one(self):
+        # Only the sentinel side is discarded; the priced side still
+        # charges, rather than the whole call falling to zero.
+        cost = compute_cost(
+            prompt_tokens=1000, completion_tokens=1000,
+            pricing={"prompt": "0.00000003", "completion": "-1"},
+        )
+        assert cost == Decimal("0.00003")
+
+    def test_cost_is_never_negative(self):
+        # The invariant behind both cases above.
+        for rate in ("-1", "-0.5", "-999999"):
+            assert compute_cost(prompt_tokens=100, completion_tokens=100,
+                                pricing={"prompt": rate, "completion": rate}) >= 0
+
 class PricingLookupTests(SimpleTestCase):
 
     def test_finds_the_named_model(self):

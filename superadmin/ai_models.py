@@ -291,9 +291,19 @@ def compute_cost(
         if raw in (None, ""):
             return Decimal("0")
         try:
-            return Decimal(str(raw))
+            rate = Decimal(str(raw))
         except (ArithmeticError, ValueError):
             return Decimal("0")
+        # A negative rate is a sentinel, not a price. OpenRouter
+        # reports "-1" for auto-routed models, where the model and
+        # therefore the cost are chosen per request. Multiplying it
+        # through yields a negative cost, which does not merely
+        # mis-state spend - it SUBTRACTS from the running total, so a
+        # tenant on auto-routing would drive recorded spend downward
+        # and never reach the monthly ceiling. Unknown, not free.
+        if rate < 0:
+            return Decimal("0")
+        return rate
     return (
         Decimal(prompt_tokens) * _rate("prompt")
         + Decimal(completion_tokens) * _rate("completion")
