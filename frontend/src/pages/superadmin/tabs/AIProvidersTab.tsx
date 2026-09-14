@@ -16,11 +16,12 @@
 import { useState } from 'react';
 import {
     Card, Table, Tag, Button, Space, Switch, Alert, Typography, Modal, Form,
-    Input, Tooltip, App, Empty, Statistic, Row, Col, Dropdown,
+    Input, Tooltip, App, Empty, Statistic, Row, Col, Dropdown, Select, InputNumber,
 } from 'antd';
 import {
     RobotOutlined, ReloadOutlined, ApiOutlined, KeyOutlined, WarningOutlined,
-    CheckCircleOutlined, StopOutlined, CloudServerOutlined,
+    CheckCircleOutlined, StopOutlined, CloudServerOutlined, PlusOutlined,
+    EditOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
@@ -57,6 +58,14 @@ interface Capability {
     label: string;
 }
 
+interface Tenant {
+    id: number;
+    name: string;
+}
+
+/** `null` = closed. An object with no `id` = creating. With one = editing. */
+type SettingDraft = Partial<TenantAISetting> | null;
+
 interface TenantAISetting {
     id: number;
     tenant: number;
@@ -80,7 +89,13 @@ export default function AIProvidersTab() {
     const { message, modal } = App.useApp();
     const qc = useQueryClient();
     const [keyModal, setKeyModal] = useState<AIProvider | null>(null);
+    const [settingDraft, setSettingDraft] = useState<SettingDraft>(null);
     const [form] = Form.useForm();
+    const [settingForm] = Form.useForm();
+    // Which provider the form is currently pointed at. The model list comes
+    // from that provider's catalogue, so this has to be state rather than
+    // read off the row — changing provider must re-scope the model options.
+    const [draftProvider, setDraftProvider] = useState<number | null>(null);
 
     const providers = useQuery({
         queryKey: ['ai-providers'],
@@ -103,6 +118,16 @@ export default function AIProvidersTab() {
         queryFn: async () => {
             const { data } = await apiClient.get('/superadmin/ai/settings/');
             return listOf<TenantAISetting>(data);
+        },
+    });
+
+    // Every tenant on the platform, not just those already configured —
+    // otherwise the first capability for a tenant could never be created.
+    const allTenants = useQuery({
+        queryKey: ['ai-tenant-list'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/superadmin/tenants');
+            return listOf<Tenant>(data);
         },
     });
 
@@ -171,6 +196,48 @@ export default function AIProvidersTab() {
             (await apiClient.post(`/superadmin/ai/settings/${s.id}/toggle/`)).data,
         onSuccess: () => invalidate(),
     });
+
+    const saveSetting = useMutation({
+        mutationFn: async (values: Partial<TenantAISetting> & { id?: number }) => {
+            const { id, ...body } = values;
+            return id
+                ? (await apiClient.patch(`/superadmin/ai/settings/${id}/`, body)).data
+                : (await apiClient.post('/superadmin/ai/settings/', body)).data;
+        },
+        onSuccess: (_d, v) => {
+            message.success(v.id ? 'Capability updated.' : 'Capability added.');
+            setSettingDraft(null);
+            settingForm.resetFields();
+            invalidate();
+        },
+        // (tenant, capability) is unique, so a duplicate comes back as a
+        // field error rather than a detail string. formatApiError flattens
+        // those, which is why the operator sees the real reason.
+        onError: (err) => message.error(formatApiError(err, 'Could not save the capability.')),
+    });
+
+    const deleteSetting = useMutation({
+        mutationFn: async (id: number) =>
+            (await apiClient.delete(`/superadmin/ai/settings/${id}/`)).data,
+        onSuccess: () => {
+            message.success('Capability removed.');
+            invalidate();
+        },
+        onError: (err) => message.error(formatApiError(err, 'Could not remove the capability.')),
+    });
+
+    const openSettingModal = (row?: TenantAISetting) => {
+        setSettingDraft(row ?? {});
+        setDraftProvider(row?.provider ?? null);
+        settingForm.setFieldsValue(
+            row
+                ? { ...row, monthly_cost_cap: Number(row.monthly_cost_cap) }
+                // A new capability starts inactive with redaction on. Both
+                // defaults match the models', so the form cannot quietly
+                // create something more permissive than the API would.
+                : { is_active: false, require_redaction: true, monthly_cost_cap: 0 },
+        );
+    };
 
     const killSwitch = useMutation({
         mutationFn: async (tenant: number) =>
@@ -299,6 +366,25 @@ export default function AIProvidersTab() {
                 </Space>
             ),
         },
+        {
+            title: '',
+            render: (_: unknown, s: TenantAISetting) => (
+                <Space size={4}>
+                    <Button size="small" icon={<EditOutlined />}
+                        onClick={() => openSettingModal(s)}>Edit</Button>
+                    <Button size="small" danger icon={<DeleteOutlined />}
+                        onClick={() => modal.confirm({
+                            title: `Remove ${s.capability_display} for ${s.tenant_name}?`,
+                            content: 'The capability stops immediately. Past calls stay '
+                                + 'in the log — removing the setting does not rewrite '
+                                + 'the audit trail.',
+                            okText: 'Remove',
+                            okButtonProps: { danger: true },
+                            onOk: () => deleteSetting.mutateAsync(s.id),
+                        })} />
+                </Space>
+            ),
+        },
     ];
 
     const settingRows = settings.data ?? [];
@@ -382,12 +468,17 @@ export default function AIProvidersTab() {
                 style={cardStyle}
                 title={<Space><ApiOutlined />Tenant capabilities</Space>}
                 extra={
-                    // A dropdown even for a single tenant. Keying this on
-                    // "exactly one tenant" would have hidden the control the
-                    // moment a second tenant was configured — i.e. it would
-                    // vanish as the platform grew, which is the opposite of
-                    // what an incident control should do.
-                    tenants.length > 0 && (
+                    <Space>
+                    <Button type="primary" icon={<PlusOutlined />}
+                        onClick={() => openSettingModal()}>
+                        Add capability
+                    </Button>
+                    {/* A dropdown even for a single tenant. Keying this on
+                        "exactly one tenant" would have hidden the control the
+                        moment a second tenant was configured — i.e. it would
+                        vanish as the platform grew, which is the opposite of
+                        what an incident control should do. */}
+                    {tenants.length > 0 && (
                         <Dropdown
                             trigger={['click']}
                             menu={{
@@ -416,7 +507,8 @@ export default function AIProvidersTab() {
                                 Kill switch
                             </Button>
                         </Dropdown>
-                    )
+                    )}
+                    </Space>
                 }
             >
                 <Table
@@ -460,6 +552,118 @@ export default function AIProvidersTab() {
                     >
                         <Input.Password placeholder="sk-..." autoComplete="off" />
                     </Form.Item>
+                </Form>
+            </Modal>
+
+            <Modal
+                open={!!settingDraft}
+                title={settingDraft?.id ? 'Edit capability' : 'Add capability'}
+                onCancel={() => { setSettingDraft(null); settingForm.resetFields(); }}
+                onOk={() => settingForm.submit()}
+                confirmLoading={saveSetting.isPending}
+                okText="Save"
+                width={560}
+                destroyOnHidden
+            >
+                <Form
+                    form={settingForm}
+                    layout="vertical"
+                    onFinish={(v) => saveSetting.mutate({ ...v, id: settingDraft?.id })}
+                >
+                    <Form.Item name="tenant" label="Tenant"
+                        rules={[{ required: true, message: 'Choose a tenant.' }]}>
+                        <Select
+                            showSearch
+                            optionFilterProp="label"
+                            placeholder="Which organisation"
+                            loading={allTenants.isLoading}
+                            options={(allTenants.data ?? []).map((t) => ({
+                                value: t.id, label: t.name,
+                            }))}
+                        />
+                    </Form.Item>
+
+                    <Form.Item name="capability" label="Capability"
+                        rules={[{ required: true, message: 'Choose a capability.' }]}>
+                        <Select
+                            placeholder="What the model is asked to do"
+                            options={(capabilities.data ?? []).map((c) => ({
+                                value: c.value, label: c.label,
+                            }))}
+                        />
+                    </Form.Item>
+
+                    <Form.Item name="provider" label="Provider"
+                        rules={[{ required: true, message: 'Choose a provider.' }]}>
+                        <Select
+                            placeholder="Which provider serves this capability"
+                            onChange={(id: number) => {
+                                setDraftProvider(id);
+                                // A model id belongs to exactly one provider's
+                                // catalogue. Carrying the old one over would
+                                // save, then fail at call time with a 404 from
+                                // the new provider.
+                                settingForm.setFieldValue('model_id', undefined);
+                            }}
+                            options={(providers.data ?? []).map((p) => ({
+                                value: p.id,
+                                label: p.is_usable
+                                    ? p.display_name
+                                    : `${p.display_name} — not usable yet`,
+                            }))}
+                        />
+                    </Form.Item>
+
+                    {draftProvider !== null
+                        && !(providers.data ?? []).find((p) => p.id === draftProvider)?.is_usable && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                            title="This provider has no key or is switched off platform-wide."
+                            description="The capability can be saved, but it stays blocked until the provider is usable. Nothing is sent in the meantime."
+                        />
+                    )}
+
+                    <Form.Item name="model_id" label="Model"
+                        rules={[{ required: true, message: 'Choose a model.' }]}
+                        extra={
+                            draftProvider === null
+                                ? 'Pick a provider first.'
+                                : 'Type to search. Sync the provider if the list is empty.'
+                        }>
+                        <Select
+                            showSearch
+                            optionFilterProp="label"
+                            disabled={draftProvider === null}
+                            placeholder="e.g. claude-opus-5"
+                            // OpenRouter alone returns 445 models, so this has
+                            // to be searchable and virtualised rather than a
+                            // plain dropdown.
+                            virtual
+                            options={(
+                                (providers.data ?? []).find((p) => p.id === draftProvider)
+                                    ?.available_models ?? []
+                            ).map((m) => ({ value: m.id, label: m.label || m.id }))}
+                        />
+                    </Form.Item>
+
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="monthly_cost_cap" label="Monthly cap (USD)"
+                                extra="0 means no ceiling.">
+                                <InputNumber min={0} step={1} precision={2}
+                                    style={{ width: '100%' }} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="require_redaction" label="Redaction"
+                                valuePropName="checked"
+                                extra="Strips bank details, BVN and TIN before sending.">
+                                <Switch />
+                            </Form.Item>
+                        </Col>
+                    </Row>
                 </Form>
             </Modal>
         </Space>
