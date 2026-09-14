@@ -87,6 +87,18 @@ class CandidateRecord:
     description: str = ""
 
 
+#: Which way the money moved. Carried as meaning rather than as a raw
+#: column flag on purpose: this codebase has two statement models whose
+#: conventions are **opposite**. ``BankStatementLine`` treats a credit as
+#: money leaving; ``TSABankStatementLine`` treats a debit as money leaving
+#: (its parser maps "withdrawal" to debit). Passing ``is_credit`` through
+#: to shared logic would mean one of the two stacks proposed revenue
+#: against outgoing transfers — plausibly, and in the right currency.
+#: Each adapter states its own mapping once, here.
+OUT = "OUT"   # money left the bank account -> settled by a payment
+IN = "IN"     # money arrived -> explained by a receipt / revenue
+
+
 @dataclass(frozen=True)
 class StatementLineRecord:
     """The unmatched bank line a proposal is about."""
@@ -94,7 +106,7 @@ class StatementLineRecord:
     line_id: int
     transaction_date: date
     amount: Decimal
-    is_credit: bool                # credit on the statement == money out == Payment
+    direction: str                 # OUT | IN — see the note above
     description: str = ""
     reference: str = ""
 
@@ -135,12 +147,13 @@ class Rejected:
 def expected_direction(line: StatementLineRecord) -> str:
     """Which ledger side can possibly explain this bank line.
 
-    Mirrors ``find_match_candidates``: a credit on the statement is money
-    leaving the account, so only Payments can explain it. Enforcing this
-    after the model replies is what stops a tidy-looking bundle of
-    receipts being offered against an outgoing transfer.
+    Money out is settled by a payment; money in is explained by a
+    receipt. Enforcing this after the model replies is what stops a
+    tidy-looking bundle of receipts being offered against an outgoing
+    transfer — and the adapters, not this function, are where each
+    statement model's debit/credit convention is interpreted.
     """
-    return "PAYMENT" if line.is_credit else "RECEIPT"
+    return "PAYMENT" if line.direction == OUT else "RECEIPT"
 
 
 def build_prompt(
@@ -166,7 +179,7 @@ def build_prompt(
         f"BANK LINE\n"
         f"  date: {line.transaction_date.isoformat()}\n"
         f"  amount: {line.amount}\n"
-        f"  direction: {'money out' if line.is_credit else 'money in'}\n"
+        f"  direction: {'money out' if line.direction == OUT else 'money in'}\n"
         f"  description: {line.description or '-'}\n"
         f"  reference: {line.reference or '-'}\n\n"
         f"CANDIDATE LEDGER TRANSACTIONS (use only these ids)\n{rows or '  (none)'}\n\n"
@@ -395,7 +408,7 @@ def gather_candidates(
 
     from accounting.models import BankStatementLine, Payment, Receipt
 
-    is_credit = line.is_credit
+    is_credit = line.direction == OUT
     lo = line.transaction_date - timedelta(days=window_days)
     hi = line.transaction_date + timedelta(days=window_days)
 
@@ -439,15 +452,122 @@ def gather_candidates(
 
 
 def to_line_record(line) -> StatementLineRecord:
-    """Adapt a ``BankStatementLine`` to the value object used above."""
+    """Adapt a ``BankStatementLine``.
+
+    This model's convention: ``is_credit`` True means money **left** the
+    account — which ``find_match_candidates`` encodes by looking for
+    Payments on a credit. Unusual, and the opposite of the TSA model, so
+    it is translated here rather than carried further.
+    """
     return StatementLineRecord(
         line_id=line.id,
         transaction_date=line.transaction_date,
         amount=line.amount,
-        is_credit=line.is_credit,
+        direction=OUT if line.is_credit else IN,
         description=line.description or "",
         reference=line.reference or "",
     )
+
+
+def tsa_to_line_record(line) -> StatementLineRecord:
+    """Adapt a ``TSABankStatementLine``.
+
+    This model's convention is the ordinary banking one and the reverse
+    of the above: a **debit** is money leaving, which is why its importer
+    maps "withdrawal" to debit and its lines settle against a
+    ``PaymentInstruction``.
+    """
+    debit = line.debit or Decimal("0")
+    credit = line.credit or Decimal("0")
+    return StatementLineRecord(
+        line_id=line.id,
+        transaction_date=line.transaction_date,
+        amount=debit if debit else credit,
+        direction=OUT if debit else IN,
+        description=line.description or "",
+        reference=line.reference or "",
+    )
+
+
+def tsa_gather_candidates(
+    line: StatementLineRecord,
+    statement,
+    *,
+    window_days: int = 30,
+    limit: int = MAX_CANDIDATES,
+) -> list[CandidateRecord]:
+    """Candidate pool for a TSA statement line.
+
+    Same two departures from the auto-matcher as the other stack: no
+    exact-amount filter (that is why the line is unmatched) and a wider
+    date window (drift is one of the causes under investigation). Rows
+    already linked to another line are excluded before the model sees
+    them — the model cannot propose what it is never shown.
+    """
+    from datetime import timedelta
+
+    from accounting.models import PaymentInstruction, RevenueCollection
+
+    lo = line.transaction_date - timedelta(days=window_days)
+    hi = line.transaction_date + timedelta(days=window_days)
+    tsa = statement.tsa_account
+
+    # Scope, status and date field are taken from the auto-matcher in
+    # ``tsa_bank_reconciliation`` rather than reinvented — a pool assembled
+    # on different rules than the one that already ran would be proposing
+    # from a different ledger than the reconciliation is about.
+    if line.direction == OUT:
+        taken = set(
+            statement.lines.exclude(matched_payment__isnull=True)
+            .values_list("matched_payment_id", flat=True)
+        )
+        rows = (
+            PaymentInstruction.objects
+            .filter(
+                tsa_account=tsa,
+                status="PROCESSED",
+                processed_at__date__gte=lo,
+                processed_at__date__lte=hi,
+            )
+            .exclude(id__in=taken)
+            .exclude(amount=line.amount)      # the rule matcher owns these
+        )
+        return [
+            CandidateRecord(
+                transaction_id=p.id, transaction_type="PAYMENT",
+                transaction_date=p.processed_at.date() if p.processed_at else line.transaction_date,
+                amount=p.amount,
+                reference=p.bank_reference or p.batch_reference or "",
+                description=p.narration or p.beneficiary_name or "",
+            )
+            for p in rows[:limit]
+        ]
+
+    taken = set(
+        statement.lines.exclude(matched_revenue__isnull=True)
+        .values_list("matched_revenue_id", flat=True)
+    )
+    rows = (
+        RevenueCollection.objects
+        .filter(
+            tsa_account=tsa,
+            status__in=["POSTED", "RECONCILED"],
+            collection_date__gte=lo,
+            collection_date__lte=hi,
+        )
+        .exclude(id__in=taken)
+        .exclude(amount=line.amount)
+    )
+    return [
+        CandidateRecord(
+            transaction_id=r.id, transaction_type="RECEIPT",
+            transaction_date=r.collection_date,
+            amount=r.amount,
+            reference=r.receipt_number or r.payment_reference or "",
+            description=r.description or "",
+        )
+        for r in rows[:limit]
+    ]
 
 
 def propose_for_line(

@@ -16,6 +16,8 @@ from decimal import Decimal
 from django.test import SimpleTestCase
 
 from accounting.services.ai_reconciliation import (
+    IN,
+    OUT,
     CandidateRecord,
     Kind,
     Proposal,
@@ -32,12 +34,12 @@ from accounting.services.ai_reconciliation import (
 D = Decimal
 
 
-def _line(amount="1000000.00", is_credit=True, line_id=1) -> StatementLineRecord:
+def _line(amount="1000000.00", direction=OUT, line_id=1) -> StatementLineRecord:
     return StatementLineRecord(
         line_id=line_id,
         transaction_date=date(2026, 9, 1),
         amount=D(amount),
-        is_credit=is_credit,
+        direction=direction,
         description="NIP TRF",
         reference="REF/001",
     )
@@ -57,10 +59,10 @@ class DirectionTests(SimpleTestCase):
     """A bank line can only be explained by one side of the ledger."""
 
     def test_money_out_is_explained_by_payments(self):
-        assert expected_direction(_line(is_credit=True)) == "PAYMENT"
+        assert expected_direction(_line(direction=OUT)) == "PAYMENT"
 
     def test_money_in_is_explained_by_receipts(self):
-        assert expected_direction(_line(is_credit=False)) == "RECEIPT"
+        assert expected_direction(_line(direction=IN)) == "RECEIPT"
 
 
 class BundleTests(SimpleTestCase):
@@ -126,7 +128,7 @@ class HallucinationTests(SimpleTestCase):
 
     def test_a_receipt_cannot_explain_money_leaving(self):
         cands = [_cand(1, "1000000.00", ttype="RECEIPT")]
-        out = validate_proposal({"transaction_ids": [1]}, _line(is_credit=True), cands)
+        out = validate_proposal({"transaction_ids": [1]}, _line(direction=OUT), cands)
         assert out.reason == Reject.WRONG_DIRECTION
 
 
@@ -274,10 +276,79 @@ class PromptTests(SimpleTestCase):
         assert "use only these ids" in prompt
 
     def test_the_prompt_states_the_direction(self):
-        assert "money out" in build_prompt(_line(is_credit=True), [])
-        assert "money in" in build_prompt(_line(is_credit=False), [])
+        assert "money out" in build_prompt(_line(direction=OUT), [])
+        assert "money in" in build_prompt(_line(direction=IN), [])
 
     def test_an_empty_answer_is_invited(self):
         # Without this the model reaches for the least-bad guess, which is
         # the failure mode that makes the whole feature untrustworthy.
         assert "empty answer is a" in build_prompt(_line(), [])
+
+
+class ConventionTests(SimpleTestCase):
+    """The two statement models disagree about debit and credit.
+
+    ``BankStatementLine`` treats a **credit** as money leaving the account
+    (``find_match_candidates`` looks for Payments on a credit).
+    ``TSABankStatementLine`` treats a **debit** as money leaving (its
+    importer maps "withdrawal" to debit, and its lines settle against a
+    ``PaymentInstruction``).
+
+    Carrying a raw ``is_credit`` into shared logic would therefore make
+    one of the two stacks propose revenue against outgoing transfers —
+    plausibly, and in the right currency. These pin each adapter's
+    translation so the inversion cannot be reintroduced quietly.
+    """
+
+    class _Bsl:
+        id = 1
+        transaction_date = date(2026, 9, 1)
+        description = "x"
+        reference = "r"
+        debit_amount = Decimal("0")
+        credit_amount = Decimal("500.00")
+        amount = Decimal("500.00")
+        is_credit = True
+
+    class _Tsa:
+        id = 2
+        transaction_date = date(2026, 9, 1)
+        description = "x"
+        reference = "r"
+        debit = Decimal("500.00")
+        credit = Decimal("0")
+
+    def test_a_credit_on_the_legacy_model_is_money_out(self):
+        from accounting.services.ai_reconciliation import to_line_record
+
+        rec = to_line_record(self._Bsl())
+        assert rec.direction == OUT
+        assert expected_direction(rec) == "PAYMENT"
+
+    def test_a_debit_on_the_tsa_model_is_money_out(self):
+        from accounting.services.ai_reconciliation import tsa_to_line_record
+
+        rec = tsa_to_line_record(self._Tsa())
+        assert rec.direction == OUT
+        assert expected_direction(rec) == "PAYMENT"
+        assert rec.amount == Decimal("500.00")
+
+    def test_a_credit_on_the_tsa_model_is_money_in(self):
+        from accounting.services.ai_reconciliation import tsa_to_line_record
+
+        line = self._Tsa()
+        line.debit = Decimal("0")
+        line.credit = Decimal("750.00")
+        rec = tsa_to_line_record(line)
+        assert rec.direction == IN
+        assert expected_direction(rec) == "RECEIPT"
+        assert rec.amount == Decimal("750.00")
+
+    def test_the_two_models_map_opposite_flags_to_the_same_direction(self):
+        # The asymmetry, stated as an assertion: a credit on one model and
+        # a debit on the other both mean money left the account.
+        from accounting.services.ai_reconciliation import (
+            to_line_record, tsa_to_line_record,
+        )
+
+        assert to_line_record(self._Bsl()).direction == tsa_to_line_record(self._Tsa()).direction
