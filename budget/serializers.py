@@ -158,6 +158,9 @@ class AppropriationSerializer(serializers.ModelSerializer):
             'fund', 'fund_code', 'fund_name',
             'geographic', 'geographic_code', 'geographic_name',
             'amount_approved', 'appropriation_type', 'status',
+            # The organisation's own reference for this line. Writable:
+            # an officer types it from their appropriation book.
+            'budget_code',
             'law_reference', 'enactment_date', 'description', 'notes',
             'total_warrants_released',
             'total_committed', 'cached_total_committed', 'total_committed_live',

@@ -86,6 +86,7 @@ export default function AppropriationDetail() {
     //   • programme     — exact-match dropdown (programme_code)
     //   • fund          — exact-match dropdown (fund_code)
     // Empty values disable that filter; combinations narrow further.
+    const [codeQuery, setCodeQuery] = useState('');
     const [econQuery, setEconQuery] = useState('');
     const [filterFunctional, setFilterFunctional] = useState('');
     const [filterProgramme, setFilterProgramme] = useState('');
@@ -172,7 +173,14 @@ export default function AppropriationDetail() {
      */
     const filteredLines = useMemo(() => {
         const q = econQuery.trim().toLowerCase();
+        const codeQ = codeQuery.trim().toLowerCase();
         return (mdaLines as any[]).filter((l: any) => {
+            // Budget code is the organisation's own reference, typed by
+            // an officer. Substring so a half-remembered 'BL-2026-01'
+            // still finds it.
+            if (codeQ && !String(l.budget_code || '').toLowerCase().includes(codeQ)) {
+                return false;
+            }
             if (q) {
                 const code = String(l.economic_code || '').toLowerCase();
                 const name = String(l.economic_name || '').toLowerCase();
@@ -183,10 +191,11 @@ export default function AppropriationDetail() {
             if (filterFund       && String(l.fund_code)       !== filterFund)       return false;
             return true;
         });
-    }, [mdaLines, econQuery, filterFunctional, filterProgramme, filterFund]);
+    }, [mdaLines, codeQuery, econQuery, filterFunctional, filterProgramme, filterFund]);
 
-    const hasActiveFilter = Boolean(econQuery || filterFunctional || filterProgramme || filterFund);
+    const hasActiveFilter = Boolean(codeQuery || econQuery || filterFunctional || filterProgramme || filterFund);
     const clearFilters = () => {
+        setCodeQuery('');
         setEconQuery('');
         setFilterFunctional('');
         setFilterProgramme('');
@@ -600,7 +609,7 @@ export default function AppropriationDetail() {
                             {/* Filter strip — economic code search + segment dropdowns */}
                             <div style={{
                                 display: 'grid',
-                                gridTemplateColumns: 'minmax(200px, 1.4fr) repeat(3, minmax(140px, 1fr)) auto',
+                                gridTemplateColumns: 'minmax(150px, 1fr) minmax(200px, 1.4fr) repeat(3, minmax(140px, 1fr)) auto',
                                 gap: '0.5rem',
                                 alignItems: 'end',
                                 background: 'var(--color-surface, #f8fafc)',
@@ -609,6 +618,19 @@ export default function AppropriationDetail() {
                                 padding: '0.65rem 0.8rem',
                                 marginBottom: '0.75rem',
                             }}>
+                                <div>
+                                    <label style={filterLabelStyle}>Budget Code</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <input
+                                            type="text"
+                                            value={codeQuery}
+                                            onChange={(e) => setCodeQuery(e.target.value)}
+                                            placeholder="e.g. BL-2026-0142"
+                                            style={{ ...filterInputStyle, paddingLeft: '1.7rem' }}
+                                        />
+                                    </div>
+                                </div>
                                 <div>
                                     <label style={filterLabelStyle}>Economic Code / Description</label>
                                     <div style={{ position: 'relative' }}>
@@ -690,6 +712,7 @@ export default function AppropriationDetail() {
                                 }}>
                                     <thead>
                                         <tr>
+                                            <th style={thStyle}>Budget Code</th>
                                             <th style={thStyle}>Economic Code</th>
                                             <th style={thStyle}>Economic Description</th>
                                             <th style={thStyle}>Functional</th>
@@ -709,7 +732,7 @@ export default function AppropriationDetail() {
                                     </thead>
                                     <tbody>
                                         {filteredLines.length === 0 && (
-                                            <tr><td colSpan={12} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                            <tr><td colSpan={13} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
                                                 {hasActiveFilter ? 'No lines match the current filters.' : 'No appropriation lines under this MDA.'}
                                             </td></tr>
                                         )}
@@ -735,6 +758,11 @@ export default function AppropriationDetail() {
                                                         borderLeft: isCurrentLine ? '3px solid #4f46e5' : '3px solid transparent',
                                                         transition: 'background 0.1s ease',
                                                     }}>
+                                                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600 }}>
+                                                        {line.budget_code
+                                                            ? line.budget_code
+                                                            : <span style={{ color: 'var(--color-text-muted, #94a3b8)', fontStyle: 'italic', fontFamily: 'inherit' }}>not set</span>}
+                                                    </td>
                                                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
                                                         {line.economic_code}
                                                     </td>

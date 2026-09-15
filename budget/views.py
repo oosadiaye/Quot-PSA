@@ -289,8 +289,17 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     filterset_fields = [
         'status', 'appropriation_type', 'fiscal_year',
         'administrative', 'fund', 'economic',
+        # Exact match, for "show me every line under this budget code" —
+        # the field is deliberately not unique, so this legitimately
+        # returns the whole group that rolls up to one code.
+        'budget_code',
     ]
-    search_fields = ['administrative__name', 'economic__name', 'description']
+    # ``search`` is icontains, which is what the Budget Check box needs:
+    # an officer half-remembering 'BL-2026-01' should still find it.
+    search_fields = [
+        'budget_code', 'administrative__name', 'economic__name',
+        'economic__code', 'description',
+    ]
     ordering_fields = ['amount_approved', 'created_at']
     ordering = ['-created_at']
 

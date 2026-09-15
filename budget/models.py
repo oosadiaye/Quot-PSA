@@ -761,6 +761,33 @@ class Appropriation(AuditBaseModel):
                   'Null = equal monthly spread.',
     )
 
+    # ── Budget code ───────────────────────────────────────────────────
+    # The organisation's own reference for this line, as it appears in
+    # their appropriation book (e.g. 'BL-2026-0142'). Typed by an
+    # officer, never generated: the six NCoA segments already identify
+    # the line structurally, so this exists to tie a row back to an
+    # external budget document, which no derived string can do.
+    #
+    # Deliberately NOT unique and NOT a foreign key. Several rows
+    # legitimately roll up to one budget code — a programme split across
+    # economic segments or funds is the normal case, and this chart has
+    # exactly that (one code over three funds). Uniqueness would reject
+    # correct data. Indexed because it is a search key on Budget Check.
+    #
+    # ``blank=True, default=''`` keeps "no code" one value rather than
+    # two that every reader has to handle.
+    budget_code      = models.CharField(
+        max_length=50, blank=True, default='', db_index=True,
+        help_text=(
+            "Your own reference for the budget line this row belongs to "
+            "(e.g. 'BL-2026-0142'). Optional free text — the NCoA segment "
+            "combination is what identifies the line structurally, so "
+            "this is for tracking against an external budget document, "
+            "not a key. Deliberately not unique: several rows may roll up "
+            "to one budget line."
+        ),
+    )
+
     law_reference    = models.CharField(
         max_length=100, blank=True, default='',
         help_text="Appropriation Act citation",
@@ -792,6 +819,12 @@ class Appropriation(AuditBaseModel):
         indexes = [
             models.Index(fields=['fiscal_year', 'status']),
             models.Index(fields=['administrative', 'economic', 'fiscal_year']),
+            # No composite (budget_code, status) index. ``db_index=True``
+            # on the field already indexes the search key, and Postgres
+            # combines it with the status filter perfectly well at this
+            # cardinality. A composite would need a third
+            # exists-or-not migration to land on the schemas that took
+            # the first cut of 0020, which is not worth the cost.
         ]
         constraints = [
             # Mirror migration 0013 — without declaring it on the model
