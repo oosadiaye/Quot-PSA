@@ -50,6 +50,17 @@ def _account(code, name, account_type):
     return account
 
 
+def _carrying_a_balance(items):
+    """Codes with a non-zero amount, in code order.
+
+    The position statement deliberately discloses zero-balance rows
+    (IPSAS requires the heading to appear even when empty), and other
+    transactional tests commit accounts that land in these ranges. Only
+    the rows carrying money are this file's business.
+    """
+    return [i['code'] for i in items if i['amount'] != Decimal('0')]
+
+
 def _balance(account, *, debit='0', credit='0'):
     from accounting.models.balances import GLBalance
     GLBalance.objects.create(
@@ -99,7 +110,7 @@ def test_assets_outside_the_named_sub_families_are_reported(a_ledger_that_balanc
     unclassified = position['assets']['unclassified']
 
     assert unclassified['total'] == Decimal('500.00')
-    assert [i['code'] for i in unclassified['items']] == ['30500000']
+    assert _carrying_a_balance(unclassified['items']) == ['30500000']
     # …and they count towards the headline figure, not just their bucket.
     assert position['assets']['total'] == Decimal('1500.00')
 
@@ -110,7 +121,7 @@ def test_liabilities_outside_the_named_sub_families_are_reported(a_ledger_that_b
     unclassified = position['liabilities']['unclassified']
 
     assert unclassified['total'] == Decimal('300.00')
-    assert [i['code'] for i in unclassified['items']] == ['48010101']
+    assert _carrying_a_balance(unclassified['items']) == ['48010101']
     assert position['liabilities']['total'] == Decimal('1500.00')
 
 
