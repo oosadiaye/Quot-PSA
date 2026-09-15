@@ -134,6 +134,20 @@ const BudgetCheck = () => {
         [lines],
     );
 
+    // Suggestions for the two search boxes. A ``datalist`` keeps them
+    // genuinely both things: type any fragment, or open the list and pick
+    // an exact value. A <select> would forbid the partial code an officer
+    // half-remembers; a plain input would make them know the code already.
+    //
+    // The suggestion's *value* is what lands in the box, so it is the bare
+    // code — the name rides along as the option's label, which browsers
+    // show beside it. Putting "22100100 — Travel" in the value would set
+    // the box to a string that then matches nothing.
+    const codeSuggestions = useMemo(
+        () => [...new Set(lines.map((l) => l.budget_code).filter(Boolean))].sort(),
+        [lines],
+    );
+
     const filtered = useMemo(() => {
         const code = codeQuery.trim().toLowerCase();
         const desc = descQuery.trim().toLowerCase();
@@ -195,11 +209,15 @@ const BudgetCheck = () => {
                                     <input
                                         id="bc-code"
                                         type="text"
+                                        list="bc-code-options"
                                         value={codeQuery}
                                         onChange={(e) => { setCodeQuery(e.target.value); setSelectedId(null); }}
-                                        placeholder="e.g. BL-2026-0142"
+                                        placeholder="Type or pick a code"
                                         style={{ ...controlStyle, paddingLeft: '1.8rem' }}
                                     />
+                                    <datalist id="bc-code-options">
+                                        {codeSuggestions.map((c) => <option key={c} value={c} />)}
+                                    </datalist>
                                 </div>
                             </div>
 
@@ -210,11 +228,17 @@ const BudgetCheck = () => {
                                     <input
                                         id="bc-desc"
                                         type="text"
+                                        list="bc-desc-options"
                                         value={descQuery}
                                         onChange={(e) => { setDescQuery(e.target.value); setSelectedId(null); }}
-                                        placeholder="e.g. 22020 or 'travel'"
+                                        placeholder="Type or pick an account"
                                         style={{ ...controlStyle, paddingLeft: '1.8rem' }}
                                     />
+                                    <datalist id="bc-desc-options">
+                                        {econOptions.map((o) => (
+                                            <option key={o.value} value={o.value}>{o.label}</option>
+                                        ))}
+                                    </datalist>
                                 </div>
                             </div>
 
