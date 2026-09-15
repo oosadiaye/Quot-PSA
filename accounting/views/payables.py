@@ -2477,17 +2477,29 @@ class PaymentAllocationViewSet(viewsets.ModelViewSet):
             raise ValidationError("Can only allocate to Draft payments.")
         invoice = serializer.validated_data.get('invoice')
         if invoice:
-            alloc_amount = Decimal(str(serializer.validated_data['amount']))
-            # Sum all existing allocations against this invoice (including other payments
-            # AND other allocations within this same payment) to prevent over-allocation.
-            all_existing = PaymentAllocation.objects.filter(invoice=invoice).aggregate(
-                total=Sum('amount')
-            )['total'] or Decimal('0')
-            balance_due = invoice.total_amount - invoice.paid_amount
-            if all_existing + alloc_amount > balance_due:
-                raise ValidationError(
-                    f"Allocation of {alloc_amount} exceeds remaining invoice balance ({balance_due - all_existing})."
-                )
+            # Only allocations on **Draft** payments count as outstanding.
+            #
+            # This used to sum every allocation against the invoice and
+            # compare that to ``total_amount - paid_amount``. A posted
+            # allocation is recorded in both places, so it was counted
+            # twice — and the result was not a rounding error but an
+            # invoice that could not be paid at all after its first
+            # instalment: 1,000,000 invoice, 600,000 posted, and an
+            # allocation for the exact outstanding 400,000 was refused.
+            # On a ledger where staged payments are the norm, that is
+            # most invoices. See accounting/services/allocation_guard.py.
+            from accounting.services.allocation_guard import (
+                check_allocation, pending_allocated_for,
+            )
+
+            error = check_allocation(
+                amount=Decimal(str(serializer.validated_data['amount'])),
+                total_amount=invoice.total_amount,
+                paid_amount=invoice.paid_amount,
+                pending_allocated=pending_allocated_for(invoice),
+            )
+            if error:
+                raise ValidationError(error)
         serializer.save()
 
     def perform_destroy(self, instance):
