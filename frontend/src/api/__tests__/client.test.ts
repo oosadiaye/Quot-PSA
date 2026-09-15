@@ -22,6 +22,10 @@ describe('apiClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    // sessionStorage too — it is where the auth token actually lives, so
+    // without this each test inherits the previous one's token and any
+    // assertion about a *missing* header silently passes on stale state.
+    sessionStorage.clear()
   })
 
   it('creates axios instance with correct baseURL', async () => {
@@ -47,7 +51,13 @@ describe('apiClient', () => {
   })
 
   describe('request interceptor', () => {
-    it('injects auth token when present in localStorage', async () => {
+    // sessionStorage, not localStorage. client.ts reads the token from
+    // sessionStorage only, on purpose: localStorage is XSS-readable for
+    // the lifetime of the browser profile, sessionStorage only for the
+    // tab. This test still set localStorage and expected the header,
+    // so it asserted the very behaviour that was deliberately removed —
+    // and had been failing ever since.
+    it('injects auth token when present in sessionStorage', async () => {
       vi.resetModules()
       await import('../client')
 
@@ -55,7 +65,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token-123')
+      sessionStorage.setItem('authToken', 'test-token-123')
 
       const config = {
         url: '/accounting/journals/',
@@ -64,6 +74,28 @@ describe('apiClient', () => {
       const result = requestInterceptor(config)
 
       expect(result.headers['Authorization']).toBe('Token test-token-123')
+    })
+
+    it('ignores a token sitting in localStorage', async () => {
+      // The point of reading sessionStorage is that localStorage is not
+      // read. Without this, a change that adds a localStorage fallback
+      // "to be helpful" passes every other test in this file while
+      // widening the XSS window back to the whole browser profile.
+      vi.resetModules()
+      await import('../client')
+
+      const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
+        .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
+
+      localStorage.setItem('authToken', 'xss-readable-token')
+
+      const config = {
+        url: '/accounting/journals/',
+        headers: {} as Record<string, string>,
+      }
+      const result = requestInterceptor(config)
+
+      expect(result.headers['Authorization']).toBeUndefined()
     })
 
     it('injects tenant domain header when present', async () => {
