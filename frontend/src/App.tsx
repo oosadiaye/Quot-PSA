@@ -85,7 +85,6 @@ const NCoAFunctionalList = lazy(() => import('./pages/gov').then(m => ({ default
 const NCoAProgrammeList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAProgrammeList })));
 const NCoAFundList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAFundList })));
 const NCoAGeoList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAGeoList })));
-const NCoACodeList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoACodeList })));
 const ProcurementThresholdList = lazy(() => import('./pages/gov').then(m => ({ default: m.ProcurementThresholdList })));
 const NoObjectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.NoObjectionList })));
 
@@ -740,7 +739,6 @@ function App() {
                       <Route path="/accounting/ncoa/geographic" element={<ProtectedRoute><NCoAGeoList /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/geographic/new" element={<ProtectedRoute><NCoAGeoForm /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/geographic/:id/edit" element={<ProtectedRoute><NCoAGeoForm /></ProtectedRoute>} />
-                      <Route path="/accounting/ncoa/codes" element={<ProtectedRoute><NCoACodeList /></ProtectedRoute>} />
                       <Route path="/procurement/thresholds" element={<ProtectedRoute><ProcurementThresholdList /></ProtectedRoute>} />
                       <Route path="/procurement/no-objection" element={<ProtectedRoute><NoObjectionList /></ProtectedRoute>} />
 

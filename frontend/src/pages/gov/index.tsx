@@ -1898,21 +1898,6 @@ export const NCoAGeoList = () => (
     />
 );
 
-export const NCoACodeList = () => (
-    <GenericListPage
-        title="NCoA Composite Codes"
-        subtitle="Full 52-digit NCoA codes -- the financial DNA of government transactions"
-        endpoint="/accounting/ncoa/codes/"
-        columns={[
-            { key: 'full_code', label: 'NCoA Code' },
-            { key: 'account_name', label: 'Account' },
-            { key: 'mda_name', label: 'MDA' },
-            { key: 'fund_code', label: 'Fund' },
-            { key: 'is_active', label: 'Active' },
-        ]}
-    />
-);
-
 /* ── Procurement BPP ───────────────────────────────────── */
 
 export const ProcurementThresholdList = () => (
