@@ -217,6 +217,27 @@ class Contract(AuditBaseModel):
     # ── Notes ───────────────────────────────────────────────────────────
     notes = models.TextField(blank=True, default="")
 
+    # ── Duplicate-warning override ──────────────────────────────────────
+    #
+    # The draft form warns when a contract resembles one already in the
+    # register — same contractor, similar value, a title that reads as the
+    # same requirement. That warning is advisory: a clerk may know it is a
+    # re-award after a termination, or that the ministry genuinely
+    # commissioned two identical boreholes in one village.
+    #
+    # What must not happen is that knowledge living only in the clerk's
+    # head. An auditor asking "why are there two contracts for this road?"
+    # should find the answer on the record. ``created_by`` and
+    # ``created_at`` from AuditBaseModel supply who and when.
+    duplicate_ack_ids = models.JSONField(
+        default=list, blank=True,
+        help_text="Contracts flagged as possible duplicates and accepted anyway.",
+    )
+    duplicate_ack_reason = models.TextField(
+        blank=True, default="",
+        help_text="Why this was saved despite resembling an existing contract.",
+    )
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
