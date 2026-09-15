@@ -311,9 +311,9 @@ const BudgetCheck = () => {
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                     <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
                                         <tr>
-                                            {['Budget Code', 'GL Account', 'Description', 'Fund', 'Status', 'Approved', 'Available'].map((h, i) => (
+                                            {['Budget Code', 'GL Account', 'Description', 'Fund', 'Status', 'Approved', 'Expended', 'Available'].map((h, i) => (
                                                 <th key={h} style={{
-                                                    padding: '0.5rem 0.6rem', textAlign: i >= 5 ? 'right' : 'left',
+                                                    padding: '0.5rem 0.6rem', textAlign: i >= 5 ? 'right' : 'left',  // Approved / Expended / Available
                                                     fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
                                                     letterSpacing: '0.03em', color: '#64748b',
                                                     borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
@@ -345,6 +345,7 @@ const BudgetCheck = () => {
                                                         <span style={{ background: lsc.bg, color: lsc.color, padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700 }}>{lsc.label}</span>
                                                     </td>
                                                     <td style={{ padding: '0.45rem 0.6rem', textAlign: 'right', fontWeight: 600, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{fmtNGN(l.amount_approved)}</td>
+                                                    <td style={{ padding: '0.45rem 0.6rem', textAlign: 'right', fontWeight: 600, color: '#dc2626', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{fmtNGN(l.total_expended)}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', textAlign: 'right', fontWeight: 700, color: '#047857', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{fmtNGN(l.available_balance)}</td>
                                                 </tr>
                                             );
