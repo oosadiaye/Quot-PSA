@@ -726,7 +726,7 @@ class AccountingSettings(models.Model):
     #: Types a series accepts *in addition* to its primary one.
     #:
     #: NCoA's fourth family is "Liabilities **and Net Assets**" — the
-    #: EconomicSegment choices spell it out that way — so Equity belongs
+    #: OAGF schedule spells it out that way — so Equity belongs
     #: at 4xxxxxxx beside Liability. The map above can only express one
     #: type per prefix, and it must stay that shape because
     #: ``account_number_series`` is a tenant-editable JSON field whose

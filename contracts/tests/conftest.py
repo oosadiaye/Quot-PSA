@@ -346,9 +346,9 @@ def mda_segment(db):
 def _legacy_accounts(db):
     """Seed legacy ``accounting.Account`` rows the IPC accrual journal needs.
 
-    ``IPCService._post_accrual_journal`` (added pre fix-sweep) resolves
-    four GL accounts: the expense (bridged off the contract's NCoA
-    EconomicSegment), AP control, retention-held, and mobilization-recovery.
+    ``IPCService._post_accrual_journal`` resolves four GL accounts: the
+    expense (the contract's NCoA economic classifier, which IS a GL
+    account), AP control, retention-held, and mobilization-recovery.
     Without these the accrual journal raises ``TransactionPostingError``
     and every test that takes the approve / mark_paid path fails.
     """
@@ -401,28 +401,14 @@ def _legacy_accounts(db):
 def _segments(db, _legacy_accounts):
     """Build one of each non-administrative NCoA segment for composite code."""
     from accounting.models import (
-        EconomicSegment,
         FunctionalSegment,
         ProgrammeSegment,
         FundSegment,
         GeographicSegment,
     )
-    econ, _ = EconomicSegment.objects.get_or_create(
-        code="22010101",
-        defaults={
-            "name": "Construction Expenditure",
-            "account_type_code": "2",
-            "is_posting_level": True,
-            "normal_balance": "DEBIT",
-            "is_active": True,
-            "legacy_account": _legacy_accounts.expense,
-        },
-    )
-    # In case the segment already existed (other test session) without the bridge,
-    # ensure it's wired now.
-    if econ.legacy_account_id is None:
-        econ.legacy_account = _legacy_accounts.expense
-        econ.save(update_fields=["legacy_account"])
+    # The economic classifier is the GL account itself — no separate
+    # segment row, and nothing to bridge.
+    econ = _legacy_accounts.expense
     func, _ = FunctionalSegment.objects.get_or_create(
         code="70111",
         defaults={

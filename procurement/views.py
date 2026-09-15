@@ -275,7 +275,6 @@ class VendorViewSet(viewsets.ModelViewSet):
 
         # Post GL entry: DR TSA, CR Revenue
         from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
-        from accounting.models.ncoa import EconomicSegment
         from accounting.services.ipsas_journal_service import IPSASJournalService
         from accounting.services.treasury_service import TSABalanceService
         from datetime import timedelta
@@ -321,15 +320,14 @@ class VendorViewSet(viewsets.ModelViewSet):
                 # ── CR: Registration-fee revenue GL ────────────────────
                 # Priority chain mirrors the cash side:
                 #   1. AccountingSettings.vendor_registration_revenue_account
-                #   2. Legacy NCoA bridge to 12100200 if catalogued
+                #   2. NCoA economic code 12100200 in the CoA
                 #   3. Loud failure with operator-actionable message
                 settings_obj = AccountingSettings.objects.first()
                 rev_gl = getattr(settings_obj, 'vendor_registration_revenue_account', None) if settings_obj else None
                 if rev_gl is None:
-                    rev_seg = EconomicSegment.objects.filter(code='12100200').first()
                     rev_gl = (
-                        rev_seg.legacy_account if rev_seg
-                        else Account.objects.filter(
+                        Account.objects.filter(code='12100200').first()
+                        or Account.objects.filter(
                             account_type='Income', name__icontains='registration',
                         ).first()
                     )
@@ -537,7 +535,6 @@ class VendorViewSet(viewsets.ModelViewSet):
 
         # Post GL entry: DR TSA, CR Revenue
         from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
-        from accounting.models.ncoa import EconomicSegment
         from accounting.services.ipsas_journal_service import IPSASJournalService
         from accounting.services.treasury_service import TSABalanceService
 
@@ -568,10 +565,11 @@ class VendorViewSet(viewsets.ModelViewSet):
                 tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
 
                 # CR: Revenue - Registration Fees
-                rev_seg = EconomicSegment.objects.filter(code='12100200').first()
-                rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
-                    account_type='Income', name__icontains='fee'
-                ).first()
+                rev_gl = Account.objects.filter(code='12100200').first() or (
+                    Account.objects.filter(
+                        account_type='Income', name__icontains='fee',
+                    ).first()
+                )
                 if not rev_gl:
                     raise ValueError(
                         'Revenue account (Registration Fees / 12100200) not '

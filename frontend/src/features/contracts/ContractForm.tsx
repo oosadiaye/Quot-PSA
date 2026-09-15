@@ -33,9 +33,10 @@ interface NCoASegmentRow {
   name?: string;
   full_code?: string;
   description?: string;
-  account_type_code?: string;
-  is_posting_level?: boolean;
-  is_control_account?: boolean;
+  // The economic position is served by /accounting/accounts/, so these
+  // rows are GL accounts. Only id / code / name are consumed here; the
+  // posting-level and control-account narrowing happens server-side via
+  // is_postable / is_reconciliation.
 }
 
 // ── Budget appropriation row (subset we render) ──────────────────────
@@ -106,25 +107,41 @@ const ContractForm = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Economic = "GL Account" in the user's vocabulary. Filter to
-  // posting-level expenditure (account_type_code='2') so users can't
-  // accidentally pick a header account or a revenue/asset GL — the
-  // backend ``resolve_code`` would reject those anyway, but we catch
-  // it client-side for a faster error path.
+  // Economic = "GL Account" in the user's vocabulary, and in
+  // public-sector accounting the two really are one list: the NCoA
+  // economic segment IS the chart of accounts. The mirror table this
+  // used to read has been retired, so it reads the GL directly.
+  //
+  // The server does the narrowing, which is both cheaper and harder to
+  // get wrong than filtering a full chart client-side:
+  //   account_type=Expense      NCoA family 2 — expenditure
+  //   is_postable=true          leaf accounts only, no headers
+  //   is_reconciliation=false   keeps GR/IR and AP control accounts out
+  //                             of a contract's expense line
+  // The 2-series check below is belt-and-braces for a tenant whose
+  // account_type disagrees with its code; ``resolve_code`` rejects the
+  // rest server-side at submit.
   const { data: economicAll, isLoading: loadingEconomic } = useQuery<NCoASegmentRow[]>({
-    queryKey: ['ncoa-economic-segments'],
-    queryFn: () => fetchSegment('/accounting/ncoa/economic/'),
+    queryKey: ['gl-expenditure-accounts'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/accounting/accounts/', {
+        params: {
+          account_type: 'Expense',
+          is_postable: true,
+          is_reconciliation: false,
+          is_active: true,
+          page_size: 1000,
+          ordering: 'code',
+        },
+      });
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 5 * 60 * 1000,
   });
-  const economicSegments = useMemo<NCoASegmentRow[]>(() => {
-    return (economicAll ?? []).filter((seg) => {
-      // Allow expenditure (2*) only, posting level only, non-control.
-      const isExpense = (seg.account_type_code === '2' || seg.code?.startsWith('2'));
-      const posting = seg.is_posting_level ?? true;
-      const control = seg.is_control_account ?? false;
-      return isExpense && posting && !control;
-    });
-  }, [economicAll]);
+  const economicSegments = useMemo<NCoASegmentRow[]>(
+    () => (economicAll ?? []).filter((acct) => acct.code?.startsWith('2')),
+    [economicAll],
+  );
 
   const { data: fundSegments, isLoading: loadingFunds } = useQuery<NCoASegmentRow[]>({
     queryKey: ['ncoa-fund-segments'],

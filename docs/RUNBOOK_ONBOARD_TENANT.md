@@ -49,11 +49,14 @@ editing the hosts file — most modern browsers auto-resolve it.
 ## Step 3 — Seed the chart of accounts
 
 ```bash
-# NCoA dimensional segments (admin / economic / functional / programme / fund / geographic).
-python manage.py tenant_command seed_ncoa --schema=<schema>
+# NCoA economic codes, seeded straight into the chart of accounts. The
+# economic segment and the CoA are one classifier in public-sector
+# accounting, so this is the chart of accounts.
+python manage.py tenant_command seed_ncoa_economic --schema=<schema>
 
-# Create the posting-level Account rows aligned with the NCoA codes.
-python manage.py tenant_command seed_ncoa_as_coa --schema=<schema>
+# The other five dimensional segments (admin / functional / programme /
+# fund / geographic), which classify what the GL does not.
+python manage.py tenant_command seed_ncoa --schema=<schema>
 
 # Revenue heads (PAYE, Road Tax, Fees, Grants, FAAC, etc.).
 python manage.py tenant_command seed_revenue_heads --schema=<schema>

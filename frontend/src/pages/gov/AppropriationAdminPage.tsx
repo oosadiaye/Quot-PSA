@@ -385,9 +385,12 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
         queryKey: ['admin-segs'],
         queryFn: () => fetchSegments('/accounting/ncoa/administrative/'),
     });
+    // The economic classifier is the GL account — Appropriation.economic
+    // is a FK to accounting.Account now, so this reads the chart of
+    // accounts rather than the retired mirror table.
     const { data: econs } = useQuery<Segment[]>({
-        queryKey: ['econ-segs'],
-        queryFn: () => fetchSegments('/accounting/ncoa/economic/'),
+        queryKey: ['econ-accounts'],
+        queryFn: () => fetchSegments('/accounting/accounts/'),
     });
     const { data: funcs } = useQuery<Segment[]>({
         queryKey: ['func-segs'],

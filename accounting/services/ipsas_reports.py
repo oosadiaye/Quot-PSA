@@ -37,7 +37,12 @@ import logging
 from decimal import Decimal
 from django.db.models import Sum, Q
 from accounting.models.balances import GLBalance
-from accounting.models.ncoa import EconomicSegment
+from accounting.models.gl import Account
+
+# The NCoA economic segment and the chart of accounts are one classifier,
+# so these statements read ``Account`` directly. ``is_postable`` is the
+# GL's name for the segment's ``is_posting_level``, and an account needs
+# no bridge to find its own balances.
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +116,7 @@ class IPSASReportService:
             required headings).
           * Non-posting (header) segments' amounts are computed from the
             SUM of their descendant posting-level segments, not from the
-            header's own legacy_account balance. A header that happens to
+            header's own balance. A header that happens to
             have direct postings is a data-entry error — we log a warning
             but do not double-count it.
         """
@@ -159,34 +164,29 @@ class IPSASReportService:
         """Return (items, total) for every segment whose code starts with prefix.
 
         Algorithm:
-          1. Fetch posting-level segments in the prefix range — each gets
-             its amount from the GL (via ``legacy_account`` bridge or
-             matching account code).
+          1. Fetch posting-level accounts in the prefix range — each gets
+             its amount straight from its own GL balances.
           2. Fetch non-posting (header) segments — each gets its amount
              from the SUM of posting-level descendants.
           3. Emit items in code order with ``is_header`` flag; total is the
              sum of posting-level amounts only (headers are presentational).
         """
         all_segments = list(
-            EconomicSegment.objects
+            Account.objects
             .filter(code__startswith=prefix, is_active=True)
-            .select_related('legacy_account')
             .order_by('code')
         )
         if not all_segments:
             return [], _zero()
 
-        # Partition by is_posting_level.
-        posting_segs = [s for s in all_segments if s.is_posting_level]
-        header_segs = [s for s in all_segments if not s.is_posting_level]
+        # Partition by posting level.
+        posting_segs = [s for s in all_segments if s.is_postable]
+        header_segs = [s for s in all_segments if not s.is_postable]
 
         # Compute posting-level amounts from GL.
         posting_amounts: dict[int, Decimal] = {}
         for seg in posting_segs:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             posting_amounts[seg.pk] = cls._aggregate_side(bal, balance_side)
 
         # Compute header-level amounts from descendants. We roll up by
@@ -209,7 +209,7 @@ class IPSASReportService:
         items: list[dict] = []
         total = _zero()
         for seg in all_segments:
-            if seg.is_posting_level:
+            if seg.is_postable:
                 amount = posting_amounts.get(seg.pk, _zero())
                 items.append({
                     'code':      seg.code,
@@ -318,18 +318,14 @@ class IPSASReportService:
         """Like ``_sum_ncoa_group`` but emits only posting-level lines.
         Used for SoFPerformance where we don't render hierarchical headers."""
         segments = (
-            EconomicSegment.objects
-            .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
-            .select_related('legacy_account')
+            Account.objects
+            .filter(code__startswith=prefix, is_postable=True, is_active=True)
             .order_by('code')
         )
         items: list[dict] = []
         total = _zero()
         for seg in segments:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             amount = cls._aggregate_side(bal, side)
             # Keep non-zero items in the row list, but IPSAS requires us
             # to disclose zero balances if the head is mandated. We
@@ -576,17 +572,13 @@ class IPSASReportService:
         per_code = bucket['per_code']
 
         segments = (
-            EconomicSegment.objects
-            .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
-            .select_related('legacy_account')
+            Account.objects
+            .filter(code__startswith=prefix, is_postable=True, is_active=True)
             .order_by('code')
         )
         items: list[dict] = []
         for seg in segments:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             actual = cls._aggregate_side(bal, side)
             line_budget = per_code.get(seg.code, {'original': _zero(), 'final': _zero()})
             original_line = line_budget['original']

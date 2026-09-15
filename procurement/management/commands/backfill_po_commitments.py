@@ -93,7 +93,7 @@ def _would_create(po: PurchaseOrder) -> tuple[bool, str]:
     economic-segment parent-chain fallback.
     """
     from accounting.models.ncoa import (
-        AdministrativeSegment, EconomicSegment, FundSegment,
+        AdministrativeSegment, FundSegment,
     )
     from budget.models import Appropriation
 
@@ -103,7 +103,7 @@ def _would_create(po: PurchaseOrder) -> tuple[bool, str]:
     if not first:
         return False, "first line has no GL account"
     admin = AdministrativeSegment.objects.filter(legacy_mda=po.mda).first()
-    econ = EconomicSegment.objects.filter(legacy_account=first).first()
+    econ = first  # the GL account is the economic classifier
     fund = FundSegment.objects.filter(legacy_fund=po.fund).first()
     missing = [
         name for name, seg in (('admin', admin), ('econ', econ), ('fund', fund))

@@ -445,7 +445,6 @@ sequenceDiagram
 ### Integration points
 
 - **Out:** `accounting/signals/budget_enforcement.py` → `budget.models.Appropriation` (refresh totals).
-- **Out:** `accounting/signals/coa_to_ncoa.py` on `Account` save → upserts `NCoACode / EconomicSegment` (internal CoA ↔ NCoA mirror).
 - **In (procurement):** `ProcurementPostingService`, `create_commitment_for_po()`, `mark_commitment_invoiced_for_po()`, `_post_matching_to_gl_inner()`.
 - **In (contracts):** `IPSASJournalService.post_journal()` from `IPCService.approve()`, `PaymentVoucherGov.objects.create()` from `IPCService.create_draft_voucher()`.
 - **In (hrm):** `PayrollPostingService.post_payroll_run()` from `PayrollRun.save()` on Approved.

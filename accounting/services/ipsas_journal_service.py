@@ -10,7 +10,7 @@ Works against the ACTUAL model schema:
 
 Key guarantees:
 1. SUM(DR) = SUM(CR) — enforced before posting
-2. Only posting-level accounts allowed (when using NCoA EconomicSegment)
+2. Only posting-level accounts allowed (``Account.is_postable``)
 3. No posting to control accounts
 4. Immutable once posted (must reverse to correct)
 5. Complete audit trail for every status change
@@ -85,15 +85,19 @@ class IPSASJournalService:
             if dr == 0 and cr == 0:
                 errors.append(f"Line {idx}: Line has zero amount.")
 
-            # 4. NCoA validation — if line has NCoA code, validate economic segment
+            # 4. NCoA validation — if the line has an NCoA code, validate
+            #    its economic classifier. That classifier is a GL
+            #    account, so the checks are the GL's own flags:
+            #    ``is_postable`` (was is_posting_level) and
+            #    ``is_reconciliation`` (was is_control_account).
             if hasattr(line, 'ncoa_code') and line.ncoa_code:
                 eco = line.ncoa_code.economic
-                if not eco.is_posting_level:
+                if not eco.is_postable:
                     errors.append(
                         f"Line {idx}: Account {eco.code} ({eco.name}) "
                         f"is not a posting-level account."
                     )
-                if eco.is_control_account:
+                if eco.is_reconciliation:
                     errors.append(
                         f"Line {idx}: Cannot post directly to "
                         f"control account {eco.code} ({eco.name})."

@@ -3,7 +3,7 @@ NCoA Segment API Serializers — Quot PSE
 """
 from rest_framework import serializers
 from accounting.models.ncoa import (
-    AdministrativeSegment, EconomicSegment, FunctionalSegment,
+    AdministrativeSegment, FunctionalSegment,
     ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
 )
 
@@ -36,39 +36,6 @@ class AdministrativeSegmentSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class EconomicSegmentSerializer(serializers.ModelSerializer):
-    account_type_label = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = EconomicSegment
-        fields = [
-            'id', 'code', 'name', 'account_type_code', 'account_type_label',
-            'sub_type_code', 'account_class_code', 'sub_class_code', 'line_item_code',
-            'parent', 'is_active', 'is_posting_level', 'is_control_account',
-            'normal_balance', 'legacy_account', 'legacy_account_type', 'description',
-            'created_at', 'updated_at',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class EconomicSegmentTreeSerializer(serializers.ModelSerializer):
-    """Hierarchical tree view with children."""
-    children = serializers.SerializerMethodField()
-    account_type_label = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = EconomicSegment
-        fields = [
-            'id', 'code', 'name', 'account_type_code', 'account_type_label',
-            'is_posting_level', 'is_control_account', 'normal_balance',
-            'is_active', 'children',
-        ]
-
-    def get_children(self, obj):
-        children = obj.children.filter(is_active=True).order_by('code')
-        return EconomicSegmentTreeSerializer(children, many=True).data
 
 
 class FunctionalSegmentSerializer(serializers.ModelSerializer):

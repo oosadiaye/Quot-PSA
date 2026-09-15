@@ -1805,69 +1805,6 @@ export const RevenueCollectionList = () => {
 
 /* ── NCoA Segments ─────────────────────────────────────── */
 
-export const NCoAEconomicList = () => {
-    const qc = useQueryClient();
-
-    // One-time backfill — walks every legacy Account and creates/updates
-    // the matching EconomicSegment. After this runs once, the post_save
-    // signal in accounting.signals.coa_to_ncoa keeps them in lockstep
-    // automatically — every subsequent CoA edit / import / API create
-    // also writes the NCoA layer in the same transaction.
-    const syncFromCoA = useMutation({
-        mutationFn: async () => {
-            const res = await apiClient.post('/accounting/ncoa/economic/sync-from-coa/');
-            return res.data as {
-                created: number;
-                updated: number;
-                skipped: number;
-                skipped_details: Array<{ id: number; code?: string; reason: string }>;
-                total: number;
-            };
-        },
-        onSuccess: (data) => {
-            qc.invalidateQueries({ queryKey: ['generic-list'] });
-            qc.invalidateQueries({ queryKey: ['ncoa-segments-all'] });
-            const head = `Sync complete — created ${data.created}, updated ${data.updated}, skipped ${data.skipped}.`;
-            const details = data.skipped > 0
-                ? '\n\nSkipped:\n' + data.skipped_details
-                    .slice(0, 5)
-                    .map(s => `  • Account id ${s.id}${s.code ? ` (${s.code})` : ''}: ${s.reason}`)
-                    .join('\n')
-                    + (data.skipped_details.length > 5 ? `\n  …and ${data.skipped_details.length - 5} more` : '')
-                : '';
-            alert(head + details);
-        },
-        onError: (err: any) => {
-            alert(err?.response?.data?.error || err?.response?.data?.detail || 'Sync failed.');
-        },
-    });
-
-    return (
-        <GenericListPage
-            title="NCoA Economic Segment"
-            subtitle="The hub segment -- account classification (Revenue, Expenditure, Assets, Liabilities). Mirrors the Chart of Accounts: every CoA save automatically updates this list."
-            endpoint="/accounting/ncoa/economic/"
-            actions={[
-                {
-                    label: syncFromCoA.isPending ? 'Syncing…' : 'Sync from Chart of Accounts',
-                    onClick: () => syncFromCoA.mutate(),
-                    variant: 'primary',
-                    icon: icon(RefreshCw),
-                },
-            ]}
-            columns={[
-                { key: 'code', label: 'Code', width: '100px' },
-                { key: 'name', label: 'Account Name' },
-                { key: 'account_type_label', label: 'Type' },
-                { key: 'is_posting_level', label: 'Posting' },
-                { key: 'is_control_account', label: 'Control' },
-                { key: 'normal_balance', label: 'Balance' },
-                { key: 'is_active', label: 'Active' },
-            ]}
-        />
-    );
-};
-
 export const NCoAAdminList = () => (
     <NCoASegmentPage
         title="NCoA Administrative Segment (MDA)"

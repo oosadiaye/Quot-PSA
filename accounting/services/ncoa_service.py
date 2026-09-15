@@ -3,10 +3,22 @@ NCoA Service — utilities for looking up, validating, and resolving NCoA codes.
 Used by all transactional modules (budget, treasury, payroll, procurement).
 """
 from django.db import models
+from accounting.models.gl import Account
 from accounting.models.ncoa import (
-    AdministrativeSegment, EconomicSegment, FunctionalSegment,
+    AdministrativeSegment, FunctionalSegment,
     ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
 )
+
+# The economic segment is the chart of accounts. Five segments keep their
+# own taxonomies because they classify things the GL does not — which
+# MDA, which function, which programme, which fund, which state — but the
+# economic position is an ``Account``, looked up by the same 8-digit NCoA
+# code the GL already carries. On ``Account`` the segment's flags are
+# spelled:
+#     is_posting_level    -> is_postable
+#     is_control_account  -> is_reconciliation
+#     account_type_code   -> code[0]  (1 Revenue, 2 Expenditure,
+#                                      3 Assets, 4 Liabilities & Net Assets)
 
 
 class NCoAResolutionError(Exception):
@@ -39,7 +51,7 @@ class NCoAService:
                 return None
 
         admin    = get_segment(AdministrativeSegment, admin_code,     "Administrative")
-        economic = get_segment(EconomicSegment,       economic_code,  "Economic")
+        economic = get_segment(Account,               economic_code,  "Economic")
         func     = get_segment(FunctionalSegment,     functional_code, "Functional")
         prog     = get_segment(ProgrammeSegment,      programme_code, "Programme")
         fund     = get_segment(FundSegment,           fund_code,      "Fund")
@@ -50,15 +62,17 @@ class NCoAService:
                 "NCoA resolution failed:\n" + "\n".join(f"  - {e}" for e in errors)
             )
 
-        # Validate economic segment is posting-level
-        if not economic.is_posting_level:
+        # Validate the economic account is posting-level, not a header
+        if not economic.is_postable:
             raise NCoAResolutionError(
                 f"Economic segment {economic_code} ({economic.name}) is a header account "
                 f"and cannot be posted to. Use a posting-level child account."
             )
 
-        # Validate economic segment is not a control account
-        if economic.is_control_account:
+        # Validate the economic account is not a reconciliation / control
+        # account (AP, AR, GR/IR, bank, asset). Those are written only by
+        # their sub-ledgers, never by a directly-coded NCoA posting.
+        if economic.is_reconciliation:
             raise NCoAResolutionError(
                 f"Economic segment {economic_code} ({economic.name}) is a control account. "
                 f"Direct posting is not permitted."
@@ -77,37 +91,41 @@ class NCoAService:
     def validate_expenditure_account(economic_code: str) -> bool:
         """Returns True if economic code is a valid, active expenditure account (2xxxxxxx)."""
         try:
-            seg = EconomicSegment.objects.get(code=economic_code, is_active=True)
-            return seg.account_type_code == '2' and seg.is_posting_level
-        except EconomicSegment.DoesNotExist:
+            acct = Account.objects.get(code=economic_code, is_active=True)
+            return acct.code.startswith('2') and acct.is_postable
+        except Account.DoesNotExist:
             return False
 
     @staticmethod
     def validate_revenue_account(economic_code: str) -> bool:
         """Returns True if economic code is a valid, active revenue account (1xxxxxxx)."""
         try:
-            seg = EconomicSegment.objects.get(code=economic_code, is_active=True)
-            return seg.account_type_code == '1' and seg.is_posting_level
-        except EconomicSegment.DoesNotExist:
+            acct = Account.objects.get(code=economic_code, is_active=True)
+            return acct.code.startswith('1') and acct.is_postable
+        except Account.DoesNotExist:
             return False
 
     @staticmethod
     def get_posting_accounts_by_type(account_type_code: str):
-        """Returns QuerySet of posting-level accounts for a given type code."""
-        return EconomicSegment.objects.filter(
-            account_type_code=account_type_code,
-            is_posting_level=True,
+        """Returns QuerySet of posting-level accounts for a given NCoA family.
+
+        ``account_type_code`` is the NCoA family digit, which migrations
+        0116/0117 made the first digit of every account code.
+        """
+        return Account.objects.filter(
+            code__startswith=str(account_type_code),
+            is_postable=True,
             is_active=True,
         ).order_by('code')
 
     @staticmethod
     def search_accounts(query: str, account_type: str = None):
-        """Full-text search across economic segment codes and names."""
-        qs = EconomicSegment.objects.filter(
-            is_posting_level=True, is_active=True,
+        """Full-text search across economic (GL account) codes and names."""
+        qs = Account.objects.filter(
+            is_postable=True, is_active=True,
         ).filter(
             models.Q(code__icontains=query) | models.Q(name__icontains=query)
         )
         if account_type:
-            qs = qs.filter(account_type_code=account_type)
+            qs = qs.filter(code__startswith=str(account_type))
         return qs.order_by('code')[:50]

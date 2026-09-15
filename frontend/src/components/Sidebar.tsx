@@ -153,10 +153,13 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'NCoA Classification', icon: Layers, path: '/accounting/ncoa/economic',
+        // Five segments, not six. The economic segment was a copy of the
+        // chart of accounts — same codes, same names, same hierarchy —
+        // and now lives under General Ledger > Chart of Accounts. The
+        // rest classify things the GL does not.
+        name: 'NCoA Classification', icon: Layers, path: '/accounting/ncoa/administrative',
         requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
-            { name: 'Economic Segment', path: '/accounting/ncoa/economic', icon: DollarSign },
             { name: 'Administrative (MDA)', path: '/accounting/ncoa/administrative', icon: Building },
             { name: 'Functional (COFOG)', path: '/accounting/ncoa/functional', icon: Target },
             { name: 'Programme', path: '/accounting/ncoa/programme', icon: FileText },

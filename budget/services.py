@@ -92,14 +92,17 @@ class BudgetValidationService:
         - False → Gate 2 bypassed: only appropriation + balance checked
         """
         from budget.models import Appropriation
-        from accounting.models.ncoa import EconomicSegment
+        from accounting.models.gl import Account
         from accounting.services.budget_check_rules import (
             check_policy, resolve_rule_for_account,
         )
 
-        # 0. Revenue accounts (type 1) are NEVER hard-stopped — skip validation
-        economic_seg = EconomicSegment.objects.filter(pk=economic_id).first()
-        if economic_seg and economic_seg.account_type_code == '1':
+        # 0. Revenue accounts (NCoA family 1) are NEVER hard-stopped — skip
+        #    validation. ``economic_id`` is a GL account id: the economic
+        #    classifier and the chart of accounts are one list, and
+        #    migrations 0116/0117 put every account on its family digit.
+        economic_seg = Account.objects.filter(pk=economic_id).first()
+        if economic_seg and economic_seg.code.startswith('1'):
             return {
                 'approved':          True,
                 'appropriation_id':  None,

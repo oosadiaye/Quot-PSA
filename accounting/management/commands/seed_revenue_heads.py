@@ -1,10 +1,15 @@
 """
-Seed Revenue Heads linked to NCoA Economic Segments.
+Seed Revenue Heads linked to their NCoA economic (GL) accounts.
+
+The NCoA economic segment and the chart of accounts are one classifier,
+so ``RevenueHead.economic_segment`` points at an ``Account``. Run
+``seed_ncoa_economic`` first so the revenue codes exist in the chart.
+
 Run: python manage.py seed_revenue_heads
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from accounting.models.ncoa import EconomicSegment
+from accounting.models.gl import Account
 from accounting.models.revenue import RevenueHead
 
 
@@ -38,10 +43,11 @@ class Command(BaseCommand):
 
         for code, name, rev_type, eco_code in REVENUE_HEADS:
             try:
-                eco = EconomicSegment.objects.get(code=eco_code)
-            except EconomicSegment.DoesNotExist:
+                eco = Account.objects.get(code=eco_code)
+            except Account.DoesNotExist:
                 self.stdout.write(self.style.WARNING(
-                    f'  Skipped {code}: Economic segment {eco_code} not found'
+                    f'  Skipped {code}: GL account {eco_code} not found; '
+                    f'run seed_ncoa_economic first'
                 ))
                 skipped += 1
                 continue

@@ -1528,7 +1528,7 @@ def configure_government(request):
         call_command('seed_procurement_thresholds')
         call_command('seed_nigeria_payroll')
         call_command('seed_revenue_heads')
-        call_command('seed_ncoa_as_coa')
+        call_command('seed_ncoa_economic')
         call_command('seed_ncoa_as_dimensions')
 
         seeded = True

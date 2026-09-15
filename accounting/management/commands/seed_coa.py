@@ -469,7 +469,7 @@ class Command(BaseCommand):
             '--allow-non-ncoa',
             action='store_true',
             help=('Seed the legacy COMMERCIAL chart anyway. It is not NCoA '
-                  'compliant; use seed_ncoa_as_coa for government tenants.'),
+                  'compliant; use seed_ncoa_economic for government tenants.'),
         )
         parser.add_argument(
             '--reset',
@@ -501,7 +501,7 @@ class Command(BaseCommand):
         #     1 Revenue   2 Expenditure   3 Assets   4 Liabilities & Net Assets
         #
         # Tenant provisioning stopped calling this long ago and uses
-        # ``seed_ncoa_as_coa`` instead, which produces a compliant chart.
+        # ``seed_ncoa_economic`` instead, which produces a compliant chart.
         # Migrations 0095, 0115, 0116 and 0117 exist solely to undo the
         # damage this seeder did to tenants created before that switch.
         # Running it again would put every one of them back.
@@ -511,7 +511,7 @@ class Command(BaseCommand):
                 "5 Expense) and is NOT compliant with the Nigerian NCoA "
                 "families this product enforces (1 Revenue / 2 Expenditure / "
                 "3 Assets / 4 Liabilities & Net Assets).\n\n"
-                "Use `seed_ncoa_as_coa` — that is what tenant provisioning "
+                "Use `seed_ncoa_economic` — that is what tenant provisioning "
                 "calls and it produces a compliant chart.\n\n"
                 "If you genuinely need the legacy commercial chart (a "
                 "non-government demo, say), re-run with --allow-non-ncoa."

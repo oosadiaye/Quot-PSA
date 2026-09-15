@@ -4,16 +4,22 @@ A clearing account must never be offered as a contract's expense line.
 The contract form's GL Account dropdown shows posting-level, non-control
 accounts in the 2-series, and ``NCoAService.resolve_code`` rejects header
 and control accounts. Both rules were right; the data was wrong. GR/IR
-Clearing sat at ``20100100`` with ``account_type_code '2'`` and
-``is_control_account False``, so it satisfied every one of those
-conditions and a contract could be raised against it.
+Clearing sat at ``20100100`` in the 2-series, not flagged as a control
+account, so it satisfied every one of those conditions and a contract
+could be raised against it.
 
 Migration 0115 moved it to the 4-series and flagged it as the control
-account it always was, finishing for ``EconomicSegment`` what 0095 did
-for the legacy ``Account`` table.
+account it always was, finishing what 0095 started on the ``Account``
+table. The economic segment and the chart of accounts have since been
+merged into one table, so the rule now lives in one place and is
+expressed in the GL's own vocabulary:
+
+    is_posting_level    -> Account.is_postable
+    is_control_account  -> Account.is_reconciliation
+    account_type_code   -> the first digit of ``code``
 
 These tests pin the *rule*, not the migration — they describe which
-segments may be offered for posting, so re-introducing a clearing
+accounts may be offered for posting, so re-introducing a clearing
 account into the expense series fails here rather than in a ministry's
 expenditure report.
 """
@@ -23,41 +29,45 @@ from django.test import SimpleTestCase
 
 
 class _Seg:
-    """The fields the contract form and resolve_code actually consult."""
+    """The Account fields the contract form and resolve_code consult."""
 
-    def __init__(self, code, name, account_type_code, is_posting_level=True,
-                 is_control_account=False):
+    def __init__(self, code, name, account_type, is_postable=True,
+                 is_reconciliation=False):
         self.code = code
         self.name = name
-        self.account_type_code = account_type_code
-        self.is_posting_level = is_posting_level
-        self.is_control_account = is_control_account
+        self.account_type = account_type
+        self.is_postable = is_postable
+        self.is_reconciliation = is_reconciliation
 
 
-def offered_for_contract_gl(segments):
-    """Mirror of the filter in ContractForm.tsx.
+def offered_for_contract_gl(accounts):
+    """Mirror of the query ContractForm.tsx sends to /accounting/accounts/.
 
-    Kept in step deliberately: if the two ever diverge, the browser is
-    the only place the difference shows, and by then a contract has been
-    raised against the wrong account.
+    The form now asks the server for
+    ``account_type=Expense&is_postable=true&is_reconciliation=false``
+    and keeps a 2-series check client-side. This function is that
+    predicate, kept in step deliberately: if the two ever diverge, the
+    browser is the only place the difference shows, and by then a
+    contract has been raised against the wrong account.
     """
     return [
-        s for s in segments
-        if (s.account_type_code == "2" or str(s.code).startswith("2"))
-        and s.is_posting_level
-        and not s.is_control_account
+        a for a in accounts
+        if a.account_type == "Expense"
+        and a.is_postable
+        and not a.is_reconciliation
+        and str(a.code).startswith("2")
     ]
 
 
 GRIR_AFTER_0115 = _Seg("41090000", "GR/IR Clearing — Goods Received / Invoice Received",
-                       "4", is_posting_level=True, is_control_account=True)
+                       "Liability", is_postable=True, is_reconciliation=True)
 GRIR_BEFORE_0115 = _Seg("20100100", "GR/IR Clearing — Goods Received / Invoice Received",
-                        "2", is_posting_level=True, is_control_account=False)
+                        "Expense", is_postable=True, is_reconciliation=False)
 
 EXPENDITURE = [
-    _Seg("21100100", "Basic Salaries", "2"),
-    _Seg("22100100", "Travel and Transport", "2"),
-    _Seg("23100100", "Acquisition of Land", "2"),
+    _Seg("21100100", "Basic Salaries", "Expense"),
+    _Seg("22100100", "Travel and Transport", "Expense"),
+    _Seg("23100100", "Acquisition of Land", "Expense"),
 ]
 
 
@@ -82,12 +92,13 @@ class GrIrExclusionTests(SimpleTestCase):
         # The flag is the primary guard; the series is defence in depth.
         # A clearing account mis-coded into the 2-series must still be
         # kept out on the strength of the flag alone.
-        stray = _Seg("20999999", "Some Clearing Account", "2", is_control_account=True)
+        stray = _Seg("20999999", "Some Clearing Account", "Expense",
+                     is_reconciliation=True)
         assert offered_for_contract_gl([stray]) == []
 
     def test_a_header_account_is_excluded(self):
-        header = _Seg("22000000", "Other Recurrent Costs (Group)", "2",
-                      is_posting_level=False)
+        header = _Seg("22000000", "Other Recurrent Costs (Group)", "Expense",
+                      is_postable=False)
         assert offered_for_contract_gl([header]) == []
 
 
@@ -101,9 +112,9 @@ class NamePatternTests(SimpleTestCase):
     """
 
     REAL_EXPENDITURE_WITH_MISLEADING_NAMES = [
-        _Seg("22020420", "Removal of Illegal Structures/Slum Clearance", "2"),
-        _Seg("23040108", "clearing and sanitation of Street/town", "2"),
-        _Seg("22021033", "ENROMENT FEES AND INCIDENTAL COST PAYABLE BY", "2"),
+        _Seg("22020420", "Removal of Illegal Structures/Slum Clearance", "Expense"),
+        _Seg("23040108", "clearing and sanitation of Street/town", "Expense"),
+        _Seg("22021033", "ENROMENT FEES AND INCIDENTAL COST PAYABLE BY", "Expense"),
     ]
 
     def test_expenditure_lines_that_merely_sound_like_clearing_are_kept(self):

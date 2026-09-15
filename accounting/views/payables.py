@@ -836,7 +836,7 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if invoice.mda and invoice.fund:
             try:
                 from budget.services import BudgetValidationService, BudgetExceededError
-                from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+                from accounting.models.ncoa import AdministrativeSegment, FundSegment
                 from accounting.models.advanced import FiscalYear
 
                 admin_seg = AdministrativeSegment.objects.filter(legacy_mda=invoice.mda).first()
@@ -856,13 +856,14 @@ class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         budget_lines = [(invoice.account, Decimal(str(invoice.total_amount)))]
 
                     for acct, line_amount in budget_lines:
-                        econ_seg = EconomicSegment.objects.filter(legacy_account=acct).first()
-                        if not econ_seg:
-                            continue  # No NCoA mapping — skip (e.g. internal clearing accounts)
+                        # The GL account IS the economic classifier, so every
+                        # line has one — the old "no NCoA mapping, skip"
+                        # branch could silently wave a line past the
+                        # appropriation ceiling and is gone with the bridge.
                         try:
                             BudgetValidationService.validate_expenditure(
                                 administrative_id=admin_seg.pk,
-                                economic_id=econ_seg.pk,
+                                economic_id=acct.pk,
                                 fund_id=fund_seg.pk,
                                 fiscal_year_id=active_fy.pk,
                                 amount=line_amount,

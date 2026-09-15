@@ -80,7 +80,6 @@ const MobilizationPaymentList = lazy(() => import('./pages/gov').then(m => ({ de
 const PaymentInstructionList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentInstructionList })));
 const RevenueHeadList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueHeadList })));
 const RevenueCollectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueCollectionList })));
-const NCoAEconomicList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAEconomicList })));
 const NCoAAdminList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAAdminList })));
 const NCoAFunctionalList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAFunctionalList })));
 const NCoAProgrammeList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAProgrammeList })));
@@ -721,7 +720,11 @@ function App() {
                       <Route path="/accounting/payment-instructions" element={<ProtectedRoute><PaymentInstructionList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-heads" element={<ProtectedRoute><RevenueHeadList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections" element={<ProtectedRoute><RevenueCollectionList /></ProtectedRoute>} />
-                      <Route path="/accounting/ncoa/economic" element={<ProtectedRoute><NCoAEconomicList /></ProtectedRoute>} />
+                      {/* The economic segment was a mirror of the chart of
+                          accounts and has been retired. Bookmarks and
+                          saved links land on the real thing rather than a
+                          dead route. */}
+                      <Route path="/accounting/ncoa/economic" element={<Navigate to="/accounting/coa" replace />} />
                       <Route path="/accounting/ncoa/administrative" element={<ProtectedRoute><NCoAAdminList /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/administrative/new" element={<ProtectedRoute><NCoAAdminForm /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/administrative/:id/edit" element={<ProtectedRoute><NCoAAdminForm /></ProtectedRoute>} />

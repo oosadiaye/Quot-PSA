@@ -76,7 +76,7 @@ def post_payment_voucher_to_gl(
     against the configured WHT NCoA code (41200600) so old records
     continue to post correctly.
 
-    All accounts resolved via NCoA → legacy_account bridge; no codes are
+    All accounts resolved from the NCoA code's own GL account; no codes are
     hardcoded here.
 
     Args:
@@ -96,7 +96,6 @@ def post_payment_voucher_to_gl(
 
     # Lazy imports — safe at call time (signal fires after app startup).
     from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
-    from accounting.models.ncoa import EconomicSegment
     from accounting.services.ipsas_journal_service import IPSASJournalService
     from accounting.services.tsa_gl_resolver import resolve_tsa_cash_gl
 
@@ -113,12 +112,13 @@ def post_payment_voucher_to_gl(
         posted_by=user,
     )
 
-    # DR: Expenditure account from NCoA bridge (full gross).
-    expenditure_account = pv.ncoa_code.economic.legacy_account
+    # DR: Expenditure account (full gross). The NCoA economic segment
+    # IS the GL account, so there is no bridge to traverse or to fail.
+    expenditure_account = pv.ncoa_code.economic
     if not expenditure_account:
         raise ValueError(
-            f"NCoA segment {pv.ncoa_code.economic.code} has no linked GL "
-            f"account.  Run: python manage.py seed_ncoa_as_coa"
+            f"NCoA code {pv.ncoa_code} has no economic (GL) account. "
+            f"Run: python manage.py seed_ncoa_economic"
         )
     JournalLine.objects.create(
         header=header,
@@ -141,10 +141,8 @@ def post_payment_voucher_to_gl(
 
     # Legacy fallback: header-only wht_amount with no deduction rows.
     if not deductions and (pv.wht_amount or Decimal('0')) > 0:
-        wht_seg = EconomicSegment.objects.filter(code='41200600').first()
         wht_account = (
-            wht_seg.legacy_account if wht_seg
-            else Account.objects.filter(code='41200600').first()
+            Account.objects.filter(code='41200600').first()
             or Account.objects.filter(
                 code__startswith='412', account_type='Liability',
             ).first()

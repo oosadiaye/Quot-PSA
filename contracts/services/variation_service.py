@@ -279,9 +279,10 @@ class VariationService:
         if not (admin_seg and econ_seg and fund_seg):
             return
         # ``find_matching_appropriation`` expects the legacy bridge
-        # objects (admin → legacy_mda, etc.) not the NCoA segments.
+        # objects (admin → legacy_mda, etc.) not the NCoA segments. The
+        # economic segment needs no bridge: it is the GL account.
         admin = getattr(admin_seg, 'legacy_mda', None)
-        econ = getattr(econ_seg, 'legacy_account', None)
+        econ = econ_seg
         fund = getattr(fund_seg, 'legacy_fund', None)
         if not (admin and econ and fund):
             return

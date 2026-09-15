@@ -59,8 +59,9 @@ def _build_ncoa_code():
     (direct ``.create``) so the segment validators that enforce exact
     digit widths don't fire — the values chosen here are already valid.
     """
+    from accounting.models.gl import Account
     from accounting.models.ncoa import (
-        AdministrativeSegment, EconomicSegment, FunctionalSegment,
+        AdministrativeSegment, FunctionalSegment,
         ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
     )
 
@@ -68,8 +69,9 @@ def _build_ncoa_code():
         code='050200000000', name='Test MDA',
         level='UNIT', sector_code='05',
     )
-    econ = EconomicSegment.objects.create(
-        code='22100100', name='Test Expense', account_type_code='2',
+    # The economic segment is the GL account.
+    econ = Account.objects.create(
+        code='22100100', name='Test Expense', account_type='Expense',
     )
     func = FunctionalSegment.objects.create(
         code='70100', name='General Services', division_code='701',

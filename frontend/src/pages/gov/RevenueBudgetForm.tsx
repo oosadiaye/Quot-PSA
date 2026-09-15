@@ -41,8 +41,10 @@ export default function RevenueBudgetForm() {
 
     const set = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
-    // Filter economic segments to revenue type only (account_type_code = '1')
-    const revenueAccounts = (segments?.economic || []).filter((s: any) => s.account_type_code === '1' || s.code?.startsWith('1'));
+    // The economic classifier is the GL account. NCoA family 1 is
+    // Revenue, and migrations 0116/0117 put every account on its family
+    // digit, so the code prefix is the family.
+    const revenueAccounts = (segments?.economic || []).filter((s: any) => s.code?.startsWith('1'));
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

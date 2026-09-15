@@ -817,8 +817,9 @@ class Appropriation(AuditBaseModel):
         """Validate NCoA → legacy bridges before activation.
 
         ``Appropriation.total_expended`` walks ``administrative.legacy_mda``,
-        ``fund.legacy_fund``, and ``economic.legacy_account_id`` to find
-        matching journal lines. If ANY of those bridges is null, the
+        and ``fund.legacy_fund`` to find matching journal lines
+        (``economic`` needs no bridge — it is the GL account). If either
+        of those bridges is null, the
         computation silently returns Decimal('0') — which inflates
         ``available_balance`` and permits over-commitment. To prevent that
         category of error from reaching production, refuse to activate an

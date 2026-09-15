@@ -222,11 +222,12 @@ def _appropriation_available(appropriation) -> Decimal:
 def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
     """Look up the Appropriation row that would cover this posting.
 
-    ``account`` here is the legacy ``accounting.Account`` (which points
-    at an NCoA EconomicSegment via its code). We walk the NCoA parent
-    chain so a child-coded GL line (e.g. 21100100 Basic Salaries)
-    matches a parent-coded appropriation (e.g. 21000000 Personnel
-    Costs).
+    ``account`` here is the ``accounting.Account`` that the posting
+    hits. It is also the appropriation's economic classifier — the NCoA
+    economic segment and the chart of accounts are one list — so we walk
+    its own parent chain to let a child-coded GL line (e.g. 21100100
+    Basic Salaries) match a parent-coded appropriation (e.g. 21000000
+    Personnel Costs).
 
     Multi-strategy lookup — tries each in order, returns the first
     match. This guards against the most common silent-mismatch
@@ -254,15 +255,10 @@ def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
         return None
 
     from budget.models import Appropriation
-    from accounting.models.ncoa import EconomicSegment
-
-    econ_segs = EconomicSegment.objects.filter(code=account.code)
-    if not econ_segs.exists():
-        return None
 
     # BFS up the parent chain so child codes match ancestor appropriations.
-    ancestors = list(econ_segs)
-    frontier = list(econ_segs)
+    ancestors = [account]
+    frontier = [account]
     while frontier:
         parents = [s for s in (f.parent for f in frontier) if s is not None]
         ancestors.extend(parents)

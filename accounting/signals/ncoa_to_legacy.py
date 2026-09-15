@@ -201,7 +201,7 @@ def _mirror_geographic(sender, instance: GeographicSegment, **kwargs):
 def _connect_signals() -> None:
     """No-op — receivers above are attached at import time via @receiver.
 
-    Kept as a stable hook for ``apps.py`` to call, mirroring the pattern
-    used by ``coa_to_ncoa._connect_signals()``.
+    Kept as a stable hook for ``apps.py`` to call, mirroring the
+    pattern the other signal modules use.
     """
     return

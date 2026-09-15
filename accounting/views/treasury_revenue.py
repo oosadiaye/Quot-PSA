@@ -827,9 +827,9 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         Validates and persists each row in line with the new IGR form
         contract:
-          - ``gl_account_code`` IS the NCoA economic IS the revenue
-            head identity. RevenueHead is resolved (or materialised)
-            from the matching EconomicSegment.
+          - ``gl_account_code`` IS the NCoA economic code IS the GL
+            account IS the revenue head identity. RevenueHead is
+            resolved (or materialised) from the matching Account.
           - NCoACode is resolved from the 6 NCoA segment codes via
             ``NCoAService.resolve_code``.
           - ``tsa_account`` is resolved by ``account_number``.
@@ -839,7 +839,7 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         """
         import pandas as pd
         from accounting.models.revenue import RevenueHead
-        from accounting.models.ncoa import EconomicSegment, NCoACode
+        from accounting.models.gl import Account
         from accounting.models.treasury import TreasuryAccount
         from accounting.models.gl import TransactionSequence
         from accounting.services.ncoa_service import (
@@ -871,8 +871,8 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             )
 
         # Pre-load small lookup tables to avoid one DB hit per row.
-        # EconomicSegments are keyed by code; ditto TSA accounts.
-        eco_by_code = {e.code: e for e in EconomicSegment.objects.all()}
+        # Accounts are keyed by code; ditto TSA accounts.
+        eco_by_code = {e.code: e for e in Account.objects.all()}
         tsa_by_number = {t.account_number: t for t in TreasuryAccount.objects.all()}
 
         # Cell coercion helper — pandas hands back NaN for blanks, which
@@ -898,9 +898,8 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 amount = float(amt_raw)
 
                 # ── Resolve RevenueHead from the GL account code ──
-                # GL account code == EconomicSegment.code in this CoA,
-                # and RevenueHead lives 1:1 with revenue-side economic
-                # segments. Mirror the EconomicSegment into a
+                # The GL account IS the economic code, and RevenueHead
+                # lives 1:1 with revenue-side accounts. Materialise a
                 # RevenueHead row on first use (same canonical write
                 # path as the serializer's _resolve_revenue_head).
                 gl_code = cell(row, 'gl_account_code')
@@ -908,7 +907,7 @@ class RevenueCollectionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 if not economic:
                     errors.append(
                         f'Row {row_num}: GL account / Economic code '
-                        f'"{gl_code}" not found in NCoA Economic registry'
+                        f'"{gl_code}" not found in the chart of accounts'
                     )
                     continue
                 head = RevenueHead.objects.filter(

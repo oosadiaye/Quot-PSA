@@ -78,7 +78,7 @@ class Command(BaseCommand):
         if not resolved:
             raise CommandError(
                 'No active posting-level accounts found in any NCoA group. '
-                'Run `seed_ncoa` or `seed_ncoa_as_coa` first.'
+                'Run `seed_ncoa` or `seed_ncoa_economic` first.'
             )
         if missing:
             self.stdout.write(self.style.WARNING(
@@ -192,17 +192,14 @@ class Command(BaseCommand):
 def _resolve_account_buckets(Account) -> dict[str, object | None]:
     """Resolve one representative Account per NCoA posting group.
 
-    The IPSAS statement reports read balances via
-    ``EconomicSegment.legacy_account_id`` — so we prefer Accounts that
-    are the legacy_account for an active, posting-level
-    EconomicSegment in the expected NCoA prefix. Falls back to a
-    first-active-by-prefix search if NCoA isn't seeded.
+    The IPSAS statement reports read balances straight off the chart of
+    accounts (the NCoA economic segment and the CoA are one classifier),
+    so the pick is simply the first active posting account in the
+    expected NCoA prefix.
 
     Returns a dict keyed by semantic role (not by account_type) so the
     recipes can pick distinct accounts for each transaction class.
     """
-    from accounting.models.ncoa import EconomicSegment
-
     roles: dict[str, list[str]] = {
         # Revenue-side NCoA groups.
         'tax_revenue':     ['11'],
@@ -224,25 +221,31 @@ def _resolve_account_buckets(Account) -> dict[str, object | None]:
 
     out: dict[str, object | None] = {}
     for role, prefixes in roles.items():
-        account = None
-        # Prefer NCoA-bridged posting segments (so IPSAS reports see the
-        # balance via the segment lookup).
-        seg = (
-            EconomicSegment.objects
+        # Prefer a posting (leaf) account so IPSAS reports, which sum
+        # posting-level rows, actually see the balance.
+        #
+        # Skip NCoA group roots (8 digits ending in six zeros, e.g.
+        # 20000000 Expenditure). Ordering by code puts them first, so the
+        # old version seeded its demo journals onto the family root — and
+        # those postings are then the reason a header cannot safely be
+        # re-flagged as non-postable later. Demo data should land on real
+        # expenditure lines.
+        candidates = (
+            Account.objects
             .filter(
                 code__startswith=prefixes[0],
-                is_posting_level=True,
+                is_postable=True,
                 is_active=True,
-                legacy_account__isnull=False,
-                legacy_account__is_active=True,
             )
-            .select_related('legacy_account')
             .order_by('code')
-            .first()
         )
-        if seg:
-            account = seg.legacy_account
-        else:
+        account = next(
+            (a for a in candidates
+             if not (len(a.code) == 8 and a.code.isdigit()
+                     and a.code.endswith('000000'))),
+            None,
+        )
+        if account is None:
             # Fallback: any active account with the prefix.
             account = (
                 Account.objects

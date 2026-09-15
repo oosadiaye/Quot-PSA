@@ -542,15 +542,15 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
         # the Appropriation. Parent-walk the economic segment so a leaf
         # account (e.g. 23100100) validates against a parent
         # appropriation (e.g. 23000000).
-        from accounting.models.ncoa import (
-            AdministrativeSegment, EconomicSegment, FundSegment,
-        )
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
         from accounting.models.advanced import FiscalYear
         from budget.models import Appropriation
         from decimal import Decimal as _D
 
         admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
-        econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
+        # No bridge hop for the economic pillar — the appropriation's
+        # economic classifier is the GL account itself.
+        econ_seg  = account
         fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
         active_fy = FiscalYear.objects.filter(is_active=True).first()
 

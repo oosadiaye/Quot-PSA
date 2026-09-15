@@ -1146,8 +1146,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         # Lazy imports to avoid a circular at startup.
         from accounting.models.advanced import FiscalYear
+        from accounting.models.gl import Account
         from accounting.models.ncoa import (
-            AdministrativeSegment, EconomicSegment, FunctionalSegment,
+            AdministrativeSegment, FunctionalSegment,
             ProgrammeSegment, FundSegment, GeographicSegment,
         )
         from .models import Appropriation
@@ -1211,9 +1212,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 if not mda:
                     errors.append(f"Row {row_num}: mda_code '{mda_code}' not found in NCoA Administrative Segment.")
                     continue
-                econ = _resolve(EconomicSegment, 'code', econ_code)
+                # The economic code is a GL account code — one list, not two.
+                econ = _resolve(Account, 'code', econ_code)
                 if not econ:
-                    errors.append(f"Row {row_num}: economic_code '{econ_code}' not found in NCoA Economic Segment.")
+                    errors.append(f"Row {row_num}: economic_code '{econ_code}' not found in the chart of accounts.")
                     continue
                 fund = _resolve(FundSegment, 'code', fund_code)
                 if not fund:
@@ -1585,7 +1587,8 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         Query params: mda (legacy MDA pk), account (legacy Account pk), fund (legacy Fund pk).
         Returns matching appropriation + execution stats, or 404 if none.
         """
-        from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
+        from accounting.models.gl import Account
 
         mda_id = request.query_params.get('mda')
         account_id = request.query_params.get('account')
@@ -1600,10 +1603,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         try:
             admin_seg = AdministrativeSegment.objects.filter(legacy_mda_id=mda_id).first()
             fund_seg = FundSegment.objects.filter(legacy_fund_id=fund_id).first()
-            econ_seg = (
-                EconomicSegment.objects.filter(legacy_account_id=account_id).first()
-                if account_id else None
-            )
+            # ``account`` is already the economic classifier — the
+            # appropriation's ``economic`` FK points straight at it.
+            econ_seg = Account.objects.filter(pk=account_id).first() if account_id else None
         except Exception:
             admin_seg = fund_seg = econ_seg = None
 
@@ -2288,7 +2290,8 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         """Bulk import revenue budget targets from CSV/Excel."""
         import pandas as pd
         from accounting.models.advanced import FiscalYear
-        from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+        from accounting.models.gl import Account
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
 
         file = request.FILES.get('file')
         if not file:
@@ -2315,7 +2318,7 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             try:
                 fy = FiscalYear.objects.filter(year=int(row['fiscal_year'])).first()
                 admin = AdministrativeSegment.objects.filter(code=str(row['administrative_code']).strip()).first()
-                econ = EconomicSegment.objects.filter(code=str(row['economic_code']).strip()).first()
+                econ = Account.objects.filter(code=str(row['economic_code']).strip()).first()
                 fund = FundSegment.objects.filter(code=str(row['fund_code']).strip()).first()
 
                 if not fy:
@@ -2401,10 +2404,12 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         # Get prior year revenue actuals from appropriations that had revenue accounts
         # Or from GL balances for revenue accounts (type 1)
-        from accounting.models.ncoa import EconomicSegment
+        from accounting.models.gl import Account
 
-        revenue_segments = EconomicSegment.objects.filter(
-            account_type_code='1', is_active=True,
+        # NCoA family 1 = Revenue. Migrations 0116/0117 put every account
+        # on its family digit, so the code prefix is the family.
+        revenue_segments = Account.objects.filter(
+            code__startswith='1', is_active=True,
         )
 
         created = 0

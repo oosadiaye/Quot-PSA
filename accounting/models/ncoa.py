@@ -94,106 +94,30 @@ class AdministrativeSegment(AuditBaseModel):
             raise ValidationError("Code is required.")
 
 
-# ─── Segment 2: Economic (8 digits) — THE HUB SEGMENT ──────────────────
-
-class EconomicSegment(AuditBaseModel):
-    """
-    NCoA Segment 2 — Economic (8 digits) — THE HUB / ACCOUNT SEGMENT
-    Format: X-X-XX-XX-XX
-    This segment IS the account in IPSAS terms.
-
-    Account Type Structure:
-        1xxxxxxx = Revenue / Income
-        2xxxxxxx = Expenditure / Expenses
-        3xxxxxxx = Assets
-        4xxxxxxx = Liabilities and Net Assets
-    """
-    ACCOUNT_TYPE_CHOICES = [
-        ('1', 'Revenue'),
-        ('2', 'Expenditure'),
-        ('3', 'Assets'),
-        ('4', 'Liabilities and Net Assets'),
-    ]
-    NORMAL_BALANCE_CHOICES = [
-        ('DEBIT',  'Debit'),
-        ('CREDIT', 'Credit'),
-    ]
-    LEGACY_TYPE_CHOICES = [
-        ('Asset',     'Asset'),
-        ('Liability', 'Liability'),
-        ('Equity',    'Equity / Net Assets'),
-        ('Income',    'Income / Revenue'),
-        ('Expense',   'Expense / Expenditure'),
-    ]
-
-    # ``max_length=20`` (was 8) so any code from the legacy Chart of Accounts
-    # — which is ``CharField(max_length=20)`` on accounting.Account — can be
-    # mirrored across without truncation. The NCoA spec describes 8-digit
-    # composite codes, but tenants frequently extend with sub-codes; widening
-    # is non-destructive (existing 8-char rows fit unchanged) and the
-    # first-digit family rule (clean()) is unaffected.
-    code               = models.CharField(max_length=20, unique=True, db_index=True)
-    name               = models.CharField(max_length=200)
-    account_type_code  = models.CharField(
-        max_length=1, choices=ACCOUNT_TYPE_CHOICES, db_index=True,
-    )
-    sub_type_code      = models.CharField(max_length=1, default='0')
-    account_class_code = models.CharField(max_length=2, default='00')
-    sub_class_code     = models.CharField(max_length=2, default='00')
-    line_item_code     = models.CharField(max_length=2, default='00')
-    parent             = models.ForeignKey(
-        'self', null=True, blank=True,
-        on_delete=models.PROTECT, related_name='children',
-    )
-    is_active          = models.BooleanField(default=True, db_index=True)
-    is_posting_level   = models.BooleanField(default=False, db_index=True)
-    is_control_account = models.BooleanField(default=False)
-    normal_balance     = models.CharField(
-        max_length=6, choices=NORMAL_BALANCE_CHOICES, default='DEBIT',
-    )
-    # Bridge to legacy Account model used in current JournalLine.account FK
-    legacy_account     = models.OneToOneField(
-        'accounting.Account', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='economic_segment',
-        help_text="Maps this NCoA segment to legacy Account for GL compatibility",
-    )
-    legacy_account_type = models.CharField(
-        max_length=20, choices=LEGACY_TYPE_CHOICES, blank=True, default='',
-    )
-    description        = models.TextField(blank=True, default='')
-
-    class Meta:
-        ordering = ['code']
-        verbose_name = 'Economic Segment (Account)'
-        verbose_name_plural = 'Economic Segments (Accounts)'
-        indexes = [
-            models.Index(fields=['account_type_code', 'is_posting_level', 'is_active']),
-        ]
-
-    def __str__(self):
-        return f"{self.code} — {self.name}"
-
-    @property
-    def account_type_label(self):
-        labels = {
-            '1': 'Revenue', '2': 'Expenditure',
-            '3': 'Asset', '4': 'Liability/Net Assets',
-        }
-        return labels.get(self.account_type_code, 'Unknown')
-
-    def clean(self):
-        super().clean()
-        if self.code and len(self.code) != 8:
-            raise ValidationError(
-                f"Economic segment code must be exactly 8 digits, got {len(self.code)}."
-            )
-        if self.code and not self.code.isdigit():
-            raise ValidationError("Economic segment code must be numeric.")
-        if self.code and self.code[0] != self.account_type_code:
-            raise ValidationError(
-                f"Account type code '{self.account_type_code}' does not match "
-                f"first digit of code '{self.code[0]}'."
-            )
+# ─── Segment 2: Economic — THE HUB SEGMENT — is the Chart of Accounts ──
+#
+# In public-sector accounting the NCoA economic segment and the general
+# ledger's chart of accounts are one classifier: the same 8-digit codes,
+# the same names, the same hierarchy, the same posting rules. This file
+# used to carry an ``EconomicSegment`` model that mirrored
+# ``accounting.Account`` row for row, kept level by a sync service and a
+# post_save signal.
+#
+# It is gone. ``accounting.gl.Account`` is the economic segment, and
+# everything that classified economically — ``NCoACode.economic``,
+# ``Appropriation.economic``, ``RevenueBudget.economic``,
+# ``RevenueHead.economic_segment``, ``TreasuryAccount.ncoa_cash_code`` —
+# points at it directly. The NCoA vocabulary maps on as:
+#
+#     account_type_code   -> code[0]   (1 Revenue, 2 Expenditure,
+#                                       3 Assets, 4 Liabilities & Net Assets)
+#     is_posting_level    -> Account.is_postable
+#     is_control_account  -> Account.is_reconciliation
+#     sub/class/line item -> substrings of ``code`` — never independent data
+#
+# The other five segments keep their own models below, because
+# administrative, functional, programme, fund and geographic classify
+# things the general ledger does not.
 
 
 # ─── Segment 3: Functional (5 digits) — COFOG ──────────────────────────

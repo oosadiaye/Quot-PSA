@@ -1,10 +1,13 @@
 """Scan all Appropriations for broken NCoA -> legacy bridges.
 
-``Appropriation.total_expended`` walks ``administrative.legacy_mda``,
-``fund.legacy_fund``, and ``economic.legacy_account_id`` to find matching
-journal lines. If ANY of those bridges is null, the computation silently
-returns Decimal('0') — which inflates ``available_balance`` and permits
-over-commitment.
+``Appropriation.total_expended`` walks ``administrative.legacy_mda`` and
+``fund.legacy_fund`` to find matching journal lines. If either bridge is
+null, the computation silently returns Decimal('0') — which inflates
+``available_balance`` and permits over-commitment.
+
+``economic`` needs no bridge and is not checked here: it is the GL
+account itself, so a journal line and an appropriation already agree on
+it by construction.
 
 This management command surfaces broken bridges across every tenant so
 operators can resolve them before any Appropriation goes ACTIVE.
@@ -132,11 +135,6 @@ class Command(BaseCommand):
             if appr.fund_id and not fund_legacy:
                 problems.append(
                     f'fund={appr.fund.code}: legacy_fund is null'
-                )
-            economic_legacy = getattr(appr.economic, 'legacy_account_id', None) if appr.economic_id else None
-            if appr.economic_id and not economic_legacy:
-                problems.append(
-                    f'economic={appr.economic.code}: legacy_account is null'
                 )
             if not problems:
                 continue
