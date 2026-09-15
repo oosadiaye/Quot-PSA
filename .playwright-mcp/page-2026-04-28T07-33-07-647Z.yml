@@ -1,0 +1,214 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - link "Skip to main content" [ref=e4] [cursor=pointer]:
+      - /url: "#main-content"
+    - generic [ref=e68]:
+      - generic [ref=e69]:
+        - generic [ref=e71]:
+          - img [ref=e73]
+          - generic [ref=e78]:
+            - generic [ref=e79]: QUOT ERP
+            - generic [ref=e80]: Enterprise Platform
+        - navigation [ref=e82]:
+          - link "Dashboard" [ref=e84] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e85]
+            - generic [ref=e87]: Dashboard
+          - generic [ref=e88]:
+            - button "General Ledger" [ref=e89] [cursor=pointer]:
+              - img [ref=e90]
+              - generic [ref=e93]: General Ledger
+              - img [ref=e94]
+            - generic [ref=e96]:
+              - link "Journal Entries" [ref=e97] [cursor=pointer]:
+                - /url: /accounting
+                - img [ref=e98]
+                - generic [ref=e101]: Journal Entries
+              - link "Revenue Entries (IGR)" [ref=e102] [cursor=pointer]:
+                - /url: /accounting/revenue-collections
+                - img [ref=e103]
+                - generic [ref=e106]: Revenue Entries (IGR)
+              - link "Chart of Accounts" [ref=e107] [cursor=pointer]:
+                - /url: /accounting/coa
+                - img [ref=e108]
+                - generic [ref=e109]: Chart of Accounts
+              - link "Accounts Payable" [ref=e110] [cursor=pointer]:
+                - /url: /accounting/ap
+                - img [ref=e111]
+                - generic [ref=e114]: Accounts Payable
+              - link "Trial Balance" [ref=e115] [cursor=pointer]:
+                - /url: /accounting/reports/trial-balance
+                - img [ref=e116]
+                - generic [ref=e120]: Trial Balance
+              - link "GL Reports" [ref=e121] [cursor=pointer]:
+                - /url: /accounting/reports
+                - img [ref=e122]
+                - generic [ref=e124]: GL Reports
+              - link "Fixed Assets" [ref=e125] [cursor=pointer]:
+                - /url: /accounting/fixed-assets
+                - img [ref=e126]
+                - generic [ref=e129]: Fixed Assets
+              - link "Period Close" [ref=e130] [cursor=pointer]:
+                - /url: /accounting/reports/period-close
+                - img [ref=e131]
+                - generic [ref=e134]: Period Close
+          - button "Budget & Appropriation" [ref=e136] [cursor=pointer]:
+            - img [ref=e137]
+            - generic [ref=e139]: Budget & Appropriation
+            - img [ref=e140]
+          - button "Treasury & Banking (TSA)" [ref=e143] [cursor=pointer]:
+            - img [ref=e144]
+            - generic [ref=e146]: Treasury & Banking (TSA)
+            - img [ref=e147]
+          - button "NCoA Classification" [ref=e150] [cursor=pointer]:
+            - img [ref=e151]
+            - generic [ref=e155]: NCoA Classification
+            - img [ref=e156]
+          - button "Procurement" [ref=e159] [cursor=pointer]:
+            - img [ref=e160]
+            - generic [ref=e164]: Procurement
+            - img [ref=e165]
+          - button "Contracts & Milestones" [ref=e168] [cursor=pointer]:
+            - img [ref=e169]
+            - generic [ref=e174]: Contracts & Milestones
+            - img [ref=e175]
+          - button "Government Stores" [ref=e178] [cursor=pointer]:
+            - img [ref=e179]
+            - generic [ref=e183]: Government Stores
+            - img [ref=e184]
+          - button "IPSAS Reporting" [ref=e187] [cursor=pointer]:
+            - img [ref=e188]
+            - generic [ref=e190]: IPSAS Reporting
+            - img [ref=e191]
+          - link "Appropriations" [ref=e194] [cursor=pointer]:
+            - /url: /budget/appropriations
+            - img [ref=e195]
+            - generic [ref=e197]: Appropriations
+          - button "Approvals" [ref=e199] [cursor=pointer]:
+            - img [ref=e200]
+            - generic [ref=e203]: Approvals
+            - img [ref=e204]
+          - button "Workflow" [ref=e207] [cursor=pointer]:
+            - img [ref=e208]
+            - generic [ref=e212]: Workflow
+            - img [ref=e213]
+          - link "User Management" [ref=e216] [cursor=pointer]:
+            - /url: /user-management
+            - img [ref=e217]
+            - generic [ref=e229]: User Management
+          - button "Settings" [ref=e231] [cursor=pointer]:
+            - img [ref=e232]
+            - generic [ref=e235]: Settings
+            - img [ref=e236]
+        - generic [ref=e238]:
+          - link "My Account" [ref=e239] [cursor=pointer]:
+            - /url: /account
+            - img [ref=e240]
+            - generic [ref=e243]: My Account
+          - generic [ref=e244] [cursor=pointer]:
+            - img [ref=e245]
+            - generic [ref=e248]: Sign Out
+      - main [ref=e249]:
+        - generic [ref=e250]:
+          - generic [ref=e251]: Government Financial Dashboard
+          - generic [ref=e252]: State Government — IFMIS Executive Overview
+        - generic [ref=e253]:
+          - generic [ref=e254] [cursor=pointer]:
+            - generic [ref=e255]:
+              - img [ref=e257]
+              - generic [ref=e259]: TSA Cash Position
+            - generic [ref=e260]: ₦10K
+            - generic [ref=e261]: 1 active accounts
+          - generic [ref=e262] [cursor=pointer]:
+            - generic [ref=e263]:
+              - img [ref=e265]
+              - generic [ref=e268]: Revenue Collected (YTD)
+            - generic [ref=e269]: ₦0
+            - generic [ref=e270]: 0 revenue heads
+          - generic [ref=e271] [cursor=pointer]:
+            - generic [ref=e272]:
+              - img [ref=e274]
+              - generic [ref=e276]: Budget Execution
+            - generic [ref=e277]: 0.0%
+            - generic [ref=e278]: ₦20K of ₦3.65B
+          - generic [ref=e279] [cursor=pointer]:
+            - generic [ref=e280]:
+              - img [ref=e282]
+              - generic [ref=e285]: Pending Approvals
+            - generic [ref=e286]: "0"
+            - generic [ref=e287]: PVs, POs, Journals awaiting action
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - generic [ref=e291]:
+              - generic [ref=e292]: Budget Execution by MDA
+              - generic [ref=e293]: Appropriation vs Actual Expenditure
+            - application [ref=e297]:
+              - generic [ref=e333]:
+                - generic [ref=e334]:
+                  - generic [ref=e336]: Administration Secto
+                  - generic [ref=e338]: Administration Secto
+                  - generic [ref=e340]: Administration Secto
+                  - generic [ref=e342]: Administration Secto
+                  - generic [ref=e344]: Administration Secto
+                  - generic [ref=e346]: Administration Secto
+                  - generic [ref=e348]: Administration Secto
+                  - generic [ref=e350]: Administration Secto
+                  - generic [ref=e352]: Administration Secto
+                  - generic [ref=e354]: Administration Secto
+                - generic [ref=e355]:
+                  - generic [ref=e357]: ₦0
+                  - generic [ref=e359]: ₦250.0M
+                  - generic [ref=e361]: ₦500.0M
+                  - generic [ref=e363]: ₦750.0M
+                  - generic [ref=e365]: ₦1.00B
+          - generic [ref=e366]:
+            - generic [ref=e367]:
+              - generic [ref=e368]: Revenue by Source
+              - generic [ref=e369]: IGR Collection Breakdown
+            - generic [ref=e371]: No revenue collections posted yet.
+        - generic [ref=e372]:
+          - generic [ref=e373]:
+            - generic [ref=e374]: Financial Performance (IPSAS)
+            - generic [ref=e375]:
+              - generic [ref=e376]:
+                - generic [ref=e377]:
+                  - img [ref=e378]
+                  - text: TOTAL REVENUE
+                - generic [ref=e381]: ₦10K
+              - generic [ref=e382]:
+                - generic [ref=e383]:
+                  - img [ref=e384]
+                  - text: TOTAL EXPENDITURE
+                - generic [ref=e387]: ₦0
+              - generic [ref=e388]:
+                - generic [ref=e389]:
+                  - img [ref=e390]
+                  - text: SURPLUS / (DEFICIT)
+                - generic [ref=e392]: ₦10K
+          - generic [ref=e393]:
+            - generic [ref=e394]: Quick Actions
+            - generic [ref=e395]:
+              - generic [ref=e396] [cursor=pointer]:
+                - img [ref=e397]
+                - generic [ref=e400]: New Journal Entry
+                - img [ref=e401]
+              - generic [ref=e403] [cursor=pointer]:
+                - img [ref=e404]
+                - generic [ref=e407]: Payment Vouchers
+                - img [ref=e408]
+              - generic [ref=e410] [cursor=pointer]:
+                - img [ref=e411]
+                - generic [ref=e414]: Approval Inbox
+                - img [ref=e415]
+              - generic [ref=e417] [cursor=pointer]:
+                - img [ref=e418]
+                - generic [ref=e420]: Budget Execution
+                - img [ref=e421]
+        - generic [ref=e423]:
+          - generic [ref=e424]: TSA Account Breakdown
+          - generic [ref=e426]:
+            - generic [ref=e427]: MAIN TSA
+            - generic [ref=e428]: ₦10K
+            - generic [ref=e429]: 1 account
+        - generic [ref=e430]: Quot PSE — Nigeria Government IFMIS | NCoA Compliant | IPSAS Accrual
+  - generic [ref=e431]: ₦0

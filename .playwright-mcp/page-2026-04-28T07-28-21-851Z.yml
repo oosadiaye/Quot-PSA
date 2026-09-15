@@ -1,0 +1,302 @@
+- generic [ref=e3]:
+  - link "Skip to main content" [ref=e4] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e8]:
+        - img [ref=e10]
+        - generic [ref=e15]:
+          - generic [ref=e16]: Office of Accountant General Delta State
+          - generic [ref=e17]: Enterprise Platform
+      - button "Back Accounts Payable" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+        - generic [ref=e22]: Back
+        - generic [ref=e23]: Accounts Payable
+      - navigation [ref=e24]:
+        - link "Dashboard" [ref=e26] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e27]
+          - generic [ref=e29]: Dashboard
+        - generic [ref=e30]:
+          - button "General Ledger" [ref=e31] [cursor=pointer]:
+            - img [ref=e32]
+            - generic [ref=e35]: General Ledger
+            - img [ref=e36]
+          - generic [ref=e38]:
+            - link "Journal Entries" [ref=e39] [cursor=pointer]:
+              - /url: /accounting
+              - img [ref=e40]
+              - generic [ref=e43]: Journal Entries
+            - link "Revenue Entries (IGR)" [ref=e44] [cursor=pointer]:
+              - /url: /accounting/revenue-collections
+              - img [ref=e45]
+              - generic [ref=e48]: Revenue Entries (IGR)
+            - link "Chart of Accounts" [ref=e49] [cursor=pointer]:
+              - /url: /accounting/coa
+              - img [ref=e50]
+              - generic [ref=e51]: Chart of Accounts
+            - link "Accounts Payable" [ref=e52] [cursor=pointer]:
+              - /url: /accounting/ap
+              - img [ref=e53]
+              - generic [ref=e56]: Accounts Payable
+            - link "Trial Balance" [ref=e57] [cursor=pointer]:
+              - /url: /accounting/reports/trial-balance
+              - img [ref=e58]
+              - generic [ref=e62]: Trial Balance
+            - link "GL Reports" [ref=e63] [cursor=pointer]:
+              - /url: /accounting/reports
+              - img [ref=e64]
+              - generic [ref=e66]: GL Reports
+            - link "Fixed Assets" [ref=e67] [cursor=pointer]:
+              - /url: /accounting/fixed-assets
+              - img [ref=e68]
+              - generic [ref=e71]: Fixed Assets
+            - link "Period Close" [ref=e72] [cursor=pointer]:
+              - /url: /accounting/reports/period-close
+              - img [ref=e73]
+              - generic [ref=e76]: Period Close
+        - button "Budget & Appropriation" [ref=e78] [cursor=pointer]:
+          - img [ref=e79]
+          - generic [ref=e81]: Budget & Appropriation
+          - img [ref=e82]
+        - button "Treasury & Banking (TSA)" [ref=e85] [cursor=pointer]:
+          - img [ref=e86]
+          - generic [ref=e88]: Treasury & Banking (TSA)
+          - img [ref=e89]
+        - button "NCoA Classification" [ref=e92] [cursor=pointer]:
+          - img [ref=e93]
+          - generic [ref=e97]: NCoA Classification
+          - img [ref=e98]
+        - button "Procurement" [ref=e101] [cursor=pointer]:
+          - img [ref=e102]
+          - generic [ref=e106]: Procurement
+          - img [ref=e107]
+        - button "Contracts & Milestones" [ref=e110] [cursor=pointer]:
+          - img [ref=e111]
+          - generic [ref=e116]: Contracts & Milestones
+          - img [ref=e117]
+        - button "Government Stores" [ref=e120] [cursor=pointer]:
+          - img [ref=e121]
+          - generic [ref=e125]: Government Stores
+          - img [ref=e126]
+        - button "IPSAS Reporting" [ref=e129] [cursor=pointer]:
+          - img [ref=e130]
+          - generic [ref=e132]: IPSAS Reporting
+          - img [ref=e133]
+        - link "Appropriations" [ref=e136] [cursor=pointer]:
+          - /url: /budget/appropriations
+          - img [ref=e137]
+          - generic [ref=e139]: Appropriations
+        - button "Approvals" [ref=e141] [cursor=pointer]:
+          - img [ref=e142]
+          - generic [ref=e145]: Approvals
+          - img [ref=e146]
+        - button "Workflow" [ref=e149] [cursor=pointer]:
+          - img [ref=e150]
+          - generic [ref=e154]: Workflow
+          - img [ref=e155]
+        - link "User Management" [ref=e158] [cursor=pointer]:
+          - /url: /user-management
+          - img [ref=e159]
+          - generic [ref=e171]: User Management
+        - button "Settings" [ref=e173] [cursor=pointer]:
+          - img [ref=e174]
+          - generic [ref=e177]: Settings
+          - img [ref=e178]
+      - generic [ref=e180]:
+        - link "My Account" [ref=e181] [cursor=pointer]:
+          - /url: /account
+          - img [ref=e182]
+          - generic [ref=e185]: My Account
+        - generic [ref=e186] [cursor=pointer]:
+          - img [ref=e187]
+          - generic [ref=e190]: Sign Out
+    - main [ref=e191]:
+      - generic [ref=e256]:
+        - generic [ref=e257]:
+          - generic [ref=e258]:
+            - button "Go back" [ref=e259] [cursor=pointer]:
+              - generic [ref=e260]:
+                - button "Back" [ref=e261]:
+                  - img [ref=e262]
+                  - text: Back
+                - navigation [ref=e264]:
+                  - generic [ref=e265]: Home
+                  - generic [ref=e266]:
+                    - img [ref=e267]
+                    - generic [ref=e269]: Accounting
+                  - generic [ref=e270]:
+                    - img [ref=e271]
+                    - generic [ref=e273]: Accounts Payable
+            - heading "Vendor Invoice" [level=1] [ref=e274]
+            - paragraph [ref=e275]: Dr Expense · Cr Accounts Payable
+          - generic [ref=e276]:
+            - button "Vendor Invoice" [ref=e277] [cursor=pointer]:
+              - img [ref=e278]
+              - text: Vendor Invoice
+            - button "Credit Memo" [ref=e281] [cursor=pointer]:
+              - img [ref=e282]
+              - text: Credit Memo
+          - generic [ref=e284]:
+            - button "Cancel" [ref=e285] [cursor=pointer]
+            - button "Save Invoice" [disabled] [ref=e286] [cursor=pointer]
+        - generic [ref=e287]:
+          - img [ref=e288]
+          - generic [ref=e291]:
+            - strong [ref=e292]: Vendor Invoice
+            - text: "— Dr Expense/Asset/GL Account · Cr AP (records vendor liability). Add lines by type: Expense, Asset, or GL Account."
+        - generic [ref=e293]:
+          - generic [ref=e294]:
+            - paragraph [ref=e295]:
+              - img [ref=e296]
+              - text: Invoice Details
+            - generic [ref=e299]:
+              - generic [ref=e300]:
+                - generic [ref=e301]: Administrative (MDA) *
+                - generic [ref=e302]:
+                  - generic [ref=e303] [cursor=pointer]:
+                    - generic [ref=e304]: Type MDA name or code...
+                    - img [ref=e306]
+                  - textbox
+              - generic [ref=e308]:
+                - generic [ref=e309]: Vendor *
+                - generic [ref=e310]:
+                  - generic [ref=e311] [cursor=pointer]:
+                    - generic [ref=e312]: Type vendor name or code…
+                    - img [ref=e314]
+                  - textbox
+              - generic [ref=e316]:
+                - generic [ref=e317]: Invoice No. / Reference *
+                - textbox "INV-001" [ref=e318]
+              - generic [ref=e319]:
+                - generic [ref=e320]:
+                  - generic [ref=e321]: Invoice Date *
+                  - textbox [ref=e322]: 2026-04-28
+                - generic [ref=e323]:
+                  - generic [ref=e324]: Due Date *
+                  - textbox [ref=e325]
+              - generic [ref=e326]:
+                - generic [ref=e327]: Description
+                - textbox "Invoice details…" [ref=e328]
+              - generic [ref=e329]:
+                - generic [ref=e330]: Vendor Amount (Cr AP) *
+                - generic [ref=e331]:
+                  - generic: ₦
+                  - spinbutton [ref=e332]
+                - paragraph [ref=e333]: Amount to credit to vendor's AP account.
+              - generic [ref=e334]:
+                - generic [ref=e335]: Attachment (optional)
+                - generic [ref=e336] [cursor=pointer]:
+                  - img [ref=e337]
+                  - generic [ref=e339]: Attach image or PDF
+          - generic [ref=e340]:
+            - generic [ref=e341]:
+              - generic [ref=e342]:
+                - paragraph [ref=e343]: Line Items
+                - generic [ref=e344]:
+                  - button "Expense" [ref=e345] [cursor=pointer]:
+                    - img [ref=e346]
+                    - text: Expense
+                  - button "Asset" [ref=e347] [cursor=pointer]:
+                    - img [ref=e348]
+                    - text: Asset
+                  - button "GL Account" [ref=e349] [cursor=pointer]:
+                    - img [ref=e350]
+                    - text: GL Account
+              - table [ref=e352]:
+                - rowgroup [ref=e353]:
+                  - row "# Type Account Description Amount Tax WHT" [ref=e354]:
+                    - columnheader "#" [ref=e355]
+                    - columnheader "Type" [ref=e356]
+                    - columnheader "Account" [ref=e357]
+                    - columnheader "Description" [ref=e358]
+                    - columnheader "Amount" [ref=e359]
+                    - columnheader "Tax" [ref=e360]
+                    - columnheader "WHT" [ref=e361]
+                    - columnheader [ref=e362]
+                - rowgroup [ref=e363]:
+                  - row "1 EXP Search code or name… ₦ 0 No Tax No WHT" [ref=e364]:
+                    - cell "1" [ref=e365]
+                    - cell "EXP" [ref=e366]:
+                      - generic [ref=e367]: EXP
+                    - cell "Search code or name…" [ref=e368]:
+                      - generic [ref=e369]:
+                        - generic [ref=e370] [cursor=pointer]:
+                          - generic [ref=e371]: Search code or name…
+                          - img [ref=e373]
+                        - textbox
+                    - cell [ref=e375]:
+                      - textbox "Description" [ref=e376]
+                    - cell "₦ 0" [ref=e377]:
+                      - generic [ref=e378]:
+                        - generic: ₦
+                        - spinbutton [ref=e379]: "0"
+                    - cell "No Tax" [ref=e380]:
+                      - generic [ref=e382] [cursor=pointer]:
+                        - generic [ref=e383]: No Tax
+                        - img [ref=e385]
+                    - cell "No WHT" [ref=e387]:
+                      - generic [ref=e389] [cursor=pointer]:
+                        - generic [ref=e390]: No WHT
+                        - img [ref=e392]
+                    - cell [ref=e394]
+            - generic [ref=e395]:
+              - paragraph [ref=e396]:
+                - img [ref=e397]
+                - text: Dimensions
+              - generic [ref=e401]:
+                - generic [ref=e402]:
+                  - generic [ref=e403]: Fund *
+                  - generic [ref=e404]:
+                    - generic [ref=e405] [cursor=pointer]:
+                      - generic [ref=e406]: Search Fund…
+                      - img [ref=e408]
+                    - textbox
+                - generic [ref=e410]:
+                  - generic [ref=e411]: Function *
+                  - generic [ref=e412]:
+                    - generic [ref=e413] [cursor=pointer]:
+                      - generic [ref=e414]: Search Function…
+                      - img [ref=e416]
+                    - textbox
+                - generic [ref=e418]:
+                  - generic [ref=e419]: Program *
+                  - generic [ref=e420]:
+                    - generic [ref=e421] [cursor=pointer]:
+                      - generic [ref=e422]: Search Program…
+                      - img [ref=e424]
+                    - textbox
+                - generic [ref=e426]:
+                  - generic [ref=e427]: Geo *
+                  - generic [ref=e428]:
+                    - generic [ref=e429] [cursor=pointer]:
+                      - generic [ref=e430]: Search Geo…
+                      - img [ref=e432]
+                    - textbox
+            - generic [ref=e434]:
+              - generic [ref=e435]:
+                - generic [ref=e436]:
+                  - paragraph [ref=e437]:
+                    - generic [ref=e438]: DR
+                    - text: Expense (Lines)
+                  - paragraph [ref=e439]: ₦0.00
+                - generic [ref=e441]:
+                  - paragraph [ref=e442]:
+                    - generic [ref=e443]: CR
+                    - text: Accounts Payable
+                  - paragraph [ref=e444]: ₦0.00
+                - generic [ref=e447]: Enter amounts above
+              - generic [ref=e448]:
+                - generic [ref=e449]:
+                  - generic [ref=e450]:
+                    - paragraph [ref=e451]: Subtotal
+                    - paragraph [ref=e452]: ₦0.00
+                  - generic [ref=e453]:
+                    - paragraph [ref=e454]: Tax
+                    - paragraph [ref=e455]: ₦0.00
+                  - generic [ref=e456]:
+                    - paragraph [ref=e457]: WHT
+                    - paragraph [ref=e458]: ₦0.00
+                - generic [ref=e459]:
+                  - paragraph [ref=e460]: Total
+                  - paragraph [ref=e461]: ₦0.00
