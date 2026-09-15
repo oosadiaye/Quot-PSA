@@ -577,10 +577,40 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # Account.parent rather than the economic-segment tree and then
         # hopping through legacy_account to reach the same rows.
         from accounting.models import Account
+        # Which GL accounts' postings belong to THIS line.
+        #
+        # The account itself, plus descendants that have no line of their
+        # own — the same rule ``find_matching_appropriation`` applies when
+        # it charges a posting: the nearest line wins, and a parent line
+        # only answers for an account that has none.
+        #
+        # Descending blindly listed every child's spending under the
+        # parent. On the data this was found in, 23000000 Capital
+        # Expenditure showed 10,359,444.14 of journal entries belonging to
+        # 23100100 Acquisition of Land, which has appropriations of its
+        # own — so the itemisation contradicted the line's own figures by
+        # twentyfold, and both numbers were sitting on the same screen.
+        #
+        # A child with its own line takes its whole subtree with it: its
+        # children roll up to IT, not past it to here.
         descendant_accounts = [appr.economic] if appr.economic_id else []
         frontier = list(descendant_accounts)
         while frontier:
-            children = list(Account.objects.filter(parent__in=frontier))
+            claimed_elsewhere = set(
+                Appropriation.objects
+                .filter(
+                    economic__in=Account.objects.filter(parent__in=frontier),
+                    administrative_id=appr.administrative_id,
+                    fund_id=appr.fund_id,
+                    status__iexact='ACTIVE',
+                )
+                .exclude(pk=appr.pk)
+                .values_list('economic_id', flat=True)
+            )
+            children = [
+                c for c in Account.objects.filter(parent__in=frontier)
+                if c.pk not in claimed_elsewhere
+            ]
             descendant_accounts.extend(children)
             frontier = children
         legacy_accounts = [a.pk for a in descendant_accounts]

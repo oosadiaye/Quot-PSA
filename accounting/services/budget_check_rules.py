@@ -256,13 +256,30 @@ def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
 
     from budget.models import Appropriation
 
-    # BFS up the parent chain so child codes match ancestor appropriations.
-    ancestors = [account]
+    # Walk the parent chain, but keep the levels apart: the account
+    # itself, then its parent, then its grandparent. Nearest match wins.
+    #
+    # This used to collect every ancestor into one ``economic__in`` list
+    # and take ``.first()``. With no ordering by specificity that is
+    # whatever the model's default ordering yields — ``economic`` FK id —
+    # and accounts are seeded parent before child, so the parent's id is
+    # always the lower one. Every child account here has a lower-id
+    # parent, all seventy of them.
+    #
+    # So a posting to 23100100 Acquisition of Land, which has its own
+    # 90,000,000 line, was consuming the 23000000 Capital Expenditure
+    # line of 2,000,000 instead. Two failures at once: the line that
+    # should have been charged never depletes, so available budget reads
+    # high, and a small parent line is exhausted by spending that is not
+    # its own, so legitimate postings against it are refused.
+    #
+    # A parent line is a legitimate target only when the account being
+    # posted to has no line of its own — that is what rolling up means.
+    levels: list[list] = []
     frontier = [account]
     while frontier:
-        parents = [s for s in (f.parent for f in frontier) if s is not None]
-        ancestors.extend(parents)
-        frontier = parents
+        levels.append(frontier)
+        frontier = [p for p in (f.parent for f in frontier) if p is not None]
 
     mda_code = getattr(mda, 'code', None)
     fund_code = getattr(fund, 'code', None)
@@ -272,49 +289,61 @@ def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
             return qs.filter(fiscal_year__year=fiscal_year)
         return qs
 
-    # Strategy 1 — exact FK bridge match, status='ACTIVE'.
-    qs = _apply_year(Appropriation.objects.filter(
-        administrative__legacy_mda=mda,
-        fund__legacy_fund=fund,
-        economic__in=ancestors,
-        status='ACTIVE',
-    ))
-    hit = qs.first()
-    if hit:
-        return hit
+    def _match_at(level):
+        """The four lookups, all confined to one level of the chain.
 
-    # Strategy 2 — code match (works when legacy_mda / legacy_fund
-    # FK is null on the NCoA segment).
-    if mda_code and fund_code:
-        qs = _apply_year(Appropriation.objects.filter(
-            administrative__code=mda_code,
-            fund__code=fund_code,
-            economic__in=ancestors,
+        Strategy order is unchanged within a level — exact FK bridge
+        first, then code match, then the case-insensitive status retry
+        for seed data written as 'Active'. What changed is that
+        specificity now dominates strategy: a near match found the
+        awkward way still beats a distant one found the tidy way,
+        because the account is what identifies the budget line.
+        """
+        # 1 — exact FK bridge match, status='ACTIVE'.
+        hit = _apply_year(Appropriation.objects.filter(
+            administrative__legacy_mda=mda,
+            fund__legacy_fund=fund,
+            economic__in=level,
             status='ACTIVE',
-        ))
-        hit = qs.first()
+        )).first()
         if hit:
             return hit
 
-    # Strategy 3 — re-run both with case-insensitive status.
-    qs = _apply_year(Appropriation.objects.filter(
-        administrative__legacy_mda=mda,
-        fund__legacy_fund=fund,
-        economic__in=ancestors,
-        status__iexact='ACTIVE',
-    ))
-    hit = qs.first()
-    if hit:
-        return hit
+        # 2 — code match, for when the legacy_* bridge FK is null.
+        if mda_code and fund_code:
+            hit = _apply_year(Appropriation.objects.filter(
+                administrative__code=mda_code,
+                fund__code=fund_code,
+                economic__in=level,
+                status='ACTIVE',
+            )).first()
+            if hit:
+                return hit
 
-    if mda_code and fund_code:
-        qs = _apply_year(Appropriation.objects.filter(
-            administrative__code=mda_code,
-            fund__code=fund_code,
-            economic__in=ancestors,
+        # 3 — both again, case-insensitive on status.
+        hit = _apply_year(Appropriation.objects.filter(
+            administrative__legacy_mda=mda,
+            fund__legacy_fund=fund,
+            economic__in=level,
             status__iexact='ACTIVE',
-        ))
-        hit = qs.first()
+        )).first()
+        if hit:
+            return hit
+
+        if mda_code and fund_code:
+            hit = _apply_year(Appropriation.objects.filter(
+                administrative__code=mda_code,
+                fund__code=fund_code,
+                economic__in=level,
+                status__iexact='ACTIVE',
+            )).first()
+            if hit:
+                return hit
+
+        return None
+
+    for level in levels:
+        hit = _match_at(level)
         if hit:
             return hit
 
