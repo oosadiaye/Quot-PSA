@@ -26,10 +26,25 @@ export default function FinancialPerformanceReport() {
     const renderSection = (title: string, items: any[], total: number, color: string) => (
         <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color, marginBottom: '8px' }}>{title}</div>
+            {/* This statement is flat — every row is a real balance, so
+                nothing is filtered. A row flagged ``is_header`` is money
+                posted to a group account: it belongs in the total, but
+                the coding needs fixing, so it is called out rather than
+                blended in. */}
             {(items || []).map((i: any, idx: number) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: '#1e293b' }}>{i.code} — {i.name}</span>
-                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace' }}>{fmtNGN(i.amount)}</span>
+                    <span style={{ fontSize: '13px', color: i.is_header ? '#92400e' : '#1e293b' }}>
+                        {i.code} — {i.name}
+                        {i.is_header && (
+                            <span
+                                title="Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account."
+                                style={{ marginLeft: 8, fontSize: '11px', fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 3, padding: '1px 6px' }}
+                            >
+                                posted to group account
+                            </span>
+                        )}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: i.is_header ? '#92400e' : undefined }}>{fmtNGN(i.amount)}</span>
                 </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 700, fontSize: '13px', background: '#f8fafc', borderRadius: '4px', marginTop: '4px' }}>

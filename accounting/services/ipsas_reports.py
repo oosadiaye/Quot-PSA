@@ -253,19 +253,27 @@ class IPSASReportService:
                     'name':      seg.name,
                     'amount':    amount,
                     'is_header': False,
+                    'direct_amount': amount,
                 })
                 total += amount
             else:
                 amount = header_amounts.get(seg.pk, _zero())
+                direct = header_direct.get(seg.pk, _zero())
                 items.append({
                     'code':      seg.code,
                     'name':      seg.name,
                     'amount':    amount,
                     'is_header': True,
+                    # The part of ``amount`` that is NOT represented by any
+                    # child line. A reader adding up the visible rows must
+                    # arrive at ``total``, so the UI hides a header's
+                    # roll-up (its children are listed individually) but
+                    # must show this. Almost always zero.
+                    'direct_amount': direct,
                 })
                 # Only the directly-posted part is added — the rolled-up
                 # part is already in the total via its posting rows.
-                total += header_direct.get(seg.pk, _zero())
+                total += direct
         return items, total
 
     @staticmethod

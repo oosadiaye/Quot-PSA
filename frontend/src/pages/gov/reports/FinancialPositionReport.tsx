@@ -24,12 +24,36 @@ export default function FinancialPositionReport() {
         retry: false,
     });
 
-    const renderItems = (items: any[]) => items?.filter((i: any) => !i.is_header).map((i: any, idx: number) => (
-        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 6px 20px', borderBottom: '1px solid #f8fafc' }}>
-            <span style={{ fontSize: '13px', color: '#1e293b' }}>{i.code} — {i.name}</span>
-            <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace' }}>{fmtNGN(i.amount)}</span>
-        </div>
-    ));
+    // A header's ``amount`` is the roll-up of its children, which are
+    // listed individually — showing both would read as double counting,
+    // so header rows stay hidden. The exception is ``direct_amount``:
+    // a balance posted to the header itself, represented by no child
+    // line. It is counted in the section total, so hiding it would
+    // leave the visible rows not adding up to the total shown beneath
+    // them. It is rendered, flagged, and almost always absent.
+    const renderItems = (items: any[]) => items
+        ?.filter((i: any) => !i.is_header || Number(i.direct_amount || 0) !== 0)
+        .map((i: any, idx: number) => {
+            const postedToHeader = i.is_header && Number(i.direct_amount || 0) !== 0;
+            return (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 6px 20px', borderBottom: '1px solid #f8fafc' }}>
+                    <span style={{ fontSize: '13px', color: postedToHeader ? '#92400e' : '#1e293b' }}>
+                        {i.code} — {i.name}
+                        {postedToHeader && (
+                            <span
+                                title="Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account."
+                                style={{ marginLeft: 8, fontSize: '11px', fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 3, padding: '1px 6px' }}
+                            >
+                                posted to group account
+                            </span>
+                        )}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: postedToHeader ? '#92400e' : undefined }}>
+                        {fmtNGN(postedToHeader ? i.direct_amount : i.amount)}
+                    </span>
+                </div>
+            );
+        });
 
     const renderTotal = (label: string, amount: number, color: string) => (
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '2px solid #1e293b', marginTop: '8px' }}>
