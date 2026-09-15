@@ -37,6 +37,20 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
     0.875rem (14px) for cells. Below 12px is unreadable for financial
     data; auditors and operators were squinting at the previous values.
 */
+/**
+ * Does a line's segment match what was typed or picked?
+ *
+ * Substring over code and name together. The filter boxes take either a
+ * suggestion (which inserts the bare code) or free text (which may be a
+ * fragment of either), so comparing against one field alone breaks half
+ * the input the control invites.
+ */
+const segmentMatches = (query: string, code: unknown, name: unknown): boolean => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return true;
+    return `${code ?? ''} ${name ?? ''}`.toLowerCase().includes(q);
+};
+
 const thStyle: React.CSSProperties = {
     padding: '0.6rem 0.75rem', textAlign: 'left', fontSize: '0.8rem',
     fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
@@ -186,9 +200,14 @@ export default function AppropriationDetail() {
                 const name = String(l.economic_name || '').toLowerCase();
                 if (!code.includes(q) && !name.includes(q)) return false;
             }
-            if (filterFunctional && String(l.functional_code) !== filterFunctional) return false;
-            if (filterProgramme  && String(l.programme_code)  !== filterProgramme)  return false;
-            if (filterFund       && String(l.fund_code)       !== filterFund)       return false;
+            // Substring over code AND name, because these boxes now accept
+            // both: picking a suggestion drops the bare code in, while
+            // typing might be three digits of one or a word from the
+            // other. An exact comparison served the picked case and
+            // failed the typed one.
+            if (!segmentMatches(filterFunctional, l.functional_code, l.functional_name)) return false;
+            if (!segmentMatches(filterProgramme, l.programme_code, l.programme_name)) return false;
+            if (!segmentMatches(filterFund, l.fund_code, l.fund_name)) return false;
             return true;
         });
     }, [mdaLines, codeQuery, econQuery, filterFunctional, filterProgramme, filterFund]);
@@ -649,30 +668,75 @@ export default function AppropriationDetail() {
                                 </div>
                                 <div>
                                     <label style={filterLabelStyle}>Functional</label>
-                                    <select value={filterFunctional} onChange={(e) => setFilterFunctional(e.target.value)} style={filterInputStyle}>
-                                        <option value="">All</option>
-                                        {distinctOptions.functional.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
+                                    <div style={{ position: 'relative' }}>
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <input
+                                            type="text"
+                                            list="ad-functional-options"
+                                            value={filterFunctional}
+                                            onChange={(e) => setFilterFunctional(e.target.value)}
+                                            placeholder="Type or pick"
+                                            aria-label="Filter by Functional"
+                                            style={{ ...filterInputStyle, paddingLeft: '1.7rem' }}
+                                        />
+                                        {/* The suggestion's VALUE lands in the box, so it is the
+                                            bare code; the name rides along as the label. Putting
+                                            "70100 — General Public Services" in the value would
+                                            fill the box with a string matching no row. */}
+                                        <datalist id="ad-functional-options">
+                                            {distinctOptions.functional.map(opt => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </datalist>
+                                    </div>
                                 </div>
                                 <div>
                                     <label style={filterLabelStyle}>Programme</label>
-                                    <select value={filterProgramme} onChange={(e) => setFilterProgramme(e.target.value)} style={filterInputStyle}>
-                                        <option value="">All</option>
-                                        {distinctOptions.programme.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
+                                    <div style={{ position: 'relative' }}>
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <input
+                                            type="text"
+                                            list="ad-programme-options"
+                                            value={filterProgramme}
+                                            onChange={(e) => setFilterProgramme(e.target.value)}
+                                            placeholder="Type or pick"
+                                            aria-label="Filter by Programme"
+                                            style={{ ...filterInputStyle, paddingLeft: '1.7rem' }}
+                                        />
+                                        {/* The suggestion's VALUE lands in the box, so it is the
+                                            bare code; the name rides along as the label. Putting
+                                            "70100 — General Public Services" in the value would
+                                            fill the box with a string matching no row. */}
+                                        <datalist id="ad-programme-options">
+                                            {distinctOptions.programme.map(opt => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </datalist>
+                                    </div>
                                 </div>
                                 <div>
                                     <label style={filterLabelStyle}>Fund</label>
-                                    <select value={filterFund} onChange={(e) => setFilterFund(e.target.value)} style={filterInputStyle}>
-                                        <option value="">All</option>
-                                        {distinctOptions.fund.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
+                                    <div style={{ position: 'relative' }}>
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <input
+                                            type="text"
+                                            list="ad-fund-options"
+                                            value={filterFund}
+                                            onChange={(e) => setFilterFund(e.target.value)}
+                                            placeholder="Type or pick"
+                                            aria-label="Filter by Fund"
+                                            style={{ ...filterInputStyle, paddingLeft: '1.7rem' }}
+                                        />
+                                        {/* The suggestion's VALUE lands in the box, so it is the
+                                            bare code; the name rides along as the label. Putting
+                                            "70100 — General Public Services" in the value would
+                                            fill the box with a string matching no row. */}
+                                        <datalist id="ad-fund-options">
+                                            {distinctOptions.fund.map(opt => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </datalist>
+                                    </div>
                                 </div>
                                 {hasActiveFilter && (
                                     <button
