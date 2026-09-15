@@ -127,21 +127,22 @@ const BudgetCheck = () => {
         staleTime: 5 * 60 * 1000,
     });
 
-    // Default to the active year the moment the list arrives.
-    const effectiveFy = useMemo(() => {
-        if (fiscalYearId) return fiscalYearId;
-        const active = fiscalYears.find((f: any) => f.is_active)
-            || [...fiscalYears].sort((a: any, b: any) => b.year - a.year)[0];
-        return active ? String(active.id) : '';
-    }, [fiscalYearId, fiscalYears]);
-
+    /**
+     * Fiscal year starts blank, and blank means every year.
+     *
+     * Defaulting to the active year quietly scoped every search: an
+     * officer looking up a code from last year's book got "no budget
+     * line matches" and no hint that a filter they never set was the
+     * reason. A blank field states its own scope.
+     */
     const { data: lines = [], isLoading, isError, error } = useQuery<Line[]>({
-        queryKey: ['budget-check-lines', effectiveFy],
-        enabled: Boolean(effectiveFy),
+        queryKey: ['budget-check-lines', fiscalYearId || 'all'],
         queryFn: async () => {
-            const { data } = await apiClient.get('/budget/appropriations/', {
-                params: { fiscal_year: effectiveFy, page_size: 2000, ordering: 'budget_code' },
-            });
+            const params: Record<string, unknown> = {
+                page_size: 2000, ordering: 'budget_code',
+            };
+            if (fiscalYearId) params.fiscal_year = fiscalYearId;
+            const { data } = await apiClient.get('/budget/appropriations/', { params });
             return Array.isArray(data) ? data : data?.results ?? [];
         },
         staleTime: 60 * 1000,
@@ -219,9 +220,12 @@ const BudgetCheck = () => {
         [filtered, selectedId],
     );
 
-    const hasFilter = Boolean(codeQuery || descQuery || mda || fund || econ || status);
+    const hasFilter = Boolean(
+        codeQuery || descQuery || mda || fund || econ || status || fiscalYearId,
+    );
     const clear = () => {
         setCodeQuery(''); setDescQuery(''); setMda(''); setFund(''); setEcon(''); setStatus('');
+        setFiscalYearId('');
         setSelectedId(null);
     };
 
@@ -293,10 +297,11 @@ const BudgetCheck = () => {
                                 <label style={labelStyle} htmlFor="bc-fy">Fiscal Year</label>
                                 <select
                                     id="bc-fy"
-                                    value={effectiveFy}
+                                    value={fiscalYearId}
                                     onChange={(e) => { setFiscalYearId(e.target.value); setSelectedId(null); }}
                                     style={controlStyle}
                                 >
+                                    <option value="">All years</option>
                                     {fiscalYears.map((f: any) => (
                                         <option key={f.id} value={String(f.id)}>{f.name || `FY ${f.year}`}</option>
                                     ))}
@@ -421,9 +426,9 @@ const BudgetCheck = () => {
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                     <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
                                         <tr>
-                                            {['Budget Code', 'GL Account', 'Description', 'Fund', 'Status', 'Approved', 'Expended', 'Available'].map((h, i) => (
+                                            {['Budget Code', 'FY', 'GL Account', 'Description', 'Fund', 'Status', 'Approved', 'Expended', 'Available'].map((h, i) => (
                                                 <th key={h} style={{
-                                                    padding: '0.5rem 0.6rem', textAlign: i >= 5 ? 'right' : 'left',  // Approved / Expended / Available
+                                                    padding: '0.5rem 0.6rem', textAlign: i >= 6 ? 'right' : 'left',  // Approved / Expended / Available
                                                     fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
                                                     letterSpacing: '0.03em', color: '#64748b',
                                                     borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
@@ -448,6 +453,7 @@ const BudgetCheck = () => {
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', fontWeight: 600, borderBottom: '1px solid #f8fafc' }}>
                                                         {l.budget_code || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontFamily: 'inherit' }}>not set</span>}
                                                     </td>
+                                                    <td style={{ padding: '0.45rem 0.6rem', color: '#64748b', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{l.fiscal_year_label}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', color: '#4f46e5', fontWeight: 600, borderBottom: '1px solid #f8fafc' }}>{l.economic_code}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', borderBottom: '1px solid #f8fafc', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.economic_name}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', borderBottom: '1px solid #f8fafc' }}>{l.fund_code}</td>
