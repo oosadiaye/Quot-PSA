@@ -69,9 +69,15 @@ def _build_ncoa_code():
         code='050200000000', name='Test MDA',
         level='UNIT', sector_code='05',
     )
-    # The economic segment is the GL account.
-    econ = Account.objects.create(
-        code='22100100', name='Test Expense', account_type='Expense',
+    # The economic segment is the GL account. ``get_or_create``, not
+    # ``create``: this class is ``django_db(transaction=True)``, so rows
+    # commit between tests, and the chart of accounts is shared ground —
+    # several other test modules also build 22100100. The old
+    # ``EconomicSegment`` table had a namespace to itself and could get
+    # away with ``create``; ``Account`` cannot.
+    econ, _ = Account.objects.get_or_create(
+        code='22100100',
+        defaults={'name': 'Test Expense', 'account_type': 'Expense'},
     )
     func = FunctionalSegment.objects.create(
         code='70100', name='General Services', division_code='701',
