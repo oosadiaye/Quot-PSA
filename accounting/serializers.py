@@ -573,22 +573,23 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
                 'missing_dimensions': missing,
             })
 
-        # Find the active Appropriation for this triple. Walk the
-        # economic parent chain — a leaf-coded transaction may be
-        # legally authorised against a parent appropriation.
-        econ_candidates = [econ_seg]
-        cursor = econ_seg.parent
-        while cursor is not None:
-            econ_candidates.append(cursor)
-            cursor = cursor.parent
+        # Find the active Appropriation for this triple, walking the
+        # economic parent chain: a leaf-coded transaction may be legally
+        # authorised against a parent appropriation when it has no line
+        # of its own. Nearest line wins — passing every ancestor at once
+        # and taking .first() charged the parent even when the account
+        # had its own line.
+        from accounting.services.budget_check_rules import nearest_appropriation
 
-        appro = Appropriation.objects.filter(
-            administrative=admin_seg,
-            economic__in=econ_candidates,
-            fund=fund_seg,
-            fiscal_year=active_fy,
-            status__iexact='ACTIVE',
-        ).first()
+        appro = nearest_appropriation(
+            econ_seg,
+            Appropriation.objects.filter(
+                administrative=admin_seg,
+                fund=fund_seg,
+                fiscal_year=active_fy,
+                status__iexact='ACTIVE',
+            ),
+        )
 
         if not appro:
             raise serializers.ValidationError({

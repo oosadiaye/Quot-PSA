@@ -219,6 +219,44 @@ def _appropriation_available(appropriation) -> Decimal:
     return approved - expended - committed
 
 
+def account_levels(account) -> list[list]:
+    """The GL account's ancestry, nearest first, one list per level.
+
+    ``[[account], [its parent], [its grandparent], ...]``. Kept as levels
+    rather than one flat list because the distance matters: a budget line
+    on the account itself must be preferred over one on an ancestor, and
+    a flat list gives the database no way to express that.
+    """
+    levels: list[list] = []
+    frontier = [account]
+    while frontier:
+        levels.append(frontier)
+        frontier = [p for p in (f.parent for f in frontier) if p is not None]
+    return levels
+
+
+def nearest_appropriation(account, queryset):
+    """The first appropriation in ``queryset`` on the nearest level.
+
+    ``queryset`` carries the caller's own conditions — MDA, fund, fiscal
+    year, status, any locking — and this adds only the economic filter,
+    one level at a time.
+
+    Every caller of this used to inline the walk: collect all ancestors
+    into a single ``economic__in`` and take ``.first()``. That has no
+    ordering by specificity, so the winner was whatever the model's
+    default ordering gave — ``economic`` foreign-key id — and accounts
+    are seeded parent before child, so the parent always won. Spending
+    was charged to an ancestor line while the account's own line sat
+    untouched. Four call sites had their own copy of it.
+    """
+    for level in account_levels(account):
+        hit = queryset.filter(economic__in=level).first()
+        if hit:
+            return hit
+    return None
+
+
 def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
     """Look up the Appropriation row that would cover this posting.
 
@@ -275,11 +313,7 @@ def find_matching_appropriation(*, mda, fund, account, fiscal_year=None):
     #
     # A parent line is a legitimate target only when the account being
     # posted to has no line of its own — that is what rolling up means.
-    levels: list[list] = []
-    frontier = [account]
-    while frontier:
-        levels.append(frontier)
-        frontier = [p for p in (f.parent for f in frontier) if p is not None]
+    levels = account_levels(account)
 
     mda_code = getattr(mda, 'code', None)
     fund_code = getattr(fund, 'code', None)
