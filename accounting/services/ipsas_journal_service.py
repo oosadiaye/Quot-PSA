@@ -288,8 +288,12 @@ class IPSASJournalService:
                 memo=f"Reversal: {line.memo}",
             )
 
-        # Post the reversal
-        IPSASJournalService.post_journal(reversal, user)
+        # Post the reversal. ``post_journal`` re-fetches the row under
+        # ``select_for_update`` and mutates *that* instance, so the object
+        # we built above never learns it was posted. Take the one it
+        # returns, or every caller reads ``reversal.status == 'Draft'``
+        # on a journal that is posted in the database.
+        reversal = IPSASJournalService.post_journal(reversal, user)
 
         # Mark original as reversed
         journal.is_reversed = True

@@ -28,10 +28,26 @@ from accounting.services.ipsas_journal_service import (
 )
 
 
+# ``transaction=True`` throughout, as every other journal-posting test
+# here does. Posting fires the deferred ``prevent_unbalanced_posted_journal``
+# trigger, and a non-transactional test tears down with
+# ``SET CONSTRAINTS ALL IMMEDIATE``, which runs that trigger's body with
+# the tenant search_path already gone — the table it names then does not
+# resolve. A transactional test flushes instead and never reaches it.
+
+
 @pytest.fixture
 def posted_journal(db, raw_journal, expense_account, cash_account,
                    open_fiscal_period, maker_user):
-    """A balanced, posted journal: DR expense 500 / CR cash 500."""
+    """A balanced, posted journal: DR expense 500 / CR cash 500.
+
+    The flag is reset first because these tests are transactional: a test
+    that re-classifies ``expense_account`` commits that, and the next
+    test would find it already a header and be unable to post the journal
+    it needs to reverse.
+    """
+    expense_account.is_postable = True
+    expense_account.save(update_fields=['is_postable'])
     journal = raw_journal([
         (expense_account, Decimal('500.00'), Decimal('0.00')),
         (cash_account, Decimal('0.00'), Decimal('500.00')),
@@ -39,7 +55,7 @@ def posted_journal(db, raw_journal, expense_account, cash_account,
     return IPSASJournalService.post_journal(journal, maker_user)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_reversal_succeeds_after_the_account_becomes_a_header(
     posted_journal, expense_account, maker_user,
 ):
@@ -59,7 +75,7 @@ def test_reversal_succeeds_after_the_account_becomes_a_header(
     assert posted_journal.is_reversed is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_the_reversal_actually_unwinds_the_original(
     posted_journal, expense_account, cash_account, maker_user,
 ):
@@ -78,7 +94,7 @@ def test_the_reversal_actually_unwinds_the_original(
     assert by_account[cash_account.pk].credit == Decimal('0.00')
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_a_new_journal_on_the_header_account_is_still_refused(
     db, raw_journal, expense_account, cash_account, open_fiscal_period, maker_user,
 ):
@@ -101,7 +117,7 @@ def test_a_new_journal_on_the_header_account_is_still_refused(
     assert 'header / group account' in str(exc.value)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_a_reversal_must_still_balance(
     db, raw_journal, expense_account, cash_account, open_fiscal_period, maker_user,
 ):
