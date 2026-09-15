@@ -111,6 +111,10 @@ export default function FinancialPerformanceReport() {
                             {renderSection('Non-Tax Revenue', data.revenue?.non_tax_revenue?.items, data.revenue?.non_tax_revenue?.total, '#059669')}
                             {renderSection('Grants & Transfers', data.revenue?.grants_transfers?.items, data.revenue?.grants_transfers?.total, '#0d9488')}
                             {renderSection('Other Revenue', data.revenue?.other_revenue?.items, data.revenue?.other_revenue?.total, '#64748b')}
+                            {/* Family 1 outside 11-14. Rendered only when non-empty, so
+                                a well-coded chart shows no extra heading. */}
+                            {(data.revenue?.unclassified?.items || []).length > 0 &&
+                                renderSection('Unclassified Revenue — assign a sub-family', data.revenue?.unclassified?.items, data.revenue?.unclassified?.total, '#b45309')}
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #008751', marginTop: '8px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '15px', color: '#008751' }}>TOTAL REVENUE</span>
                                 <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#008751' }}>{fmtNGN(data.revenue?.total)}</span>
@@ -127,6 +131,10 @@ export default function FinancialPerformanceReport() {
                             {renderSection('Capital Expenditure', data.expenditure?.capital_expenditure?.items, data.expenditure?.capital_expenditure?.total, '#9333ea')}
                             {renderSection('Debt Service', data.expenditure?.debt_service?.items, data.expenditure?.debt_service?.total, '#64748b')}
                             {renderSection('Transfers & Subventions', data.expenditure?.transfers_subventions?.items, data.expenditure?.transfers_subventions?.total, '#0369a1')}
+                            {/* Family 2 outside 21-25 — 20xxxxxx most commonly. Missing
+                                expenditure reads as underspend, so it is shown. */}
+                            {(data.expenditure?.unclassified?.items || []).length > 0 &&
+                                renderSection('Unclassified Expenditure — assign a sub-family', data.expenditure?.unclassified?.items, data.expenditure?.unclassified?.total, '#b45309')}
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #c0392b', marginTop: '8px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '15px', color: '#c0392b' }}>TOTAL EXPENDITURE</span>
                                 <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#c0392b' }}>{fmtNGN(data.expenditure?.total)}</span>

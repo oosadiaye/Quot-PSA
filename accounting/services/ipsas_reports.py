@@ -128,26 +128,43 @@ class IPSASReportService:
         # Current Assets (31xx), Non-Current Assets (32xx)
         current_assets, ca_total = cls._sum_ncoa_group(balances, '31', 'DEBIT')
         non_current_assets, nca_total = cls._sum_ncoa_group(balances, '32', 'DEBIT')
-        total_assets = ca_total + nca_total
+        # Everything else in the asset family. The headings above are a
+        # fixed list of sub-families, so an asset coded outside them —
+        # 30xxxxxx, 33xxxxxx and so on — was simply absent from the
+        # statement, with no total to notice it against. Reporting it
+        # under an explicit "unclassified" heading is not a guess at
+        # where it belongs; it is a refusal to lose it while somebody
+        # decides. In a well-coded chart this is empty.
+        other_assets, oa_total = cls._sum_ncoa_group(
+            balances, '3', 'DEBIT', exclude_prefixes=('31', '32'),
+        )
+        total_assets = ca_total + nca_total + oa_total
 
         # Current / Non-Current Liabilities (41xx / 42xx)
         current_liab, cl_total = cls._sum_ncoa_group(balances, '41', 'CREDIT')
         non_current_liab, ncl_total = cls._sum_ncoa_group(balances, '42', 'CREDIT')
-        total_liabilities = cl_total + ncl_total
+        # Same for family 4 ("Liabilities and Net Assets") outside
+        # 41 / 42 / 43 — e.g. 40xxxxxx, 48xxxxxx.
+        other_liab, ol_total = cls._sum_ncoa_group(
+            balances, '4', 'CREDIT', exclude_prefixes=('41', '42', '43'),
+        )
+        total_liabilities = cl_total + ncl_total + ol_total
 
         # Net Assets / Accumulated Fund (43xx)
         net_assets, na_total = cls._sum_ncoa_group(balances, '43', 'CREDIT')
 
         return {
             'assets': {
-                'current':     {'items': current_assets,     'total': ca_total},
-                'non_current': {'items': non_current_assets, 'total': nca_total},
-                'total':       total_assets,
+                'current':      {'items': current_assets,     'total': ca_total},
+                'non_current':  {'items': non_current_assets, 'total': nca_total},
+                'unclassified': {'items': other_assets,       'total': oa_total},
+                'total':        total_assets,
             },
             'liabilities': {
-                'current':     {'items': current_liab,     'total': cl_total},
-                'non_current': {'items': non_current_liab, 'total': ncl_total},
-                'total':       total_liabilities,
+                'current':      {'items': current_liab,     'total': cl_total},
+                'non_current':  {'items': non_current_liab, 'total': ncl_total},
+                'unclassified': {'items': other_liab,       'total': ol_total},
+                'total':        total_liabilities,
             },
             'net_assets': {
                 'items': net_assets,
@@ -160,7 +177,8 @@ class IPSASReportService:
     # -------------------------------------------------------------------------
 
     @classmethod
-    def _sum_ncoa_group(cls, balances_qs, prefix: str, balance_side: str):
+    def _sum_ncoa_group(cls, balances_qs, prefix: str, balance_side: str,
+                        exclude_prefixes: tuple[str, ...] = ()):
         """Return (items, total) for every account whose code starts with prefix.
 
         Algorithm:
@@ -192,11 +210,10 @@ class IPSASReportService:
         Descendants are counted once via ``posting_amounts`` and the
         header's own balance once here, so nothing is double-counted.
         """
-        all_segments = list(
-            Account.objects
-            .filter(code__startswith=prefix, is_active=True)
-            .order_by('code')
-        )
+        accounts = Account.objects.filter(code__startswith=prefix, is_active=True)
+        for excluded in exclude_prefixes:
+            accounts = accounts.exclude(code__startswith=excluded)
+        all_segments = list(accounts.order_by('code'))
         if not all_segments:
             return [], _zero()
 
@@ -218,11 +235,21 @@ class IPSASReportService:
         # added to the grand total exactly once, and warned about.
         header_direct: dict[int, Decimal] = {}
         for hseg in header_segs:
+            # Descendants share the header's *significant* prefix, not its
+            # whole code. NCoA codes are zero-padded to eight digits, so a
+            # header is never a literal prefix of its children —
+            # '31100100'.startswith('31000000') is False, and matching on
+            # the full code made every roll-up zero. Trailing zeros are
+            # padding, not part of the classification:
+            #     31000000 -> '31'   matches 31100100, 31200100, …
+            #     43100000 -> '431'  matches 43100100, …
+            #     30000000 -> '3'    the family root, matches all of it
+            significant = hseg.code.rstrip('0') or hseg.code[:1]
             rolled_up = sum(
                 (
                     posting_amounts.get(pseg.pk, _zero())
                     for pseg in posting_segs
-                    if pseg.code.startswith(hseg.code) and pseg.code != hseg.code
+                    if pseg.code.startswith(significant) and pseg.code != hseg.code
                 ),
                 _zero(),
             )
@@ -330,7 +357,14 @@ class IPSASReportService:
         nontax, nontax_t  = cls._sum_posting_only(balances, '12', 'CREDIT')
         grants, grants_t  = cls._sum_posting_only(balances, '13', 'CREDIT')
         other,  other_t   = cls._sum_posting_only(balances, '14', 'CREDIT')
-        total_revenue = tax_t + nontax_t + grants_t + other_t
+        # Revenue coded outside 11-14. The headings are a fixed list of
+        # sub-families, so anything else in family 1 was absent from the
+        # statement entirely — reported here rather than lost while its
+        # proper heading is decided. Empty in a well-coded chart.
+        unclass_rev, unclass_rev_t = cls._sum_posting_only(
+            balances, '1', 'CREDIT', exclude_prefixes=('11', '12', '13', '14'),
+        )
+        total_revenue = tax_t + nontax_t + grants_t + other_t + unclass_rev_t
 
         # Expenditure (debit-normal)
         pers,   pers_t    = cls._sum_posting_only(balances, '21', 'DEBIT')
@@ -338,7 +372,13 @@ class IPSASReportService:
         cap,    cap_t     = cls._sum_posting_only(balances, '23', 'DEBIT')
         debt,   debt_t    = cls._sum_posting_only(balances, '24', 'DEBIT')
         trans,  trans_t   = cls._sum_posting_only(balances, '25', 'DEBIT')
-        total_expenditure = pers_t + ovh_t + cap_t + debt_t + trans_t
+        # Expenditure coded outside 21-25 — 20xxxxxx most commonly, which
+        # no heading covered. Missing expenditure reads as underspend, so
+        # it is reported rather than dropped.
+        unclass_exp, unclass_exp_t = cls._sum_posting_only(
+            balances, '2', 'DEBIT', exclude_prefixes=('21', '22', '23', '24', '25'),
+        )
+        total_expenditure = pers_t + ovh_t + cap_t + debt_t + trans_t + unclass_exp_t
 
         surplus_deficit = total_revenue - total_expenditure
 
@@ -348,6 +388,7 @@ class IPSASReportService:
                 'non_tax_revenue':  {'items': nontax, 'total': nontax_t},
                 'grants_transfers': {'items': grants, 'total': grants_t},
                 'other_revenue':    {'items': other,  'total': other_t},
+                'unclassified':     {'items': unclass_rev, 'total': unclass_rev_t},
                 'total':            total_revenue,
             },
             'expenditure': {
@@ -356,13 +397,15 @@ class IPSASReportService:
                 'capital_expenditure':   {'items': cap,   'total': cap_t},
                 'debt_service':          {'items': debt,  'total': debt_t},
                 'transfers_subventions': {'items': trans, 'total': trans_t},
+                'unclassified':          {'items': unclass_exp, 'total': unclass_exp_t},
                 'total':                 total_expenditure,
             },
             'surplus_deficit': surplus_deficit,
         }
 
     @classmethod
-    def _sum_posting_only(cls, balances_qs, prefix: str, side: str):
+    def _sum_posting_only(cls, balances_qs, prefix: str, side: str,
+                          exclude_prefixes: tuple[str, ...] = ()):
         """Like ``_sum_ncoa_group`` but without the hierarchical headers.
 
         Used for SoFPerformance, which renders a flat list.
@@ -378,11 +421,10 @@ class IPSASReportService:
         tidied afterwards; the header is reported and warned about
         instead.
         """
-        segments = (
-            Account.objects
-            .filter(code__startswith=prefix, is_active=True)
-            .order_by('code')
-        )
+        segments = Account.objects.filter(code__startswith=prefix, is_active=True)
+        for excluded in exclude_prefixes:
+            segments = segments.exclude(code__startswith=excluded)
+        segments = segments.order_by('code')
         items: list[dict] = []
         total = _zero()
         for seg in segments:

@@ -55,6 +55,30 @@ export default function FinancialPositionReport() {
             );
         });
 
+    // Accounts in the family but outside the statement's named
+    // sub-families (30xxxxxx, 48xxxxxx …). The backend reports them so
+    // they are not lost; this renders them only when there is something
+    // to render, so a well-coded chart shows no extra heading.
+    const renderUnclassified = (section: any, label: string) => {
+        const items = (section?.items || []).filter((i: any) => Number(i.amount) !== 0);
+        if (items.length === 0) return null;
+        return (
+            <div style={{ padding: '12px 0' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>
+                    {label}
+                    <span style={{ marginLeft: 8, fontWeight: 500, color: '#b45309', fontSize: '12px' }}>
+                        — not yet assigned to a statement heading; give these codes a
+                        sub-family so they report in the right place
+                    </span>
+                </div>
+                {renderItems(items)}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 600, fontSize: '13px', background: '#fffbeb', borderRadius: '4px' }}>
+                    <span>Total {label}</span><span style={{ fontFamily: 'monospace' }}>{fmtNGN(section?.total)}</span>
+                </div>
+            </div>
+        );
+    };
+
     const renderTotal = (label: string, amount: number, color: string) => (
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '2px solid #1e293b', marginTop: '8px' }}>
             <span style={{ fontWeight: 800, fontSize: '14px', color }}>{label}</span>
@@ -132,6 +156,7 @@ export default function FinancialPositionReport() {
                                     <span>Total Non-Current Assets</span><span style={{ fontFamily: 'monospace' }}>{fmtNGN(data.assets?.non_current?.total)}</span>
                                 </div>
                             </div>
+                            {renderUnclassified(data.assets?.unclassified, 'Unclassified Assets')}
                             {renderTotal('TOTAL ASSETS', data.assets?.total, '#008751')}
                         </div>
 
@@ -149,6 +174,7 @@ export default function FinancialPositionReport() {
                                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>Non-Current Liabilities</div>
                                 {renderItems(data.liabilities?.non_current?.items)}
                             </div>
+                            {renderUnclassified(data.liabilities?.unclassified, 'Unclassified Liabilities')}
                             {renderTotal('TOTAL LIABILITIES', data.liabilities?.total, '#c0392b')}
                         </div>
 
