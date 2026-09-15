@@ -74,3 +74,10 @@ htmlcov/
 .tox/
 .mypy_cache/
 .ruff_cache/
+
+# Per-navigation accessibility snapshots, console logs and screenshots
+# written by the Playwright MCP server during development. Throwaway
+# session artifacts — 76 had accumulated as untracked noise in every
+# `git status`. Playwright's own test-results/ and playwright-report/
+# are already covered by frontend/.gitignore.
+.playwright-mcp/
