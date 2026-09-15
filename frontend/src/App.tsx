@@ -141,6 +141,7 @@ const ApprovalRulesPage = lazy(() => import('./pages/gov/ApprovalRulesPage'));
 const OverrideAuditPage = lazy(() => import('./pages/gov/OverrideAuditPage'));
 const FiscalYearAdminPage = lazy(() => import('./pages/gov/FiscalYearAdminPage'));
 const AppropriationAdminPage = lazy(() => import('./pages/gov/AppropriationAdminPage'));
+const BudgetCheck = lazy(() => import('./pages/gov/BudgetCheck'));
 const ExecutionReport = lazy(() => import('./pages/gov/reports/ExecutionReport'));
 const GovernmentSetup = lazy(() => import('./pages/gov/GovernmentSetup'));
 const OrganizationManagement = lazy(() => import('./pages/gov/OrganizationManagement'));
@@ -712,6 +713,7 @@ function App() {
                       <Route path="/budget/warrants" element={<ProtectedRoute><WarrantList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget" element={<ProtectedRoute><RevenueBudgetList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget/new" element={<ProtectedRoute><RevenueBudgetForm /></ProtectedRoute>} />
+                      <Route path="/budget/check" element={<ProtectedRoute><BudgetCheck /></ProtectedRoute>} />
                       <Route path="/budget/execution-report" element={<ProtectedRoute><ExecutionReport /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts" element={<ProtectedRoute><TSAAccountList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-vouchers" element={<ProtectedRoute><PaymentVoucherList /></ProtectedRoute>} />

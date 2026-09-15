@@ -121,6 +121,7 @@ const menuItems: MenuItem[] = [
             { name: 'Revenue Budget', path: '/budget/revenue-budget', icon: Banknote },
             { name: 'Warrants / AIE', path: '/budget/warrants', icon: CreditCard },
             { name: 'Warrant Utilization', path: '/budget/warrant-utilization', icon: Scale },
+            { name: 'Budget Check', path: '/budget/check', icon: ShieldCheck },
             { name: 'Execution Report', path: '/budget/execution-report', icon: TrendingUp },
             { name: 'Variance Analysis', path: '/accounting/budget/variance', icon: TrendingUp },
         ],
