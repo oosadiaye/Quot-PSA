@@ -556,17 +556,17 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         admin_legacy = getattr(appr.administrative, 'legacy_mda', None) if appr.administrative_id else None
         fund_legacy  = getattr(appr.fund,           'legacy_fund', None) if appr.fund_id else None
-        from accounting.models.ncoa import EconomicSegment
-        descendant_econ_segs = [appr.economic] if appr.economic_id else []
-        frontier = list(descendant_econ_segs)
+        # ``economic`` is the GL account itself now, so the roll-up walks
+        # Account.parent rather than the economic-segment tree and then
+        # hopping through legacy_account to reach the same rows.
+        from accounting.models import Account
+        descendant_accounts = [appr.economic] if appr.economic_id else []
+        frontier = list(descendant_accounts)
         while frontier:
-            children = list(EconomicSegment.objects.filter(parent__in=frontier))
-            descendant_econ_segs.extend(children)
+            children = list(Account.objects.filter(parent__in=frontier))
+            descendant_accounts.extend(children)
             frontier = children
-        legacy_accounts = [
-            seg.legacy_account_id for seg in descendant_econ_segs
-            if seg.legacy_account_id
-        ]
+        legacy_accounts = [a.pk for a in descendant_accounts]
 
         fy = appr.fiscal_year
         fy_start = getattr(fy, 'start_date', None)

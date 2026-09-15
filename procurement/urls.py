@@ -7,7 +7,7 @@ from .views import (
     DownPaymentRequestViewSet,
     # BPP Due Process (Phase 5)
     ProcurementThresholdViewSet, CertificateOfNoObjectionViewSet,
-    ProcurementBudgetLinkViewSet, ThresholdCheckView,
+    ProcurementBudgetLinkViewSet, ThresholdCheckView, SplitPurchaseScanView,
 )
 
 router = DefaultRouter()
@@ -30,4 +30,6 @@ router.register(r'budget-links', ProcurementBudgetLinkViewSet, basename='budget-
 urlpatterns = [
     path('', include(router.urls)),
     path('threshold-check/', ThresholdCheckView.as_view(), name='threshold-check'),
+    # Advisory scan for threshold evasion and duplicate payments.
+    path('split-scan/', SplitPurchaseScanView.as_view(), name='split-scan'),
 ]

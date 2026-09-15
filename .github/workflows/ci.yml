@@ -91,6 +91,17 @@ jobs:
       - name: Pytest — no-DB fast tier
         run: |
           pytest \
+            superadmin/tests/test_ai_foundation.py \
+            superadmin/tests/test_ai_models.py \
+            superadmin/tests/test_ai_client.py \
+            core/tests/test_ai_tenant_view.py \
+            accounting/tests/test_ai_reconciliation.py \
+            procurement/tests/test_split_detection.py \
+            contracts/tests/test_duplicate_detection.py \
+            accounting/tests/test_allocation_guard.py \
+            accounting/tests/test_grir_not_postable.py \
+            accounting/tests/test_ncoa_series_compliance.py \
+            accounting/tests/test_ncoa_renumbering.py \
             accounting/tests/test_s14*.py \
             accounting/tests/test_s15*.py \
             accounting/tests/test_s16*.py \

@@ -18,7 +18,8 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     objects = SoftDeleteManager()
     all_objects = models.Manager()
 
-    invoice_number = models.CharField(max_length=50, unique=True, default='')
+    # Unique per vendor, not globally — see the constraint in Meta.
+    invoice_number = models.CharField(max_length=50, db_index=True, default='')
     reference = models.CharField(max_length=100, blank=True, default='')
     description = models.TextField(blank=True, default='')
     vendor = models.ForeignKey('procurement.Vendor', on_delete=models.PROTECT, related_name='invoices', null=True, blank=True)
@@ -85,6 +86,29 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
         ordering = ['-invoice_date', '-invoice_number']
         indexes = [
             models.Index(fields=['status', 'invoice_date'], name='vi_status_date_idx'),
+        ]
+        constraints = [
+            # Scoped to the vendor, not global.
+            #
+            # ``invoice_number`` used to be ``unique=True`` across the whole
+            # table, which is wrong in both directions. Two different
+            # suppliers legitimately issue "INV-001", and rejecting the
+            # second teaches staff to mangle it into "INV-001-A" — which
+            # destroys the very signal the constraint exists to protect.
+            # Meanwhile the duplicate that actually costs money — the same
+            # work re-submitted under a fresh number — passed straight
+            # through either way.
+            #
+            # Blank numbers are excluded: the old global rule allowed
+            # exactly ONE invoice in the entire system to have no number,
+            # which is an accident of the constraint rather than a policy.
+            # Soft-deleted rows are excluded so a mistaken capture can be
+            # deleted and re-entered with the same number.
+            models.UniqueConstraint(
+                fields=['vendor', 'invoice_number'],
+                condition=models.Q(is_deleted=False) & ~models.Q(invoice_number=''),
+                name='uniq_vendor_invoice_number',
+            ),
         ]
 
     @property

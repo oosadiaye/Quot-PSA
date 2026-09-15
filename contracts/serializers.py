@@ -297,6 +297,7 @@ class ContractSerializer(serializers.ModelSerializer):
         fields = [
             "id", "contract_number",
             "title", "description", "reference",
+            "duplicate_ack_ids", "duplicate_ack_reason",
             "contract_type", "procurement_method", "status",
             "vendor", "vendor_name", "vendor_code",
             "mda", "ncoa_code", "appropriation", "fiscal_year",

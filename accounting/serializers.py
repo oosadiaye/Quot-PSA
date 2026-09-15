@@ -217,7 +217,14 @@ class AccountSerializer(serializers.ModelSerializer):
             #     dictates the account type per Nigerian CoA standards.
             first_digit = code[0] if code else ''
             expected_type = self.NIGERIA_COA_SERIES.get(first_digit)
-            if expected_type and expected_type != account_type:
+            # NCoA's 4-series is "Liabilities and Net Assets", so Equity is
+            # valid there too. Sourced from AccountingSettings rather than
+            # restated, because the comment on NIGERIA_COA_SERIES asks for
+            # the two to stay in lockstep and a second literal is exactly
+            # how they drift apart.
+            from accounting.models.advanced import AccountingSettings
+            also_allowed = AccountingSettings.SERIES_ALSO_ALLOWS.get(first_digit, ())
+            if expected_type and expected_type != account_type and account_type not in also_allowed:
                 # Show "Revenue" in the user-facing message even though
                 # the internal choice value is 'Income'.
                 expected_label = 'Revenue' if expected_type == 'Income' else expected_type

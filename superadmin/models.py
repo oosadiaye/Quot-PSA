@@ -807,3 +807,17 @@ class Invoice(models.Model):
                         raise
                     continue
         super().save(*args, **kwargs)
+
+# ---------------------------------------------------------------------
+# AI provider configuration and call log.
+#
+# Defined in ai_models.py and imported here so Django registers them
+# against this app. This module is already long, and the AI layer is a
+# coherent unit that reads better on its own.
+# ---------------------------------------------------------------------
+from superadmin.ai_models import (  # noqa: E402,F401  (model registration)
+    AICall,
+    AICapability,
+    AIProvider,
+    TenantAISetting,
+)
