@@ -138,13 +138,45 @@ class TestRoleSerializerFields:
     """Freeze the API contract."""
 
     def test_serializer_fields(self):
+        """The wire shape of a Role, frozen deliberately.
+
+        This exists to catch fields appearing on the API by accident — a
+        new model column picked up by ``fields = '__all__'``, or an
+        internal attribute exposed while adding something else. When it
+        fails, decide which side is right: if the new field is intended,
+        add it here; if it leaked, remove it from the serializer.
+
+        Last reconciled after the granular-permission catalogue work
+        replaced the old ``permissions`` field with ``permission_codes``
+        (read) plus ``permission_codes_input`` (write).
+        """
         from core.views.roles import RoleSerializer
         expected = {
-            'id', 'code', 'name', 'module', 'module_display',
+            # Identity
+            'id', 'code', 'name', 'description',
+            'module', 'module_display',
             'role_type', 'role_type_display',
+            # Legacy boolean flags — still editable for old-shape roles
             'can_view', 'can_add', 'can_change', 'can_delete',
             'can_approve', 'can_post',
-            'is_active', 'is_default', 'permissions',
+            # Status
+            'is_active', 'is_default', 'is_system',
+            # Granular permissions: codes out, codes in (write-only)
+            'permission_codes', 'permission_codes_input',
+            'legacy_permission_strings',
+            # Derived
+            'assigned_user_count',
             'created_at', 'updated_at',
         }
         assert set(RoleSerializer.Meta.fields) == expected
+
+    def test_read_only_fields_are_all_declared_fields(self):
+        """A read_only entry naming a field that isn't served is a typo.
+
+        DRF silently ignores it, so the field stays writable and the
+        author believes it is locked.
+        """
+        from core.views.roles import RoleSerializer
+        declared = set(RoleSerializer.Meta.fields)
+        read_only = set(RoleSerializer.Meta.read_only_fields)
+        assert read_only <= declared, f'not served: {sorted(read_only - declared)}'
