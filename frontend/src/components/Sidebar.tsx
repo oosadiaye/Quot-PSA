@@ -165,7 +165,9 @@ const menuItems: MenuItem[] = [
             { name: 'Programme', path: '/accounting/ncoa/programme', icon: FileText },
             { name: 'Fund Sources', path: '/accounting/ncoa/fund', icon: Wallet },
             { name: 'Geographic', path: '/accounting/ncoa/geographic', icon: MapPin },
-            { name: 'NCoA Codes', path: '/accounting/ncoa/codes', icon: Layers },
+            // The composite code is assembled from the five segments at
+            // submit time (via /accounting/ncoa/codes/resolve/), not
+            // maintained by hand — so it is not a navigation destination.
         ],
     },
     {

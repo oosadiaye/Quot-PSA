@@ -60,6 +60,20 @@ class IPSASJournalService:
         lines = journal.lines.all()
         line_count = lines.count()
 
+        # A reversal is the remedy for a posting that already happened,
+        # not a new choice of account. Its lines are copied from the
+        # original journal, so the *classification* gates below —
+        # header / posting-level / control account — must not apply to
+        # it: those describe what an operator may choose today, and the
+        # original choice was legal when it was made.
+        #
+        # Without this, re-classifying an account (flagging a group root
+        # as a header, say) would strand every journal that ever touched
+        # it: the error could no longer be reversed, only compounded.
+        # Balance, sign and double-entry rules still apply — those are
+        # properties of the journal itself, not of the chart.
+        is_reversal = (getattr(journal, 'source_module', '') or '') == 'reversal'
+
         # 1. Minimum 2 lines for double-entry
         if line_count < 2:
             errors.append("Journal must have at least 2 lines (double-entry).")
@@ -90,7 +104,7 @@ class IPSASJournalService:
             #    account, so the checks are the GL's own flags:
             #    ``is_postable`` (was is_posting_level) and
             #    ``is_reconciliation`` (was is_control_account).
-            if hasattr(line, 'ncoa_code') and line.ncoa_code:
+            if not is_reversal and hasattr(line, 'ncoa_code') and line.ncoa_code:
                 eco = line.ncoa_code.economic
                 if not eco.is_postable:
                     errors.append(
@@ -112,7 +126,8 @@ class IPSASJournalService:
             # at form level and the DB-level validators on JournalLine);
             # we still run it here so raw-SQL inserts and bypass paths
             # also can't slip through to ``status='Posted'``.
-            if line.account_id and line.account and not line.account.is_postable:
+            if (not is_reversal and line.account_id and line.account
+                    and not line.account.is_postable):
                 errors.append(
                     f"Line {idx}: Account {line.account.code} "
                     f"({line.account.name}) is a header / group account "
