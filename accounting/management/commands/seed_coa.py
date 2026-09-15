@@ -10,7 +10,7 @@ Usage:
   python manage.py seed_coa --validate   # check every DEFAULT_GL_ACCOUNTS key resolves
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 from accounting.models import Account
 
@@ -466,6 +466,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            '--allow-non-ncoa',
+            action='store_true',
+            help=('Seed the legacy COMMERCIAL chart anyway. It is not NCoA '
+                  'compliant; use seed_ncoa_as_coa for government tenants.'),
+        )
+        parser.add_argument(
             '--reset',
             action='store_true',
             help='Delete ALL existing Account records before seeding (clean slate)',
@@ -485,6 +491,31 @@ class Command(BaseCommand):
         reset    = options.get('reset', False)
         force    = options.get('force', False)
         validate = options.get('validate', False)
+
+        # ── 0. Refuse by default: this chart is not NCoA compliant ────────────
+        #
+        # The codes below follow the generic commercial convention —
+        # 1 Asset, 2 Liability, 5 Expense — which is the opposite of the
+        # Nigerian NCoA families this product is built on:
+        #
+        #     1 Revenue   2 Expenditure   3 Assets   4 Liabilities & Net Assets
+        #
+        # Tenant provisioning stopped calling this long ago and uses
+        # ``seed_ncoa_as_coa`` instead, which produces a compliant chart.
+        # Migrations 0095, 0115, 0116 and 0117 exist solely to undo the
+        # damage this seeder did to tenants created before that switch.
+        # Running it again would put every one of them back.
+        if not options.get('allow_non_ncoa'):
+            raise CommandError(
+                "seed_coa seeds a COMMERCIAL chart (1 Asset / 2 Liability / "
+                "5 Expense) and is NOT compliant with the Nigerian NCoA "
+                "families this product enforces (1 Revenue / 2 Expenditure / "
+                "3 Assets / 4 Liabilities & Net Assets).\n\n"
+                "Use `seed_ncoa_as_coa` — that is what tenant provisioning "
+                "calls and it produces a compliant chart.\n\n"
+                "If you genuinely need the legacy commercial chart (a "
+                "non-government demo, say), re-run with --allow-non-ncoa."
+            )
 
         # ── 1. Optional clean-slate wipe ──────────────────────────────────────
         if reset:
