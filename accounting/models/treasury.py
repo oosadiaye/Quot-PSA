@@ -208,6 +208,29 @@ class PaymentVoucherGov(AuditBaseModel):
             models.Index(fields=['status', 'payment_type']),
             models.Index(fields=['voucher_number']),
         ]
+        constraints = [
+            # One live voucher per source document.
+            #
+            # ``ipc_service.raise_payment_voucher`` already refuses to link a
+            # second PV to an IPC, under a row lock. That guard is good and
+            # it is also only a guard — it protects the one path that goes
+            # through it. A voucher raised anywhere else can cite the same
+            # IPC, contract certificate or invoice again, and the bank is
+            # instructed twice.
+            #
+            # Cancelled and reversed vouchers are excluded so a mistake can
+            # be undone and the source legitimately re-paid. Same shape as
+            # ``uniq_active_payment_batch_membership`` in payment_batch.py,
+            # which solved the same problem one layer down.
+            models.UniqueConstraint(
+                fields=['source_document'],
+                condition=(
+                    ~models.Q(source_document='')
+                    & ~models.Q(status__in=['CANCELLED', 'REVERSED'])
+                ),
+                name='uniq_live_pv_source_document',
+            ),
+        ]
 
     def __str__(self):
         return f"PV {self.voucher_number} - {self.payee_name} - NGN {self.net_amount:,.2f}"

@@ -97,6 +97,7 @@ jobs:
             core/tests/test_ai_tenant_view.py \
             accounting/tests/test_ai_reconciliation.py \
             procurement/tests/test_split_detection.py \
+            contracts/tests/test_duplicate_detection.py \
             accounting/tests/test_s14*.py \
             accounting/tests/test_s15*.py \
             accounting/tests/test_s16*.py \
