@@ -134,9 +134,7 @@ def test_one_code_may_cover_several_lines(line):
     assert Appropriation.objects.filter(budget_code='BL-2026-0142').count() == 2
 
 
-def test_the_code_is_long_enough_for_a_real_reference(line):
-    """50 characters — the column the Delta State schema already had."""
-    field = line()._meta.get_field('budget_code')
-    assert field.max_length == 50
-    assert field.blank is True
-    assert field.unique is False
+# The field's declaration — length, optionality, non-uniqueness — is
+# covered in tests/test_budget_code_columns.py, which ties max_length to
+# the importer's truncation rather than restating the number. This file
+# stays about behaviour in the database.

@@ -394,7 +394,7 @@ class RevenueBudgetSerializer(serializers.ModelSerializer):
             'economic', 'economic_name', 'economic_code', 'fund', 'fund_name', 'fund_code',
             'estimated_amount', 'monthly_spread', 'status',
             'actual_collected', 'variance', 'performance_rate',
-            'description', 'notes', 'created_at', 'updated_at',
+            'description', 'notes', 'budget_code', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at',

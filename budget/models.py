@@ -1640,6 +1640,21 @@ class RevenueBudget(AuditBaseModel):
     )
     description = models.CharField(max_length=500, blank=True, default='')
     notes = models.TextField(blank=True, default='')
+    # Revenue lines carry the organisation's own reference too — the same
+    # field, for the same reason, as on Appropriation. Taken verbatim from
+    # feat/budget-line-code rather than reworded, so the two definitions
+    # cannot drift into meaning different things.
+    budget_code = models.CharField(
+        max_length=50, blank=True, default='', db_index=True,
+        help_text=(
+            "Your own reference for the budget line this row belongs to "
+            "(e.g. 'BL-2026-0142'). Optional and free text: the NCoA "
+            "segment combination is what identifies the line "
+            "structurally, so this is for tracking against an external "
+            "budget document, not a key. Deliberately not unique — "
+            "several rows may roll up to one budget line."
+        ),
+    )
 
     class Meta:
         ordering = ['fiscal_year', 'administrative', 'economic']

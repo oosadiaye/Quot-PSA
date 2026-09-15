@@ -286,16 +286,24 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     # one appropriation row). Without this filter, the frontend would
     # have to fetch every appropriation under the MDA and filter
     # client-side — fine for 10 lines, slow for 1000.
-    filterset_fields = [
-        'status', 'appropriation_type', 'fiscal_year',
-        'administrative', 'fund', 'economic',
-        # Exact match, for "show me every line under this budget code" —
-        # the field is deliberately not unique, so this legitimately
-        # returns the whole group that rolls up to one code.
-        'budget_code',
-    ]
-    # ``search`` is icontains, which is what the Budget Check box needs:
-    # an officer half-remembering 'BL-2026-01' should still find it.
+    # Dict form so budget_code can offer a partial match alongside the
+    # exact lookups. Every other entry keeps its plain '?field=' name,
+    # so existing callers are unaffected. Taken from
+    # feat/budget-line-code, which had the better shape than the
+    # exact-only list this replaced.
+    filterset_fields = {
+        'status': ['exact'],
+        'appropriation_type': ['exact'],
+        'fiscal_year': ['exact'],
+        'administrative': ['exact'],
+        'fund': ['exact'],
+        'economic': ['exact'],
+        # '?budget_code=BL-2026-0142' for one line,
+        # '?budget_code__icontains=BL-2026' to gather a whole series.
+        'budget_code': ['exact', 'icontains'],
+    }
+    # Also reachable from the generic '?search=' box, which is what the
+    # shared list toolbar and Budget Check use.
     search_fields = [
         'budget_code', 'administrative__name', 'economic__name',
         'economic__code', 'description',
@@ -867,20 +875,26 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             '(e.g. economic_code "21100100", mda_code "010100000000",',
             'fund_code "02101"). Dimensions whose codes do not exist in your',
             'NCoA tables are rejected with a clear error pointing at the row.',
+            '  budget_code: your own reference for the budget line',
+            '    (e.g. "BL-2026-0142"). Free text, need not be unique — several',
+            '    rows may roll up to one budget line. Leave blank if unused.',
             'Lines starting with # (like these) are ignored on import.',
         ]
 
-        cols = [
-            'fiscal_year', 'mda_code', 'economic_code', 'fund_code',
-            'functional_code', 'programme_code', 'geographic_code',
-            'appropriation_type', 'amount_approved',
-            'law_reference', 'enactment_date', 'description', 'notes',
-        ]
+        # Column order lives in ``budget.import_columns`` so the template
+        # and the parser cannot disagree about it. budget_code is last,
+        # which is what lets a CSV saved before the column existed still
+        # upload unchanged.
+        from .import_columns import APPROPRIATION_COLUMNS
+        cols = APPROPRIATION_COLUMNS
+        # Two rows share BL-2026-0101 on purpose: a budget line split
+        # across economic segments is the normal case, and the blank
+        # fourth row shows the column is optional.
         examples = [
-            ['2026', '010100000000', '21100100', '02101', '01101', '01000000', '', 'ORIGINAL', '500000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost - Salaries (Office of Governor)', ''],
-            ['2026', '010100000000', '22100100', '02101', '01101', '01000000', '', 'ORIGINAL', '120000000.00', 'Appropriation Act 2026', '2026-01-15', 'Travel & Transport', ''],
-            ['2026', '010100000000', '23010101', '02101', '01101', '01000000', '', 'ORIGINAL', '850000000.00', 'Appropriation Act 2026', '2026-01-15', 'Office Buildings — Capital Project', ''],
-            ['2026', '020100000000', '21100100', '02101', '07101', '07000000', '', 'ORIGINAL', '300000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost (Min. of Health)', ''],
+            ['2026', '010100000000', '21100100', '02101', '01101', '01000000', '', 'ORIGINAL', '500000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost - Salaries (Office of Governor)', '', 'BL-2026-0101'],
+            ['2026', '010100000000', '22100100', '02101', '01101', '01000000', '', 'ORIGINAL', '120000000.00', 'Appropriation Act 2026', '2026-01-15', 'Travel & Transport', '', 'BL-2026-0101'],
+            ['2026', '010100000000', '23010101', '02101', '01101', '01000000', '', 'ORIGINAL', '850000000.00', 'Appropriation Act 2026', '2026-01-15', 'Office Buildings — Capital Project', '', 'BL-2026-0177'],
+            ['2026', '020100000000', '21100100', '02101', '07101', '07000000', '', 'ORIGINAL', '300000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost (Min. of Health)', '', ''],
         ]
 
         output = io.StringIO()
@@ -1301,6 +1315,14 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 }
                 if enact_date is not None:
                     defaults['enactment_date'] = enact_date
+
+                # Only written when the upload actually carries the column:
+                # a CSV saved before this field existed must not wipe codes
+                # on re-upload. See budget_code_update.
+                from .import_columns import budget_code_update
+                defaults.update(
+                    budget_code_update(df.columns, row.get('budget_code'))
+                )
 
                 _, was_created = Appropriation.objects.update_or_create(
                     fiscal_year=fy,
@@ -2261,8 +2283,20 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_admin_field = 'administrative'
     serializer_class = RevenueBudgetSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['fiscal_year', 'status', 'administrative']
+    # SearchFilter was absent here, so '?search=' silently returned the
+    # whole list rather than erroring — a filter that looks applied and
+    # is not. Added along with the budget_code lookups, from
+    # feat/budget-line-code.
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'fiscal_year': ['exact'],
+        'status': ['exact'],
+        'administrative': ['exact'],
+        'budget_code': ['exact', 'icontains'],
+    }
+    search_fields = [
+        'administrative__name', 'economic__name', 'description', 'budget_code',
+    ]
     ordering = ['fiscal_year', 'administrative', 'economic']
 
     def get_queryset(self):
@@ -2277,23 +2311,25 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         import csv
         from django.http import HttpResponse
 
+        # Column order lives in ``budget.import_columns`` so template and
+        # parser cannot disagree about it.
+        from .import_columns import REVENUE_COLUMNS
+
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([
-            'fiscal_year', 'administrative_code', 'economic_code', 'fund_code',
-            'estimated_amount', 'jan', 'feb', 'mar', 'apr', 'may', 'jun',
-            'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'description',
-        ])
+        writer.writerow(REVENUE_COLUMNS)
+        # budget_code is the trailing column and is optional — the
+        # second example leaves it blank to show that.
         writer.writerow([
             '2026', '011300000000', '11100100', '08000',
             '500000000', '', '', '', '', '', '',
-            '', '', '', '', '', '', 'PAYE from SIRS',
+            '', '', '', '', '', '', 'PAYE from SIRS', 'RB-2026-0012',
         ])
         writer.writerow([
             '2026', '010600000000', '12100100', '08000',
             '120000000', '10000000', '10000000', '10000000', '10000000',
             '10000000', '10000000', '10000000', '10000000', '10000000',
-            '10000000', '10000000', '10000000', 'Fees and fines',
+            '10000000', '10000000', '10000000', 'Fees and fines', '',
         ])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
@@ -2371,12 +2407,19 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
                 desc = str(row.get('description', '')).strip() if pd.notna(row.get('description')) else ''
 
+                # This reader keeps pandas' default NA handling, so a blank
+                # cell arrives as NaN and str(NaN) == 'nan'. clean_budget_code
+                # absorbs that along with a missing column.
+                from .import_columns import clean_budget_code
+                budget_code = clean_budget_code(row.get('budget_code'))
+
                 RevenueBudget.objects.create(
                     fiscal_year=fy, administrative=admin, economic=econ, fund=fund,
                     estimated_amount=amt,
                     monthly_spread=spread if spread else None,
                     status='ACTIVE',
                     description=desc,
+                    budget_code=budget_code,
                 )
                 created += 1
             except Exception as e:
