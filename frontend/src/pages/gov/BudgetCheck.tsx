@@ -170,7 +170,24 @@ const BudgetCheck = () => {
         [lines],
     );
 
+    const hasFilter = Boolean(
+        codeQuery || descQuery || mda || fund || econ || status || fiscalYearId,
+    );
+
+    /**
+     * Nothing is listed until the officer asks for something.
+     *
+     * This is an enquiry screen, not a register: opening it should not
+     * answer a question nobody put. Listing every line by default also
+     * trains the eye to skim a page that is usually irrelevant, and on a
+     * real chart it is thousands of rows deep.
+     *
+     * The rows are still fetched on load, because the dropdowns below are
+     * built from them — that is what guarantees no option can return an
+     * empty result. Only the display waits.
+     */
     const filtered = useMemo(() => {
+        if (!hasFilter) return [];
         const code = codeQuery.trim().toLowerCase();
         const desc = descQuery.trim().toLowerCase();
         return lines.filter((l) => {
@@ -220,9 +237,6 @@ const BudgetCheck = () => {
         [filtered, selectedId],
     );
 
-    const hasFilter = Boolean(
-        codeQuery || descQuery || mda || fund || econ || status || fiscalYearId,
-    );
     const clear = () => {
         setCodeQuery(''); setDescQuery(''); setMda(''); setFund(''); setEcon(''); setStatus('');
         setFiscalYearId('');
@@ -405,7 +419,9 @@ const BudgetCheck = () => {
                                 Matching budget lines
                             </h2>
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                {isLoading ? 'Loading…' : `${filtered.length} of ${lines.length}`}
+                                {!hasFilter
+                                    ? `${lines.length} budget line${lines.length === 1 ? '' : 's'} to search`
+                                    : isLoading ? 'Loading…' : `${filtered.length} of ${lines.length}`}
                             </span>
                         </div>
 
@@ -415,6 +431,22 @@ const BudgetCheck = () => {
                             </div>
                         ) : isLoading ? (
                             <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading…</div>
+                        ) : !hasFilter ? (
+                            <div style={{
+                                color: '#64748b', fontSize: '0.82rem', padding: '1.6rem 1.2rem',
+                                textAlign: 'center', lineHeight: 1.6,
+                            }}>
+                                <Search size={18} style={{ color: '#cbd5e1' }} />
+                                <div style={{ marginTop: '0.4rem' }}>
+                                    Enter a budget code, or use any filter above, to find a budget line.
+                                </div>
+                                <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                                    {/* Saying nothing has been searched for is not the same as
+                                        saying nothing was found, and the difference matters on a
+                                        screen whose whole job is answering "is there budget?" */}
+                                    Nothing is listed until you search.
+                                </div>
+                            </div>
                         ) : filtered.length === 0 ? (
                             <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
                                 {lines.length === 0
