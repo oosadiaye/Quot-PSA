@@ -58,7 +58,10 @@ class NCoACodeAdmin(admin.ModelAdmin):
         'administrative', 'economic', 'functional',
         'programme', 'fund', 'geographic',
     ]
-    list_filter   = ['is_active', 'fund', 'economic__account_type_code']
+    # ``economic`` is now the GL Account, which carries ``account_type``
+    # ('Expense', 'Asset', …) rather than the NCoA ``account_type_code``
+    # digit the retired EconomicSegment used.
+    list_filter   = ['is_active', 'fund', 'economic__account_type']
     search_fields = ['economic__code', 'economic__name', 'administrative__name']
     raw_id_fields = [
         'administrative', 'economic', 'functional',

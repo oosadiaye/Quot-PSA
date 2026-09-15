@@ -35,10 +35,12 @@ class RevenueHead(AuditBaseModel):
 
     code             = models.CharField(max_length=20, unique=True, db_index=True)
     name             = models.CharField(max_length=200)
+    # The NCoA economic code and the GL account are one classifier in
+    # public-sector accounting; Account is the survivor.
     economic_segment = models.ForeignKey(
-        'accounting.EconomicSegment', on_delete=models.PROTECT,
+        'accounting.Account', on_delete=models.PROTECT,
         related_name='revenue_heads',
-        help_text="NCoA economic code for this revenue type",
+        help_text="NCoA economic code (GL account) for this revenue type",
     )
     revenue_type     = models.CharField(max_length=30, choices=REVENUE_TYPE_CHOICES)
     collection_mda   = models.ForeignKey(

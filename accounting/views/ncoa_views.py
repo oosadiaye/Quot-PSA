@@ -381,7 +381,9 @@ class NCoACodeViewSet(viewsets.ModelViewSet):
     serializer_class = NCoACodeSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['is_active', 'economic__account_type_code', 'fund']
+    # economic is the GL Account now — it carries account_type, not the
+    # NCoA account_type_code digit the retired segment model used.
+    filterset_fields = ['is_active', 'economic__account_type', 'fund']
     search_fields = ['economic__code', 'economic__name', 'administrative__name']
     ordering = ['economic__code']
 

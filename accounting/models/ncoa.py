@@ -394,7 +394,18 @@ class NCoACode(AuditBaseModel):
     Created on-demand when a unique combination is first used.
     """
     administrative = models.ForeignKey(AdministrativeSegment, on_delete=models.PROTECT)
-    economic       = models.ForeignKey(EconomicSegment, on_delete=models.PROTECT)
+    # The economic dimension is the chart of accounts itself.
+    #
+    # In public-sector accounting the NCoA economic segment and the GL
+    # account are the same classifier — same codes, same names, same
+    # hierarchy. They were kept in two tables with a sync service and a
+    # signal to hold them level, which is a lot of machinery to maintain a
+    # copy. ``Account`` is the survivor; the other five segments keep
+    # their own models because they classify things the GL does not.
+    economic       = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT,
+        related_name='ncoa_codes',
+    )
     functional     = models.ForeignKey(FunctionalSegment, on_delete=models.PROTECT)
     programme      = models.ForeignKey(ProgrammeSegment, on_delete=models.PROTECT)
     fund           = models.ForeignKey(FundSegment, on_delete=models.PROTECT)

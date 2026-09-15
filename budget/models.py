@@ -693,8 +693,13 @@ class Appropriation(AuditBaseModel):
         'accounting.AdministrativeSegment', on_delete=models.PROTECT,
         related_name='appropriations',
     )
+    # The economic classifier is the GL account. In public-sector
+    # accounting the NCoA economic segment and the chart of accounts are
+    # the same list, and the duplicate table has been retired — which
+    # also removes the legacy_account hop this model used to make to
+    # reach the GL.
     economic         = models.ForeignKey(
-        'accounting.EconomicSegment', on_delete=models.PROTECT,
+        'accounting.Account', on_delete=models.PROTECT,
         related_name='appropriations',
     )
     functional       = models.ForeignKey(
@@ -838,11 +843,9 @@ class Appropriation(AuditBaseModel):
             missing.append(
                 f"fund segment '{self.fund.code}' has no legacy_fund bridge"
             )
-        if self.economic_id and not getattr(self.economic, 'legacy_account_id', None):
-            missing.append(
-                f"economic segment '{self.economic.code}' has no "
-                "legacy_account bridge"
-            )
+        # ``economic`` no longer needs a bridge check: it *is* the GL
+        # account. The administrative and fund segments still classify
+        # things the GL does not, so they keep theirs.
         if missing:
             raise ValidationError({
                 'status': (
@@ -1028,22 +1031,20 @@ class Appropriation(AuditBaseModel):
         fund_legacy  = getattr(self.fund,           'legacy_fund', None) if self.fund_id else None
         if admin_legacy and fund_legacy and self.economic_id:
             from accounting.models.receivables import VendorInvoice
-            from accounting.models.ncoa import EconomicSegment as _EconSeg
-            # Collect every legacy Account whose NCoA economic segment is
-            # this appropriation's economic OR any descendant of it. That
-            # way a child-coded VI is captured by the parent appropriation.
-            descendant_econ_segs = [self.economic]
-            # BFS down the parent chain
+            from accounting.models import Account as _Account
+            # Collect this appropriation's GL account and every descendant
+            # of it, so a child-coded VI is captured by the parent
+            # appropriation. ``economic`` is the account itself now, so the
+            # walk is over Account.parent — it used to climb the economic
+            # segment tree and then hop through legacy_account to land on
+            # exactly these rows.
+            descendant_accounts = [self.economic]
             frontier = [self.economic]
             while frontier:
-                children = list(_EconSeg.objects.filter(parent__in=frontier))
-                descendant_econ_segs.extend(children)
+                children = list(_Account.objects.filter(parent__in=frontier))
+                descendant_accounts.extend(children)
                 frontier = children
-            # Gather legacy_account FKs for all descendant economic segments.
-            legacy_accounts = [
-                seg.legacy_account_id for seg in descendant_econ_segs
-                if seg.legacy_account_id
-            ]
+            legacy_accounts = [a.pk for a in descendant_accounts]
             if legacy_accounts:
                 # S1-12 — restrict direct AP invoices to the fiscal year
                 # that covers THIS appropriation. Without the year filter,
@@ -1205,7 +1206,6 @@ class Appropriation(AuditBaseModel):
         from django.db.models import Sum, Q
         from accounting.models.receivables import VendorInvoice
         from accounting.models.gl import JournalLine
-        from accounting.models.ncoa import EconomicSegment as _EconSeg
 
         admin_legacy = getattr(self.administrative, 'legacy_mda', None) if self.administrative_id else None
         fund_legacy  = getattr(self.fund,           'legacy_fund', None) if self.fund_id else None
@@ -1229,17 +1229,18 @@ class Appropriation(AuditBaseModel):
             )
             return Decimal('0')
 
-        # Walk the economic-segment subtree once and reuse for all sources.
-        descendant_econ_segs = [self.economic]
+        # Walk the GL account subtree once and reuse for all sources.
+        # ``economic`` is the account itself now — this used to walk the
+        # economic-segment tree and hop through legacy_account to reach
+        # exactly these rows.
+        from accounting.models import Account as _Account
+        descendant_accounts = [self.economic]
         frontier = [self.economic]
         while frontier:
-            children = list(_EconSeg.objects.filter(parent__in=frontier))
-            descendant_econ_segs.extend(children)
+            children = list(_Account.objects.filter(parent__in=frontier))
+            descendant_accounts.extend(children)
             frontier = children
-        legacy_accounts = [
-            seg.legacy_account_id for seg in descendant_econ_segs
-            if seg.legacy_account_id
-        ]
+        legacy_accounts = [a.pk for a in descendant_accounts]
         if not legacy_accounts:
             return Decimal('0')
 
@@ -1583,9 +1584,9 @@ class RevenueBudget(AuditBaseModel):
         help_text='MDA responsible for collecting this revenue',
     )
     economic = models.ForeignKey(
-        'accounting.EconomicSegment', on_delete=models.PROTECT,
+        'accounting.Account', on_delete=models.PROTECT,
         related_name='revenue_budgets',
-        help_text='NCoA Revenue account (must be type 1 = Revenue)',
+        help_text='NCoA revenue account (GL account, 1-series Revenue)',
     )
     fund = models.ForeignKey(
         'accounting.FundSegment', on_delete=models.PROTECT,
