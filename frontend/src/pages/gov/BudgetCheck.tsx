@@ -68,6 +68,12 @@ const card: React.CSSProperties = {
     marginBottom: '1rem',
 };
 
+const txTd: React.CSSProperties = {
+    padding: '0.45rem 0.6rem',
+    borderBottom: '1px solid #f8fafc',
+    color: '#1e293b',
+};
+
 type Line = Record<string, any>;
 
 /**
@@ -183,6 +189,30 @@ const BudgetCheck = () => {
             return true;
         });
     }, [lines, codeQuery, descQuery, mda, fund, econ, status]);
+
+    /**
+     * What actually consumed this line. The backend enumerates the very
+     * sources its ``total_committed`` / ``total_expended`` are summed
+     * from, so the rows below and the figures above cannot disagree —
+     * and it reports any source it failed to read, which is surfaced
+     * rather than quietly producing a short list that looks complete.
+     */
+    const { data: drill, isLoading: drillLoading, isError: drillError } = useQuery<any>({
+        queryKey: ['budget-check-transactions', selectedId],
+        enabled: Boolean(selectedId),
+        queryFn: async () => {
+            const { data } = await apiClient.get(
+                `/budget/appropriations/${selectedId}/transactions/`,
+            );
+            return data;
+        },
+        staleTime: 30 * 1000,
+    });
+
+    const txns: any[] = drill?.transactions ?? [];
+    const txnSummary = drill?.summary ?? null;
+    const drillWarnings: string[] = drill?._warnings ?? [];
+    const txnTotal = txns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
 
     const selected = useMemo(
         () => filtered.find((l) => String(l.id) === String(selectedId)) || null,
@@ -528,6 +558,180 @@ const BudgetCheck = () => {
                         <div style={{ ...card, display: 'flex', alignItems: 'center', gap: '0.55rem', color: '#64748b', fontSize: '0.82rem' }}>
                             <Info size={15} />
                             Select a budget line above to see its current position.
+                        </div>
+                    )}
+
+                    {/* What consumed this line */}
+                    {selected && (
+                        <div style={card}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.6rem' }}>
+                                <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                    Transactions recorded against this line
+                                </h2>
+                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                    {drillLoading ? 'Loading...' : `${txns.length} transaction${txns.length === 1 ? '' : 's'}`}
+                                </span>
+                            </div>
+
+                            {drillWarnings.length > 0 && (
+                                <div style={{
+                                    background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e',
+                                    borderRadius: '6px', padding: '0.5rem 0.7rem', fontSize: '0.75rem',
+                                    marginBottom: '0.6rem',
+                                }}>
+                                    {/* A source the backend could not read. Saying so matters more
+                                        than the list looking tidy: a short list that looks complete
+                                        is how an officer concludes there is budget left when there
+                                        is not. */}
+                                    This drill-down is incomplete &mdash; {drillWarnings.join('; ')}
+                                </div>
+                            )}
+
+                            {drillError ? (
+                                <div style={{ color: '#b91c1c', fontSize: '0.8rem', padding: '0.8rem' }}>
+                                    Could not load the transactions for this line.
+                                </div>
+                            ) : drillLoading ? (
+                                <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading...</div>
+                            ) : txns.length === 0 ? (
+                                <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
+                                    Nothing has been committed or spent against this line yet.
+                                </div>
+                            ) : (
+                                <div style={{ overflowX: 'auto', border: '1px solid #f1f5f9', borderRadius: '6px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead style={{ background: '#f8fafc' }}>
+                                            <tr>
+                                                {['Date', 'Type', 'Reference', 'Party', 'Description', 'Status', 'Amount'].map((h, i) => (
+                                                    <th key={h} style={{
+                                                        padding: '0.5rem 0.6rem', textAlign: i === 6 ? 'right' : 'left',
+                                                        fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
+                                                        letterSpacing: '0.03em', color: '#64748b',
+                                                        borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                                                    }}>{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {txns.map((t, idx) => {
+                                                const isExpended = t.kind === 'expended';
+                                                return (
+                                                    <tr key={`${t.type}-${t.source_id}-${idx}`}>
+                                                        <td style={txTd}>{t.date || '\u2014'}</td>
+                                                        <td style={{ ...txTd, whiteSpace: 'nowrap' }}>
+                                                            <span style={{
+                                                                background: isExpended ? '#fef2f2' : '#fffbeb',
+                                                                color: isExpended ? '#dc2626' : '#b45309',
+                                                                padding: '0.1rem 0.4rem', borderRadius: '4px',
+                                                                fontSize: '0.66rem', fontWeight: 700,
+                                                            }}>
+                                                                {isExpended ? 'Expended' : 'Committed'}
+                                                            </span>
+                                                            <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '0.1rem' }}>{t.type}</div>
+                                                        </td>
+                                                        <td style={{ ...txTd, fontFamily: 'monospace' }}>{t.reference || '\u2014'}</td>
+                                                        <td style={txTd}>{t.party || '\u2014'}</td>
+                                                        <td style={{ ...txTd, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {t.description || '\u2014'}
+                                                        </td>
+                                                        <td style={txTd}>{t.status || '\u2014'}</td>
+                                                        <td style={{ ...txTd, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: isExpended ? '#dc2626' : '#b45309' }}>
+                                                            {fmtNGN(t.amount)}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        {/* Sum at the bottom. Committed and expended are shown apart
+                                            before they are added: a transaction is one or the other,
+                                            never both, so the total is what this line has consumed —
+                                            and it is the same subtraction that produces the Available
+                                            figure on the panel above. */}
+                                        <tfoot>
+                                            {txnSummary && (
+                                                <>
+                                                    <tr style={{ background: '#fafafa' }}>
+                                                        <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: '#b45309', fontWeight: 600 }}>
+                                                            Committed ({txnSummary.committed_count})
+                                                        </td>
+                                                        <td style={{ ...txTd, textAlign: 'right', fontWeight: 700, color: '#b45309', whiteSpace: 'nowrap' }}>
+                                                            {fmtNGN(txnSummary.committed_total)}
+                                                        </td>
+                                                    </tr>
+                                                    <tr style={{ background: '#fafafa' }}>
+                                                        <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: '#dc2626', fontWeight: 600 }}>
+                                                            Expended ({txnSummary.expended_count})
+                                                        </td>
+                                                        <td style={{ ...txTd, textAlign: 'right', fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>
+                                                            {fmtNGN(txnSummary.expended_total)}
+                                                        </td>
+                                                    </tr>
+                                                </>
+                                            )}
+                                            <tr style={{ background: '#f1f5f9' }}>
+                                                <td colSpan={6} style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: '#1e293b', borderTop: '2px solid #cbd5e1' }}>
+                                                    Total of listed transactions
+                                                </td>
+                                                <td style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: '#1e293b', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }}>
+                                                    {fmtNGN(txnTotal)}
+                                                </td>
+                                            </tr>
+                                            {/* The appropriation keeps its own figure for what it
+                                                has consumed, and it is not always this sum: the
+                                                drill-down walks descendant GL accounts, so a
+                                                parent-coded line lists spend that belongs to its
+                                                children's own budget lines. Showing both numbers
+                                                next to each other without a word would invite the
+                                                reader to assume the smaller one is wrong. Stating
+                                                the gap is the honest option — and it is a
+                                                data-quality signal worth seeing. */}
+                                            {(() => {
+                                                const consumed = (parseFloat(selected.total_expended) || 0)
+                                                    + (parseFloat(selected.total_all_committed ?? selected.total_committed) || 0);
+                                                const gap = txnTotal - consumed;
+                                                if (Math.abs(gap) < 0.01) {
+                                                    return (
+                                                        <tr>
+                                                            <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: '#047857', fontWeight: 700 }}>
+                                                                Available after these
+                                                            </td>
+                                                            <td style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: '#047857', whiteSpace: 'nowrap' }}>
+                                                                {fmtNGN(selected.available_balance)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
+                                                return (
+                                                    <>
+                                                        <tr>
+                                                            <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: '#64748b', fontWeight: 600 }}>
+                                                                This line&rsquo;s own consumed figure
+                                                            </td>
+                                                            <td style={{ ...txTd, textAlign: 'right', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                                                {fmtNGN(consumed)}
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td colSpan={7} style={{
+                                                                ...txTd, background: '#fffbeb', color: '#92400e',
+                                                                fontSize: '0.72rem', lineHeight: 1.45,
+                                                            }}>
+                                                                The listed transactions total {fmtNGN(txnTotal)}, which is{' '}
+                                                                {fmtNGN(Math.abs(gap))} {gap > 0 ? 'more' : 'less'} than this
+                                                                line&rsquo;s own consumed figure of {fmtNGN(consumed)}. The list walks
+                                                                descendant GL accounts, so a parent-coded line shows spend that
+                                                                belongs to its children&rsquo;s budget lines. The Available figure
+                                                                above is calculated from this line&rsquo;s own figure, not from
+                                                                this list.
+                                                            </td>
+                                                        </tr>
+                                                    </>
+                                                );
+                                            })()}
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

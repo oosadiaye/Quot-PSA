@@ -629,7 +629,13 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     'date':        (po.order_date.isoformat()
                                     if po and getattr(po, 'order_date', None) else ''),
                     'reference':   src_ref,
-                    'description': (po.description or '') if po else '',
+                    # ``notes``, not ``description`` — PurchaseOrder has no
+                    # such field, and the attribute error took the whole
+                    # PO_COMMITMENT source down with it. Every CLOSED
+                    # commitment was therefore missing from the drill-down
+                    # while the appropriation went on counting it, so the
+                    # itemisation silently disagreed with its own total.
+                    'description': (getattr(po, 'notes', '') or '') if po else '',
                     'party':       (po.vendor.name if po and po.vendor else ''),
                     'amount':      str(link.committed_amount or Decimal('0')),
                     'source_id':   po.pk if po else None,
