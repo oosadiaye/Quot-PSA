@@ -70,6 +70,21 @@ const card: React.CSSProperties = {
 
 type Line = Record<string, any>;
 
+/**
+ * Does a row's segment match what the officer typed or picked?
+ *
+ * Substring, over code AND name together, because these controls accept
+ * both: picking a suggestion puts the bare code in the box, while typing
+ * might be three digits of a code or a word from the name. An exact
+ * comparison would serve the picked case and fail the typed one, which
+ * is the half people actually use.
+ */
+const segmentMatches = (query: string, code: unknown, name: unknown): boolean => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return `${code ?? ''} ${name ?? ''}`.toLowerCase().includes(q);
+};
+
 /** Distinct {value,label} options taken from the rows themselves. */
 const optionsFrom = (rows: Line[], codeKey: string, nameKey: string) => {
     const seen = new Map<string, string>();
@@ -159,9 +174,11 @@ const BudgetCheck = () => {
                 ].map((x) => String(x || '').toLowerCase()).join(' ');
                 if (!haystack.includes(desc)) return false;
             }
-            if (mda && String(l.administrative_code) !== mda) return false;
-            if (fund && String(l.fund_code) !== fund) return false;
-            if (econ && String(l.economic_code) !== econ) return false;
+            if (!segmentMatches(mda, l.administrative_code, l.administrative_name)) return false;
+            if (!segmentMatches(fund, l.fund_code, l.fund_name)) return false;
+            if (!segmentMatches(econ, l.economic_code, l.economic_name)) return false;
+            // Status stays an exact select — it is a fixed, short list of
+            // known values, so there is nothing to half-remember.
             if (status && String(l.status) !== status) return false;
             return true;
         });
@@ -258,26 +275,65 @@ const BudgetCheck = () => {
 
                             <div>
                                 <label style={labelStyle} htmlFor="bc-mda">MDA</label>
-                                <select id="bc-mda" value={mda} onChange={(e) => { setMda(e.target.value); setSelectedId(null); }} style={controlStyle}>
-                                    <option value="">All</option>
-                                    {mdaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
+                                <div style={{ position: 'relative' }}>
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <input
+                                        id="bc-mda"
+                                        type="text"
+                                        list="bc-mda-options"
+                                        value={mda}
+                                        onChange={(e) => { setMda(e.target.value); setSelectedId(null); }}
+                                        placeholder="Type or pick an MDA"
+                                        style={{ ...controlStyle, paddingLeft: '1.8rem' }}
+                                    />
+                                    <datalist id="bc-mda-options">
+                                        {mdaOptions.map((o) => (
+                                            <option key={o.value} value={o.value}>{o.label}</option>
+                                        ))}
+                                    </datalist>
+                                </div>
                             </div>
 
                             <div>
                                 <label style={labelStyle} htmlFor="bc-econ">GL Account</label>
-                                <select id="bc-econ" value={econ} onChange={(e) => { setEcon(e.target.value); setSelectedId(null); }} style={controlStyle}>
-                                    <option value="">All</option>
-                                    {econOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
+                                <div style={{ position: 'relative' }}>
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <input
+                                        id="bc-econ"
+                                        type="text"
+                                        list="bc-econ-options"
+                                        value={econ}
+                                        onChange={(e) => { setEcon(e.target.value); setSelectedId(null); }}
+                                        placeholder="Type or pick an account"
+                                        style={{ ...controlStyle, paddingLeft: '1.8rem' }}
+                                    />
+                                    <datalist id="bc-econ-options">
+                                        {econOptions.map((o) => (
+                                            <option key={o.value} value={o.value}>{o.label}</option>
+                                        ))}
+                                    </datalist>
+                                </div>
                             </div>
 
                             <div>
                                 <label style={labelStyle} htmlFor="bc-fund">Fund</label>
-                                <select id="bc-fund" value={fund} onChange={(e) => { setFund(e.target.value); setSelectedId(null); }} style={controlStyle}>
-                                    <option value="">All</option>
-                                    {fundOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
+                                <div style={{ position: 'relative' }}>
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <input
+                                        id="bc-fund"
+                                        type="text"
+                                        list="bc-fund-options"
+                                        value={fund}
+                                        onChange={(e) => { setFund(e.target.value); setSelectedId(null); }}
+                                        placeholder="Type or pick a fund"
+                                        style={{ ...controlStyle, paddingLeft: '1.8rem' }}
+                                    />
+                                    <datalist id="bc-fund-options">
+                                        {fundOptions.map((o) => (
+                                            <option key={o.value} value={o.value}>{o.label}</option>
+                                        ))}
+                                    </datalist>
+                                </div>
                             </div>
 
                             <div>
