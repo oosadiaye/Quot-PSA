@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Receipt, Filter, CheckCircle, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit } from 'lucide-react';
+import { Receipt, Filter, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit } from 'lucide-react';
 import apiClient from '../../../api/client';
-import { useVendorInvoices, useApproveVendorInvoice, useCreateVendorInvoice, useCreateDraftVoucherFromInvoice } from '../hooks/useAccountingEnhancements';
+import { useVendorInvoices, useCreateVendorInvoice } from '../hooks/useAccountingEnhancements';
 import { useJournal, useSimulatedInvoiceJournal } from '../hooks/useJournal';
 import { useAccounts } from '../hooks/useBudgetDimensions';
 import { useVendors } from '../../procurement/hooks/useProcurement';
@@ -13,12 +12,9 @@ import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { safeSum } from '../utils/currency';
 import VendorInvoiceForm from './VendorInvoiceForm';
-import { useDialog } from '../../../hooks/useDialog';
-import logger from '../../../utils/logger';
 import '../styles/glassmorphism.css';
 
 export default function APManagement() {
-    const navigate = useNavigate();
     const { formatCurrency } = useCurrency();
     const [statusFilter, setStatusFilter] = useState('');
     const [showForm, setShowForm] = useState(false);
@@ -29,40 +25,11 @@ export default function APManagement() {
     const [actionsOpen, setActionsOpen] = useState(false);
     const actionsRef = useRef<HTMLDivElement>(null);
 
-    // Budget-error banner — shown when an approve/post action returns a
-    // structured budget/warrant violation. Multi-line so it can render
-    // the full backend message (Requested / Available / Deficit block).
-    const [budgetError, setBudgetError] = useState<string>('');
-    const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
     // The invoice the user is currently viewing in the detail modal.
     // Null = no modal open.
     const [viewingInvoice, setViewingInvoice] = useState<any | null>(null);
-    const flash = (msg: string, ok = true) => {
-        setToast({ msg, ok });
-        setTimeout(() => setToast(null), 5000);
-    };
 
-    const { showConfirm } = useDialog();
     const { data: invoices, isLoading } = useVendorInvoices({ status: statusFilter });
-    const approveInvoice = useApproveVendorInvoice();
-    const createDraftPV = useCreateDraftVoucherFromInvoice();
-
-    // One-click "Create PV" — backend factories a draft PaymentVoucherGov
-    // pre-filled from invoice + vendor, returns its id, and we navigate
-    // straight to the PV detail page so the operator can edit/approve.
-    const handleCreatePV = async (invoiceId: number) => {
-        try {
-            const result = await createDraftPV.mutateAsync({ invoiceId });
-            const pv = result.payment_voucher;
-            flash(`Draft PV ${pv.voucher_number} created — opening for review.`, true);
-            navigate(`/accounting/payment-vouchers/${pv.id}`);
-        } catch (err: any) {
-            const msg = err?.response?.data?.error
-                ?? err?.message
-                ?? 'Failed to create draft PV.';
-            flash(msg, false);
-        }
-    };
 
     // Close dropdown on outside click
     useEffect(() => {
@@ -129,39 +96,6 @@ export default function APManagement() {
         window.URL.revokeObjectURL(url);
     };
 
-    const handleApprove = async (invoiceId: number) => {
-        if (!await showConfirm('Approve & post this vendor invoice to the GL?')) return;
-        setBudgetError('');
-        try {
-            const resp = await approveInvoice.mutateAsync(invoiceId);
-            const r: any = resp;
-            flash(
-                r?.journal_reference
-                    ? `Posted. Journal ${r.journal_reference}`
-                    : r?.status || 'Invoice approved and posted.',
-            );
-        } catch (error: any) {
-            // Extract structured budget/warrant error and display prominently.
-            // `approve_invoice` now delegates to `post_invoice` so the same
-            // response shape (appropriation_exceeded / warrant_exceeded /
-            // budget) is returned here as at the dedicated post endpoint.
-            const data = error?.response?.data;
-            logger.error('Failed to approve invoice:', error);
-            if (data?.appropriation_exceeded || data?.warrant_exceeded || data?.budget) {
-                const msg =
-                    data.error
-                    || (Array.isArray(data.budget) ? data.budget.join(' ') : data.budget)
-                    || 'Budget validation failed.';
-                setBudgetError(msg);
-                // Scroll the banner into view so the user sees it immediately.
-                setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
-            } else {
-                const msg = data?.error || data?.detail || error?.message || 'Failed to approve invoice.';
-                flash(msg, false);
-            }
-        }
-    };
-
     const totalPayable = invoices ? safeSum(invoices, 'balance_due') : 0;
     // Overdue = posted (or legacy Approved) invoice that's past its due
     // date and not yet paid. Partially Paid is excluded because a payment
@@ -192,47 +126,10 @@ export default function APManagement() {
         <>
             <AccountingLayout>
                 <div>
-                    {/* Budget-error banner — shown when the 3-pillar
-                        appropriation/warrant check rejects an approve/post.
-                        Preserves newlines from the backend message so the
-                        Requested/Available/Deficit block stays formatted. */}
-                    {budgetError && (
-                        <div style={{
-                            padding: '0.85rem 1.1rem', marginBottom: '1rem',
-                            background: '#fef2f2', color: '#991b1b',
-                            border: '1.5px solid #fecaca', borderLeft: '5px solid #dc2626',
-                            borderRadius: '8px', fontSize: 'var(--text-sm)',
-                            whiteSpace: 'pre-wrap' as const,
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.3rem' }}>
-                                <strong style={{ fontSize: 'var(--text-base)' }}>
-                                    ⚠ Budget Validation Failed
-                                </strong>
-                                <button onClick={() => setBudgetError('')}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontSize: 18, lineHeight: 1 }}>
-                                    ×
-                                </button>
-                            </div>
-                            {budgetError}
-                        </div>
-                    )}
-
-                    {/* Success/generic toast */}
-                    {toast && (
-                        <div style={{
-                            padding: '0.7rem 0.95rem', marginBottom: '1rem', borderRadius: '8px',
-                            background: toast.ok ? '#ecfdf5' : '#fef2f2',
-                            border: `1px solid ${toast.ok ? '#a7f3d0' : '#fecaca'}`,
-                            color: toast.ok ? '#065f46' : '#991b1b',
-                            fontSize: 'var(--text-sm)', fontWeight: 500,
-                        }}>
-                            {toast.msg}
-                        </div>
-                    )}
 
                     <PageHeader
-                        title="Accounts Payable"
-                        subtitle="Manage vendor invoices and payments"
+                        title="AP Invoice"
+                        subtitle="Create, edit and view vendor invoices — approve & pay from the AP Invoices Register"
                         icon={<Receipt size={22} />}
                         actions={
                             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -398,85 +295,9 @@ export default function APManagement() {
                                         <td style={{ padding: '1rem 1.5rem' }}><StatusBadge status={invoice.status} /></td>
                                         <td style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
                                             <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                                {/* Decide what action to surface based on (status, has-journal).
-                                                    needsPost is true when the invoice hasn't actually hit
-                                                    the GL yet — either it's a fresh Draft, or it's a
-                                                    legacy "Approved" row left over from before
-                                                    approve_invoice auto-posted.
-                                                    canPay is true when the GL journal already exists. */}
-                                                {(() => {
-                                                    const needsPost =
-                                                        invoice.status === 'Draft' ||
-                                                        (invoice.status === 'Approved' && !invoice.journal_entry);
-                                                    const canPay =
-                                                        invoice.status === 'Posted' ||
-                                                        (invoice.status === 'Approved' && !!invoice.journal_entry);
-                                                    return (
-                                                        <>
-                                                            {needsPost && (
-                                                                <button
-                                                                    className="btn btn-primary"
-                                                                    style={{ padding: '0.375rem 0.75rem', fontSize: 'var(--text-xs)' }}
-                                                                    onClick={() => handleApprove(invoice.id)}
-                                                                    title="Approve this invoice, post the GL journal, and mark it Posted for Treasury to pay"
-                                                                >
-                                                                    <CheckCircle size={14} /> Approve &amp; Post
-                                                                </button>
-                                                            )}
-                                                            {canPay && (
-                                                                <>
-                                                                    {invoice.payment_voucher_id ? (
-                                                                        // LOCKED — a PV already exists for this invoice.
-                                                                        // Show the linked PV instead of letting the
-                                                                        // operator create a duplicate. Click navigates
-                                                                        // to the PV detail page where they finalise/post.
-                                                                        <button
-                                                                            className="btn"
-                                                                            style={{
-                                                                                padding: '0.375rem 0.75rem',
-                                                                                fontSize: 'var(--text-xs)',
-                                                                                background: '#ecfdf5',
-                                                                                border: '1px solid #a7f3d0',
-                                                                                color: '#047857',
-                                                                                fontWeight: 600,
-                                                                            }}
-                                                                            onClick={() => navigate(`/accounting/payment-vouchers/${invoice.payment_voucher_id}`)}
-                                                                            title={`A Payment Voucher (${invoice.payment_voucher_number ?? ''}, status ${invoice.payment_voucher_status ?? ''}) has already been raised against this invoice. Click to open it.`}
-                                                                        >
-                                                                            <Receipt size={14} /> View PV {invoice.payment_voucher_number ?? ''}
-                                                                        </button>
-                                                                    ) : (
-                                                                        <>
-                                                                            <button
-                                                                                className="btn btn-primary"
-                                                                                style={{ padding: '0.375rem 0.75rem', fontSize: 'var(--text-xs)' }}
-                                                                                onClick={() => handleCreatePV(invoice.id)}
-                                                                                disabled={createDraftPV.isPending}
-                                                                                title="Auto-create a draft Payment Voucher from this invoice (vendor, amount, narration pre-filled). Opens the PV for review."
-                                                                            >
-                                                                                <Receipt size={14} /> {createDraftPV.isPending ? 'Creating PV…' : 'Create PV'}
-                                                                            </button>
-                                                                            <button
-                                                                                className="btn"
-                                                                                style={{
-                                                                                    padding: '0.375rem 0.75rem',
-                                                                                    fontSize: 'var(--text-xs)',
-                                                                                    background: 'transparent',
-                                                                                    border: '1px solid var(--color-border)',
-                                                                                    color: 'var(--color-text-muted)',
-                                                                                }}
-                                                                                onClick={() => navigate(`/accounting/payments/new?invoice=${invoice.id}`)}
-                                                                                title="Use the legacy Payments form for advanced settlement (multi-invoice, allocations)"
-                                                                            >
-                                                                                Pay
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                        </>
-                                                    );
-                                                })()}
+                                                {/* Workflow actions (Approve & Post, Create PV, Pay, View PV)
+                                                    now live on the AP Invoices Register (/accounting/ap-invoices).
+                                                    This page stays focused on creating, editing and viewing. */}
                                                 {/* Edit — Draft only. Project rule: non-Draft documents
                                                     are immutable; user must reverse them via Credit Memo. */}
                                                 {invoice.status === 'Draft' && (
