@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown } from 'lucide-react';
+import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import apiClient from '../../api/client';
@@ -55,7 +55,9 @@ interface LedgerEntry {
     debit: string | number;
     credit: string | number;
     running_balance: string | number;
-    source: 'PAYMENT' | 'REVENUE';
+    // JOURNAL = a GL cash-account movement with no revenue/payment document
+    // (vendor registration, advance disbursement, inter-TSA transfer, sweep).
+    source: 'PAYMENT' | 'REVENUE' | 'JOURNAL';
     source_id: number;
 }
 
@@ -75,6 +77,11 @@ interface LedgerResponse {
     closing_balance: string | number;
     total_debits: string | number;
     total_credits: string | number;
+    // Authoritative GL cash position and whether the stored current_balance
+    // agrees with it. When balance_reconciled is false the field has drifted.
+    gl_cash_balance?: string | number;
+    balance_reconciled?: boolean;
+    balance_discrepancy?: string | number;
     entries: LedgerEntry[];
 }
 
@@ -284,6 +291,32 @@ export default function TSALedger() {
                         accent="#0f766e"
                     />
                 </div>
+
+                {/* Drift warning: the stored current_balance disagrees with the
+                    GL cash account. The ledger's closing (from the movements)
+                    is the figure to trust; the stored balance needs rebuilding. */}
+                {data.balance_reconciled === false && (
+                    <div
+                        role="alert"
+                        style={{
+                            display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                            padding: '0.8rem 1rem', marginBottom: '1.25rem',
+                            background: '#fffbeb', border: '1px solid #fcd34d',
+                            borderRadius: '10px', color: '#92400e', fontSize: '0.82rem',
+                            lineHeight: 1.5,
+                        }}
+                    >
+                        <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1, color: '#d97706' }} />
+                        <div>
+                            <strong>Stored balance does not reconcile with the general ledger.</strong>
+                            {' '}The account's stored balance is <strong>{fmtNGN(data.account.current_balance)}</strong>,
+                            but the GL cash account nets to <strong>{fmtNGN(data.gl_cash_balance ?? 0)}</strong>
+                            {' '}(a difference of <strong>{fmtNGN(data.balance_discrepancy ?? 0)}</strong>).
+                            The movements below are the authoritative record — the stored balance
+                            was not updated for every posting and needs rebuilding.
+                        </div>
+                    </div>
+                )}
 
                 {/* Date filter */}
                 <div
