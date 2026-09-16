@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useAttendances, useEmployees, useCreateAttendance } from '../hooks/useHrm';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -92,7 +93,7 @@ const AttendanceList = () => {
                                 attendances.map((att: any) => (
                                     <tr key={att.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                         <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><User size={16} />{getEmployeeName(att.employee_id || att.employee)}</div></td>
-                                        <td style={{ padding: '1rem' }}>{att.date}</td>
+                                        <td style={{ padding: '1rem' }}>{formatDate(att.date)}</td>
                                         <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Clock size={14} />{att.check_in || '-'}</div></td>
                                         <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Clock size={14} />{att.check_out || '-'}</div></td>
                                         <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', background: `${getStatusColor(att.status)}15`, color: getStatusColor(att.status), fontSize: 'var(--text-xs)', fontWeight: 600 }}>{att.status}</span></td>

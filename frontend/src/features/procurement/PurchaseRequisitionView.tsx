@@ -153,7 +153,7 @@ export default function PurchaseRequisitionView() {
                             </div>
                             <div>
                                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Requested Date</div>
-                                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>{pr.requested_date ? new Date(pr.requested_date).toLocaleDateString() : '—'}</div>
+                                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>{pr.requested_date ? new Date(pr.requested_date).toLocaleDateString('en-GB') : '—'}</div>
                             </div>
                             <div>
                                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Requested By</div>
@@ -323,10 +323,10 @@ export default function PurchaseRequisitionView() {
                     <div className="card" style={{ padding: '1rem' }}>
                         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                <Clock size={11} /> Created: {pr.created_at ? new Date(pr.created_at).toLocaleString() : '—'}
+                                <Clock size={11} /> Created: {pr.created_at ? new Date(pr.created_at).toLocaleString('en-GB') : '—'}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                <Clock size={11} /> Updated: {pr.updated_at ? new Date(pr.updated_at).toLocaleString() : '—'}
+                                <Clock size={11} /> Updated: {pr.updated_at ? new Date(pr.updated_at).toLocaleString('en-GB') : '—'}
                             </div>
                         </div>
                     </div>

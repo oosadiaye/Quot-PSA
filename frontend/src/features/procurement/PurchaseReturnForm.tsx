@@ -271,7 +271,7 @@ const PurchaseReturnForm: React.FC = () => {
                                             </option>
                                             {postedGRNs.map((g: any) => (
                                                 <option key={g.id} value={g.id}>
-                                                    {g.grn_number} — {new Date(g.received_date).toLocaleDateString()}
+                                                    {g.grn_number} — {new Date(g.received_date).toLocaleDateString('en-GB')}
                                                 </option>
                                             ))}
                                         </select>

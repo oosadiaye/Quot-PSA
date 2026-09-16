@@ -199,7 +199,7 @@ const BillingTab = () => {
                 columns={[
                   {
                     title: 'Month', dataIndex: 'month', key: 'month',
-                    render: (v: string) => new Date(v).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+                    render: (v: string) => new Date(v).toLocaleDateString('en-GB', { year: 'numeric', month: 'long' }),
                   },
                   {
                     title: 'Revenue', dataIndex: 'total', key: 'total',

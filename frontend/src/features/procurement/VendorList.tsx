@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { useVendors, useCreateVendor, useVendorCategories } from './hooks/useProcurement';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -716,7 +717,7 @@ const VendorList = () => {
                                             </td>
                                             <td style={tdStyle}>{vendor.category_name || '-'}</td>
                                             <td style={tdStyle}>{vendor.registration_number || '-'}</td>
-                                            <td style={tdStyle}>{vendor.expiry_date || '-'}</td>
+                                            <td style={tdStyle}>{formatDate(vendor.expiry_date)}</td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: Number(vendor.current_balance) > 0 ? 'var(--color-error)' : 'var(--color-text)' }}>
                                                 {formatCurrency(Number(vendor.current_balance || 0))}
                                             </td>
@@ -842,7 +843,7 @@ const VendorList = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: 'var(--text-xs)' }}>
                                 <div><span style={{ color: 'var(--color-text-muted)' }}>Vendor:</span> <strong>{generatedRegInvoice.vendor_name}</strong></div>
                                 <div><span style={{ color: 'var(--color-text-muted)' }}>Type:</span> <strong style={{ color: '#166534' }}>REGISTRATION</strong></div>
-                                <div><span style={{ color: 'var(--color-text-muted)' }}>Date:</span> {generatedRegInvoice.invoice_date}</div>
+                                <div><span style={{ color: 'var(--color-text-muted)' }}>Date:</span> {formatDate(generatedRegInvoice.invoice_date)}</div>
                                 <div><span style={{ color: 'var(--color-text-muted)' }}>Fiscal Year:</span> {generatedRegInvoice.fiscal_year}</div>
                             </div>
 

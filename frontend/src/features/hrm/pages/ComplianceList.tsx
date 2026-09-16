@@ -1,4 +1,5 @@
 import { useComplianceRecords } from '../hooks/useHrm';
+import { formatDate } from '@/utils/date';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
 import LoadingScreen from '../../../components/common/LoadingScreen';
@@ -56,7 +57,7 @@ const ComplianceList = () => {
                                         </td>
                                         <td style={{ padding: '1rem' }}>{record.employee_name || `Employee #${record.employee_id || record.employee}`}</td>
                                         <td style={{ padding: '1rem' }}>{record.issue_date || record.issued_date || '-'}</td>
-                                        <td style={{ padding: '1rem' }}>{record.expiry_date || record.expiration_date || '-'}</td>
+                                        <td style={{ padding: '1rem' }}>{formatDate(record.expiry_date || record.expiration_date)}</td>
                                         <td style={{ padding: '1rem' }}>
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: `${getStatusColor(record.status)}15`, color: getStatusColor(record.status), fontSize: 'var(--text-xs)', fontWeight: 600 }}>
                                                 {getStatusIcon(record.status)} {record.status}

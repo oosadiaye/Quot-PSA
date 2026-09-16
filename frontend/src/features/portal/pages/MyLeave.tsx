@@ -165,8 +165,8 @@ export default function MyLeave() {
               return (
                 <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <Td strong>{r.leave_type}</Td>
-                  <Td>{new Date(r.start_date).toLocaleDateString()}</Td>
-                  <Td>{new Date(r.end_date).toLocaleDateString()}</Td>
+                  <Td>{new Date(r.start_date).toLocaleDateString('en-GB')}</Td>
+                  <Td>{new Date(r.end_date).toLocaleDateString('en-GB')}</Td>
                   <Td>{r.total_days}</Td>
                   <Td>
                     <span

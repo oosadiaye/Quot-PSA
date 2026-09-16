@@ -301,7 +301,7 @@ const UserManagement = () => {
                                         </span>
                                     </td>
                                     <td style={{ ...tdStyle, fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}
+                                        {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB') : '-'}
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.25rem' }}>
@@ -597,7 +597,7 @@ const EditUserModal: React.FC<{
                         <div><span style={{ color: 'var(--color-text-muted)' }}>Employee:</span> <span style={{ fontWeight: 600 }}>{user.employee.employee_number}</span></div>
                     )}
                     {user.created_at && (
-                        <div><span style={{ color: 'var(--color-text-muted)' }}>Created:</span> <span style={{ fontWeight: 600 }}>{new Date(user.created_at).toLocaleDateString()}</span></div>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Created:</span> <span style={{ fontWeight: 600 }}>{new Date(user.created_at).toLocaleDateString('en-GB')}</span></div>
                     )}
                 </div>
 

@@ -155,7 +155,7 @@ function buildPrintableHTML(options: ExportOptions): string {
         summaryBlock = `<div style="display:flex;gap:12px;margin-top:20px;">${cards}</div>`;
     }
 
-    const timestamp = `${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`;
+    const timestamp = `${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString()}`;
 
     return [
         '<!DOCTYPE html><html><head>',

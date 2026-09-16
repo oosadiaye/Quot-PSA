@@ -84,9 +84,9 @@ export default function MyProfile() {
             <Row label="Position" value={data.position || '—'} />
             <Row label="Type" value={data.employee_type} />
             <Row label="Status" value={data.status} />
-            <Row label="Hire Date" value={new Date(data.hire_date).toLocaleDateString()} />
+            <Row label="Hire Date" value={new Date(data.hire_date).toLocaleDateString('en-GB')} />
             {data.confirmation_date && (
-              <Row label="Confirmed" value={new Date(data.confirmation_date).toLocaleDateString()} />
+              <Row label="Confirmed" value={new Date(data.confirmation_date).toLocaleDateString('en-GB')} />
             )}
             <Row label="Bank" value={data.bank_name || '—'} />
             <Row

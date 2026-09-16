@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { usePerformanceCycles, usePerformanceReviews, useCreatePerformanceReview, useEmployees } from '../hooks/useHrm';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -78,7 +79,7 @@ const PerformanceList = () => {
                             cycles.map((cycle: any) => (
                                 <div key={cycle.id} className="card" style={{ padding: '1.25rem' }}>
                                     <div style={{ fontWeight: 600 }}>{cycle.name}</div>
-                                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>{cycle.start_date} - {cycle.end_date}</div>
+                                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>{formatDate(cycle.start_date)} - {formatDate(cycle.end_date)}</div>
                                     <div style={{ marginTop: '0.75rem', fontSize: 'var(--text-sm)' }}>Status: <span style={{ color: cycle.is_active ? '#10b981' : '#6b7280' }}>{cycle.is_active ? 'Active' : 'Completed'}</span></div>
                                 </div>
                             ))

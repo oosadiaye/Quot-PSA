@@ -52,7 +52,7 @@ const maskAccount = (acc: string) => {
 // ── Helper: format date ──────────────────────────────────────────────────────
 const fmtDate = (v: string | null | undefined) => {
   if (!v) return '-';
-  return new Date(v).toLocaleDateString();
+  return new Date(v).toLocaleDateString('en-GB');
 };
 
 const fmtDayjs = (d: any): string => {

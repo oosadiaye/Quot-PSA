@@ -242,7 +242,7 @@ const UsersTab = () => {
       key: 'last_login',
       responsive: ['lg' as const],
       render: (date: string | null) =>
-        date ? <Text type="secondary">{new Date(date).toLocaleDateString()}</Text> : <Text type="secondary">Never</Text>,
+        date ? <Text type="secondary">{new Date(date).toLocaleDateString('en-GB')}</Text> : <Text type="secondary">Never</Text>,
     },
     {
       title: 'Actions',
@@ -393,10 +393,10 @@ const UsersTab = () => {
                 <Badge status={selectedUser.is_active ? 'success' : 'default'} text={selectedUser.is_active ? 'Active' : 'Inactive'} />
               </Descriptions.Item>
               <Descriptions.Item label="Date Joined">
-                {selectedUser.date_joined ? new Date(selectedUser.date_joined).toLocaleDateString() : '-'}
+                {selectedUser.date_joined ? new Date(selectedUser.date_joined).toLocaleDateString('en-GB') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Last Login">
-                {selectedUser.last_login ? new Date(selectedUser.last_login).toLocaleString() : 'Never'}
+                {selectedUser.last_login ? new Date(selectedUser.last_login).toLocaleString('en-GB') : 'Never'}
               </Descriptions.Item>
               <Descriptions.Item label="Staff">{selectedUser.is_staff ? 'Yes' : 'No'}</Descriptions.Item>
               <Descriptions.Item label="SuperUser">{selectedUser.is_superuser ? 'Yes' : 'No'}</Descriptions.Item>
@@ -633,13 +633,13 @@ const ImpersonationLogsPanel = () => {
       title: 'Started',
       dataIndex: 'started_at',
       key: 'started_at',
-      render: (v: string) => v ? new Date(v).toLocaleString() : '-',
+      render: (v: string) => v ? new Date(v).toLocaleString('en-GB') : '-',
     },
     {
       title: 'Ended',
       dataIndex: 'ended_at',
       key: 'ended_at',
-      render: (v: string | null) => v ? new Date(v).toLocaleString() : <Tag color="orange">Active</Tag>,
+      render: (v: string | null) => v ? new Date(v).toLocaleString('en-GB') : <Tag color="orange">Active</Tag>,
     },
     {
       title: 'IP',

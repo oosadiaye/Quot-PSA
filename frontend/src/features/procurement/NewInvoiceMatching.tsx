@@ -16,6 +16,7 @@
  * the SAP MIRO approach: enter, validate, post — all in one keystroke chain.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, AlertTriangle, BookOpen, Building2, Calculator, CheckCircle,
@@ -1436,7 +1437,7 @@ export default function NewInvoiceMatching() {
                                                         {filteredGrns.length > 1 && <option value="">— Select GRN —</option>}
                                                         {filteredGrns.map((g: any) => (
                                                             <option key={g.id} value={g.id}>
-                                                                {g.grn_number}{g.received_date ? ` — ${g.received_date}` : ''}{g.status ? ` (${g.status})` : ''}
+                                                                {g.grn_number}{g.received_date ? ` — ${formatDate(g.received_date)}` : ''}{g.status ? ` (${g.status})` : ''}
                                                             </option>
                                                         ))}
                                                     </select>

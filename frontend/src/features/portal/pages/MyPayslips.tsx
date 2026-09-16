@@ -126,7 +126,7 @@ export default function MyPayslips() {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{line.period_label}</div>
                     <div style={{ fontSize: 12, color: '#64748b' }}>
-                      Paid {new Date(line.payment_date).toLocaleDateString()} · Run {line.run_number}
+                      Paid {new Date(line.payment_date).toLocaleDateString('en-GB')} · Run {line.run_number}
                     </div>
                   </div>
                 </div>

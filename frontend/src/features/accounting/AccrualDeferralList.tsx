@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     useAccruals, useDeferrals,
@@ -497,7 +498,7 @@ const AccrualDeferralList = () => {
                                             <td style={{ ...td, fontSize: '11px', color: '#64748b' }}>
                                                 {a.account_code ? <span><span style={{ fontFamily: 'monospace' }}>{a.account_code}</span> {a.account_name}</span> : '—'}
                                             </td>
-                                            <td style={td}>{a.posting_date || '—'}</td>
+                                            <td style={td}>{formatDate(a.posting_date)}</td>
                                             <td style={td}>{a.reversal_date || '—'}</td>
                                             <td style={td}>{a.auto_reverse ? <span style={{ color: '#4f46e5', fontSize: '11px', fontWeight: 700 }}>Auto</span> : '—'}</td>
                                             <td style={td}>{accrualStatusBadge(a)}</td>
@@ -576,7 +577,7 @@ const AccrualDeferralList = () => {
                                                         <span style={{ fontSize: '11px', color: '#94a3b8' }}>{d.current_period}/{d.recognition_periods}</span>
                                                     </div>
                                                 </td>
-                                                <td style={td}>{d.start_date || '—'}</td>
+                                                <td style={td}>{formatDate(d.start_date)}</td>
                                                 <td style={td}>{d.auto_recognize ? <span style={{ color: '#4f46e5', fontSize: '11px', fontWeight: 700 }}>Auto</span> : '—'}</td>
                                                 <td style={td}>{deferralStatusBadge(d)}</td>
                                                 <td style={{ ...td, whiteSpace: 'nowrap' }}>

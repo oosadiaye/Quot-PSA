@@ -296,7 +296,7 @@ export default function APManagement() {
                                             </div>
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem' }}>{invoice.vendor_name}</td>
-                                        <td style={{ padding: '1rem 1.5rem' }}>{new Date(invoice.due_date).toLocaleDateString()}</td>
+                                        <td style={{ padding: '1rem 1.5rem' }}>{new Date(invoice.due_date).toLocaleDateString('en-GB')}</td>
                                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 600, color: 'var(--color-cta)' }}>{invoice.currency_code} {parseFloat(invoice.balance_due || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                                         <td style={{ padding: '1rem 1.5rem' }}><StatusBadge status={invoice.status} /></td>
                                         <td style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
@@ -491,8 +491,8 @@ function InvoiceViewModal({ invoice, onClose, formatCurrency }: InvoiceViewModal
                     borderRadius: '8px',
                 }}>
                     <DetailRow icon={<Building2 size={12} />} label="Vendor" value={invoice.vendor_name || `#${invoice.vendor}`} />
-                    <DetailRow icon={<Calendar size={12} />} label="Invoice Date" value={invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString() : '—'} />
-                    <DetailRow icon={<Calendar size={12} />} label="Due Date" value={invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : '—'} />
+                    <DetailRow icon={<Calendar size={12} />} label="Invoice Date" value={invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString('en-GB') : '—'} />
+                    <DetailRow icon={<Calendar size={12} />} label="Due Date" value={invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-GB') : '—'} />
                     <DetailRow label="MDA" value={invoice.mda_name || (invoice.mda ? `#${invoice.mda}` : '—')} />
                     <DetailRow
                         label="Account"
@@ -600,7 +600,7 @@ function InvoiceViewModal({ invoice, onClose, formatCurrency }: InvoiceViewModal
                                 </div>
                                 {journal?.posting_date && !isProposed && (
                                     <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                                        Posted {new Date(journal.posting_date).toLocaleDateString()}
+                                        Posted {new Date(journal.posting_date).toLocaleDateString('en-GB')}
                                     </div>
                                 )}
                                 {isProposed && (

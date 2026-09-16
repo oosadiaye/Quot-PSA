@@ -177,8 +177,8 @@ export default function APIKeysSection() {
       key: 'created',
       width: 110,
       render: (v: string) => (
-        <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm')}>
-          <Text style={{ fontSize: 12 }}>{dayjs(v).format('MMM D, YYYY')}</Text>
+        <Tooltip title={dayjs(v).format('DD/MM/YYYY HH:mm')}>
+          <Text style={{ fontSize: 12 }}>{dayjs(v).format('DD/MM/YYYY')}</Text>
         </Tooltip>
       ),
     },
@@ -190,7 +190,7 @@ export default function APIKeysSection() {
       render: (v: string | null) => {
         if (!v) return <Text type="secondary" style={{ fontSize: 12 }}>Never</Text>;
         return (
-          <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm')}>
+          <Tooltip title={dayjs(v).format('DD/MM/YYYY HH:mm')}>
             <Text style={{ fontSize: 12 }}>{dayjs(v).fromNow()}</Text>
           </Tooltip>
         );
@@ -205,7 +205,7 @@ export default function APIKeysSection() {
         if (!v) return <Text type="secondary" style={{ fontSize: 12 }}>Never</Text>;
         const expired = isExpired(v);
         return (
-          <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm')}>
+          <Tooltip title={dayjs(v).format('DD/MM/YYYY HH:mm')}>
             <Text type={expired ? 'danger' : undefined} style={{ fontSize: 12 }}>
               {expired ? 'Expired' : dayjs(v).fromNow()}
             </Text>

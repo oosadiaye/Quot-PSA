@@ -342,7 +342,7 @@ const TenantsTab = () => {
         return (
           <Tooltip title={`${daysLeft} days remaining`}>
             <Text type={daysLeft < 7 ? 'danger' : daysLeft < 30 ? 'warning' : undefined}>
-              {d.toLocaleDateString()}
+              {d.toLocaleDateString('en-GB')}
             </Text>
           </Tooltip>
         );
@@ -353,7 +353,7 @@ const TenantsTab = () => {
       dataIndex: 'created_on',
       key: 'created_on',
       sorter: (a: Tenant, b: Tenant) => (a.created_on || '').localeCompare(b.created_on || ''),
-      render: (date: string) => date ? new Date(date).toLocaleDateString() : '-',
+      render: (date: string) => date ? new Date(date).toLocaleDateString('en-GB') : '-',
     },
     {
       title: 'Actions',
@@ -574,11 +574,11 @@ const TenantsTab = () => {
                         />
                       </Descriptions.Item>
                       <Descriptions.Item label="Created">
-                        {new Date(tenantDetail.created_on).toLocaleDateString()}
+                        {new Date(tenantDetail.created_on).toLocaleDateString('en-GB')}
                       </Descriptions.Item>
                       {tenantDetail.end_date && (
                         <Descriptions.Item label="Expires">
-                          {new Date(tenantDetail.end_date).toLocaleDateString()}
+                          {new Date(tenantDetail.end_date).toLocaleDateString('en-GB')}
                         </Descriptions.Item>
                       )}
                     </Descriptions>

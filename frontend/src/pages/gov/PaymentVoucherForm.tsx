@@ -21,6 +21,7 @@
  * posts from the Outgoing Payments page.
  */
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import { Save, AlertCircle, Receipt, Search, FileText, Building2 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -452,7 +453,7 @@ export default function PaymentVoucherForm() {
                                                     </div>
                                                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                                         <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--primary, #191e6a)' }}>{fmtNGN(inv.balance_due)}</div>
-                                                        <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>{inv.invoice_date}</div>
+                                                        <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>{formatDate(inv.invoice_date)}</div>
                                                     </div>
                                                 </button>
                                             ))

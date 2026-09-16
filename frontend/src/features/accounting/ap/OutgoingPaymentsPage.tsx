@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
@@ -1033,7 +1034,7 @@ export default function OutgoingPaymentsPage() {
                                     </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_date}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
                                     <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
                                     <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
@@ -1145,7 +1146,7 @@ export default function OutgoingPaymentsPage() {
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_date}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
                                     <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
                                     <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
@@ -1284,7 +1285,7 @@ export default function OutgoingPaymentsPage() {
                                     <tr key={adv.id} style={{ borderBottom: '1px solid #fef9c3' }}>
                                         <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{adv.payment_number}</td>
                                         <td style={{ padding: '11px 14px', color: '#374151' }}>{adv.vendor_name || '—'}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{adv.payment_date}</td>
+                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(adv.payment_date)}</td>
                                         <td style={{ padding: '11px 14px', fontWeight: 700, color: '#d97706' }}>{formatCurrency(adv.total_amount)}</td>
                                         <td style={{ padding: '11px 14px', color: '#374151' }}>{adv.advance_type || 'Vendor Advance'}</td>
                                         <td style={{ padding: '11px 14px', fontWeight: 600, color: parseFloat(adv.advance_remaining || '0') > 0 ? '#d97706' : '#16a34a' }}>
