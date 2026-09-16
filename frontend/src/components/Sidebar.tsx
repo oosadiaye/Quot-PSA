@@ -106,6 +106,7 @@ const menuItems: MenuItem[] = [
             { name: 'Revenue Entries (IGR)', path: '/accounting/revenue-collections', icon: Banknote },
             { name: 'Chart of Accounts', path: '/accounting/coa', icon: List },
             { name: 'Accounts Payable', path: '/accounting/ap', icon: Receipt },
+            { name: 'AP Invoices Register', path: '/accounting/ap-invoices', icon: Layers },
             { name: 'Trial Balance', path: '/accounting/reports/trial-balance', icon: ClipboardCheck },
             { name: 'GL Reports', path: '/accounting/reports', icon: BarChart3 },
             { name: 'Fixed Assets', path: '/accounting/fixed-assets', icon: Building },

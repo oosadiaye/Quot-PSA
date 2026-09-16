@@ -45,6 +45,7 @@ const JournalList = lazy(() => import('./features/accounting/JournalList'));
 const JournalForm = lazy(() => import('./features/accounting/JournalForm'));
 const ChartOfAccounts = lazy(() => import('./features/accounting/coa/ChartOfAccounts'));
 const APManagement = lazy(() => import('./features/accounting/ap/APManagement'));
+const APInvoicesRegister = lazy(() => import('./features/accounting/ap/APInvoicesRegister'));
 const ARManagement = lazy(() => import('./features/accounting/ar/ARManagement'));
 const IncomingPaymentsPage = lazy(() => import('./features/accounting/ar/IncomingPaymentsPage'));
 const OutgoingPaymentsPage = lazy(() => import('./features/accounting/ap/OutgoingPaymentsPage'));
@@ -467,6 +468,9 @@ function App() {
                         } />
                         <Route path="/accounting/ap" element={
                           <ProtectedRoute><APManagement /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/ap-invoices" element={
+                          <ProtectedRoute><APInvoicesRegister /></ProtectedRoute>
                         } />
                         <Route path="/accounting/ar" element={
                           <ProtectedRoute><ARManagement /></ProtectedRoute>
