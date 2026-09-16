@@ -65,6 +65,10 @@ redis==7.4.0
 # ── File / report rendering ────────────────────────────────────────────
 openpyxl==3.1.5
 pillow==12.2.0
+# Rasterises uploaded PDF invoices to page images for the AI scan-to-draft
+# feature (accounting.services.ai_invoice_extraction). Pure-pip wheel — no
+# system/poppler dependency, unlike pdf2image.
+PyMuPDF==1.28.2
 # weasyprint==63.1   # for PDF export — re-enable when the export ticket
 #                    # lands; harmless to preinstall but adds GTK/Cairo
 #                    # native dependencies on Windows.

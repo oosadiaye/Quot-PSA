@@ -131,6 +131,7 @@ def call_model(
     setting,
     prompt: str,
     system: str = "",
+    images: list[str] | None = None,
     max_tokens: int = 1024,
     subject: dict | None = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -163,17 +164,31 @@ def call_model(
         )
 
     provider = setting.provider
+    # A user message is either a plain string (text calls) or an
+    # OpenAI-compatible multimodal array when images are attached — the
+    # instruction text plus one image_url part per page. That shape is
+    # accepted by OpenRouter / OpenAI and the Gemini OpenAI-compat layer;
+    # Anthropic's native /messages image blocks are not built here.
+    user_content: object = prompt
+    if images:
+        user_content = [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": u}} for u in images
+        ]
     body = {
         "model": setting.model_id,
         "messages": (
             ([{"role": "system", "content": system}] if system else [])
-            + [{"role": "user", "content": prompt}]
+            + [{"role": "user", "content": user_content}]
         ),
         "max_tokens": max_tokens,
     }
 
     mapping: dict[str, str] = {}
-    if setting.require_redaction:
+    # Redaction rewrites text fields; a scanned document carries its
+    # sensitive content in the pixels (governed by the provider's
+    # sends_document_images policy), not the fixed instruction prompt, so
+    # image calls skip it rather than feed a base64 blob through the matcher.
+    if setting.require_redaction and not images:
         body, mapping = redact_payload(body)
 
     url = provider.base_url.rstrip("/") + _CHAT_PATH.get(provider.key, "/chat/completions")
