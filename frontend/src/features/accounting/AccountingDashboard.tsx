@@ -58,7 +58,8 @@ const AccountingDashboard = () => {
         {
             title: 'Sub-Ledgers',
             links: [
-                { name: 'Accounts Payable', path: '/accounting/ap', icon: Receipt, desc: 'Manage vendor invoices and payments' },
+                { name: 'AP Invoice', path: '/accounting/ap', icon: Receipt, desc: 'Create, edit and view vendor invoices' },
+                { name: 'AP Invoices Register', path: '/accounting/ap-invoices', icon: Receipt, desc: 'Central register — approve, create PV and pay' },
                 { name: 'Accounts Receivable', path: '/accounting/ar', icon: DollarSign, desc: 'Manage customer invoices and receipts' },
                 { name: 'Fixed Assets', path: '/accounting/fixed-assets', icon: Building, desc: 'Track and depreciate assets' },
             ]
