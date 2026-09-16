@@ -863,12 +863,24 @@ export default function AppropriationDetail() {
                                     </tbody>
                                     {filteredLines.length > 0 && (
                                         <tfoot>
+                                            {/* 12 columns: Budget Code, Economic Code, Economic
+                                                Description, Functional, Programme, Fund, Type (7 →
+                                                the label spans these), then Approved, Committed,
+                                                Expended, Available, Status. The Committed total was
+                                                missing and colSpan was 6, so every total sat one
+                                                column left of its heading and the two rightmost
+                                                columns showed no sum. */}
                                             <tr style={{ borderTop: '2px solid var(--color-border)' }}>
-                                                <td colSpan={6} style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>
+                                                <td colSpan={7} style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>
                                                     {hasActiveFilter ? 'Filtered Total:' : 'MDA Total:'}
                                                 </td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700 }}>
                                                     {fmtNGN(filteredLines.reduce((s: number, l: any) => s + Number(l.amount_approved || 0), 0))}
+                                                </td>
+                                                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#d97706' }}>
+                                                    {/* Matches the body cell: combined PO + Contract
+                                                        committed, PO-only fallback for older shapes. */}
+                                                    {fmtNGN(filteredLines.reduce((s: number, l: any) => s + Number(l.total_all_committed ?? l.total_committed ?? 0), 0))}
                                                 </td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
                                                     {fmtNGN(filteredLines.reduce((s: number, l: any) => s + Number(l.total_expended || 0), 0))}
@@ -880,9 +892,7 @@ export default function AppropriationDetail() {
                                                         return s + (Number(l.available_balance ?? approved - expended) || 0);
                                                     }, 0))}
                                                 </td>
-                                                {/* One trailing empty cell — was two when the table had a
-                                                    Details column. Removed when row-click replaced the
-                                                    per-row "View Details" button. */}
+                                                {/* Status column — no total. */}
                                                 <td style={tdStyle}></td>
                                             </tr>
                                         </tfoot>
