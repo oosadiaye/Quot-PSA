@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle, Plus, X } from 'lucide-react';
+import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle, Plus, X, FileText } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import apiClient from '../../api/client';
@@ -59,6 +59,9 @@ interface LedgerEntry {
     // (vendor registration, advance disbursement, inter-TSA transfer, sweep).
     source: 'PAYMENT' | 'REVENUE' | 'JOURNAL';
     source_id: number;
+    // The posting journal to view for this line; null when the source
+    // document has no linked JV (the "View JV" link is then omitted).
+    journal_id?: number | null;
 }
 
 interface LedgerResponse {
@@ -343,6 +346,98 @@ function RecordTransactionModal({
     );
 }
 
+// --- journal-entry view modal -----------------------------------------------
+
+/** Shows the accounting journal entry (header + all its lines) behind a
+ *  ledger line, read-only. The line links here by ``journal_id``. */
+function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: () => void }) {
+    const { data, isLoading, isError, error } = useQuery<any>({
+        queryKey: ['journal-detail', journalId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
+            return data;
+        },
+    });
+    const lines: any[] = data?.lines ?? [];
+
+    const cell: React.CSSProperties = {
+        padding: '0.4rem 0.6rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem', color: '#1e293b',
+    };
+    const head: React.CSSProperties = {
+        padding: '0.4rem 0.6rem', textAlign: 'left', fontSize: '0.66rem', fontWeight: 700,
+        textTransform: 'uppercase', letterSpacing: '0.03em', color: '#64748b', borderBottom: '1px solid #e2e8f0',
+    };
+
+    return (
+        <div role="dialog" aria-modal="true"
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
+            onClick={onClose}>
+            <div onClick={(e) => e.stopPropagation()}
+                style={{ width: 620, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 12, padding: '1.4rem 1.5rem', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Journal Entry</h3>
+                        <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                            The accounting entry behind this ledger line.
+                        </p>
+                    </div>
+                    <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b', padding: 4 }}>
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {isLoading ? (
+                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
+                ) : isError ? (
+                    <div style={{ color: '#b91c1c', fontSize: '0.82rem', padding: '1rem' }}>
+                        Could not load journal #{journalId}: {String((error as any)?.message || 'unknown error')}
+                    </div>
+                ) : (
+                    <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginBottom: '1rem', fontSize: '0.82rem' }}>
+                            <div><span style={{ color: '#64748b' }}>Reference:</span> <strong style={{ fontFamily: 'monospace' }}>{data.reference_number || `JV-${data.id}`}</strong></div>
+                            <div><span style={{ color: '#64748b' }}>Date:</span> <strong>{data.posting_date ? new Date(data.posting_date).toLocaleDateString('en-GB') : '—'}</strong></div>
+                            <div><span style={{ color: '#64748b' }}>Status:</span> <strong>{data.status}</strong></div>
+                            <div><span style={{ color: '#64748b' }}>JV #:</span> <strong>{data.id}</strong></div>
+                            <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#64748b' }}>Description:</span> {data.description || '—'}</div>
+                        </div>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }} data-plain-table>
+                            <thead>
+                                <tr>
+                                    <th style={head}>Account</th>
+                                    <th style={{ ...head, textAlign: 'right' }}>Debit</th>
+                                    <th style={{ ...head, textAlign: 'right' }}>Credit</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {lines.map((l) => (
+                                    <tr key={l.id}>
+                                        <td style={cell}>
+                                            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.account_code}</span>
+                                            <span style={{ color: '#64748b' }}> — {l.account_name}</span>
+                                            {l.memo ? <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{l.memo}</div> : null}
+                                        </td>
+                                        <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(l.debit) > 0 ? fmtNGN(l.debit) : ''}</td>
+                                        <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(l.credit) > 0 ? fmtNGN(l.credit) : ''}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                    <td style={{ ...cell, fontWeight: 700, textAlign: 'right' }}>Total</td>
+                                    <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmtNGN(data.total_debit)}</td>
+                                    <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmtNGN(data.total_credit)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // --- main component ----------------------------------------------------------
 
 export default function TSALedger() {
@@ -352,6 +447,7 @@ export default function TSALedger() {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [showRecord, setShowRecord] = useState(false);
+    const [journalId, setJournalId] = useState<number | null>(null);
 
     const { data, isLoading, error, refetch, isFetching } = useQuery<LedgerResponse>({
         queryKey: ['tsa-ledger', id, dateFrom, dateTo],
@@ -622,6 +718,7 @@ export default function TSALedger() {
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Debit</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
                                     <th style={{ ...thStyle, textAlign: 'right' }}>Balance</th>
+                                    <th style={{ ...thStyle, textAlign: 'center' }}>JV</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -638,6 +735,7 @@ export default function TSALedger() {
                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#0f766e' }}>
                                         {fmtNGN(data.opening_balance)}
                                     </td>
+                                    <td style={tdStyle}></td>
                                 </tr>
 
                                 {groupedEntries.map((e, idx) => (
@@ -667,6 +765,25 @@ export default function TSALedger() {
                                         <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
                                             {fmtNGN(e.running_balance)}
                                         </td>
+                                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                            {e.journal_id ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setJournalId(e.journal_id!)}
+                                                    title="View the accounting journal entry for this line"
+                                                    style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                                        padding: '0.2rem 0.5rem', border: '1px solid #c7d2fe',
+                                                        borderRadius: '6px', background: '#eef2ff', color: '#4f46e5',
+                                                        fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <FileText size={12} /> View
+                                                </button>
+                                            ) : (
+                                                <span style={{ color: '#cbd5e1' }}>—</span>
+                                            )}
+                                        </td>
                                     </tr>
                                 ))}
 
@@ -687,11 +804,16 @@ export default function TSALedger() {
                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#166534' }}>
                                         {fmtNGN(data.closing_balance)}
                                     </td>
+                                    <td style={tdStyle}></td>
                                 </tr>
                             </tbody>
                         </table>
                     )}
                 </div>
+
+                {journalId !== null && (
+                    <JournalViewModal journalId={journalId} onClose={() => setJournalId(null)} />
+                )}
             </main>
         </div>
     );

@@ -20,7 +20,7 @@ journals never leak into another's GL balance.
 """
 from __future__ import annotations
 
-import itertools
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -30,9 +30,9 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-# Committed rows persist between transaction=True tests, so every test
-# gets its own account codes off this counter — no cross-test bleed.
-_seq = itertools.count(1)
+# Committed rows persist between transaction=True tests (and across
+# --reuse-db runs), so every test builds its accounts under a uuid token —
+# no cross-test or cross-run collision.
 
 
 @pytest.fixture
@@ -40,12 +40,12 @@ def tsa_with_journal(db):
     from accounting.models.gl import Account, JournalHeader, JournalLine
     from accounting.models.treasury import TreasuryAccount
 
-    n = next(_seq)
+    tok = uuid.uuid4().hex[:8]
     cash = Account.objects.create(
-        code=f'ZZTSA{n:05d}', name=f'CASH: Ledger Test {n}', account_type='Asset',
+        code=f'ZT{tok}', name=f'CASH: Ledger Test {tok}', account_type='Asset',
     )
     acct = TreasuryAccount.objects.create(
-        account_number=f'TSA-LEDGER-TEST-{n}',
+        account_number=f'TSA-L-{tok}',
         account_name='Ledger Test TSA',
         bank='Test Bank',
         account_type='CONSOLIDATED',
@@ -56,7 +56,7 @@ def tsa_with_journal(db):
     def _post(source_module, *, debit, credit, desc, ref, day=date(2026, 4, 28)):
         h = JournalHeader.objects.create(
             status='Posted', source_module=source_module,
-            posting_date=day, description=desc, reference_number=f'{ref}-{n}',
+            posting_date=day, description=desc, reference_number=f'{ref}-{tok}',
         )
         JournalLine.objects.create(header=h, account=cash, debit=debit, credit=credit)
         return h
@@ -94,6 +94,16 @@ def test_a_gl_cash_movement_appears_in_the_ledger(tsa_with_journal):
     # A debit to a cash (asset) account is money IN -> ledger credit column.
     assert Decimal(journal_rows[0]['credit']) == Decimal('10000.00')
     assert Decimal(journal_rows[0]['debit']) == Decimal('0')
+
+
+def test_a_journal_line_carries_its_journal_id_for_drill_through(tsa_with_journal):
+    """Each ledger line exposes journal_id so the UI can open the JV."""
+    acct, post = tsa_with_journal
+    h = post('vendor_registration', debit=Decimal('10000.00'), credit=Decimal('0'),
+             desc='Vendor Registration: Jacob PLC', ref='JE-DRILL')
+
+    row = next(e for e in _ledger(acct)['entries'] if e['source'] == 'JOURNAL')
+    assert row['journal_id'] == h.id
 
 
 def test_a_cash_credit_reads_as_an_outflow(tsa_with_journal):
