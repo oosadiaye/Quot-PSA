@@ -181,7 +181,7 @@ const PaymentsTab = () => {
     {
       title: 'Date', dataIndex: 'payment_date', key: 'date',
       sorter: (a: any, b: any) => dayjs(a.payment_date).unix() - dayjs(b.payment_date).unix(),
-      render: (date: string) => date ? dayjs(date).format('MMM DD, YYYY') : '-',
+      render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY') : '-',
     },
     {
       title: 'Actions', key: 'actions', width: 180,
@@ -438,7 +438,7 @@ const PaymentsTab = () => {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Payment Date">
-                {selectedPayment.payment_date ? dayjs(selectedPayment.payment_date).format('MMMM DD, YYYY') : '-'}
+                {selectedPayment.payment_date ? dayjs(selectedPayment.payment_date).format('DD/MM/YYYY') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Status">
                 <Tag
@@ -450,7 +450,7 @@ const PaymentsTab = () => {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Created">
-                {selectedPayment.created_at ? dayjs(selectedPayment.created_at).format('MMM DD, YYYY HH:mm') : '-'}
+                {selectedPayment.created_at ? dayjs(selectedPayment.created_at).format('DD/MM/YYYY HH:mm') : '-'}
               </Descriptions.Item>
             </Descriptions>
 
@@ -482,7 +482,7 @@ const PaymentsTab = () => {
                       <br />
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {selectedPayment.created_at
-                          ? dayjs(selectedPayment.created_at).format('MMM DD, YYYY HH:mm')
+                          ? dayjs(selectedPayment.created_at).format('DD/MM/YYYY HH:mm')
                           : 'Date unknown'}
                       </Text>
                     </div>
@@ -495,7 +495,7 @@ const PaymentsTab = () => {
                       <Text strong>Payment Date Recorded</Text>
                       <br />
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        {dayjs(selectedPayment.payment_date).format('MMM DD, YYYY')}
+                        {dayjs(selectedPayment.payment_date).format('DD/MM/YYYY')}
                       </Text>
                     </div>
                   ),

@@ -7,6 +7,7 @@
  * closing journal + locks the year).
  */
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
     Calendar, Lock, Unlock, AlertTriangle, Plus, Loader2,
@@ -212,7 +213,7 @@ export default function FiscalYearAdminPage() {
                                             padding: '10px 14px', fontSize: 12,
                                             color: '#64748b', fontFamily: 'monospace',
                                         }}>
-                                            {fy.start_date} → {fy.end_date}
+                                            {formatDate(fy.start_date)} → {formatDate(fy.end_date)}
                                         </td>
                                         <td style={{ padding: '10px 14px' }}>
                                             <StatusPill status={fy.status} />
@@ -225,7 +226,7 @@ export default function FiscalYearAdminPage() {
                                             color: '#64748b', fontFamily: 'monospace',
                                         }}>
                                             {fy.closed_date
-                                                ? new Date(fy.closed_date).toLocaleDateString('en-NG')
+                                                ? new Date(fy.closed_date).toLocaleDateString('en-GB')
                                                 : '—'}
                                         </td>
                                         <td style={{ padding: '10px 14px' }}>

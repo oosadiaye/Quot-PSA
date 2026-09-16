@@ -247,7 +247,7 @@ export default function PurchaseReturns() {
                                             {ret.po_number || '—'}
                                         </td>
                                         <td style={{ padding: '0.75rem 1rem', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}>
-                                            {ret.return_date ? new Date(ret.return_date).toLocaleDateString() : '—'}
+                                            {ret.return_date ? new Date(ret.return_date).toLocaleDateString('en-GB') : '—'}
                                         </td>
                                         <td style={{
                                             padding: '0.75rem 1rem',

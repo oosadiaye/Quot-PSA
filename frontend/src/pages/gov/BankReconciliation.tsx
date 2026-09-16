@@ -13,6 +13,7 @@
  *                                                rows flagged reconciled
  */
 import { useMemo, useRef, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Upload, RefreshCw, CheckCircle2, AlertCircle, Landmark, Play,
@@ -619,7 +620,7 @@ function ManualMatchModal({
                     padding: '0.75rem', background: '#f8fafc', borderRadius: '6px',
                     marginBottom: '1rem', fontSize: '0.85rem',
                 }}>
-                    <div><strong>Date:</strong> {line.transaction_date}</div>
+                    <div><strong>Date:</strong> {formatDate(line.transaction_date)}</div>
                     <div><strong>Reference:</strong> {line.reference || '—'}</div>
                     <div><strong>Description:</strong> {line.description}</div>
                     <div><strong>Amount:</strong>{' '}
@@ -668,7 +669,7 @@ function ManualMatchModal({
                                         <td style={{ padding: '0.5rem', fontFamily: 'monospace' }}>
                                             {c.reference || '—'}
                                         </td>
-                                        <td style={{ padding: '0.5rem' }}>{c.date || '—'}</td>
+                                        <td style={{ padding: '0.5rem' }}>{formatDate(c.date)}</td>
                                         <td style={{ padding: '0.5rem' }}>
                                             {c.beneficiary || c.payer || '—'}
                                         </td>
@@ -980,7 +981,7 @@ function StatementDetail({
                                         : l.match_status === 'IGNORED' ? '#f3f4f6'
                                         : 'transparent',
                                 }}>
-                                    <td style={tdStyle}>{l.transaction_date}</td>
+                                    <td style={tdStyle}>{formatDate(l.transaction_date)}</td>
                                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem' }}>
                                         {l.reference || '—'}
                                     </td>

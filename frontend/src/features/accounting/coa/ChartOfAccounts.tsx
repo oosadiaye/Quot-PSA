@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { formatDate } from '@/utils/date';
 import { List, Plus, Download, Edit, Trash2, Filter, Search, X, Check, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Upload, FileDown, Copy, BookOpen } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
@@ -2001,12 +2002,12 @@ export default function ChartOfAccounts() {
                                                 </tr>
                                             ) : (
                                                 ledgerData.entries.map((entry: any, idx: number) => (
-                                                    <tr key={entry.id ?? `${entry.date}-${idx}`} style={{
+                                                    <tr key={entry.id ?? `${formatDate(entry.date)}-${idx}`} style={{
                                                         borderBottom: '1px solid var(--color-border)',
                                                         background: idx % 2 === 0 ? 'transparent' : 'var(--color-surface)',
                                                     }}>
                                                         <td style={{ padding: '0.65rem 1rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-                                                            {entry.date}
+                                                            {formatDate(entry.date)}
                                                         </td>
                                                         <td style={{ padding: '0.65rem 1rem', color: 'var(--color-primary)', whiteSpace: 'nowrap', fontWeight: 600 }}>
                                                             {entry.reference || '—'}

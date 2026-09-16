@@ -280,8 +280,8 @@ const AnnouncementsTab = () => {
       key: 'published_date',
       width: 170,
       render: (_: any, r: Announcement) => {
-        if (r.is_published) return dayjs(r.starts_at).format('MMM D, YYYY h:mm A');
-        if (dayjs(r.starts_at).isAfter(dayjs())) return <Text type="secondary">Scheduled: {dayjs(r.starts_at).format('MMM D, YYYY')}</Text>;
+        if (r.is_published) return dayjs(r.starts_at).format('DD/MM/YYYY h:mm A');
+        if (dayjs(r.starts_at).isAfter(dayjs())) return <Text type="secondary">Scheduled: {dayjs(r.starts_at).format('DD/MM/YYYY')}</Text>;
         return <Text type="secondary">--</Text>;
       },
     },

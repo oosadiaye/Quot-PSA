@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useLeaveRequests, useLeaveTypes, useEmployees, useApproveLeave, useRejectLeave, useCreateLeaveRequest } from '../hooks/useHrm';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -108,7 +109,7 @@ const LeaveManagement = () => {
                                     <tr key={req.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                         <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><User size={16} />{getEmployeeName(req.employee_id || req.employee)}</div></td>
                                         <td style={{ padding: '1rem' }}>{req.leave_type_name || req.leave_type}</td>
-                                        <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Calendar size={14} />{req.start_date} - {req.end_date}</div></td>
+                                        <td style={{ padding: '1rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Calendar size={14} />{formatDate(req.start_date)} - {formatDate(req.end_date)}</div></td>
                                         <td style={{ padding: '1rem' }}><span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', background: `${getStatusColor(req.status)}15`, color: getStatusColor(req.status), fontSize: 'var(--text-xs)', fontWeight: 600 }}>{req.status}</span></td>
                                         <td style={{ padding: '1rem' }}>
                                             {req.status === 'Pending' && (

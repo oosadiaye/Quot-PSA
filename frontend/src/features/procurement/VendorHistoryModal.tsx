@@ -315,7 +315,7 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                     {isMatched && <CheckCircle2 size={14} color="#22c55e" />}
                 </td>
                 <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                    {new Date(t.date).toLocaleDateString()}
+                    {new Date(t.date).toLocaleDateString('en-GB')}
                 </td>
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{t.reference}</td>
                 <td style={tdStyle}>

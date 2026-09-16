@@ -36,7 +36,7 @@ const ALL_ACTIONS = [
 const fmtDate = (iso: string) => {
     if (!iso) return '';
     const d = new Date(iso);
-    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
+    return d.toLocaleDateString('en-GB')
         + ' ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 

@@ -39,7 +39,7 @@ const OverviewTab = () => {
   const auditColumns = [
     {
       title: 'Timestamp', dataIndex: 'timestamp', key: 'timestamp',
-      render: (ts: string) => ts ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(ts).toLocaleString()}</Text> : '-',
+      render: (ts: string) => ts ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(ts).toLocaleString('en-GB')}</Text> : '-',
     },
     { title: 'Tenant', dataIndex: 'tenant_name', key: 'tenant_name', render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-' },
     {
@@ -211,7 +211,7 @@ const OverviewTab = () => {
                     </div>
                     <div style={{ flex: 1 }}>
                       <Text strong>{item.name}</Text>
-                      <div><Text type="secondary" style={{ fontSize: 12 }}>Joined {new Date(item.created_on).toLocaleDateString()}</Text></div>
+                      <div><Text type="secondary" style={{ fontSize: 12 }}>Joined {new Date(item.created_on).toLocaleDateString('en-GB')}</Text></div>
                     </div>
                   </div>
                 ))}

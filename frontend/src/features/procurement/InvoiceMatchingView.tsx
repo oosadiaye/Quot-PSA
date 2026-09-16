@@ -257,9 +257,9 @@ export default function InvoiceMatchingView() {
                             <DetailRow icon={<FileText size={14} />} label="PO Number" value={m.po_number || '—'} />
                             <DetailRow icon={<FileText size={14} />} label="GRN Number" value={m.grn_number || '—'} />
                             <DetailRow icon={<Building2 size={14} />} label="Vendor" value={m.vendor_name || '—'} />
-                            <DetailRow icon={<Calendar size={14} />} label="Invoice Date" value={m.invoice_date ? new Date(m.invoice_date).toLocaleDateString() : '—'} />
+                            <DetailRow icon={<Calendar size={14} />} label="Invoice Date" value={m.invoice_date ? new Date(m.invoice_date).toLocaleDateString('en-GB') : '—'} />
                             <DetailRow icon={<Scale size={14} />} label="Match Type" value={m.match_type || 'None'} />
-                            <DetailRow icon={<Calendar size={14} />} label="Matched Date" value={m.matched_date ? new Date(m.matched_date).toLocaleDateString() : '—'} />
+                            <DetailRow icon={<Calendar size={14} />} label="Matched Date" value={m.matched_date ? new Date(m.matched_date).toLocaleDateString('en-GB') : '—'} />
                         </div>
                     </div>
 

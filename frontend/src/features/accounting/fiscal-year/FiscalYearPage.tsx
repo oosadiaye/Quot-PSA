@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { Lock as LockIcon, Unlock, Users, ChevronDown, ChevronRight, Check, Plus, Calendar, Zap, Eye, AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useFiscalYears, useFiscalPeriods, useCreateFiscalYear, useCloseFiscalYear, useSetActiveFiscalYear, useClosePeriods, useReopenPeriod, useGrantPeriodAccess } from '../hooks/useFiscalYear';
@@ -403,7 +404,7 @@ export default function FiscalYearPage() {
                                                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b' }}>{p.name}</span>
                                             </div>
                                             <div style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace' }}>
-                                                {p.start_date} → {p.end_date}
+                                                {formatDate(p.start_date)} → {formatDate(p.end_date)}
                                             </div>
                                         </div>
                                     ))}
@@ -571,8 +572,8 @@ export default function FiscalYearPage() {
                                                                     <tr key={period.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                                                         <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{period.period_number}</td>
                                                                         <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px', fontWeight: 600 }}>{monthName}</td>
-                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{period.start_date}</td>
-                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{period.end_date}</td>
+                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{formatDate(period.start_date)}</td>
+                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{formatDate(period.end_date)}</td>
                                                                         <td style={{ padding: '0.4rem 0.5rem' }}>
                                                                             <span style={{ color: getStatusColor(period.status), fontWeight: 600, fontSize: '12px' }}>{period.status}</span>
                                                                         </td>

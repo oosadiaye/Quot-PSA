@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useHolidays, useCreateHoliday, useUpdateHoliday, useDeleteHoliday } from '../hooks/useHrm';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -90,7 +91,7 @@ const HolidayList = () => {
                                         <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Calendar size={24} /></div>
                                         <div>
                                             <div style={{ fontWeight: 600 }}>{holiday.name}</div>
-                                            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{holiday.date} {holiday.is_recurring && '(Recurring)'}</div>
+                                            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{formatDate(holiday.date)} {holiday.is_recurring && '(Recurring)'}</div>
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>

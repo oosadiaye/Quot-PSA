@@ -198,7 +198,7 @@ export default function WebhooksSection() {
       render: (v: string | null, r: WebhookConfigItem) => {
         if (!v) return <Text type="secondary">Never</Text>;
         return (
-          <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm:ss')}>
+          <Tooltip title={dayjs(v).format('DD/MM/YYYY HH:mm:ss')}>
             <Space size={4}>
               <Text style={{ fontSize: 12 }}>{dayjs(v).fromNow()}</Text>
               {r.last_status_code && (
@@ -293,7 +293,7 @@ export default function WebhooksSection() {
       dataIndex: 'attempted_at',
       key: 'attempted',
       render: (v: string) => (
-        <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm:ss')}>
+        <Tooltip title={dayjs(v).format('DD/MM/YYYY HH:mm:ss')}>
           <Text style={{ fontSize: 12 }}>{dayjs(v).fromNow()}</Text>
         </Tooltip>
       ),

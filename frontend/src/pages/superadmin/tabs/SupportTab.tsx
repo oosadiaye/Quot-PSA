@@ -182,7 +182,7 @@ export default function SupportTab() {
       dataIndex: 'created_at',
       key: 'created',
       sorter: (a: SupportTicket, b: SupportTicket) => (a.created_at || '').localeCompare(b.created_at || ''),
-      render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+      render: (v: string) => v ? new Date(v).toLocaleDateString('en-GB') : '-',
     },
     {
       title: 'Actions',
@@ -318,7 +318,7 @@ export default function SupportTab() {
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="Created">
-                {new Date(selectedTicket.created_at).toLocaleString()}
+                {new Date(selectedTicket.created_at).toLocaleString('en-GB')}
               </Descriptions.Item>
             </Descriptions>
 
@@ -370,7 +370,7 @@ export default function SupportTab() {
                         <Space>
                           <Text strong>{c.author_name}</Text>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            {new Date(c.created_at).toLocaleString()}
+                            {new Date(c.created_at).toLocaleString('en-GB')}
                           </Text>
                           {c.is_internal && <Tag>Internal</Tag>}
                         </Space>

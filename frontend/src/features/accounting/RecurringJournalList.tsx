@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     useRecurringJournals, useGenerateRecurringJournalNow,
@@ -285,9 +286,9 @@ const RecurringJournalList = () => {
                                                     {j.auto_post && <span style={{ background: 'rgba(79,70,229,0.1)', color: '#4f46e5', padding: '2px 7px', borderRadius: '5px', fontSize: '11px', fontWeight: 700 }}>Auto-Post</span>}
                                                 </div>
                                                 <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: '#64748b', flexWrap: 'wrap' }}>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> Start: {j.start_date}</span>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> Start: {formatDate(j.start_date)}</span>
                                                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><RefreshCw size={12} /> Next: <strong>{j.next_run_date || '—'}</strong></span>
-                                                    {j.end_date && <span>End: {j.end_date}</span>}
+                                                    {j.end_date && <span>End: {formatDate(j.end_date)}</span>}
                                                     <span style={{ color: '#94a3b8' }}>{j.description || 'No description'}</span>
                                                 </div>
                                             </div>
@@ -384,8 +385,8 @@ const RecurringJournalList = () => {
                                                         </td>
                                                         <td style={td}>{freqBadge(j.frequency)}</td>
                                                         <td style={{ ...td, color: '#94a3b8', fontSize: '12px' }}>{j.created_at ? j.created_at.slice(0, 10) : '—'}</td>
-                                                        <td style={td}>{j.start_date || '—'}</td>
-                                                        <td style={{ ...td, color: j.end_date ? '#1e293b' : '#94a3b8' }}>{j.end_date || 'No end'}</td>
+                                                        <td style={td}>{formatDate(j.start_date)}</td>
+                                                        <td style={{ ...td, color: j.end_date ? '#1e293b' : '#94a3b8' }}>{j.end_date ? formatDate(j.end_date) : 'No end'}</td>
                                                         <td style={{ ...td, color: j.next_run_date ? '#4f46e5' : '#94a3b8', fontWeight: j.next_run_date ? 600 : 400 }}>{j.next_run_date || '—'}</td>
                                                         <td style={td}>
                                                             {j.auto_post

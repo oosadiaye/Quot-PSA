@@ -527,7 +527,7 @@ export default function GLReports() {
                                         </div>
                                         <div>
                                             <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.25rem' }}>Posting Date</p>
-                                            <p style={{ fontWeight: 600 }}>{journalDetail.posting_date ? new Date(journalDetail.posting_date).toLocaleDateString() : '-'}</p>
+                                            <p style={{ fontWeight: 600 }}>{journalDetail.posting_date ? new Date(journalDetail.posting_date).toLocaleDateString('en-GB') : '-'}</p>
                                         </div>
                                         <div>
                                             <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.25rem' }}>Status</p>

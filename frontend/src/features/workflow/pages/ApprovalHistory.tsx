@@ -107,7 +107,7 @@ const ApprovalHistory = () => {
                                         </span>
                                     </td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-                                        {new Date(approval.created_at).toLocaleDateString()}
+                                        {new Date(approval.created_at).toLocaleDateString('en-GB')}
                                     </td>
                                 </tr>
                             ))}
@@ -148,7 +148,7 @@ const ApprovalHistory = () => {
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)' }}>{log.user_name || 'System'}</td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{log.comment || '-'}</td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-                                        {new Date(log.created_at).toLocaleString()}
+                                        {new Date(log.created_at).toLocaleString('en-GB')}
                                     </td>
                                 </tr>
                             ))}

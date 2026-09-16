@@ -302,7 +302,7 @@ export default function MyDocuments() {
                       {doc.category_label} ·{' '}
                       {doc.original_filename || 'file'} ·{' '}
                       {formatBytes(doc.size_bytes)} · uploaded{' '}
-                      {new Date(doc.uploaded_at).toLocaleDateString()}
+                      {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}
                     </div>
                     {doc.hr_notes && (
                       <div
@@ -328,7 +328,7 @@ export default function MyDocuments() {
                         }}
                       >
                         <AlertTriangle size={12} /> Expires{' '}
-                        {new Date(doc.expires_on!).toLocaleDateString()}
+                        {new Date(doc.expires_on!).toLocaleDateString('en-GB')}
                       </div>
                     )}
                   </div>
@@ -452,7 +452,7 @@ function VerificationBanner({
         )}
         <strong style={{ fontSize: 14 }}>{submission.cycle.name}</strong>
         <span style={{ fontSize: 12, opacity: 0.8 }}>
-          · deadline {new Date(submission.cycle.deadline).toLocaleDateString()}{' '}
+          · deadline {new Date(submission.cycle.deadline).toLocaleDateString('en-GB')}{' '}
           ({days >= 0 ? `${days} day${days === 1 ? '' : 's'} left` : 'overdue'})
         </span>
       </div>

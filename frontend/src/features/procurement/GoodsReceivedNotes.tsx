@@ -346,7 +346,7 @@ export default function GoodsReceivedNotes() {
                                         </td>
                                         <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{grn.grn_number}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{grn.po_number}</td>
-                                        <td style={{ padding: '0.75rem 1rem' }}>{new Date(grn.received_date).toLocaleDateString()}</td>
+                                        <td style={{ padding: '0.75rem 1rem' }}>{new Date(grn.received_date).toLocaleDateString('en-GB')}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{grn.received_by}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>{getStatusBadge(grn.status)}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>

@@ -19,6 +19,7 @@
  * and the detail can never disagree.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useQuery } from '@tanstack/react-query';
 import { Search, X, Info, ShieldCheck } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -735,7 +736,7 @@ const BudgetCheck = () => {
                                                 const isExpended = t.kind === 'expended';
                                                 return (
                                                     <tr key={`${t.type}-${t.source_id}-${idx}`}>
-                                                        <td style={txTd}>{t.date || '\u2014'}</td>
+                                                        <td style={txTd}>{formatDate(t.date)}</td>
                                                         <td style={{ ...txTd, whiteSpace: 'nowrap' }}>
                                                             <span style={{
                                                                 background: isExpended ? '#fef2f2' : '#fffbeb',

@@ -300,10 +300,10 @@ export default function PurchaseOrderList() {
                                             {po.vendor_name}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                            {new Date(po.order_date).toLocaleDateString()}
+                                            {new Date(po.order_date).toLocaleDateString('en-GB')}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                            {po.expected_delivery_date ? new Date(po.expected_delivery_date).toLocaleDateString() : '—'}
+                                            {po.expected_delivery_date ? new Date(po.expected_delivery_date).toLocaleDateString('en-GB') : '—'}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
                                             {formatCurrency(Number(po.total_amount || 0))}

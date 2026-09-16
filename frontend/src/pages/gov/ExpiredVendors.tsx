@@ -6,6 +6,7 @@
  * Confirm payment → GL entry (DR TSA, CR Revenue) → vendor renewed.
  */
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, RefreshCw, AlertTriangle, FileText, CheckCircle2, X, RotateCcw } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -184,7 +185,7 @@ export default function ExpiredVendors() {
                                         </td>
                                         <td style={{ padding: '0.75rem', fontSize: 'var(--text-sm)', fontFamily: 'monospace' }}>{v.code}</td>
                                         <td style={{ padding: '0.75rem', fontSize: 'var(--text-sm)', fontWeight: 500 }}>{v.name}</td>
-                                        <td style={{ padding: '0.75rem', fontSize: 'var(--text-sm)', color: '#dc2626', fontWeight: 600 }}>{v.expiry_date || '\u2014'}</td>
+                                        <td style={{ padding: '0.75rem', fontSize: 'var(--text-sm)', color: '#dc2626', fontWeight: 600 }}>{formatDate(v.expiry_date)}</td>
                                         <td style={{ padding: '0.75rem' }}>
                                             <span style={{ padding: '0.2rem 0.5rem', borderRadius: '12px', fontSize: '0.65rem', fontWeight: 600, background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>EXPIRED</span>
                                         </td>
@@ -279,8 +280,8 @@ export default function ExpiredVendors() {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: 'var(--text-xs)' }}>
                                     <div><span style={{ color: 'var(--color-text-muted)' }}>Vendor:</span> <strong>{generatedInvoice.vendor_name}</strong></div>
                                     <div><span style={{ color: 'var(--color-text-muted)' }}>Fiscal Year:</span> {generatedInvoice.fiscal_year}</div>
-                                    <div><span style={{ color: 'var(--color-text-muted)' }}>Date:</span> {generatedInvoice.invoice_date}</div>
-                                    <div><span style={{ color: 'var(--color-text-muted)' }}>Due:</span> {generatedInvoice.due_date}</div>
+                                    <div><span style={{ color: 'var(--color-text-muted)' }}>Date:</span> {formatDate(generatedInvoice.invoice_date)}</div>
+                                    <div><span style={{ color: 'var(--color-text-muted)' }}>Due:</span> {formatDate(generatedInvoice.due_date)}</div>
                                 </div>
 
                                 <div style={{ marginTop: '0.75rem', padding: '0.625rem', borderRadius: '6px', background: 'rgba(25,30,106,0.04)', border: '1px solid rgba(25,30,106,0.1)' }}>

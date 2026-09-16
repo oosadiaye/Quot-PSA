@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { formatDate } from '@/utils/date';
 import { useJournalDetail } from '../hooks/useJournal';
 
 interface JournalDetailModalProps {
@@ -33,7 +34,7 @@ const JournalDetailModal = ({ id, onClose }: JournalDetailModalProps) => {
                     <div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem', fontSize: 'var(--text-sm)' }}>
                             <div><strong>Reference:</strong> {journal?.reference_number || '-'}</div>
-                            <div><strong>Date:</strong> {journal?.posting_date}</div>
+                            <div><strong>Date:</strong> {formatDate(journal?.posting_date)}</div>
                             <div><strong>Status:</strong> {journal?.status}</div>
                             <div><strong>Fund:</strong> {journal?.fund_name || '-'}</div>
                             <div><strong>Geo:</strong> {journal?.geo_name || '-'}</div>

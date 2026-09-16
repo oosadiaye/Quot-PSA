@@ -282,7 +282,7 @@ export default function ARManagement() {
                                                 )}
                                             </td>
                                             <td style={{ padding: '1rem 1.5rem' }}>{invoice.customer_name}</td>
-                                            <td style={{ padding: '1rem 1.5rem' }}>{new Date(invoice.due_date).toLocaleDateString()}</td>
+                                            <td style={{ padding: '1rem 1.5rem' }}>{new Date(invoice.due_date).toLocaleDateString('en-GB')}</td>
                                             <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 600, color: invoice.status === 'Overdue' ? 'var(--color-error)' : 'var(--color-cta)' }}>
                                                 {invoice.currency_code} {parseFloat(invoice.balance_due || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </td>

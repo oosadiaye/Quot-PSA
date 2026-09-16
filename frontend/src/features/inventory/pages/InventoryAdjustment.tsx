@@ -81,7 +81,7 @@ const tdStyle: React.CSSProperties = {
 
 function formatDate(dateStr: string) {
     if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return new Date(dateStr).toLocaleDateString('en-GB');
 }
 
 function isInDateRange(dateStr: string, range: DateRange): boolean {
