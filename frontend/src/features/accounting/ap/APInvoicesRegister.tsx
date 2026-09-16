@@ -284,7 +284,7 @@ export default function APInvoicesRegister() {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
                                                 <FileText size={16} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
                                                 <div style={{ minWidth: 0 }}>
-                                                    <span title={row.docNumber} style={{ display: 'block', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.docNumber}</span>
+                                                    <span title={row.docNumber} style={{ ...cellTextStyle, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.docNumber}</span>
                                                     {row.source === 'verified' && row.verificationNumber && (
                                                         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
                                                             via {row.verificationNumber}
@@ -293,13 +293,13 @@ export default function APInvoicesRegister() {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td style={{ padding: '0.8rem 1.1rem', fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{row.supplierNumber || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', fontSize: 'var(--text-sm)' }}>{row.vendorName}</td>
-                                        <td title={row.reference} style={{ padding: '0.8rem 1.1rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{fmtDate(row.date)}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.supplierNumber || '—'}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.vendorName}</td>
+                                        <td title={row.reference} style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
                                         <td style={{ padding: '0.8rem 1.1rem' }}><StatusBadge status={row.status} /></td>
-                                        <td style={{ padding: '0.8rem 1.1rem', fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{row.poNumber || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)' }}>{formatCurrency(row.amount)}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.poNumber || '—'}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
                                         <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                             {/* Icon action buttons — same compact style as the Chart of
                                                 Journals. Colour still carries the meaning: amber Post,
@@ -486,6 +486,11 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
         </div>
     );
 }
+
+// One uniform cell text style across every data column — the same treatment
+// the document number uses (monospace, semibold, primary text colour), so the
+// register reads as a consistent ledger grid.
+const cellTextStyle: React.CSSProperties = { fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)', fontSize: 'var(--text-sm)' };
 
 const jTh: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' };
 const jTd: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: 'var(--text-sm)', borderTop: '1px solid var(--color-border)' };

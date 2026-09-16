@@ -552,7 +552,7 @@ const JournalList = () => {
                                 <td style={{ padding: '1rem 1.5rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
                                     {journal.reference_number || `JE-${journal.id}`}
                                 </td>
-                                <td style={{ padding: '1rem 1.5rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{journal.posting_date}</td>
+                                <td style={{ padding: '1rem 1.5rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{journal.posting_date ? new Date(journal.posting_date).toLocaleDateString('en-GB') : '-'}</td>
                                 <td style={{ padding: '1rem 1.5rem', fontSize: 'var(--text-sm)' }}>
                                     <div style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={journal.description}>
                                         {journal.description || '-'}
