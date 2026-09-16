@@ -151,7 +151,7 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # Revenue and payment journals are excluded here because their
         # movements are already shown from the two document sources above;
         # including the GL twin would double them.
-        from accounting.models.gl import JournalLine
+        from accounting.models.gl import JournalLine, JournalHeader
 
         DOC_SOURCE_MODULES = (
             'revenue', 'revenue_collection',
@@ -217,8 +217,31 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             opening_balance = in_before_vd + in_before_cd - out_before + gl_before
 
         # --- Build merged, date-ordered entry list ----------------------------
+        # Each line carries ``journal_id`` — the posting journal to view for
+        # that movement. A JOURNAL line already IS its journal (header id set
+        # below). For document lines the JV is looked up by
+        # (source_module, source_document_id); null when none is linked, and
+        # the UI simply omits the "view JV" link there.
+        outflows = list(outflow_qs)
+        inflows = list(inflow_qs)
+        pay_jv, rev_jv = {}, {}
+        if outflows:
+            pay_jv = dict(
+                JournalHeader.objects.filter(
+                    source_document_id__in=[pi.id for pi in outflows],
+                    source_module__in=['payment', 'payment_voucher', 'payment_instruction'],
+                ).values_list('source_document_id', 'id')
+            )
+        if inflows:
+            rev_jv = dict(
+                JournalHeader.objects.filter(
+                    source_document_id__in=[rc.id for rc in inflows],
+                    source_module='revenue',
+                ).values_list('source_document_id', 'id')
+            )
+
         entries = []
-        for pi in outflow_qs:
+        for pi in outflows:
             entry_date = pi.processed_at.date() if pi.processed_at else None
             entries.append({
                 'date': entry_date,
@@ -235,9 +258,10 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'credit': Decimal('0'),
                 'source': 'PAYMENT',
                 'source_id': pi.id,
+                'journal_id': pay_jv.get(pi.id),
             })
 
-        for rc in inflow_qs:
+        for rc in inflows:
             entry_date = rc.value_date or rc.collection_date
             entries.append({
                 'date': entry_date,
@@ -249,6 +273,7 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'credit': rc.amount,
                 'source': 'REVENUE',
                 'source_id': rc.id,
+                'journal_id': rev_jv.get(rc.id),
             })
 
         for jl in gl_window_qs:
@@ -267,6 +292,7 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'credit': credit,
                 'source': 'JOURNAL',
                 'source_id': h.id,
+                'journal_id': h.id,
             })
 
         # Chronological; tie-break by source so debits and credits on the same
