@@ -108,7 +108,18 @@ const optionsFrom = (rows: Line[], codeKey: string, nameKey: string) => {
 
 const BudgetCheck = () => {
     const [fiscalYearId, setFiscalYearId] = useState<string>('');
-    const [codeQuery, setCodeQuery] = useState('');
+    /**
+     * ``?code=BL-2026`` pre-fills the code box.
+     *
+     * This is the one place a budget line is looked up by code, so every
+     * other surface that wants that — the Appropriations rollup, a link
+     * pasted into a memo — hands off here rather than growing its own
+     * search. Read once at mount: thereafter the box is the source of
+     * truth, and re-reading the URL would fight the typist.
+     */
+    const [codeQuery, setCodeQuery] = useState(
+        () => new URLSearchParams(window.location.search).get('code') ?? '',
+    );
     const [descQuery, setDescQuery] = useState('');
     const [mda, setMda] = useState('');
     const [fund, setFund] = useState('');
@@ -278,6 +289,7 @@ const BudgetCheck = () => {
                                         value={codeQuery}
                                         onChange={(e) => { setCodeQuery(e.target.value); setSelectedId(null); }}
                                         placeholder="Type or pick a code"
+                                        data-testid="budget-check-code"
                                         style={{ ...controlStyle, paddingLeft: '1.8rem' }}
                                     />
                                     <datalist id="bc-code-options">
@@ -413,7 +425,7 @@ const BudgetCheck = () => {
                     </div>
 
                     {/* ── Matches ─────────────────────────────────────── */}
-                    <div style={card}>
+                    <div style={card} data-testid="budget-check-results">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.6rem' }}>
                             <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
                                 Matching budget lines

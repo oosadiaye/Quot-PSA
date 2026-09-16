@@ -308,7 +308,13 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         'budget_code', 'administrative__name', 'economic__name',
         'economic__code', 'description',
     ]
-    ordering_fields = ['amount_approved', 'created_at']
+    # budget_code is orderable because Budget Check asks for it by name.
+    # DRF's OrderingFilter silently drops any field not listed here — it
+    # does not error — so '?ordering=budget_code' was falling back to
+    # '-created_at' while the caller believed it had grouped the page by
+    # code. The rows looked right only for as long as the coded lines
+    # happened to be the newest ones.
+    ordering_fields = ['amount_approved', 'created_at', 'budget_code']
     ordering = ['-created_at']
 
     def get_queryset(self):

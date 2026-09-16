@@ -118,6 +118,27 @@ jobs:
             --cov-report=xml \
             --cov-report=term
 
+      # ── Database tier. Kept separate from the fast tier above, which
+      # is genuinely no-DB — none of the modules listed there touch the
+      # ORM. The budget suites do: budget_appropriation lives in
+      # TENANT_APPS, so budget/tests/conftest.py builds pytest_schema and
+      # migrates the tenant apps into it before anything runs.
+      #
+      # Without this step these four files never execute in CI. They
+      # cover the budget code contract and the nearest-line matching rule
+      # that decides which appropriation a posting depletes — wrong
+      # answers there read as ordinary numbers, which is exactly the kind
+      # of defect a test has to catch because nobody will notice it.
+      - name: Pytest — database tier (budget)
+        run: |
+          pytest \
+            budget/tests/ \
+            -v \
+            --cov=budget \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -151,6 +172,16 @@ jobs:
 
       - name: TypeScript check
         run: npx tsc --noEmit
+
+      # ── The Playwright specs, type-checked.
+      # tsconfig.app.json includes only `src`, so nothing checked e2e/ at
+      # all: a spec could call a Locator method that does not exist, or
+      # import a fixture export that was renamed, and the step above
+      # stayed green. The Playwright job cannot be relied on to catch it
+      # either — it exits 0 with a warning when E2E_USER is unset, so a
+      # broken spec had two ways to look like a passing one.
+      - name: TypeScript check (e2e suite)
+        run: npm run typecheck:e2e
 
       - name: Build (production bundle)
         run: npm run build

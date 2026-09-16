@@ -369,6 +369,11 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
     const [fundSeg, setFundSeg] = useState<string>('');
     const [geoSeg, setGeoSeg] = useState<string>('');
     const [amount, setAmount] = useState('');
+    // The operator's own reference for the budget line. This drawer is the
+    // second way to create an appropriation — AppropriationForm is the
+    // other — and a field only one of them offers is a field that
+    // disappears depending on which button you happened to press.
+    const [budgetCode, setBudgetCode] = useState('');
     const [apType, setApType] = useState('ORIGINAL');
     const [status, setStatus] = useState('ACTIVE');
 
@@ -428,6 +433,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                 status,
             };
             if (geoSeg) body.geographic = parseInt(geoSeg);
+            if (budgetCode.trim()) body.budget_code = budgetCode.trim();
             return apiClient.post('/budget/appropriations/', body);
         },
         onSuccess: onCreated,
@@ -536,6 +542,24 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                             placeholder="e.g. 50000000"
                             style={selectStyle}
                         />
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                            Budget Code (optional)
+                        </label>
+                        <input
+                            value={budgetCode}
+                            onChange={e => setBudgetCode(e.target.value)}
+                            maxLength={50}
+                            placeholder="e.g. BL-2026-0142"
+                            aria-label="Budget code"
+                            style={{ ...selectStyle, fontFamily: 'var(--font-mono, monospace)' }}
+                        />
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                            Your reference from the appropriation book. Need not be
+                            unique — several rows may share one code.
+                        </div>
                     </div>
 
                     <LabeledSelect label="Appropriation Type" value={apType} onChange={setApType}>

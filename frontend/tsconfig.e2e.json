@@ -1,0 +1,37 @@
+{
+  // The Playwright suite, type-checked.
+  //
+  // tsconfig.app.json includes only `src`, so until this existed nothing
+  // checked e2e/ at all: a spec could reference a fixture that no longer
+  // exports what it asks for, or call a Locator method that does not
+  // exist, and `tsc -b` stayed green. Combined with the Playwright step
+  // exiting 0 when E2E_USER is unset, a broken spec had two ways to look
+  // like a passing one.
+  //
+  // Separate project rather than widening tsconfig.app.json: the specs
+  // run under Node with Playwright's globals, the app runs in a browser
+  // with Vite's, and merging the two lib/types sets would let each
+  // borrow types the other actually has at runtime.
+  // DOM is in `lib` because evaluate() callbacks are serialised and run
+  // inside the page, so they legitimately reach document and window.
+  // verbatimModuleSyntax is deliberately absent: this project exists to
+  // catch errors in the specs, not to impose an import style on files
+  // that predate it.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}
