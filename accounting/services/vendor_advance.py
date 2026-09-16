@@ -193,6 +193,13 @@ class VendorAdvanceService:
         # journal, missing CoA bridge, etc.).
         IPSASJournalService.post_journal(journal, actor)
 
+        # This journal credits a TSA cash GL account but does not run
+        # through the balance-updating treasury services, so the TSA's
+        # denormalised ``current_balance`` would lag the GL (the exact
+        # drift the TSA ledger surfaces). Re-sync it from the GL now.
+        from accounting.services.treasury_service import TSABalanceService
+        TSABalanceService.reconcile_from_gl_account(cash_account)
+
         # ── Create the ledger row ────────────────────────────────────
         advance = VendorAdvance.objects.create(
             vendor=vendor,
