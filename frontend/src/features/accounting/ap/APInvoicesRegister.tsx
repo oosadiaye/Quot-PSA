@@ -301,7 +301,7 @@ export default function APInvoicesRegister() {
                                                     return (
                                                         <>
                                                             {needsPost && (
-                                                                <button className="btn btn-primary" style={btnSm} onClick={() => handleApprove(inv.id)} title="Approve this invoice, post the GL journal, and mark it Posted for Treasury to pay">
+                                                                <button style={approveBtnStyle} onClick={() => handleApprove(inv.id)} title="Approve this invoice, post the GL journal, and mark it Posted for Treasury to pay">
                                                                     <CheckCircle size={14} /> Approve &amp; Post
                                                                 </button>
                                                             )}
@@ -311,7 +311,7 @@ export default function APInvoicesRegister() {
                                                                 </button>
                                                             ) : (
                                                                 <>
-                                                                    <button className="btn btn-primary" style={btnSm} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Auto-create a draft Payment Voucher from this invoice (vendor, amount, narration pre-filled)">
+                                                                    <button style={{ ...createPvBtnStyle, opacity: createDraftPV.isPending ? 0.6 : 1, cursor: createDraftPV.isPending ? 'not-allowed' : 'pointer' }} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Auto-create a draft Payment Voucher from this invoice (vendor, amount, narration pre-filled)">
                                                                         <Receipt size={14} /> {createDraftPV.isPending ? 'Creating PV…' : 'Create PV'}
                                                                     </button>
                                                                     <button style={{ ...btnSm, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }} onClick={() => navigate(`/accounting/payments/new?invoice=${inv.id}`)} title="Use the payments form for advanced settlement (multi-invoice, allocations)">
@@ -482,6 +482,11 @@ const jTd: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: 'var(--te
 // outline variant used for View / Open.
 const btnSm: React.CSSProperties = { padding: '0.35rem 0.7rem', fontSize: 'var(--text-xs)', fontWeight: 600, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', cursor: 'pointer', whiteSpace: 'nowrap' };
 const viewBtnStyle: React.CSSProperties = { ...btnSm, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' };
+// Distinct colours so the two lead actions read apart at a glance, and
+// neither clashes with the emerald "View PV": Approve & Post is amber (the
+// budget-checked GL-posting gate); Create PV is indigo (moves to payment).
+const approveBtnStyle: React.CSSProperties = { ...btnSm, background: '#c2410c', border: '1px solid #9a3412', color: '#fff' };
+const createPvBtnStyle: React.CSSProperties = { ...btnSm, background: '#4f46e5', border: '1px solid #4338ca', color: '#fff' };
 
 function Detail({ icon, label, value }: { icon?: React.ReactNode; label: string; value: React.ReactNode }) {
     return (
