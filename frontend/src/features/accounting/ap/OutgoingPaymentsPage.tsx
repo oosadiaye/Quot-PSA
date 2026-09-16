@@ -37,7 +37,7 @@ const inp: React.CSSProperties = {
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
-type ActiveTab = 'payments' | 'advances';
+type ActiveTab = 'payments' | 'advances' | 'posted';
 
 // ─── domain row shapes ────────────────────────────────────────────────────
 // Minimal interfaces covering only the fields this page reads. Kept
@@ -1111,6 +1111,77 @@ export default function OutgoingPaymentsPage() {
         </div>
     );
 
+    // ─── posted-payments tab ──────────────────────────────────────────────────
+    // A read-only register of payments already posted to the GL — the
+    // "Payments" tab is the working queue (drafts to post, batching); this is
+    // the audit view. Each row opens its journal entry via the same modal.
+    const postedPayments = paymentsList.filter((p) => p.status === 'Posted');
+    const postedTotal = postedPayments.reduce((s, p) => s + Number(p.total_amount || 0), 0);
+    const postedTabJSX = (
+        <div>
+            <div style={{ marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry.</p>
+            </div>
+            {loadingPayments ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
+            ) : !postedPayments.length ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                    <CheckCircle2 size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
+                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No posted payments yet.</p>
+                </div>
+            ) : (
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                                {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {postedPayments.map((pay) => (
+                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_date}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
+                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
+                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {pay.journal_entry ? (
+                                            <button
+                                                onClick={() => setViewJournalFor({
+                                                    journalId: pay.journal_entry as number,
+                                                    sourceLabel: `Payment ${pay.payment_number}`,
+                                                    amount: pay.total_amount,
+                                                    isAdvance: false,
+                                                })}
+                                                title="View accounting entry (journal)"
+                                                type="button"
+                                                style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                <Eye size={12} /> View JV
+                                            </button>
+                                        ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
+                                <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
+                                <td colSpan={4} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+
     // ─── advances tab ─────────────────────────────────────────────────────────
     const dprList: DownPaymentRequestRow[] = Array.isArray(downPaymentRequests)
         ? (downPaymentRequests as DownPaymentRequestRow[])
@@ -1366,6 +1437,7 @@ export default function OutgoingPaymentsPage() {
                 <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                     {([
                         { key: 'payments', label: 'Payments',         icon: <CreditCard size={14} /> },
+                        { key: 'posted',   label: 'Posted Payments',  icon: <CheckCircle2 size={14} /> },
                         { key: 'advances', label: 'Vendor Advances',  icon: <TrendingDown size={14} /> },
                     ] as { key: ActiveTab; label: string; icon: React.ReactNode }[]).map(tab => (
                         <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
@@ -1383,6 +1455,7 @@ export default function OutgoingPaymentsPage() {
                 </div>
                 <div style={{ padding: '24px' }}>
                     {activeTab === 'payments' && paymentsTabJSX}
+                    {activeTab === 'posted' && postedTabJSX}
                     {activeTab === 'advances' && advancesTabJSX}
                 </div>
             </div>
