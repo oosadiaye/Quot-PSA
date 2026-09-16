@@ -70,6 +70,9 @@ export default function APInvoicesRegister() {
 
     const [sourceFilter, setSourceFilter] = useState<'all' | Source>('all');
     const [statusFilter, setStatusFilter] = useState('');
+    const [yearFilter, setYearFilter] = useState('');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
     const [viewing, setViewing] = useState<RegisterRow | null>(null);
 
     // Workflow actions moved here from the AP Invoice page: the register is
@@ -148,16 +151,28 @@ export default function APInvoicesRegister() {
         [rows],
     );
 
+    // Distinct years present, newest first — parsed from the ISO date string
+    // (r.date is 'YYYY-MM-DD'), which sidesteps any timezone shift.
+    const years = useMemo(
+        () => Array.from(new Set(rows.map((r) => (r.date || '').slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
+        [rows],
+    );
+
     // Free-text search is delegated to the LibreOffice-style grid's own
-    // "Filter these rows…" box (tableTools); these structured selects narrow
-    // the data set the grid then renders and sorts.
+    // "Filter these rows…" box (tableTools); these structured filters narrow
+    // the data set the grid then renders and sorts. Date comparisons use the
+    // ISO date part, so lexical string order is chronological.
     const filtered = useMemo(() => {
         return rows.filter((r) => {
             if (sourceFilter !== 'all' && r.source !== sourceFilter) return false;
             if (statusFilter && r.status !== statusFilter) return false;
+            const day = (r.date || '').slice(0, 10);
+            if (yearFilter && day.slice(0, 4) !== yearFilter) return false;
+            if (fromDate && (!day || day < fromDate)) return false;
+            if (toDate && (!day || day > toDate)) return false;
             return true;
         });
-    }, [rows, sourceFilter, statusFilter]);
+    }, [rows, sourceFilter, statusFilter, yearFilter, fromDate, toDate]);
 
     const totalValue = filtered.reduce((s, r) => s + r.amount, 0);
     const verifiedCount = rows.filter((r) => r.source === 'verified').length;
@@ -251,6 +266,27 @@ export default function APInvoicesRegister() {
                         <option value="">All Statuses</option>
                         {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} style={{ flex: '0 0 auto', width: 130 }} title="Filter by year">
+                        <option value="">All Years</option>
+                        {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                        From
+                        <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} style={{ flex: '0 0 auto', width: 150 }} />
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                        To
+                        <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} style={{ flex: '0 0 auto', width: 150 }} />
+                    </label>
+                    {(sourceFilter !== 'all' || statusFilter || yearFilter || fromDate || toDate) && (
+                        <button
+                            onClick={() => { setSourceFilter('all'); setStatusFilter(''); setYearFilter(''); setFromDate(''); setToDate(''); }}
+                            style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.4rem 0.7rem', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600 }}
+                            title="Clear all filters"
+                        >
+                            <X size={13} /> Clear
+                        </button>
+                    )}
                     <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                         Click a column header to sort · type in the table’s “Filter these rows…” box to search
                     </span>
