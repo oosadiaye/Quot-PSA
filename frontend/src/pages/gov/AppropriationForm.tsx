@@ -64,9 +64,17 @@ export default function AppropriationForm() {
     const [saveSuccess, setSaveSuccess] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
+    // Preset the type from ?type= so "New Supplementary Budget" lands
+    // ready to top up an existing code (the duplicate guard that blocks a
+    // second ORIGINAL line permits SUPPLEMENTARY). Only SUPPLEMENTARY is
+    // honoured; anything else defaults to ORIGINAL.
+    const presetType =
+        new URLSearchParams(window.location.search).get('type') === 'SUPPLEMENTARY'
+            ? 'SUPPLEMENTARY'
+            : 'ORIGINAL';
     const [header, setHeader] = useState({
         fiscal_year: '', administrative: '', fund: '',
-        appropriation_type: 'ORIGINAL', law_reference: '', enactment_date: '',
+        appropriation_type: presetType, law_reference: '', enactment_date: '',
     });
 
     const [lines, setLines] = useState<BudgetLine[]>([
