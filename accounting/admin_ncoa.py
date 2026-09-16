@@ -1,7 +1,7 @@
 """NCoA Admin Registration — Quot PSE"""
 from django.contrib import admin
 from accounting.models.ncoa import (
-    AdministrativeSegment, EconomicSegment, FunctionalSegment,
+    AdministrativeSegment, FunctionalSegment,
     ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
 )
 
@@ -10,15 +10,6 @@ from accounting.models.ncoa import (
 class AdministrativeSegmentAdmin(admin.ModelAdmin):
     list_display  = ['code', 'name', 'level', 'sector_code', 'is_active', 'is_mda']
     list_filter   = ['level', 'sector_code', 'is_active', 'mda_type']
-    search_fields = ['code', 'name']
-    ordering      = ['code']
-
-
-@admin.register(EconomicSegment)
-class EconomicSegmentAdmin(admin.ModelAdmin):
-    list_display  = ['code', 'name', 'account_type_code', 'is_posting_level',
-                     'is_control_account', 'normal_balance', 'is_active']
-    list_filter   = ['account_type_code', 'is_posting_level', 'is_active']
     search_fields = ['code', 'name']
     ordering      = ['code']
 
@@ -58,7 +49,10 @@ class NCoACodeAdmin(admin.ModelAdmin):
         'administrative', 'economic', 'functional',
         'programme', 'fund', 'geographic',
     ]
-    list_filter   = ['is_active', 'fund', 'economic__account_type_code']
+    # ``economic`` is the GL Account, which carries ``account_type``
+    # ('Expense', 'Asset', …) rather than an NCoA ``account_type_code``
+    # digit — the economic segment and the chart of accounts are one list.
+    list_filter   = ['is_active', 'fund', 'economic__account_type']
     search_fields = ['economic__code', 'economic__name', 'administrative__name']
     raw_id_fields = [
         'administrative', 'economic', 'functional',

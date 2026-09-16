@@ -225,9 +225,8 @@ class IPCService:
                 or getattr(getattr(ncoa, 'administrative', None), 'legacy_mda', None)
             )
             fund = getattr(getattr(ncoa, 'fund', None), 'legacy_fund', None)
-            account = (
-                getattr(getattr(ncoa, 'economic', None), 'legacy_account', None)
-            )
+            # ``economic`` is the GL account — no bridge hop.
+            account = getattr(ncoa, 'economic', None)
             if mda and fund and account:
                 derived = find_matching_appropriation(
                     mda=mda, fund=fund, account=account,
@@ -244,12 +243,8 @@ class IPCService:
         # None — the resolver still applies STRICT rules to "no
         # appropriation found" cases).
         ncoa = contract.ncoa_code
-        account = getattr(getattr(ncoa, 'economic', None), 'legacy_account', None)
-        account_code = (
-            getattr(account, 'code', '')
-            or getattr(getattr(ncoa, 'economic', None), 'code', '')
-            or ''
-        )
+        account = getattr(ncoa, 'economic', None)
+        account_code = getattr(account, 'code', '') or ''
         result = check_policy(
             account_code=account_code,
             appropriation=appropriation,
@@ -307,19 +302,10 @@ class IPCService:
                 "Cannot post IPC accrual: contract has no NCoA economic "
                 "segment. Edit the contract to assign segments first.",
             )
-        # The economic segment bridges to a real GL via legacy_account.
-        expense_account = (
-            getattr(ncoa.economic, 'legacy_account', None)
-            or Account.objects.filter(
-                code=ncoa.economic.code, is_active=True,
-            ).first()
-        )
-        if expense_account is None:
-            raise TransactionPostingError(
-                f"Economic segment {ncoa.economic.code} has no bridged GL "
-                f"account. Run ``./manage.py backfill_legacy_dims`` to "
-                f"reconcile NCoA → CoA."
-            )
+        # The economic segment IS the GL account — the guard above has
+        # already established it is present, so there is no second
+        # "bridged account missing" failure mode to check for.
+        expense_account = ncoa.economic
 
         ap_account, _src = get_vendor_ap_account(contract.vendor)
         retention_account = cls._resolve_retention_account()
@@ -503,10 +489,7 @@ class IPCService:
         # before this method was called — but we fall back to the
         # journal's first DR line account as a safety net.
         ncoa = contract.ncoa_code
-        expense_account = (
-            getattr(ncoa.economic, 'legacy_account', None)
-            if ncoa and ncoa.economic else None
-        )
+        expense_account = ncoa.economic if ncoa and ncoa.economic else None
         if expense_account is None:
             # Fall back to the journal's DR-side account so the
             # invoice still has an ``account`` FK (required for AP

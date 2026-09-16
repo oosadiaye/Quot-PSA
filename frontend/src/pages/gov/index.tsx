@@ -258,6 +258,13 @@ export const AppropriationList = () => {
     const initialUrlParams = useMemo(() => new URLSearchParams(window.location.search), []);
     const [filterMdaId, setFilterMdaId] = useState<string>(initialUrlParams.get('mda') || '');
     const [filterFyId, setFilterFyId] = useState<string>(initialUrlParams.get('fy') || '');
+    // Handed to Budget Check rather than searched here — see the control
+    // itself for why this page is the wrong place to show the answer.
+    const [budgetCodeQuery, setBudgetCodeQuery] = useState<string>(initialUrlParams.get('budget_code') || '');
+    const goToBudgetCheck = () => {
+        const code = budgetCodeQuery.trim();
+        if (code) nav(`/budget/check?code=${encodeURIComponent(code)}`);
+    };
 
 
     // NCoA Administrative Segments for the MDA filter dropdown.
@@ -679,6 +686,47 @@ export const AppropriationList = () => {
                             placeholder="All MDAs — type to filter…"
                         />
                     </div>
+                    {/* Budget code lookup.
+                        This page is an MDA rollup and a budget code belongs to a
+                        *line*, so there is nothing sensible to show here: an MDA
+                        total cannot answer "where is BL-2026-0101?". Rather than
+                        grow a second results table beside the rollup, the query
+                        goes to Budget Check, which already answers exactly this
+                        question and carries the expended and available figures
+                        with it. One implementation, reachable from both places. */}
+                    <div style={{ minWidth: 200, flex: '0 1 230px' }}>
+                        <label style={filterLabelStyle}>Budget Code</label>
+                        <input
+                            value={budgetCodeQuery}
+                            onChange={(e) => setBudgetCodeQuery(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') goToBudgetCheck(); }}
+                            placeholder="e.g. BL-2026"
+                            aria-label="Search budget code"
+                            data-testid="budget-code-search"
+                            style={{
+                                width: '100%', padding: '0.55rem 0.75rem',
+                                border: '1px solid #cbd5e1', borderRadius: 8,
+                                fontSize: 13, fontFamily: 'var(--font-mono, monospace)',
+                                background: '#fff', color: '#0f172a',
+                            }}
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={goToBudgetCheck}
+                        disabled={!budgetCodeQuery.trim()}
+                        data-testid="budget-code-go"
+                        style={{
+                            padding: '0.55rem 1rem',
+                            background: budgetCodeQuery.trim() ? '#4f46e5' : '#fff',
+                            color: budgetCodeQuery.trim() ? '#fff' : '#94a3b8',
+                            border: `1px solid ${budgetCodeQuery.trim() ? '#4f46e5' : '#cbd5e1'}`,
+                            borderRadius: 8, fontSize: 13, fontWeight: 600,
+                            cursor: budgetCodeQuery.trim() ? 'pointer' : 'not-allowed',
+                        }}
+                    >
+                        Check Line
+                    </button>
                     {filterMdaId && (
                         <button
                             type="button"
@@ -1805,69 +1853,6 @@ export const RevenueCollectionList = () => {
 
 /* ── NCoA Segments ─────────────────────────────────────── */
 
-export const NCoAEconomicList = () => {
-    const qc = useQueryClient();
-
-    // One-time backfill — walks every legacy Account and creates/updates
-    // the matching EconomicSegment. After this runs once, the post_save
-    // signal in accounting.signals.coa_to_ncoa keeps them in lockstep
-    // automatically — every subsequent CoA edit / import / API create
-    // also writes the NCoA layer in the same transaction.
-    const syncFromCoA = useMutation({
-        mutationFn: async () => {
-            const res = await apiClient.post('/accounting/ncoa/economic/sync-from-coa/');
-            return res.data as {
-                created: number;
-                updated: number;
-                skipped: number;
-                skipped_details: Array<{ id: number; code?: string; reason: string }>;
-                total: number;
-            };
-        },
-        onSuccess: (data) => {
-            qc.invalidateQueries({ queryKey: ['generic-list'] });
-            qc.invalidateQueries({ queryKey: ['ncoa-segments-all'] });
-            const head = `Sync complete — created ${data.created}, updated ${data.updated}, skipped ${data.skipped}.`;
-            const details = data.skipped > 0
-                ? '\n\nSkipped:\n' + data.skipped_details
-                    .slice(0, 5)
-                    .map(s => `  • Account id ${s.id}${s.code ? ` (${s.code})` : ''}: ${s.reason}`)
-                    .join('\n')
-                    + (data.skipped_details.length > 5 ? `\n  …and ${data.skipped_details.length - 5} more` : '')
-                : '';
-            alert(head + details);
-        },
-        onError: (err: any) => {
-            alert(err?.response?.data?.error || err?.response?.data?.detail || 'Sync failed.');
-        },
-    });
-
-    return (
-        <GenericListPage
-            title="NCoA Economic Segment"
-            subtitle="The hub segment -- account classification (Revenue, Expenditure, Assets, Liabilities). Mirrors the Chart of Accounts: every CoA save automatically updates this list."
-            endpoint="/accounting/ncoa/economic/"
-            actions={[
-                {
-                    label: syncFromCoA.isPending ? 'Syncing…' : 'Sync from Chart of Accounts',
-                    onClick: () => syncFromCoA.mutate(),
-                    variant: 'primary',
-                    icon: icon(RefreshCw),
-                },
-            ]}
-            columns={[
-                { key: 'code', label: 'Code', width: '100px' },
-                { key: 'name', label: 'Account Name' },
-                { key: 'account_type_label', label: 'Type' },
-                { key: 'is_posting_level', label: 'Posting' },
-                { key: 'is_control_account', label: 'Control' },
-                { key: 'normal_balance', label: 'Balance' },
-                { key: 'is_active', label: 'Active' },
-            ]}
-        />
-    );
-};
-
 export const NCoAAdminList = () => (
     <NCoASegmentPage
         title="NCoA Administrative Segment (MDA)"
@@ -1956,21 +1941,6 @@ export const NCoAGeoList = () => (
         columns={[
             { key: 'code', label: 'Code', width: '100px' },
             { key: 'name', label: 'Location' },
-            { key: 'is_active', label: 'Active' },
-        ]}
-    />
-);
-
-export const NCoACodeList = () => (
-    <GenericListPage
-        title="NCoA Composite Codes"
-        subtitle="Full 52-digit NCoA codes -- the financial DNA of government transactions"
-        endpoint="/accounting/ncoa/codes/"
-        columns={[
-            { key: 'full_code', label: 'NCoA Code' },
-            { key: 'account_name', label: 'Account' },
-            { key: 'mda_name', label: 'MDA' },
-            { key: 'fund_code', label: 'Fund' },
             { key: 'is_active', label: 'Active' },
         ]}
     />

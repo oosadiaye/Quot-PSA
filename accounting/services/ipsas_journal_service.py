@@ -10,7 +10,7 @@ Works against the ACTUAL model schema:
 
 Key guarantees:
 1. SUM(DR) = SUM(CR) — enforced before posting
-2. Only posting-level accounts allowed (when using NCoA EconomicSegment)
+2. Only posting-level accounts allowed (``Account.is_postable``)
 3. No posting to control accounts
 4. Immutable once posted (must reverse to correct)
 5. Complete audit trail for every status change
@@ -60,6 +60,20 @@ class IPSASJournalService:
         lines = journal.lines.all()
         line_count = lines.count()
 
+        # A reversal is the remedy for a posting that already happened,
+        # not a new choice of account. Its lines are copied from the
+        # original journal, so the *classification* gates below —
+        # header / posting-level / control account — must not apply to
+        # it: those describe what an operator may choose today, and the
+        # original choice was legal when it was made.
+        #
+        # Without this, re-classifying an account (flagging a group root
+        # as a header, say) would strand every journal that ever touched
+        # it: the error could no longer be reversed, only compounded.
+        # Balance, sign and double-entry rules still apply — those are
+        # properties of the journal itself, not of the chart.
+        is_reversal = (getattr(journal, 'source_module', '') or '') == 'reversal'
+
         # 1. Minimum 2 lines for double-entry
         if line_count < 2:
             errors.append("Journal must have at least 2 lines (double-entry).")
@@ -85,15 +99,19 @@ class IPSASJournalService:
             if dr == 0 and cr == 0:
                 errors.append(f"Line {idx}: Line has zero amount.")
 
-            # 4. NCoA validation — if line has NCoA code, validate economic segment
-            if hasattr(line, 'ncoa_code') and line.ncoa_code:
+            # 4. NCoA validation — if the line has an NCoA code, validate
+            #    its economic classifier. That classifier is a GL
+            #    account, so the checks are the GL's own flags:
+            #    ``is_postable`` (was is_posting_level) and
+            #    ``is_reconciliation`` (was is_control_account).
+            if not is_reversal and hasattr(line, 'ncoa_code') and line.ncoa_code:
                 eco = line.ncoa_code.economic
-                if not eco.is_posting_level:
+                if not eco.is_postable:
                     errors.append(
                         f"Line {idx}: Account {eco.code} ({eco.name}) "
                         f"is not a posting-level account."
                     )
-                if eco.is_control_account:
+                if eco.is_reconciliation:
                     errors.append(
                         f"Line {idx}: Cannot post directly to "
                         f"control account {eco.code} ({eco.name})."
@@ -108,7 +126,8 @@ class IPSASJournalService:
             # at form level and the DB-level validators on JournalLine);
             # we still run it here so raw-SQL inserts and bypass paths
             # also can't slip through to ``status='Posted'``.
-            if line.account_id and line.account and not line.account.is_postable:
+            if (not is_reversal and line.account_id and line.account
+                    and not line.account.is_postable):
                 errors.append(
                     f"Line {idx}: Account {line.account.code} "
                     f"({line.account.name}) is a header / group account "
@@ -269,8 +288,12 @@ class IPSASJournalService:
                 memo=f"Reversal: {line.memo}",
             )
 
-        # Post the reversal
-        IPSASJournalService.post_journal(reversal, user)
+        # Post the reversal. ``post_journal`` re-fetches the row under
+        # ``select_for_update`` and mutates *that* instance, so the object
+        # we built above never learns it was posted. Take the one it
+        # returns, or every caller reads ``reversal.status == 'Draft'``
+        # on a journal that is posted in the database.
+        reversal = IPSASJournalService.post_journal(reversal, user)
 
         # Mark original as reversed
         journal.is_reversed = True

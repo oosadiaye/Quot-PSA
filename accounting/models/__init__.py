@@ -124,9 +124,9 @@ __all__ = [
     'VATReturnDetail',
     'WHTCertificate',
 
-    # ncoa.py — Nigeria National Chart of Accounts (52-digit, 6-segment)
+    # ncoa.py — Nigeria National Chart of Accounts (52-digit, 6-segment).
+    # The economic segment is not here: it IS ``Account``.
     'AdministrativeSegment',
-    'EconomicSegment',
     'FunctionalSegment',
     'ProgrammeSegment',
     'FundSegment',

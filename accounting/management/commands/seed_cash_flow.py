@@ -48,7 +48,7 @@ class Command(BaseCommand):
         from accounting.models import (
             PaymentVoucherGov, PaymentInstruction, TreasuryAccount, NCoACode,
             AdministrativeSegment, FunctionalSegment, ProgrammeSegment,
-            FundSegment, GeographicSegment, EconomicSegment,
+            FundSegment, GeographicSegment, Account,
         )
 
         year: int = options['year'] or date.today().year
@@ -96,7 +96,8 @@ class Command(BaseCommand):
                 if PaymentVoucherGov.objects.filter(voucher_number=ref).exists():
                     continue
 
-                econ = EconomicSegment.objects.filter(code=econ_code).first()
+                # The economic classifier is the GL account.
+                econ = Account.objects.filter(code=econ_code).first()
                 if econ is None:
                     continue
 

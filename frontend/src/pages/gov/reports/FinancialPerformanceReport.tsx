@@ -26,10 +26,25 @@ export default function FinancialPerformanceReport() {
     const renderSection = (title: string, items: any[], total: number, color: string) => (
         <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color, marginBottom: '8px' }}>{title}</div>
+            {/* This statement is flat — every row is a real balance, so
+                nothing is filtered. A row flagged ``is_header`` is money
+                posted to a group account: it belongs in the total, but
+                the coding needs fixing, so it is called out rather than
+                blended in. */}
             {(items || []).map((i: any, idx: number) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: '#1e293b' }}>{i.code} — {i.name}</span>
-                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace' }}>{fmtNGN(i.amount)}</span>
+                    <span style={{ fontSize: '13px', color: i.is_header ? '#92400e' : '#1e293b' }}>
+                        {i.code} — {i.name}
+                        {i.is_header && (
+                            <span
+                                title="Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account."
+                                style={{ marginLeft: 8, fontSize: '11px', fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 3, padding: '1px 6px' }}
+                            >
+                                posted to group account
+                            </span>
+                        )}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: i.is_header ? '#92400e' : undefined }}>{fmtNGN(i.amount)}</span>
                 </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 700, fontSize: '13px', background: '#f8fafc', borderRadius: '4px', marginTop: '4px' }}>
@@ -96,6 +111,10 @@ export default function FinancialPerformanceReport() {
                             {renderSection('Non-Tax Revenue', data.revenue?.non_tax_revenue?.items, data.revenue?.non_tax_revenue?.total, '#059669')}
                             {renderSection('Grants & Transfers', data.revenue?.grants_transfers?.items, data.revenue?.grants_transfers?.total, '#0d9488')}
                             {renderSection('Other Revenue', data.revenue?.other_revenue?.items, data.revenue?.other_revenue?.total, '#64748b')}
+                            {/* Family 1 outside 11-14. Rendered only when non-empty, so
+                                a well-coded chart shows no extra heading. */}
+                            {(data.revenue?.unclassified?.items || []).length > 0 &&
+                                renderSection('Unclassified Revenue — assign a sub-family', data.revenue?.unclassified?.items, data.revenue?.unclassified?.total, '#b45309')}
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #008751', marginTop: '8px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '15px', color: '#008751' }}>TOTAL REVENUE</span>
                                 <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#008751' }}>{fmtNGN(data.revenue?.total)}</span>
@@ -112,6 +131,10 @@ export default function FinancialPerformanceReport() {
                             {renderSection('Capital Expenditure', data.expenditure?.capital_expenditure?.items, data.expenditure?.capital_expenditure?.total, '#9333ea')}
                             {renderSection('Debt Service', data.expenditure?.debt_service?.items, data.expenditure?.debt_service?.total, '#64748b')}
                             {renderSection('Transfers & Subventions', data.expenditure?.transfers_subventions?.items, data.expenditure?.transfers_subventions?.total, '#0369a1')}
+                            {/* Family 2 outside 21-25 — 20xxxxxx most commonly. Missing
+                                expenditure reads as underspend, so it is shown. */}
+                            {(data.expenditure?.unclassified?.items || []).length > 0 &&
+                                renderSection('Unclassified Expenditure — assign a sub-family', data.expenditure?.unclassified?.items, data.expenditure?.unclassified?.total, '#b45309')}
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #c0392b', marginTop: '8px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '15px', color: '#c0392b' }}>TOTAL EXPENDITURE</span>
                                 <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#c0392b' }}>{fmtNGN(data.expenditure?.total)}</span>

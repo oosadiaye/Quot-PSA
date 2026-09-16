@@ -59,7 +59,7 @@ def post_revenue_collection_to_gl(
         DR  Cash in TSA (resolved per-TSA)   NGN amount
         CR  Revenue Account (1xxxxxxx)       NGN amount
 
-    All GL accounts are resolved via the NCoA → legacy_account bridge;
+    All GL accounts are resolved from the NCoA code's own GL account;
     no account codes are hardcoded here.
 
     Args:
@@ -111,12 +111,14 @@ def post_revenue_collection_to_gl(
         ncoa_code=collection.ncoa_code,
     )
 
-    # CR: Revenue account from NCoA bridge
-    revenue_gl = collection.revenue_head.economic_segment.legacy_account
+    # CR: Revenue account. ``RevenueHead.economic_segment`` is the GL
+    # account itself — the economic segment and the chart of accounts
+    # are one classifier — so there is no bridge hop here.
+    revenue_gl = collection.revenue_head.economic_segment
     if not revenue_gl:
         raise ValueError(
             f"Revenue head '{collection.revenue_head.name}' has no linked GL "
-            f"account.  Run: python manage.py seed_ncoa_as_coa"
+            f"account.  Run: python manage.py seed_ncoa_economic"
         )
     JournalLine.objects.create(
         header=header,

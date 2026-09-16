@@ -1,5 +1,15 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+
 from . import views
+from .ai_views import AICallViewSet, AIProviderViewSet, TenantAISettingViewSet
+
+# AI provider configuration. Router-based because these are CRUD over
+# models, unlike the function views above which mostly wrap actions.
+ai_router = DefaultRouter()
+ai_router.register(r'ai/providers', AIProviderViewSet, basename='ai-provider')
+ai_router.register(r'ai/settings', TenantAISettingViewSet, basename='ai-setting')
+ai_router.register(r'ai/calls', AICallViewSet, basename='ai-call')
 
 urlpatterns = [
     # Public tenant signup
@@ -117,4 +127,7 @@ urlpatterns = [
     path('email-templates/<int:pk>', views.email_template_detail, name='email_template_detail'),
     path('email-templates/<int:pk>/preview', views.email_template_preview, name='email_template_preview'),
     path('email-templates/<int:pk>/send-test', views.email_template_send_test, name='email_template_send_test'),
+
+    # AI provider configuration, toggles and call log.
+    path('', include(ai_router.urls)),
 ]

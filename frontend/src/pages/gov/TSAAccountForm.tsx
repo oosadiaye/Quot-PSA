@@ -57,21 +57,13 @@ export default function TSAAccountForm() {
         },
     });
 
-    // NCoA Economic Segments for optional economic classification.
-    // Source switched from the empty composite NCoACode store to the
-    // populated EconomicSegment taxonomy (1,147 rows in this tenant) —
-    // matches the FK retarget in accounting/models/treasury.py. URL
-    // also corrected: previous /accounting/ncoa-codes/ was a typo (404)
-    // for the registered /accounting/ncoa/economic/ endpoint.
-    const { data: ncoaCodes = [], isLoading: ncoaLoading } = useQuery<any[]>({
-        queryKey: ['ncoa-economic-segments'],
-        queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/ncoa/economic/', {
-                params: { is_active: true, page_size: 10000, ordering: 'code' },
-            });
-            return Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
-        },
-    });
+    // The NCoA economic classification of the cash position is the same
+    // asset list the GL cash account comes from — ``ncoa_cash_code`` is
+    // a FK to accounting.Account now that the mirror taxonomy has been
+    // retired, so the two dropdowns share one fetch. They stay separate
+    // *fields* because they answer different questions: which account
+    // this TSA posts to, versus which line it rolls up to in the IPSAS
+    // cash-flow statement.
 
     const [formError, setFormError] = useState('');
     const [form, setForm] = useState({
@@ -269,7 +261,7 @@ export default function TSAAccountForm() {
                             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem' }}>
                                 Link this TSA to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
                             </p>
-                            {(glLoading || ncoaLoading) ? (
+                            {glLoading ? (
                                 <div style={{ color: '#94a3b8' }}>Loading GL accounts…</div>
                             ) : (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
@@ -289,7 +281,7 @@ export default function TSAAccountForm() {
                                     <div>
                                         <label style={labelStyle}>NCoA Economic Code (optional)</label>
                                         <SearchableSelect
-                                            options={ncoaCodes.map((c: any) => ({
+                                            options={glAssetAccounts.map((c: any) => ({
                                                 value: String(c.id),
                                                 label: `${c.code} — ${c.name}`,
                                                 sublabel: c.code,

@@ -46,6 +46,7 @@ interface BudgetLine {
     geographic: string;          // optional — LGA / zone for statistical performance reporting
     amount_approved: string;
     description: string;
+    budget_code: string;         // optional — your own reference for the budget line
 }
 
 export default function AppropriationForm() {
@@ -69,7 +70,7 @@ export default function AppropriationForm() {
     });
 
     const [lines, setLines] = useState<BudgetLine[]>([
-        { id: '1', economic: '', functional: '', programme: '', geographic: '', amount_approved: '', description: '' },
+        { id: '1', economic: '', functional: '', programme: '', geographic: '', amount_approved: '', description: '', budget_code: '' },
     ]);
 
     const labelStyle: React.CSSProperties = { display: 'block', marginBottom: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)' };
@@ -84,7 +85,7 @@ export default function AppropriationForm() {
     const addLine = () => {
         setLines(prev => [...prev, {
             id: String(Date.now()), economic: '', functional: '', programme: '',
-            geographic: '', amount_approved: '', description: '',
+            geographic: '', amount_approved: '', description: '', budget_code: '',
         }]);
     };
 
@@ -148,6 +149,7 @@ export default function AppropriationForm() {
                     law_reference: header.law_reference,
                     enactment_date: header.enactment_date || null,
                     description: line.description,
+                    budget_code: line.budget_code,
                 });
                 created++;
             } catch (err: any) {
@@ -448,7 +450,7 @@ export default function AppropriationForm() {
                         </div>
 
                         <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1260px' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '260px' }}>Economic Code (Account) {requiredMark}</th>
@@ -462,6 +464,12 @@ export default function AppropriationForm() {
                                         </th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '160px' }}>Amount (NGN) {requiredMark}</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)' }}>Description</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '160px' }}>
+                                            Budget Code
+                                            <div style={{ fontSize: '0.6rem', fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0, marginTop: '2px' }}>
+                                                Optional — your reference for this budget line
+                                            </div>
+                                        </th>
                                         <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', width: '50px' }}></th>
                                     </tr>
                                 </thead>
@@ -556,6 +564,12 @@ export default function AppropriationForm() {
                                                     <input value={line.description} onChange={e => updateLine(line.id, 'description', e.target.value)}
                                                         style={{ ...inputStyle, textAlign: 'left' }} placeholder="Line description" />
                                                 </td>
+                                                <td style={{ padding: '0.5rem 0.5rem' }}>
+                                                    <input value={line.budget_code} onChange={e => updateLine(line.id, 'budget_code', e.target.value)}
+                                                        maxLength={50}
+                                                        style={{ ...inputStyle, textAlign: 'left', fontFamily: 'var(--font-mono, monospace)' }}
+                                                        placeholder="BL-2026-0142" />
+                                                </td>
                                                 <td style={{ padding: '0.5rem 0.5rem', textAlign: 'center' }}>
                                                     {lines.length > 1 && (
                                                         <button type="button" onClick={() => removeLine(line.id)} style={{
@@ -571,7 +585,7 @@ export default function AppropriationForm() {
                                         );
                                     }) : (
                                         <tr>
-                                            <td colSpan={7} style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={8} style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <FileSpreadsheet size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.4, display: 'block' }} />
                                                 <p style={{ margin: 0 }}>Click "Add Line" to begin entering budget lines.</p>
                                             </td>
@@ -587,7 +601,7 @@ export default function AppropriationForm() {
                                             <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-base)', color: 'var(--color-primary, #191e6a)' }}>
                                                 {'\u20A6'}{totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                                             </td>
-                                            <td colSpan={2}></td>
+                                            <td colSpan={3}></td>
                                         </tr>
                                     </tfoot>
                                 )}

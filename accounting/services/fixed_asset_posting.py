@@ -147,11 +147,12 @@ class FixedAssetPostingService:
         if asset.mda and asset.asset_account and asset.fund:
             try:
                 from budget.services import BudgetValidationService, BudgetExceededError
-                from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+                from accounting.models.ncoa import AdministrativeSegment, FundSegment
                 from accounting.models.advanced import FiscalYear
 
                 admin_seg = AdministrativeSegment.objects.filter(legacy_mda=asset.mda).first()
-                econ_seg = EconomicSegment.objects.filter(legacy_account=asset.asset_account).first()
+                # The economic classifier is the GL account — no bridge hop.
+                econ_seg = asset.asset_account
                 fund_seg = FundSegment.objects.filter(legacy_fund=asset.fund).first()
                 active_fy = FiscalYear.objects.filter(is_active=True).first()
 

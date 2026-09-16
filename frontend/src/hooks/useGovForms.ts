@@ -22,9 +22,16 @@ export function useNCoASegments() {
     return useQuery({
         queryKey: ['ncoa-segments-all'],
         queryFn: async () => {
+            // The economic position is served by the chart of accounts.
+            // The other five segments classify things the GL does not
+            // (which MDA, which function, which programme, which fund,
+            // which state) and keep their own taxonomies; the economic
+            // segment only ever mirrored the CoA, so the CoA is now read
+            // directly. Rows still carry id / code / name, which is all
+            // the segment dropdowns consume.
             const endpoints = [
                 '/accounting/ncoa/administrative/',
-                '/accounting/ncoa/economic/',
+                '/accounting/accounts/',
                 '/accounting/ncoa/functional/',
                 '/accounting/ncoa/programme/',
                 '/accounting/ncoa/fund/',

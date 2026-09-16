@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.db import transaction
+from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 from ..models import (
     BankAccount, Checkbook, Check, BankReconciliation,
@@ -528,6 +529,173 @@ class BankStatementViewSet(viewsets.ViewSet):
             for line in qs
         ]
         return api_response(data=data, meta={'statement_id': statement.id, 'total': len(data)})
+
+    # ── AI assistance over the unmatched residue ────────────────────────
+    #
+    # Two endpoints, and the split is the whole design. ``ai_suggest``
+    # proposes and writes nothing. ``accept_suggestion`` is where a named
+    # officer decides, and it is the only one that touches a match.
+
+    def _ai_setting(self):
+        """The tenant's reconciliation capability, or None.
+
+        Returns None rather than raising when AI is not configured: a
+        reconciliation screen must keep working for the many tenants that
+        never switch this on.
+        """
+        from django.db import connection
+
+        from superadmin.ai_models import AICapability, TenantAISetting
+
+        tenant = getattr(connection, 'tenant', None)
+        if tenant is None or getattr(tenant, 'schema_name', 'public') == 'public':
+            return None, None
+        setting = (
+            TenantAISetting.objects
+            .select_related('provider')
+            .filter(tenant=tenant, capability=AICapability.RECONCILIATION)
+            .first()
+        )
+        return tenant, setting
+
+    @action(detail=True, methods=['post'], url_path='ai-suggest')
+    def ai_suggest(self, request, pk=None):
+        """Propose explanations for lines the rule matcher could not match.
+
+        Read-only with respect to the ledger. Bounded by ``limit`` because
+        each line is its own provider round trip, and a thousand-line
+        statement should not become a thousand calls because someone
+        clicked a button.
+        """
+        from accounting.services.ai_reconciliation import propose_for_line
+
+        try:
+            statement = BankStatement.objects.get(pk=pk)
+        except BankStatement.DoesNotExist:
+            return api_response(error='Statement not found.', status=status.HTTP_404_NOT_FOUND)
+
+        tenant, setting = self._ai_setting()
+        if setting is None:
+            return api_response(
+                error='AI reconciliation is not enabled for this organisation.',
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not setting.is_usable:
+            # Fail closed, and say which switch is off rather than
+            # returning an empty result that reads like "nothing to find".
+            return api_response(
+                error=(
+                    'AI reconciliation is configured but not active. Check the '
+                    'capability toggle and that its provider has a key.'
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = min(int(request.data.get('limit', 10)), 25)
+        except (TypeError, ValueError):
+            limit = 10
+
+        line_ids = request.data.get('line_ids') or []
+        qs = statement.lines.filter(match_status='UNMATCHED')
+        if line_ids:
+            qs = qs.filter(id__in=line_ids)
+
+        results = [
+            propose_for_line(
+                tenant=tenant,
+                setting=setting,
+                line=line,
+                bank_account_id=statement.bank_account_id,
+            )
+            for line in qs[:limit]
+        ]
+        return api_response(data=results, meta={
+            'statement_id': statement.id,
+            'lines_examined': len(results),
+            'unmatched_remaining': statement.lines.filter(match_status='UNMATCHED').count(),
+        })
+
+    @action(detail=True, methods=['post'], url_path='accept-suggestion')
+    @transaction.atomic
+    def accept_suggestion(self, request, pk=None):
+        """Record a match a person has accepted.
+
+        The posted proposal is **re-validated against current data**, not
+        trusted. Between the suggestion being displayed and the click,
+        another line may have claimed one of the vouchers, or a payment
+        may have been voided — so the ids, the direction, the exclusivity
+        and above all the arithmetic are all recomputed here. A round trip
+        through a browser is not a reason to believe something.
+        """
+        from accounting.services.ai_reconciliation import (
+            Proposal, gather_candidates, to_line_record, validate_proposal,
+        )
+
+        try:
+            statement = BankStatement.objects.get(pk=pk)
+        except BankStatement.DoesNotExist:
+            return api_response(error='Statement not found.', status=status.HTTP_404_NOT_FOUND)
+
+        line_id = request.data.get('line_id')
+        ids = request.data.get('transaction_ids')
+        if not line_id or not isinstance(ids, list) or not ids:
+            return api_response(
+                error='line_id and a non-empty transaction_ids list are required.',
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            line = statement.lines.select_for_update().get(pk=line_id)
+        except BankStatementLine.DoesNotExist:
+            return api_response(error='Line not found on this statement.',
+                                status=status.HTTP_404_NOT_FOUND)
+
+        if line.match_status != 'UNMATCHED':
+            return api_response(
+                error=f'That line is already {line.match_status.lower()}.',
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        record = to_line_record(line)
+        candidates = gather_candidates(record, statement.bank_account_id)
+        outcome = validate_proposal({'transaction_ids': ids}, record, candidates)
+        if not isinstance(outcome, Proposal):
+            return api_response(
+                error=(
+                    'That suggestion is no longer valid: '
+                    f'{outcome.reason}. {outcome.detail}'.strip()
+                ),
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        who = request.user.get_full_name() or request.user.get_username()
+        line.match_status = 'MANUAL'          # a person decided, not a rule
+        line.matched_transaction_type = outcome.transaction_type
+        line.matched_transaction_ids = list(outcome.transaction_ids)
+        # Kept in step for existing readers that know only about one id.
+        line.matched_transaction_id = outcome.transaction_ids[0]
+        line.matched_date = timezone.now()
+        line.match_note = (
+            f'AI-proposed {outcome.kind} accepted by {who}; '
+            f'{len(outcome.transaction_ids)} transaction(s) totalling '
+            f'{outcome.proposed_total} against a line of {outcome.line_amount} '
+            f'(variance {outcome.variance}).'
+        )
+        line.save(update_fields=[
+            'match_status', 'matched_transaction_type', 'matched_transaction_ids',
+            'matched_transaction_id', 'matched_date', 'match_note',
+        ])
+
+        return api_response(data={
+            'line_id': line.id,
+            'match_status': line.match_status,
+            'transaction_ids': line.matched_transaction_ids,
+            'kind': outcome.kind,
+            'proposed_total': str(outcome.proposed_total),
+            'variance': str(outcome.variance),
+            'note': line.match_note,
+        })
 
     @action(detail=False, methods=['post'], url_path='import')
     @transaction.atomic

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Form, Input, InputNumber, DatePicker, Select, Button, Card,
-  Row, Col, App as AntApp, Alert, Tag,
+  Row, Col, App as AntApp, Alert, Tag, Modal,
 } from 'antd';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -15,6 +15,17 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
 import { ListPageShell } from '../../components/layout';
 
+/** One possible duplicate, as ``contracts/check-duplicate/`` returns it. */
+interface DuplicateMatch {
+  contract_id: number;
+  contract_number: string;
+  vendor_name: string;
+  similarity: number;
+  shared_terms: string[];
+  value_difference: string;
+  days_apart: number;
+}
+
 // ── NCoA segment types — used by the per-segment dropdowns ───────────
 interface NCoASegmentRow {
   id: number;
@@ -22,9 +33,10 @@ interface NCoASegmentRow {
   name?: string;
   full_code?: string;
   description?: string;
-  account_type_code?: string;
-  is_posting_level?: boolean;
-  is_control_account?: boolean;
+  // The economic position is served by /accounting/accounts/, so these
+  // rows are GL accounts. Only id / code / name are consumed here; the
+  // posting-level and control-account narrowing happens server-side via
+  // is_postable / is_reconciliation.
 }
 
 // ── Budget appropriation row (subset we render) ──────────────────────
@@ -95,25 +107,41 @@ const ContractForm = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Economic = "GL Account" in the user's vocabulary. Filter to
-  // posting-level expenditure (account_type_code='2') so users can't
-  // accidentally pick a header account or a revenue/asset GL — the
-  // backend ``resolve_code`` would reject those anyway, but we catch
-  // it client-side for a faster error path.
+  // Economic = "GL Account" in the user's vocabulary, and in
+  // public-sector accounting the two really are one list: the NCoA
+  // economic segment IS the chart of accounts. The mirror table this
+  // used to read has been retired, so it reads the GL directly.
+  //
+  // The server does the narrowing, which is both cheaper and harder to
+  // get wrong than filtering a full chart client-side:
+  //   account_type=Expense      NCoA family 2 — expenditure
+  //   is_postable=true          leaf accounts only, no headers
+  //   is_reconciliation=false   keeps GR/IR and AP control accounts out
+  //                             of a contract's expense line
+  // The 2-series check below is belt-and-braces for a tenant whose
+  // account_type disagrees with its code; ``resolve_code`` rejects the
+  // rest server-side at submit.
   const { data: economicAll, isLoading: loadingEconomic } = useQuery<NCoASegmentRow[]>({
-    queryKey: ['ncoa-economic-segments'],
-    queryFn: () => fetchSegment('/accounting/ncoa/economic/'),
+    queryKey: ['gl-expenditure-accounts'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/accounting/accounts/', {
+        params: {
+          account_type: 'Expense',
+          is_postable: true,
+          is_reconciliation: false,
+          is_active: true,
+          page_size: 1000,
+          ordering: 'code',
+        },
+      });
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 5 * 60 * 1000,
   });
-  const economicSegments = useMemo<NCoASegmentRow[]>(() => {
-    return (economicAll ?? []).filter((seg) => {
-      // Allow expenditure (2*) only, posting level only, non-control.
-      const isExpense = (seg.account_type_code === '2' || seg.code?.startsWith('2'));
-      const posting = seg.is_posting_level ?? true;
-      const control = seg.is_control_account ?? false;
-      return isExpense && posting && !control;
-    });
-  }, [economicAll]);
+  const economicSegments = useMemo<NCoASegmentRow[]>(
+    () => (economicAll ?? []).filter((acct) => acct.code?.startsWith('2')),
+    [economicAll],
+  );
 
   const { data: fundSegments, isLoading: loadingFunds } = useQuery<NCoASegmentRow[]>({
     queryKey: ['ncoa-fund-segments'],
@@ -205,7 +233,112 @@ const ContractForm = () => {
   const overBudget: boolean =
     !!matchedAppropriation && requestedAmount > availableBalance && requestedAmount > 0;
 
+  /**
+   * Ask the server whether this contract already exists, and if so make
+   * the clerk say why they are saving it anyway.
+   *
+   * Runs before the NCoA resolution below because that is a round trip
+   * and a write-ish operation (``resolve_code`` creates the composite
+   * code on first use) — there is no sense minting one for a contract
+   * that is about to be abandoned.
+   *
+   * Returns the acknowledgement to attach, or null to abort the save.
+   * Soft by design, matching the over-budget gate a few lines down: a
+   * clerk may know this is a re-award after a termination. A hard block
+   * would be worked around by rewording the title, which is exactly the
+   * behaviour that makes duplicates invisible.
+   */
+  const confirmNotDuplicate = async (
+    values: {
+      vendor?: number;
+      title?: string;
+      original_sum?: number | string;
+      signed_date?: { format: (f: string) => string } | null;
+    },
+  ): Promise<{ duplicate_ack_ids: number[]; duplicate_ack_reason: string } | null> => {
+    let matches: DuplicateMatch[] = [];
+    try {
+      const { data } = await apiClient.post('/contracts/contracts/check-duplicate/', {
+        id: isEdit ? Number(id) : 0,
+        vendor: values.vendor,
+        title: values.title,
+        original_sum: values.original_sum,
+        signed_date: values.signed_date?.format('YYYY-MM-DD') ?? null,
+      });
+      matches = data?.matches ?? [];
+    } catch {
+      // A duplicate check that cannot run must not stop a legitimate
+      // contract being captured. It is a warning, not a control.
+      return { duplicate_ack_ids: [], duplicate_ack_reason: '' };
+    }
+
+    if (!matches.length) return { duplicate_ack_ids: [], duplicate_ack_reason: '' };
+
+    return new Promise((resolve) => {
+      let reason = '';
+      Modal.confirm({
+        title: matches.length === 1
+          ? 'This looks like a contract already on the register'
+          : `This looks like ${matches.length} contracts already on the register`,
+        width: 640,
+        okText: 'Save anyway',
+        okButtonProps: { danger: true },
+        cancelText: 'Go back and check',
+        content: (
+          <div>
+            <p style={{ marginTop: 8, color: '#475569' }}>
+              Same contractor, a similar value, and a title that reads as the
+              same requirement. Saving a second time creates a second contract
+              number and a second payment stream.
+            </p>
+            {matches.map((m) => (
+              <div key={m.contract_id} style={{
+                border: '1px solid #fca5a5', background: '#fef2f2',
+                borderRadius: 8, padding: '10px 12px', marginBottom: 8, fontSize: 13,
+              }}>
+                <div style={{ fontWeight: 700 }}>
+                  {m.contract_number || `Contract #${m.contract_id}`}
+                  <span style={{ float: 'right', fontWeight: 600 }}>
+                    {Math.round(m.similarity * 100)}% title match
+                  </span>
+                </div>
+                <div style={{ color: '#7f1d1d', marginTop: 4 }}>
+                  Shared wording: {m.shared_terms.join(', ') || '—'}
+                </div>
+                <div style={{ color: '#7f1d1d' }}>
+                  Value differs by {formatCurrency(Number(m.value_difference))}
+                  {' · '}signed {m.days_apart} day{m.days_apart === 1 ? '' : 's'} apart
+                </div>
+              </div>
+            ))}
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155' }}>
+              Why is this a different contract?
+            </label>
+            <Input.TextArea
+              rows={2}
+              placeholder="e.g. re-award after termination of DSG/WORKS/2026/003"
+              onChange={(e) => { reason = e.target.value; }}
+              style={{ marginTop: 4 }}
+            />
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+              Recorded on the contract against your name, so an auditor asking
+              later finds the answer here rather than in somebody&rsquo;s memory.
+            </div>
+          </div>
+        ),
+        onOk: () => resolve({
+          duplicate_ack_ids: matches.map((m) => m.contract_id),
+          duplicate_ack_reason: reason.trim(),
+        }),
+        onCancel: () => resolve(null),
+      });
+    });
+  };
+
   const onFinish = async (values: any) => {
+    const ack = await confirmNotDuplicate(values);
+    if (ack === null) return;                 // clerk chose to go back
+
     // ── Step 1: Resolve the 5 segment IDs the user picked into a
     // single ncoa_code id. The backend's ``resolve_code`` action
     // accepts CODE strings (not IDs) and returns the composite
@@ -260,6 +393,7 @@ const ContractForm = () => {
 
     const payload = {
       ...values,
+      ...ack,
       ncoa_code: resolvedNcoaCodeId,
       // Note: ``Contract.appropriation`` FK points at the LEGACY
       // ``accounting.BudgetEncumbrance`` model (not the modern

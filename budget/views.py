@@ -286,12 +286,35 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     # one appropriation row). Without this filter, the frontend would
     # have to fetch every appropriation under the MDA and filter
     # client-side — fine for 10 lines, slow for 1000.
-    filterset_fields = [
-        'status', 'appropriation_type', 'fiscal_year',
-        'administrative', 'fund', 'economic',
+    # Dict form so budget_code can offer a partial match alongside the
+    # exact lookups. Every other entry keeps its plain '?field=' name,
+    # so existing callers are unaffected. Taken from
+    # feat/budget-line-code, which had the better shape than the
+    # exact-only list this replaced.
+    filterset_fields = {
+        'status': ['exact'],
+        'appropriation_type': ['exact'],
+        'fiscal_year': ['exact'],
+        'administrative': ['exact'],
+        'fund': ['exact'],
+        'economic': ['exact'],
+        # '?budget_code=BL-2026-0142' for one line,
+        # '?budget_code__icontains=BL-2026' to gather a whole series.
+        'budget_code': ['exact', 'icontains'],
+    }
+    # Also reachable from the generic '?search=' box, which is what the
+    # shared list toolbar and Budget Check use.
+    search_fields = [
+        'budget_code', 'administrative__name', 'economic__name',
+        'economic__code', 'description',
     ]
-    search_fields = ['administrative__name', 'economic__name', 'description']
-    ordering_fields = ['amount_approved', 'created_at']
+    # budget_code is orderable because Budget Check asks for it by name.
+    # DRF's OrderingFilter silently drops any field not listed here — it
+    # does not error — so '?ordering=budget_code' was falling back to
+    # '-created_at' while the caller believed it had grouped the page by
+    # code. The rows looked right only for as long as the coded lines
+    # happened to be the newest ones.
+    ordering_fields = ['amount_approved', 'created_at', 'budget_code']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -556,17 +579,47 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         admin_legacy = getattr(appr.administrative, 'legacy_mda', None) if appr.administrative_id else None
         fund_legacy  = getattr(appr.fund,           'legacy_fund', None) if appr.fund_id else None
-        from accounting.models.ncoa import EconomicSegment
-        descendant_econ_segs = [appr.economic] if appr.economic_id else []
-        frontier = list(descendant_econ_segs)
+        # ``economic`` is the GL account itself now, so the roll-up walks
+        # Account.parent rather than the economic-segment tree and then
+        # hopping through legacy_account to reach the same rows.
+        from accounting.models import Account
+        # Which GL accounts' postings belong to THIS line.
+        #
+        # The account itself, plus descendants that have no line of their
+        # own — the same rule ``find_matching_appropriation`` applies when
+        # it charges a posting: the nearest line wins, and a parent line
+        # only answers for an account that has none.
+        #
+        # Descending blindly listed every child's spending under the
+        # parent. On the data this was found in, 23000000 Capital
+        # Expenditure showed 10,359,444.14 of journal entries belonging to
+        # 23100100 Acquisition of Land, which has appropriations of its
+        # own — so the itemisation contradicted the line's own figures by
+        # twentyfold, and both numbers were sitting on the same screen.
+        #
+        # A child with its own line takes its whole subtree with it: its
+        # children roll up to IT, not past it to here.
+        descendant_accounts = [appr.economic] if appr.economic_id else []
+        frontier = list(descendant_accounts)
         while frontier:
-            children = list(EconomicSegment.objects.filter(parent__in=frontier))
-            descendant_econ_segs.extend(children)
+            claimed_elsewhere = set(
+                Appropriation.objects
+                .filter(
+                    economic__in=Account.objects.filter(parent__in=frontier),
+                    administrative_id=appr.administrative_id,
+                    fund_id=appr.fund_id,
+                    status__iexact='ACTIVE',
+                )
+                .exclude(pk=appr.pk)
+                .values_list('economic_id', flat=True)
+            )
+            children = [
+                c for c in Account.objects.filter(parent__in=frontier)
+                if c.pk not in claimed_elsewhere
+            ]
+            descendant_accounts.extend(children)
             frontier = children
-        legacy_accounts = [
-            seg.legacy_account_id for seg in descendant_econ_segs
-            if seg.legacy_account_id
-        ]
+        legacy_accounts = [a.pk for a in descendant_accounts]
 
         fy = appr.fiscal_year
         fy_start = getattr(fy, 'start_date', None)
@@ -620,7 +673,13 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     'date':        (po.order_date.isoformat()
                                     if po and getattr(po, 'order_date', None) else ''),
                     'reference':   src_ref,
-                    'description': (po.description or '') if po else '',
+                    # ``notes``, not ``description`` — PurchaseOrder has no
+                    # such field, and the attribute error took the whole
+                    # PO_COMMITMENT source down with it. Every CLOSED
+                    # commitment was therefore missing from the drill-down
+                    # while the appropriation went on counting it, so the
+                    # itemisation silently disagreed with its own total.
+                    'description': (getattr(po, 'notes', '') or '') if po else '',
                     'party':       (po.vendor.name if po and po.vendor else ''),
                     'amount':      str(link.committed_amount or Decimal('0')),
                     'source_id':   po.pk if po else None,
@@ -852,20 +911,26 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             '(e.g. economic_code "21100100", mda_code "010100000000",',
             'fund_code "02101"). Dimensions whose codes do not exist in your',
             'NCoA tables are rejected with a clear error pointing at the row.',
+            '  budget_code: your own reference for the budget line',
+            '    (e.g. "BL-2026-0142"). Free text, need not be unique — several',
+            '    rows may roll up to one budget line. Leave blank if unused.',
             'Lines starting with # (like these) are ignored on import.',
         ]
 
-        cols = [
-            'fiscal_year', 'mda_code', 'economic_code', 'fund_code',
-            'functional_code', 'programme_code', 'geographic_code',
-            'appropriation_type', 'amount_approved',
-            'law_reference', 'enactment_date', 'description', 'notes',
-        ]
+        # Column order lives in ``budget.import_columns`` so the template
+        # and the parser cannot disagree about it. budget_code is last,
+        # which is what lets a CSV saved before the column existed still
+        # upload unchanged.
+        from .import_columns import APPROPRIATION_COLUMNS
+        cols = APPROPRIATION_COLUMNS
+        # Two rows share BL-2026-0101 on purpose: a budget line split
+        # across economic segments is the normal case, and the blank
+        # fourth row shows the column is optional.
         examples = [
-            ['2026', '010100000000', '21100100', '02101', '01101', '01000000', '', 'ORIGINAL', '500000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost - Salaries (Office of Governor)', ''],
-            ['2026', '010100000000', '22100100', '02101', '01101', '01000000', '', 'ORIGINAL', '120000000.00', 'Appropriation Act 2026', '2026-01-15', 'Travel & Transport', ''],
-            ['2026', '010100000000', '23010101', '02101', '01101', '01000000', '', 'ORIGINAL', '850000000.00', 'Appropriation Act 2026', '2026-01-15', 'Office Buildings — Capital Project', ''],
-            ['2026', '020100000000', '21100100', '02101', '07101', '07000000', '', 'ORIGINAL', '300000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost (Min. of Health)', ''],
+            ['2026', '010100000000', '21100100', '02101', '01101', '01000000', '', 'ORIGINAL', '500000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost - Salaries (Office of Governor)', '', 'BL-2026-0101'],
+            ['2026', '010100000000', '22100100', '02101', '01101', '01000000', '', 'ORIGINAL', '120000000.00', 'Appropriation Act 2026', '2026-01-15', 'Travel & Transport', '', 'BL-2026-0101'],
+            ['2026', '010100000000', '23010101', '02101', '01101', '01000000', '', 'ORIGINAL', '850000000.00', 'Appropriation Act 2026', '2026-01-15', 'Office Buildings — Capital Project', '', 'BL-2026-0177'],
+            ['2026', '020100000000', '21100100', '02101', '07101', '07000000', '', 'ORIGINAL', '300000000.00', 'Appropriation Act 2026', '2026-01-15', 'Personnel Cost (Min. of Health)', '', ''],
         ]
 
         output = io.StringIO()
@@ -1146,8 +1211,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         # Lazy imports to avoid a circular at startup.
         from accounting.models.advanced import FiscalYear
+        from accounting.models.gl import Account
         from accounting.models.ncoa import (
-            AdministrativeSegment, EconomicSegment, FunctionalSegment,
+            AdministrativeSegment, FunctionalSegment,
             ProgrammeSegment, FundSegment, GeographicSegment,
         )
         from .models import Appropriation
@@ -1211,9 +1277,10 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 if not mda:
                     errors.append(f"Row {row_num}: mda_code '{mda_code}' not found in NCoA Administrative Segment.")
                     continue
-                econ = _resolve(EconomicSegment, 'code', econ_code)
+                # The economic code is a GL account code — one list, not two.
+                econ = _resolve(Account, 'code', econ_code)
                 if not econ:
-                    errors.append(f"Row {row_num}: economic_code '{econ_code}' not found in NCoA Economic Segment.")
+                    errors.append(f"Row {row_num}: economic_code '{econ_code}' not found in the chart of accounts.")
                     continue
                 fund = _resolve(FundSegment, 'code', fund_code)
                 if not fund:
@@ -1284,6 +1351,14 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 }
                 if enact_date is not None:
                     defaults['enactment_date'] = enact_date
+
+                # Only written when the upload actually carries the column:
+                # a CSV saved before this field existed must not wipe codes
+                # on re-upload. See budget_code_update.
+                from .import_columns import budget_code_update
+                defaults.update(
+                    budget_code_update(df.columns, row.get('budget_code'))
+                )
 
                 _, was_created = Appropriation.objects.update_or_create(
                     fiscal_year=fy,
@@ -1585,7 +1660,8 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         Query params: mda (legacy MDA pk), account (legacy Account pk), fund (legacy Fund pk).
         Returns matching appropriation + execution stats, or 404 if none.
         """
-        from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
+        from accounting.models.gl import Account
 
         mda_id = request.query_params.get('mda')
         account_id = request.query_params.get('account')
@@ -1600,10 +1676,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         try:
             admin_seg = AdministrativeSegment.objects.filter(legacy_mda_id=mda_id).first()
             fund_seg = FundSegment.objects.filter(legacy_fund_id=fund_id).first()
-            econ_seg = (
-                EconomicSegment.objects.filter(legacy_account_id=account_id).first()
-                if account_id else None
-            )
+            # ``account`` is already the economic classifier — the
+            # appropriation's ``economic`` FK points straight at it.
+            econ_seg = Account.objects.filter(pk=account_id).first() if account_id else None
         except Exception:
             admin_seg = fund_seg = econ_seg = None
 
@@ -2244,8 +2319,20 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_admin_field = 'administrative'
     serializer_class = RevenueBudgetSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['fiscal_year', 'status', 'administrative']
+    # SearchFilter was absent here, so '?search=' silently returned the
+    # whole list rather than erroring — a filter that looks applied and
+    # is not. Added along with the budget_code lookups, from
+    # feat/budget-line-code.
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'fiscal_year': ['exact'],
+        'status': ['exact'],
+        'administrative': ['exact'],
+        'budget_code': ['exact', 'icontains'],
+    }
+    search_fields = [
+        'administrative__name', 'economic__name', 'description', 'budget_code',
+    ]
     ordering = ['fiscal_year', 'administrative', 'economic']
 
     def get_queryset(self):
@@ -2260,23 +2347,25 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         import csv
         from django.http import HttpResponse
 
+        # Column order lives in ``budget.import_columns`` so template and
+        # parser cannot disagree about it.
+        from .import_columns import REVENUE_COLUMNS
+
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([
-            'fiscal_year', 'administrative_code', 'economic_code', 'fund_code',
-            'estimated_amount', 'jan', 'feb', 'mar', 'apr', 'may', 'jun',
-            'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'description',
-        ])
+        writer.writerow(REVENUE_COLUMNS)
+        # budget_code is the trailing column and is optional — the
+        # second example leaves it blank to show that.
         writer.writerow([
             '2026', '011300000000', '11100100', '08000',
             '500000000', '', '', '', '', '', '',
-            '', '', '', '', '', '', 'PAYE from SIRS',
+            '', '', '', '', '', '', 'PAYE from SIRS', 'RB-2026-0012',
         ])
         writer.writerow([
             '2026', '010600000000', '12100100', '08000',
             '120000000', '10000000', '10000000', '10000000', '10000000',
             '10000000', '10000000', '10000000', '10000000', '10000000',
-            '10000000', '10000000', '10000000', 'Fees and fines',
+            '10000000', '10000000', '10000000', 'Fees and fines', '',
         ])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
@@ -2288,7 +2377,8 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         """Bulk import revenue budget targets from CSV/Excel."""
         import pandas as pd
         from accounting.models.advanced import FiscalYear
-        from accounting.models.ncoa import AdministrativeSegment, EconomicSegment, FundSegment
+        from accounting.models.gl import Account
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
 
         file = request.FILES.get('file')
         if not file:
@@ -2315,7 +2405,7 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             try:
                 fy = FiscalYear.objects.filter(year=int(row['fiscal_year'])).first()
                 admin = AdministrativeSegment.objects.filter(code=str(row['administrative_code']).strip()).first()
-                econ = EconomicSegment.objects.filter(code=str(row['economic_code']).strip()).first()
+                econ = Account.objects.filter(code=str(row['economic_code']).strip()).first()
                 fund = FundSegment.objects.filter(code=str(row['fund_code']).strip()).first()
 
                 if not fy:
@@ -2353,12 +2443,19 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
                 desc = str(row.get('description', '')).strip() if pd.notna(row.get('description')) else ''
 
+                # This reader keeps pandas' default NA handling, so a blank
+                # cell arrives as NaN and str(NaN) == 'nan'. clean_budget_code
+                # absorbs that along with a missing column.
+                from .import_columns import clean_budget_code
+                budget_code = clean_budget_code(row.get('budget_code'))
+
                 RevenueBudget.objects.create(
                     fiscal_year=fy, administrative=admin, economic=econ, fund=fund,
                     estimated_amount=amt,
                     monthly_spread=spread if spread else None,
                     status='ACTIVE',
                     description=desc,
+                    budget_code=budget_code,
                 )
                 created += 1
             except Exception as e:
@@ -2401,10 +2498,12 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         # Get prior year revenue actuals from appropriations that had revenue accounts
         # Or from GL balances for revenue accounts (type 1)
-        from accounting.models.ncoa import EconomicSegment
+        from accounting.models.gl import Account
 
-        revenue_segments = EconomicSegment.objects.filter(
-            account_type_code='1', is_active=True,
+        # NCoA family 1 = Revenue. Migrations 0116/0117 put every account
+        # on its family digit, so the code prefix is the family.
+        revenue_segments = Account.objects.filter(
+            code__startswith='1', is_active=True,
         )
 
         created = 0

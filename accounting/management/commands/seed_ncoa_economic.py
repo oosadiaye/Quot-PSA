@@ -1,11 +1,51 @@
 """
-Seeds Nigeria NCoA Economic Segment codes (~90 core posting-level accounts).
+Seeds the Nigeria NCoA economic codes straight into the chart of accounts.
+
 Based on OAGF NCoA v2.0 and NGF GIFMIS Chart of Accounts.
 Run: python manage.py seed_ncoa_economic
+
+In public-sector accounting the NCoA economic segment and the chart of
+accounts are the same classifier — the same 8-digit codes, the same
+names, the same hierarchy. They used to be seeded into two tables and
+held level by a sync service; this command now writes ``Account`` rows
+directly, and ``seed_ncoa_as_coa`` (which existed only to copy one table
+into the other) is gone with the duplication.
+
+The NCoA vocabulary maps onto Account like this:
+
+    account_type_code   code[0]  1 Revenue, 2 Expenditure,
+                                 3 Assets, 4 Liabilities & Net Assets
+    is_posting_level -> is_postable
+    is_control_account -> is_reconciliation (+ reconciliation_type)
+    normal_balance      implied by the family; the GL derives it
+    sub/class/line      positions 2, 3-4, 5-6, 7-8 of the code itself
+
+The positional sub-codes are not stored because they were never
+independent data — they are substrings of ``code``.
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from accounting.models.ncoa import EconomicSegment
+from accounting.models.gl import Account
+
+
+def _reconciliation_type(code: str) -> str:
+    """Map an NCoA code to its GL reconciliation (control account) type.
+
+    Carried over from ``seed_ncoa_as_coa``. The sub-ledgers (AP, AR,
+    inventory, assets, bank) will only accept a control account that
+    carries the matching type, so this must be set at creation time.
+    """
+    if code.startswith('411'):   # Accounts Payable
+        return 'accounts_payable'
+    if code.startswith('312'):   # Receivables
+        return 'accounts_receivable'
+    if code.startswith('314'):   # Inventory
+        return 'inventory'
+    if code.startswith('32'):    # Non-current assets
+        return 'asset_accounting'
+    if code.startswith('311'):   # Cash / TSA
+        return 'bank_accounting'
+    return ''
 
 # fmt: off
 ECONOMIC_CODES = [
@@ -105,58 +145,105 @@ ECONOMIC_CODES = [
 
 
 class Command(BaseCommand):
-    help = 'Seed Nigeria NCoA Economic Segment codes (OAGF v2.0 standard)'
+    help = 'Seed the Nigeria NCoA economic codes into the chart of accounts (OAGF v2.0)'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--clear', action='store_true',
-            help='Clear existing economic segments before seeding',
+            help=(
+                'Remove the accounts this command seeds before re-seeding. '
+                'Only accounts with no journal lines are removed; any that '
+                'are in use are reported and left alone.'
+            ),
         )
 
     @transaction.atomic
     def handle(self, *args, **options):
         if options['clear']:
-            EconomicSegment.objects.all().delete()
-            self.stdout.write(self.style.WARNING('Cleared existing economic segments.'))
+            self._clear()
 
         created = updated = 0
         for entry in ECONOMIC_CODES:
-            obj, was_created = EconomicSegment.objects.update_or_create(
-                code=entry['code'],
-                defaults={
-                    'name':               entry['name'],
-                    'account_type_code':  entry['type'],
-                    'sub_type_code':      entry['sub'],
-                    'account_class_code': entry['cls'],
-                    'sub_class_code':     entry['sub_cls'],
-                    'line_item_code':     entry['item'],
-                    'is_posting_level':   entry['posting'],
-                    'is_control_account': entry['ctrl'],
-                    'normal_balance':     entry['balance'],
-                    'legacy_account_type': entry['legacy'],
-                    'is_active':          True,
-                },
-            )
-            if was_created:
+            # ``is_reconciliation`` / ``reconciliation_type`` are set only
+            # on create. They are operator-tunable on the CoA screen and a
+            # re-seed must not undo a deliberate change — the same rule
+            # ``seed_ncoa_as_coa`` followed when it owned this write.
+            defaults = {
+                'name':         entry['name'],
+                'account_type': entry['legacy'],
+                'is_postable':  entry['posting'],
+                'is_active':    True,
+            }
+            account = Account.objects.filter(code=entry['code']).first()
+            if account is None:
+                recon_type = _reconciliation_type(entry['code'])
+                Account.objects.create(
+                    code=entry['code'],
+                    is_reconciliation=bool(recon_type) or entry['ctrl'],
+                    reconciliation_type=recon_type,
+                    **defaults,
+                )
                 created += 1
             else:
+                for field, value in defaults.items():
+                    setattr(account, field, value)
+                account.save(update_fields=list(defaults))
                 updated += 1
 
-        # Set parent FKs
         self._set_parents()
 
+        # Legacy Fund/Function/Programme/Geo dimensions, so the Journal
+        # form's dropdowns populate without a second seed pass. Inherited
+        # from seed_ncoa_as_coa, which used to run this tail.
+        from django.core.management import call_command
+        call_command('backfill_legacy_dims', stdout=self.stdout)
+
         self.stdout.write(self.style.SUCCESS(
-            f'NCoA Economic Segments: {created} created, {updated} updated. '
-            f'Total: {EconomicSegment.objects.count()}'
+            f'NCoA economic codes seeded into the chart of accounts: '
+            f'{created} created, {updated} updated. '
+            f'Total accounts: {Account.objects.count()}'
         ))
 
+    def _clear(self):
+        """Delete this command's accounts, refusing any that carry postings.
+
+        Deleting a chart of accounts is not the same risk as deleting a
+        mirror table: an account with journal lines is PROTECTed, and
+        forcing it would orphan a ledger. Anything in use is reported
+        and kept.
+        """
+        codes = [e['code'] for e in ECONOMIC_CODES]
+        in_use, removed = [], 0
+        for account in Account.objects.filter(code__in=codes):
+            if account.journalline_set.exists():
+                in_use.append(account.code)
+                continue
+            account.delete()
+            removed += 1
+        self.stdout.write(self.style.WARNING(
+            f'Cleared {removed} seeded account(s).'
+        ))
+        if in_use:
+            self.stdout.write(self.style.WARNING(
+                f'  Kept {len(in_use)} account(s) that carry journal lines: '
+                + ', '.join(sorted(in_use)[:10])
+                + (' …' if len(in_use) > 10 else '')
+            ))
+
     def _set_parents(self):
-        """Link each account to its nearest parent header."""
-        for seg in EconomicSegment.objects.filter(is_posting_level=True):
-            parent_code = seg.code[:2] + '000000'
-            if parent_code != seg.code:
-                try:
-                    seg.parent = EconomicSegment.objects.get(code=parent_code)
-                    seg.save(update_fields=['parent'])
-                except EconomicSegment.DoesNotExist:
-                    pass
+        """Link each posting account to its nearest parent header.
+
+        e.g. 21100100 Basic Salaries -> 21000000 Personnel Costs. Same
+        rule as before the merge, so the appropriation roll-up walk
+        (which follows ``Account.parent``) sees the chain it always saw.
+        """
+        for account in Account.objects.filter(
+            code__in=[e['code'] for e in ECONOMIC_CODES], is_postable=True,
+        ):
+            parent_code = account.code[:2] + '000000'
+            if parent_code == account.code:
+                continue
+            parent = Account.objects.filter(code=parent_code).first()
+            if parent is not None and parent.pk != account.pk:
+                account.parent = parent
+                account.save(update_fields=['parent'])

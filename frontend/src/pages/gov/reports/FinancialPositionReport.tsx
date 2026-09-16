@@ -24,12 +24,60 @@ export default function FinancialPositionReport() {
         retry: false,
     });
 
-    const renderItems = (items: any[]) => items?.filter((i: any) => !i.is_header).map((i: any, idx: number) => (
-        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 6px 20px', borderBottom: '1px solid #f8fafc' }}>
-            <span style={{ fontSize: '13px', color: '#1e293b' }}>{i.code} — {i.name}</span>
-            <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace' }}>{fmtNGN(i.amount)}</span>
-        </div>
-    ));
+    // A header's ``amount`` is the roll-up of its children, which are
+    // listed individually — showing both would read as double counting,
+    // so header rows stay hidden. The exception is ``direct_amount``:
+    // a balance posted to the header itself, represented by no child
+    // line. It is counted in the section total, so hiding it would
+    // leave the visible rows not adding up to the total shown beneath
+    // them. It is rendered, flagged, and almost always absent.
+    const renderItems = (items: any[]) => items
+        ?.filter((i: any) => !i.is_header || Number(i.direct_amount || 0) !== 0)
+        .map((i: any, idx: number) => {
+            const postedToHeader = i.is_header && Number(i.direct_amount || 0) !== 0;
+            return (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 6px 20px', borderBottom: '1px solid #f8fafc' }}>
+                    <span style={{ fontSize: '13px', color: postedToHeader ? '#92400e' : '#1e293b' }}>
+                        {i.code} — {i.name}
+                        {postedToHeader && (
+                            <span
+                                title="Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account."
+                                style={{ marginLeft: 8, fontSize: '11px', fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 3, padding: '1px 6px' }}
+                            >
+                                posted to group account
+                            </span>
+                        )}
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: postedToHeader ? '#92400e' : undefined }}>
+                        {fmtNGN(postedToHeader ? i.direct_amount : i.amount)}
+                    </span>
+                </div>
+            );
+        });
+
+    // Accounts in the family but outside the statement's named
+    // sub-families (30xxxxxx, 48xxxxxx …). The backend reports them so
+    // they are not lost; this renders them only when there is something
+    // to render, so a well-coded chart shows no extra heading.
+    const renderUnclassified = (section: any, label: string) => {
+        const items = (section?.items || []).filter((i: any) => Number(i.amount) !== 0);
+        if (items.length === 0) return null;
+        return (
+            <div style={{ padding: '12px 0' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>
+                    {label}
+                    <span style={{ marginLeft: 8, fontWeight: 500, color: '#b45309', fontSize: '12px' }}>
+                        — not yet assigned to a statement heading; give these codes a
+                        sub-family so they report in the right place
+                    </span>
+                </div>
+                {renderItems(items)}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 600, fontSize: '13px', background: '#fffbeb', borderRadius: '4px' }}>
+                    <span>Total {label}</span><span style={{ fontFamily: 'monospace' }}>{fmtNGN(section?.total)}</span>
+                </div>
+            </div>
+        );
+    };
 
     const renderTotal = (label: string, amount: number, color: string) => (
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '2px solid #1e293b', marginTop: '8px' }}>
@@ -108,6 +156,7 @@ export default function FinancialPositionReport() {
                                     <span>Total Non-Current Assets</span><span style={{ fontFamily: 'monospace' }}>{fmtNGN(data.assets?.non_current?.total)}</span>
                                 </div>
                             </div>
+                            {renderUnclassified(data.assets?.unclassified, 'Unclassified Assets')}
                             {renderTotal('TOTAL ASSETS', data.assets?.total, '#008751')}
                         </div>
 
@@ -125,6 +174,7 @@ export default function FinancialPositionReport() {
                                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>Non-Current Liabilities</div>
                                 {renderItems(data.liabilities?.non_current?.items)}
                             </div>
+                            {renderUnclassified(data.liabilities?.unclassified, 'Unclassified Liabilities')}
                             {renderTotal('TOTAL LIABILITIES', data.liabilities?.total, '#c0392b')}
                         </div>
 

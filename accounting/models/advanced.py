@@ -723,6 +723,26 @@ class AccountingSettings(models.Model):
         '4': 'Liability',  # Liabilities & Net Assets (NCoA)
     }
 
+    #: Types a series accepts *in addition* to its primary one.
+    #:
+    #: NCoA's fourth family is "Liabilities **and Net Assets**" — the
+    #: OAGF schedule spells it out that way — so Equity belongs
+    #: at 4xxxxxxx beside Liability. The map above can only express one
+    #: type per prefix, and it must stay that shape because
+    #: ``account_number_series`` is a tenant-editable JSON field whose
+    #: documented form is prefix -> one type name; turning the values
+    #: into lists would invalidate whatever tenants have already saved.
+    #:
+    #: Without this, Equity was unreachable at *every* prefix: 4 demanded
+    #: Liability, 3 demanded Asset, and so on. That is not a theoretical
+    #: gap — ``accumulated_fund_account_code`` below defaults to NCoA
+    #: 43100000 and the account "must exist in the Account table before
+    #: close_year can run", so year-end close required an account the API
+    #: refused to let anyone create.
+    SERIES_ALSO_ALLOWS = {
+        '4': frozenset({'Equity'}),
+    }
+
     account_code_digits = models.IntegerField(choices=DIGIT_CHOICES, default=8)
     is_digit_enforcement_active = models.BooleanField(default=False)
     account_number_series = models.JSONField(
@@ -984,7 +1004,8 @@ class AccountingSettings(models.Model):
         # Number series validation
         if self.account_number_series and code:
             expected_type = self.get_expected_type_for_code(code)
-            if expected_type and expected_type != account_type:
+            also = self.SERIES_ALSO_ALLOWS.get(code[0], ())
+            if expected_type and expected_type != account_type and account_type not in also:
                 errors.append(
                     f"Account code '{code}' belongs to the "
                     f"'{expected_type}' number series (prefix '{code[0]}'), "
@@ -1430,6 +1451,22 @@ class BankStatementLine(models.Model):
     match_status = models.CharField(max_length=20, choices=MATCH_STATUS_CHOICES, default='UNMATCHED')
     matched_transaction_type = models.CharField(max_length=20, blank=True, default='')
     matched_transaction_id = models.IntegerField(null=True, blank=True)
+    #: The full set of ledger transactions settling this line.
+    #:
+    #: ``matched_transaction_id`` holds a single id, which is all the
+    #: exact-amount rule matcher ever needed. It cannot represent one bank
+    #: transfer covering several payment vouchers — and a bundle is
+    #: precisely the case that rule cannot match, so recording one voucher
+    #: out of three would lose the other two silently at the moment the
+    #: reconciliation looked finished.
+    #:
+    #: Both fields are maintained: this carries every id, and
+    #: ``matched_transaction_id`` keeps the first so existing readers
+    #: (``auto_match_statement``, the lines endpoint) are unaffected.
+    matched_transaction_ids = models.JSONField(default=list, blank=True)
+    #: Human-readable provenance — how the match was arrived at, e.g.
+    #: "AI-proposed BUNDLE accepted by A. Okafor; variance -50.00".
+    match_note = models.TextField(blank=True, default='')
     matched_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:

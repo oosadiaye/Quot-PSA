@@ -37,7 +37,12 @@ import logging
 from decimal import Decimal
 from django.db.models import Sum, Q
 from accounting.models.balances import GLBalance
-from accounting.models.ncoa import EconomicSegment
+from accounting.models.gl import Account
+
+# The NCoA economic segment and the chart of accounts are one classifier,
+# so these statements read ``Account`` directly. ``is_postable`` is the
+# GL's name for the segment's ``is_posting_level``, and an account needs
+# no bridge to find its own balances.
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +116,7 @@ class IPSASReportService:
             required headings).
           * Non-posting (header) segments' amounts are computed from the
             SUM of their descendant posting-level segments, not from the
-            header's own legacy_account balance. A header that happens to
+            header's own balance. A header that happens to
             have direct postings is a data-entry error — we log a warning
             but do not double-count it.
         """
@@ -123,26 +128,43 @@ class IPSASReportService:
         # Current Assets (31xx), Non-Current Assets (32xx)
         current_assets, ca_total = cls._sum_ncoa_group(balances, '31', 'DEBIT')
         non_current_assets, nca_total = cls._sum_ncoa_group(balances, '32', 'DEBIT')
-        total_assets = ca_total + nca_total
+        # Everything else in the asset family. The headings above are a
+        # fixed list of sub-families, so an asset coded outside them —
+        # 30xxxxxx, 33xxxxxx and so on — was simply absent from the
+        # statement, with no total to notice it against. Reporting it
+        # under an explicit "unclassified" heading is not a guess at
+        # where it belongs; it is a refusal to lose it while somebody
+        # decides. In a well-coded chart this is empty.
+        other_assets, oa_total = cls._sum_ncoa_group(
+            balances, '3', 'DEBIT', exclude_prefixes=('31', '32'),
+        )
+        total_assets = ca_total + nca_total + oa_total
 
         # Current / Non-Current Liabilities (41xx / 42xx)
         current_liab, cl_total = cls._sum_ncoa_group(balances, '41', 'CREDIT')
         non_current_liab, ncl_total = cls._sum_ncoa_group(balances, '42', 'CREDIT')
-        total_liabilities = cl_total + ncl_total
+        # Same for family 4 ("Liabilities and Net Assets") outside
+        # 41 / 42 / 43 — e.g. 40xxxxxx, 48xxxxxx.
+        other_liab, ol_total = cls._sum_ncoa_group(
+            balances, '4', 'CREDIT', exclude_prefixes=('41', '42', '43'),
+        )
+        total_liabilities = cl_total + ncl_total + ol_total
 
         # Net Assets / Accumulated Fund (43xx)
         net_assets, na_total = cls._sum_ncoa_group(balances, '43', 'CREDIT')
 
         return {
             'assets': {
-                'current':     {'items': current_assets,     'total': ca_total},
-                'non_current': {'items': non_current_assets, 'total': nca_total},
-                'total':       total_assets,
+                'current':      {'items': current_assets,     'total': ca_total},
+                'non_current':  {'items': non_current_assets, 'total': nca_total},
+                'unclassified': {'items': other_assets,       'total': oa_total},
+                'total':        total_assets,
             },
             'liabilities': {
-                'current':     {'items': current_liab,     'total': cl_total},
-                'non_current': {'items': non_current_liab, 'total': ncl_total},
-                'total':       total_liabilities,
+                'current':      {'items': current_liab,     'total': cl_total},
+                'non_current':  {'items': non_current_liab, 'total': ncl_total},
+                'unclassified': {'items': other_liab,       'total': ol_total},
+                'total':        total_liabilities,
             },
             'net_assets': {
                 'items': net_assets,
@@ -155,53 +177,95 @@ class IPSASReportService:
     # -------------------------------------------------------------------------
 
     @classmethod
-    def _sum_ncoa_group(cls, balances_qs, prefix: str, balance_side: str):
-        """Return (items, total) for every segment whose code starts with prefix.
+    def _sum_ncoa_group(cls, balances_qs, prefix: str, balance_side: str,
+                        exclude_prefixes: tuple[str, ...] = ()):
+        """Return (items, total) for every account whose code starts with prefix.
 
         Algorithm:
-          1. Fetch posting-level segments in the prefix range — each gets
-             its amount from the GL (via ``legacy_account`` bridge or
-             matching account code).
-          2. Fetch non-posting (header) segments — each gets its amount
-             from the SUM of posting-level descendants.
-          3. Emit items in code order with ``is_header`` flag; total is the
-             sum of posting-level amounts only (headers are presentational).
+          1. Fetch posting-level accounts in the prefix range — each gets
+             its amount straight from its own GL balances.
+          2. Fetch header accounts — each gets its amount from the SUM of
+             its posting-level descendants, PLUS anything posted directly
+             to it (see below).
+          3. Emit items in code order with ``is_header`` flag.
+
+        Headers that carry a direct balance
+        -----------------------------------
+        A header should never be posted to, and ``Account.is_postable``
+        now stops that happening. But balances predating the flag exist:
+        re-classifying an account (migration 0121/0122 flags NCoA group
+        roots such as 20000000 Expenditure) turns yesterday's legitimate
+        posting into today's header balance.
+
+        Such a balance used to be dropped — headers took their amount
+        purely from descendants and the total counted posting rows only,
+        so the money left the statement without a trace. For an
+        expenditure statement that is the worst possible direction to be
+        wrong in, and the docstring claimed a warning that was never
+        actually logged.
+
+        A direct header balance is now added to the header amount AND to
+        the total, so the statement still foots, and logged as a warning
+        naming the account so the data-entry error can be corrected.
+        Descendants are counted once via ``posting_amounts`` and the
+        header's own balance once here, so nothing is double-counted.
         """
-        all_segments = list(
-            EconomicSegment.objects
-            .filter(code__startswith=prefix, is_active=True)
-            .select_related('legacy_account')
-            .order_by('code')
-        )
+        accounts = Account.objects.filter(code__startswith=prefix, is_active=True)
+        for excluded in exclude_prefixes:
+            accounts = accounts.exclude(code__startswith=excluded)
+        all_segments = list(accounts.order_by('code'))
         if not all_segments:
             return [], _zero()
 
-        # Partition by is_posting_level.
-        posting_segs = [s for s in all_segments if s.is_posting_level]
-        header_segs = [s for s in all_segments if not s.is_posting_level]
+        # Partition by posting level.
+        posting_segs = [s for s in all_segments if s.is_postable]
+        header_segs = [s for s in all_segments if not s.is_postable]
 
         # Compute posting-level amounts from GL.
         posting_amounts: dict[int, Decimal] = {}
         for seg in posting_segs:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             posting_amounts[seg.pk] = cls._aggregate_side(bal, balance_side)
 
         # Compute header-level amounts from descendants. We roll up by
         # code-prefix: every posting seg whose code starts with the header
         # seg's code is a descendant.
         header_amounts: dict[int, Decimal] = {}
+        # Anything posted directly to a header. Kept separate so it can be
+        # added to the grand total exactly once, and warned about.
+        header_direct: dict[int, Decimal] = {}
         for hseg in header_segs:
-            header_amounts[hseg.pk] = sum(
+            # Descendants share the header's *significant* prefix, not its
+            # whole code. NCoA codes are zero-padded to eight digits, so a
+            # header is never a literal prefix of its children —
+            # '31100100'.startswith('31000000') is False, and matching on
+            # the full code made every roll-up zero. Trailing zeros are
+            # padding, not part of the classification:
+            #     31000000 -> '31'   matches 31100100, 31200100, …
+            #     43100000 -> '431'  matches 43100100, …
+            #     30000000 -> '3'    the family root, matches all of it
+            significant = hseg.code.rstrip('0') or hseg.code[:1]
+            rolled_up = sum(
                 (
                     posting_amounts.get(pseg.pk, _zero())
                     for pseg in posting_segs
-                    if pseg.code.startswith(hseg.code) and pseg.code != hseg.code
+                    if pseg.code.startswith(significant) and pseg.code != hseg.code
                 ),
                 _zero(),
             )
+            direct = cls._aggregate_side(
+                balances_qs.filter(account_id=hseg.pk), balance_side,
+            )
+            if direct:
+                logger.warning(
+                    'IPSAS statement: header account %s (%s) carries a direct '
+                    'balance of %s. A header aggregates its children and should '
+                    'not be posted to. The amount is included so the statement '
+                    'still foots, but the postings should be moved to a leaf '
+                    'account.', hseg.code, hseg.name, direct,
+                )
+            header_direct[hseg.pk] = direct
+            header_amounts[hseg.pk] = rolled_up + direct
 
         # Build output in code order. Zero-balance posting segs are kept
         # (IPSAS disclosure); zero-balance header segs are kept only if
@@ -209,23 +273,34 @@ class IPSASReportService:
         items: list[dict] = []
         total = _zero()
         for seg in all_segments:
-            if seg.is_posting_level:
+            if seg.is_postable:
                 amount = posting_amounts.get(seg.pk, _zero())
                 items.append({
                     'code':      seg.code,
                     'name':      seg.name,
                     'amount':    amount,
                     'is_header': False,
+                    'direct_amount': amount,
                 })
                 total += amount
             else:
                 amount = header_amounts.get(seg.pk, _zero())
+                direct = header_direct.get(seg.pk, _zero())
                 items.append({
                     'code':      seg.code,
                     'name':      seg.name,
                     'amount':    amount,
                     'is_header': True,
+                    # The part of ``amount`` that is NOT represented by any
+                    # child line. A reader adding up the visible rows must
+                    # arrive at ``total``, so the UI hides a header's
+                    # roll-up (its children are listed individually) but
+                    # must show this. Almost always zero.
+                    'direct_amount': direct,
                 })
+                # Only the directly-posted part is added — the rolled-up
+                # part is already in the total via its posting rows.
+                total += direct
         return items, total
 
     @staticmethod
@@ -282,7 +357,14 @@ class IPSASReportService:
         nontax, nontax_t  = cls._sum_posting_only(balances, '12', 'CREDIT')
         grants, grants_t  = cls._sum_posting_only(balances, '13', 'CREDIT')
         other,  other_t   = cls._sum_posting_only(balances, '14', 'CREDIT')
-        total_revenue = tax_t + nontax_t + grants_t + other_t
+        # Revenue coded outside 11-14. The headings are a fixed list of
+        # sub-families, so anything else in family 1 was absent from the
+        # statement entirely — reported here rather than lost while its
+        # proper heading is decided. Empty in a well-coded chart.
+        unclass_rev, unclass_rev_t = cls._sum_posting_only(
+            balances, '1', 'CREDIT', exclude_prefixes=('11', '12', '13', '14'),
+        )
+        total_revenue = tax_t + nontax_t + grants_t + other_t + unclass_rev_t
 
         # Expenditure (debit-normal)
         pers,   pers_t    = cls._sum_posting_only(balances, '21', 'DEBIT')
@@ -290,7 +372,13 @@ class IPSASReportService:
         cap,    cap_t     = cls._sum_posting_only(balances, '23', 'DEBIT')
         debt,   debt_t    = cls._sum_posting_only(balances, '24', 'DEBIT')
         trans,  trans_t   = cls._sum_posting_only(balances, '25', 'DEBIT')
-        total_expenditure = pers_t + ovh_t + cap_t + debt_t + trans_t
+        # Expenditure coded outside 21-25 — 20xxxxxx most commonly, which
+        # no heading covered. Missing expenditure reads as underspend, so
+        # it is reported rather than dropped.
+        unclass_exp, unclass_exp_t = cls._sum_posting_only(
+            balances, '2', 'DEBIT', exclude_prefixes=('21', '22', '23', '24', '25'),
+        )
+        total_expenditure = pers_t + ovh_t + cap_t + debt_t + trans_t + unclass_exp_t
 
         surplus_deficit = total_revenue - total_expenditure
 
@@ -300,6 +388,7 @@ class IPSASReportService:
                 'non_tax_revenue':  {'items': nontax, 'total': nontax_t},
                 'grants_transfers': {'items': grants, 'total': grants_t},
                 'other_revenue':    {'items': other,  'total': other_t},
+                'unclassified':     {'items': unclass_rev, 'total': unclass_rev_t},
                 'total':            total_revenue,
             },
             'expenditure': {
@@ -308,35 +397,55 @@ class IPSASReportService:
                 'capital_expenditure':   {'items': cap,   'total': cap_t},
                 'debt_service':          {'items': debt,  'total': debt_t},
                 'transfers_subventions': {'items': trans, 'total': trans_t},
+                'unclassified':          {'items': unclass_exp, 'total': unclass_exp_t},
                 'total':                 total_expenditure,
             },
             'surplus_deficit': surplus_deficit,
         }
 
     @classmethod
-    def _sum_posting_only(cls, balances_qs, prefix: str, side: str):
-        """Like ``_sum_ncoa_group`` but emits only posting-level lines.
-        Used for SoFPerformance where we don't render hierarchical headers."""
-        segments = (
-            EconomicSegment.objects
-            .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
-            .select_related('legacy_account')
-            .order_by('code')
-        )
+    def _sum_posting_only(cls, balances_qs, prefix: str, side: str,
+                          exclude_prefixes: tuple[str, ...] = ()):
+        """Like ``_sum_ncoa_group`` but without the hierarchical headers.
+
+        Used for SoFPerformance, which renders a flat list.
+
+        Every account carrying a balance is included, header or not. It
+        used to filter on ``is_postable=True``, which meant a balance on
+        a header account was never even visited — it simply vanished from
+        the revenue or expenditure total. Re-classifying an account
+        (migrations 0121/0122 flag NCoA group roots such as 20000000
+        Expenditure) turns a legitimate past posting into exactly that
+        case, so filtering here would silently shrink reported
+        expenditure. A statement may not lose money because the chart was
+        tidied afterwards; the header is reported and warned about
+        instead.
+        """
+        segments = Account.objects.filter(code__startswith=prefix, is_active=True)
+        for excluded in exclude_prefixes:
+            segments = segments.exclude(code__startswith=excluded)
+        segments = segments.order_by('code')
         items: list[dict] = []
         total = _zero()
         for seg in segments:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             amount = cls._aggregate_side(bal, side)
             # Keep non-zero items in the row list, but IPSAS requires us
             # to disclose zero balances if the head is mandated. We
             # include them only when they're genuinely non-zero; auditors
             # use the NCoA master for the full list.
             if amount != 0:
-                items.append({'code': seg.code, 'name': seg.name, 'amount': amount})
+                if not seg.is_postable:
+                    logger.warning(
+                        'IPSAS statement: header account %s (%s) carries a '
+                        'direct balance of %s. Reported so the statement foots, '
+                        'but the postings should be moved to a leaf account.',
+                        seg.code, seg.name, amount,
+                    )
+                items.append({
+                    'code': seg.code, 'name': seg.name, 'amount': amount,
+                    'is_header': not seg.is_postable,
+                })
                 total += amount
         return items, total
 
@@ -575,19 +684,29 @@ class IPSASReportService:
         })
         per_code = bucket['per_code']
 
+        # Header accounts are included, not filtered out. Budget-vs-actual
+        # is the statement an Accountant-General is held to: an actual that
+        # is missing from it reads as underspend. A balance sitting on a
+        # header (a legitimate posting made before migrations 0121/0122
+        # re-classified NCoA group roots) must therefore still appear
+        # against its budget line. Same rule as _sum_posting_only.
         segments = (
-            EconomicSegment.objects
-            .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
-            .select_related('legacy_account')
+            Account.objects
+            .filter(code__startswith=prefix, is_active=True)
             .order_by('code')
         )
         items: list[dict] = []
         for seg in segments:
-            if seg.legacy_account_id:
-                bal = balances_qs.filter(account_id=seg.legacy_account_id)
-            else:
-                bal = balances_qs.filter(account__code=seg.code)
+            bal = balances_qs.filter(account_id=seg.pk)
             actual = cls._aggregate_side(bal, side)
+            if actual and not seg.is_postable:
+                logger.warning(
+                    'IPSAS budget performance: header account %s (%s) carries a '
+                    'direct actual of %s. Reported against its budget line so '
+                    'the statement does not read as underspend, but the '
+                    'postings should be moved to a leaf account.',
+                    seg.code, seg.name, actual,
+                )
             line_budget = per_code.get(seg.code, {'original': _zero(), 'final': _zero()})
             original_line = line_budget['original']
             final_line    = line_budget['final']

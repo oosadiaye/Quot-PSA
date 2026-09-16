@@ -158,6 +158,9 @@ class AppropriationSerializer(serializers.ModelSerializer):
             'fund', 'fund_code', 'fund_name',
             'geographic', 'geographic_code', 'geographic_name',
             'amount_approved', 'appropriation_type', 'status',
+            # The organisation's own reference for this line. Writable:
+            # an officer types it from their appropriation book.
+            'budget_code',
             'law_reference', 'enactment_date', 'description', 'notes',
             'total_warrants_released',
             'total_committed', 'cached_total_committed', 'total_committed_live',
@@ -391,7 +394,7 @@ class RevenueBudgetSerializer(serializers.ModelSerializer):
             'economic', 'economic_name', 'economic_code', 'fund', 'fund_name', 'fund_code',
             'estimated_amount', 'monthly_spread', 'status',
             'actual_collected', 'variance', 'performance_rate',
-            'description', 'notes', 'created_at', 'updated_at',
+            'description', 'notes', 'budget_code', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at',

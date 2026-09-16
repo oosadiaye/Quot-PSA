@@ -106,7 +106,11 @@ class Command(BaseCommand):
         connection.set_tenant(tenant)
         self.stdout.write(self.style.SUCCESS(f'  Active schema: {connection.schema_name}'))
 
-        # Step 3: Seed NCoA universal segments (same for all tiers)
+        # Step 3: Seed NCoA universal segments (same for all tiers).
+        # ``seed_ncoa_economic`` writes the economic codes straight into
+        # the chart of accounts — the economic segment and the CoA are
+        # one classifier, so there is no second table to fill and no
+        # bridging step later.
         self.stdout.write('Step 3: Seeding NCoA Chart of Accounts...')
         call_command('seed_ncoa_economic')
         call_command('seed_ncoa', '--segment', 'functional')
@@ -146,12 +150,10 @@ class Command(BaseCommand):
         self.stdout.write('Step 8: Seeding revenue heads...')
         call_command('seed_revenue_heads')
 
-        # Step 9: Sync NCoA as Chart of Accounts (bridge EconomicSegment -> Account)
-        self.stdout.write('Step 9: Syncing NCoA as Chart of Accounts...')
-        call_command('seed_ncoa_as_coa')
-
-        # Step 10: Sync NCoA as Dimensions (bridge Fund/Function/Program/Geo/MDA)
-        self.stdout.write('Step 10: Syncing NCoA as Dimensions...')
+        # Step 9: Sync NCoA as Dimensions (bridge Fund/Function/Program/Geo/MDA).
+        # The old "sync NCoA as Chart of Accounts" step is gone: step 3
+        # seeds the chart directly.
+        self.stdout.write('Step 9: Syncing NCoA as Dimensions...')
         call_command('seed_ncoa_as_dimensions')
 
         # Step 11: Create initial TSA structure
@@ -332,7 +334,7 @@ class Command(BaseCommand):
 
     def _print_summary(self, tier, state_name):
         from accounting.models.ncoa import (
-            EconomicSegment, FunctionalSegment, FundSegment,
+            FunctionalSegment, FundSegment,
             GeographicSegment, AdministrativeSegment, ProgrammeSegment,
         )
         from accounting.models.treasury import TreasuryAccount
@@ -345,13 +347,12 @@ class Command(BaseCommand):
             f'\n{"=" * 60}\n'
             f'  {tier} TENANT SETUP COMPLETE - {state_name}\n'
             f'{"=" * 60}\n'
-            f'  NCoA Economic Segments:     {EconomicSegment.objects.count():>5}\n'
             f'  NCoA Functional (COFOG):    {FunctionalSegment.objects.count():>5}\n'
             f'  NCoA Fund Sources:          {FundSegment.objects.count():>5}\n'
             f'  NCoA Geographic:            {GeographicSegment.objects.filter(is_active=True).count():>5}\n'
             f'  NCoA Administrative (MDA):  {AdministrativeSegment.objects.filter(is_mda=True).count():>5}\n'
             f'  NCoA Programme:             {ProgrammeSegment.objects.count():>5}\n'
-            f'  Legacy GL Accounts:         {Account.objects.count():>5}\n'
+            f'  Chart of Accounts (economic): {Account.objects.count():>4}\n'
             f'  Legacy Funds:               {Fund.objects.count():>5}\n'
             f'  Legacy Functions:           {Function.objects.count():>5}\n'
             f'  Legacy Programs:            {Program.objects.count():>5}\n'

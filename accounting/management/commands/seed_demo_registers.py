@@ -253,7 +253,7 @@ class Command(BaseCommand):
     # -----------------------------------------------------------------
     def _seed_appropriations(self, year: int, dry: bool) -> None:
         from accounting.models import (
-            AdministrativeSegment, EconomicSegment, FunctionalSegment,
+            AdministrativeSegment, Account, FunctionalSegment,
             ProgrammeSegment, FundSegment, GeographicSegment,
         )
         from accounting.models.advanced import FiscalYear
@@ -325,8 +325,8 @@ class Command(BaseCommand):
         count = 0
         for prefix, amount in expense_prefixes:
             econ_seg = (
-                EconomicSegment.objects
-                .filter(code__startswith=prefix, is_posting_level=True, is_active=True)
+                Account.objects
+                .filter(code__startswith=prefix, is_postable=True, is_active=True)
                 .order_by('code')
                 .first()
             )

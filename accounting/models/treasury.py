@@ -69,13 +69,19 @@ class TreasuryAccount(AuditBaseModel):
         # and is empty until transactions exist. The intent (per the
         # original help text) was the *economic segment* classifier so
         # cash-flow reports can group TSAs by NCoA economic code. Re-
-        # targeting to EconomicSegment makes the dropdown selectable
-        # against the live 1,147-row taxonomy and keeps the field
-        # name backward-compatible.
-        'accounting.EconomicSegment',
+        # targeting to the economic classifier makes the dropdown
+        # selectable against the live taxonomy and keeps the field name
+        # backward-compatible.
+        #
+        # That classifier is now ``Account``: the NCoA economic segment
+        # and the GL account are the same thing in public-sector
+        # accounting, and the duplicate table has been retired.
+        # ``related_name`` is 'tsa_cash_accounts' rather than
+        # 'tsa_accounts' because Account already carries the latter.
+        'accounting.Account',
         null=True, blank=True,
         on_delete=models.PROTECT,
-        related_name='tsa_accounts',
+        related_name='tsa_cash_accounts',
         help_text=(
             "NCoA Economic Segment classification for this TSA's cash "
             "position (e.g. '31030205 — Cash Transfer / JAAC Direct "
@@ -207,6 +213,29 @@ class PaymentVoucherGov(AuditBaseModel):
         indexes = [
             models.Index(fields=['status', 'payment_type']),
             models.Index(fields=['voucher_number']),
+        ]
+        constraints = [
+            # One live voucher per source document.
+            #
+            # ``ipc_service.raise_payment_voucher`` already refuses to link a
+            # second PV to an IPC, under a row lock. That guard is good and
+            # it is also only a guard — it protects the one path that goes
+            # through it. A voucher raised anywhere else can cite the same
+            # IPC, contract certificate or invoice again, and the bank is
+            # instructed twice.
+            #
+            # Cancelled and reversed vouchers are excluded so a mistake can
+            # be undone and the source legitimately re-paid. Same shape as
+            # ``uniq_active_payment_batch_membership`` in payment_batch.py,
+            # which solved the same problem one layer down.
+            models.UniqueConstraint(
+                fields=['source_document'],
+                condition=(
+                    ~models.Q(source_document='')
+                    & ~models.Q(status__in=['CANCELLED', 'REVERSED'])
+                ),
+                name='uniq_live_pv_source_document',
+            ),
         ]
 
     def __str__(self):

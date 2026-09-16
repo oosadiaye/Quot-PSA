@@ -275,7 +275,6 @@ class VendorViewSet(viewsets.ModelViewSet):
 
         # Post GL entry: DR TSA, CR Revenue
         from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
-        from accounting.models.ncoa import EconomicSegment
         from accounting.services.ipsas_journal_service import IPSASJournalService
         from accounting.services.treasury_service import TSABalanceService
         from datetime import timedelta
@@ -321,15 +320,14 @@ class VendorViewSet(viewsets.ModelViewSet):
                 # ── CR: Registration-fee revenue GL ────────────────────
                 # Priority chain mirrors the cash side:
                 #   1. AccountingSettings.vendor_registration_revenue_account
-                #   2. Legacy NCoA bridge to 12100200 if catalogued
+                #   2. NCoA economic code 12100200 in the CoA
                 #   3. Loud failure with operator-actionable message
                 settings_obj = AccountingSettings.objects.first()
                 rev_gl = getattr(settings_obj, 'vendor_registration_revenue_account', None) if settings_obj else None
                 if rev_gl is None:
-                    rev_seg = EconomicSegment.objects.filter(code='12100200').first()
                     rev_gl = (
-                        rev_seg.legacy_account if rev_seg
-                        else Account.objects.filter(
+                        Account.objects.filter(code='12100200').first()
+                        or Account.objects.filter(
                             account_type='Income', name__icontains='registration',
                         ).first()
                     )
@@ -537,7 +535,6 @@ class VendorViewSet(viewsets.ModelViewSet):
 
         # Post GL entry: DR TSA, CR Revenue
         from accounting.models.gl import JournalHeader, JournalLine, TransactionSequence, Account
-        from accounting.models.ncoa import EconomicSegment
         from accounting.services.ipsas_journal_service import IPSASJournalService
         from accounting.services.treasury_service import TSABalanceService
 
@@ -568,10 +565,11 @@ class VendorViewSet(viewsets.ModelViewSet):
                 tsa_gl = resolve_tsa_cash_gl(tsa_account=invoice.tsa_account)
 
                 # CR: Revenue - Registration Fees
-                rev_seg = EconomicSegment.objects.filter(code='12100200').first()
-                rev_gl = rev_seg.legacy_account if rev_seg else Account.objects.filter(
-                    account_type='Income', name__icontains='fee'
-                ).first()
+                rev_gl = Account.objects.filter(code='12100200').first() or (
+                    Account.objects.filter(
+                        account_type='Income', name__icontains='fee',
+                    ).first()
+                )
                 if not rev_gl:
                     raise ValueError(
                         'Revenue account (Registration Fees / 12100200) not '
@@ -3889,3 +3887,68 @@ class ThresholdCheckView(APIView):
             category=ser.validated_data['category'],
         )
         return Response(result)
+
+
+class SplitPurchaseScanView(APIView):
+    """Scan committed purchase orders for threshold evasion and duplicates.
+
+    ``POST /api/v1/procurement/split-scan/`` with optional ``since``,
+    ``until`` (YYYY-MM-DD) and ``judge_limit``.
+
+    Advisory only — it writes nothing and blocks nothing. The orders it
+    reports have in most cases already been paid; the value is entirely
+    in where a reviewer looks first.
+
+    The arithmetic runs whether or not AI is configured. When the
+    reconciliation-style capability is off, unconfigured or unreachable,
+    every cluster still appears with verdict UNCLEAR: a control that stops
+    working because a third party is down is not a control.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from datetime import date, timedelta
+
+        from django.db import connection
+
+        from procurement.services.split_detection import detect
+        from superadmin.ai_models import AICapability, TenantAISetting
+
+        def _date(key, default):
+            raw = request.data.get(key)
+            if not raw:
+                return default
+            try:
+                return date.fromisoformat(str(raw))
+            except ValueError:
+                return default
+
+        until = _date('until', date.today())
+        # A year by default: threshold evasion is a pattern over months,
+        # and a fortnight's window would miss most of it.
+        since = _date('since', until - timedelta(days=365))
+        if since > until:
+            return Response(
+                {'detail': 'since must not be after until.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            judge_limit = min(int(request.data.get('judge_limit', 10)), 25)
+        except (TypeError, ValueError):
+            judge_limit = 10
+
+        tenant = getattr(connection, 'tenant', None)
+        setting = None
+        if tenant is not None and getattr(tenant, 'schema_name', 'public') != 'public':
+            setting = (
+                TenantAISetting.objects.select_related('provider')
+                .filter(tenant=tenant, capability=AICapability.DETECTION)
+                .first()
+            )
+
+        return Response(detect(
+            since=since, until=until,
+            tenant=tenant, setting=setting, judge_limit=judge_limit,
+        ))

@@ -114,7 +114,6 @@ from .treasury_revenue import (  # noqa: F401
 # NCoA Segment API (Phase 8)
 from .ncoa_views import (  # noqa: F401
     AdministrativeSegmentViewSet as NCoAAdminSegViewSet,
-    EconomicSegmentViewSet as NCoAEconSegViewSet,
     FunctionalSegmentViewSet as NCoAFuncSegViewSet,
     ProgrammeSegmentViewSet as NCoAProgSegViewSet,
     FundSegmentViewSet as NCoAFundSegViewSet,

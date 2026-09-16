@@ -445,8 +445,8 @@ class RevenueCollectionSerializer(serializers.ModelSerializer):
         legacy FKs (``RevenueCollection.revenue_head``,
         ``RevenueCollection.revenue_head``-indexed reports) point at
         it. Treat it as a derived registry: one row per revenue-side
-        EconomicSegment, created the first time that segment is
-        actually used to collect revenue. This is not a fallback —
+        GL account, created the first time that account is actually
+        used to collect revenue. This is not a fallback —
         it is the canonical write path.
         """
         if not ncoa_code or not ncoa_code.economic_id:

@@ -276,9 +276,7 @@ def check_warrant_availability(
     inside ``transaction.atomic()`` for the lock to be meaningful.
     """
     from budget.models import Appropriation
-    from accounting.models.ncoa import (
-        AdministrativeSegment, EconomicSegment, FundSegment,
-    )
+    from accounting.models.ncoa import AdministrativeSegment, FundSegment
 
     mda  = dimensions.get('mda')  if dimensions else None
     fund = dimensions.get('fund') if dimensions else None
@@ -306,36 +304,32 @@ def check_warrant_availability(
         return True, msg, {}
 
     # Resolve legacy → NCoA segments via the legacy_* OneToOne bridges.
+    # The economic pillar needs no bridge: ``Appropriation.economic`` is
+    # the GL account itself, so the account we were handed IS the segment.
     admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
-    econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
+    econ_seg  = account
     fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
-    if not (admin_seg and econ_seg and fund_seg):
+    if not (admin_seg and fund_seg):
         if strict:
             logger.warning(
                 'check_warrant_availability strict-fail: missing NCoA bridge '
-                '(admin=%s, econ=%s, fund=%s) for mda=%s account=%s fund=%s',
-                bool(admin_seg), bool(econ_seg), bool(fund_seg),
+                '(admin=%s, fund=%s) for mda=%s account=%s fund=%s',
+                bool(admin_seg), bool(fund_seg),
                 getattr(mda, 'pk', mda), getattr(account, 'pk', account),
                 getattr(fund, 'pk', fund),
             )
             return False, (
-                "Warrant ceiling cannot be evaluated: one or more NCoA "
-                "segment bridges (Administrative / Economic / Fund) is "
-                "missing. Configure the legacy→NCoA bridge for this MDA / "
-                "Fund / Account before posting."
+                "Warrant ceiling cannot be evaluated: the Administrative or "
+                "Fund NCoA segment bridge is missing. Configure the "
+                "legacy→NCoA bridge for this MDA / Fund before posting."
             ), {}
         return True, "Warrant check skipped (no NCoA bridge yet).", {}
 
-    # Walk the economic parent chain so a leaf-coded transaction (e.g.
-    # 23100100 Acquisition of Land) can validate against an
-    # appropriation set at a parent level (e.g. 23000000 Capital
-    # Expenditure). Mirrors create_commitment_for_po() lookup.
-    candidates = [econ_seg]
-    cursor = econ_seg.parent
-    while cursor is not None:
-        candidates.append(cursor)
-        cursor = cursor.parent
-
+    # The parent chain is walked by ``nearest_appropriation`` below, so a
+    # leaf-coded transaction (23100100 Acquisition of Land) still
+    # validates against a parent line (23000000 Capital Expenditure) when
+    # it has none of its own — and stops there when it has.
+    #
     # ``select_for_update`` so concurrent payment/commitment posts on
     # the same appropriation serialise on this row. When the caller
     # wraps this check + their subsequent mutation in a single
@@ -355,12 +349,19 @@ def check_warrant_availability(
     # when the caller's outer atomic commits. Calling this without an
     # outer atomic still works for read-only checks but provides no
     # cross-mutation race protection.
-    appro = Appropriation.objects.select_for_update().filter(
-        administrative=admin_seg,
-        economic__in=candidates,
-        fund=fund_seg,
-        status__iexact='ACTIVE',
-    ).first()
+    # Nearest line wins. This used to pass every ancestor at once and
+    # take .first(), which charged the warrant ceiling against a parent
+    # line while the account's own line went untouched.
+    from accounting.services.budget_check_rules import nearest_appropriation
+
+    appro = nearest_appropriation(
+        econ_seg,
+        Appropriation.objects.select_for_update().filter(
+            administrative=admin_seg,
+            fund=fund_seg,
+            status__iexact='ACTIVE',
+        ),
+    )
     if not appro:
         # No matching appropriation: in strict mode this is a hard
         # block — a payment lacking an ACTIVE appropriation is exactly

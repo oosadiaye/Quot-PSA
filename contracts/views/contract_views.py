@@ -7,6 +7,7 @@ business logic lives here.
 """
 from __future__ import annotations
 
+from django.utils.dateparse import parse_date
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
@@ -114,6 +115,87 @@ class ContractViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    # ── Duplicate warning ─────────────────────────────────────────────
+
+    @action(detail=False, methods=["post"], url_path="check-duplicate")
+    def check_duplicate(self, request):
+        """Warn that a contract being captured may already exist.
+
+        ``contract_number`` is auto-generated on activation, so its
+        ``unique=True`` is satisfied by construction and protects nothing
+        against the same award being entered twice. What repeats is the
+        substance — same contractor, same money, same window, and a title
+        that is the same requirement written differently.
+
+        Advisory by design. It returns matches and a `blocking` flag; it
+        does not refuse the save. A clerk looking at two contracts knows
+        things this endpoint does not — that one is a re-award after a
+        termination, or that the ministry really did commission two
+        boreholes at the same price in the same village.
+
+        Call it from the draft form, not from a nightly report: caught at
+        draft this costs a glance, caught after the first interim
+        certificate it costs a reversal, a variation and an audit note.
+        """
+        from datetime import date
+        from decimal import Decimal, InvalidOperation
+
+        from contracts.services.duplicate_detection import (
+            ContractRecord, check_before_saving, load_contracts,
+        )
+
+        data = request.data
+        vendor_id = data.get("vendor")
+        title = (data.get("title") or "").strip()
+        if not vendor_id or not title:
+            return Response(
+                {"detail": "vendor and title are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            value = Decimal(str(data.get("original_sum") or "0"))
+        except (InvalidOperation, ValueError):
+            return Response(
+                {"detail": "original_sum must be a number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        signed = parse_date(str(data.get("signed_date") or "")) or date.today()
+
+        candidate = ContractRecord(
+            contract_id=int(data.get("id") or 0),
+            contract_number=str(data.get("contract_number") or ""),
+            vendor_id=int(vendor_id),
+            vendor_name="",
+            title=title,
+            value=value,
+            signed_date=signed,
+        )
+        # Scoped to the vendor: comparing against every contract in the
+        # register would be the same answer after far more work, since a
+        # different vendor can never produce a match.
+        matches = check_before_saving(candidate, load_contracts(vendor_id=int(vendor_id)))
+
+        return Response({
+            "matches": [
+                {
+                    "contract_id": m.right_id if m.left_id == candidate.contract_id else m.left_id,
+                    "contract_number": (
+                        m.right_number if m.left_id == candidate.contract_id else m.left_number
+                    ),
+                    "vendor_name": m.vendor_name,
+                    "similarity": m.similarity,
+                    "shared_terms": list(m.shared_terms),
+                    "value_difference": str(m.value_difference),
+                    "days_apart": m.days_apart,
+                }
+                for m in matches
+            ],
+            # An exact title match at the same value is worth stopping on;
+            # anything softer is a prompt to look, not a verdict.
+            "blocking": any(m.similarity >= 0.999 for m in matches),
+        })
 
     # ── State transitions ─────────────────────────────────────────────
 

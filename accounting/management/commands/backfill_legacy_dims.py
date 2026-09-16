@@ -2,7 +2,7 @@
 
 The JournalForm (and several other pre-NCoA UIs) still queries the legacy
 dimension endpoints ``/accounting/funds/`` etc. For tenants seeded via
-``seed_ncoa_as_coa`` / ``seed_ncoa`` the NCoA segment tables are populated
+``seed_ncoa_economic`` / ``seed_ncoa`` the NCoA segment tables are populated
 but the legacy tables are empty — result: empty dropdowns on forms.
 
 This command walks every NCoA segment and:

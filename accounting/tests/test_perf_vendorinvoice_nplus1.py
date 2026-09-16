@@ -59,45 +59,73 @@ def _build_ncoa_code():
     (direct ``.create``) so the segment validators that enforce exact
     digit widths don't fire — the values chosen here are already valid.
     """
+    from accounting.models.gl import Account
     from accounting.models.ncoa import (
-        AdministrativeSegment, EconomicSegment, FunctionalSegment,
+        AdministrativeSegment, FunctionalSegment,
         ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
     )
 
-    admin = AdministrativeSegment.objects.create(
-        code='050200000000', name='Test MDA',
-        level='UNIT', sector_code='05',
+    # ``get_or_create`` throughout, not ``create``.
+    #
+    # This class is ``django_db(transaction=True)``, so its rows are
+    # committed rather than rolled back, and every code below is unique.
+    # A plain ``create`` therefore works exactly once: the first run
+    # leaves the rows behind and the next one dies on
+    #
+    #   duplicate key value violates unique constraint
+    #   "accounting_administrativesegment_code_key"
+    #
+    # and takes unrelated tests down with it, because the failure lands
+    # mid-transaction. The Account line was changed first, when the
+    # economic classifier moved onto the shared chart of accounts; the
+    # other five carried the same latent fault and had only not collided
+    # yet.
+    admin, _ = AdministrativeSegment.objects.get_or_create(
+        code='050200000000',
+        defaults={'name': 'Test MDA', 'level': 'UNIT', 'sector_code': '05'},
     )
-    econ = EconomicSegment.objects.create(
-        code='22100100', name='Test Expense', account_type_code='2',
+    econ, _ = Account.objects.get_or_create(
+        code='22100100',
+        defaults={'name': 'Test Expense', 'account_type': 'Expense'},
     )
-    func = FunctionalSegment.objects.create(
-        code='70100', name='General Services', division_code='701',
+    func, _ = FunctionalSegment.objects.get_or_create(
+        code='70100',
+        defaults={'name': 'General Services', 'division_code': '701'},
     )
-    prog = ProgrammeSegment.objects.create(
-        code='01010000000000', name='Test Programme',
-        policy_code='01', programme_code='01',
+    prog, _ = ProgrammeSegment.objects.get_or_create(
+        code='01010000000000',
+        defaults={'name': 'Test Programme', 'policy_code': '01',
+                  'programme_code': '01'},
     )
-    fund = FundSegment.objects.create(
-        code='01000', name='Consolidated Fund', main_fund_code='01',
+    fund, _ = FundSegment.objects.get_or_create(
+        code='01000',
+        defaults={'name': 'Consolidated Fund', 'main_fund_code': '01'},
     )
-    geo = GeographicSegment.objects.create(
-        code='51000000', name='Test State', zone_code='5',
+    geo, _ = GeographicSegment.objects.get_or_create(
+        code='51000000',
+        defaults={'name': 'Test State', 'zone_code': '5'},
     )
-    return NCoACode.objects.create(
+    ncoa, _ = NCoACode.objects.get_or_create(
         administrative=admin, economic=econ, functional=func,
-        programme=prog, fund=fund, geographic=geo, is_active=True,
+        programme=prog, fund=fund, geographic=geo,
+        defaults={'is_active': True},
     )
+    return ncoa
 
 
 def _build_tsa():
+    # Same reasoning as _build_ncoa_code: account_number is unique and
+    # these rows survive the test that created them.
     from accounting.models.treasury import TreasuryAccount
-    return TreasuryAccount.objects.create(
+    tsa, _ = TreasuryAccount.objects.get_or_create(
         account_number='0011223344',
-        account_name='Test TSA',
-        bank='CBN',
-        account_type='MAIN_TSA',
+        defaults={
+            'account_name': 'Test TSA',
+            'bank': 'CBN',
+            'account_type': 'MAIN_TSA',
+        },
     )
+    return tsa
 
 
 def _make_pv(*, invoice_number, voucher_number, status, ncoa, tsa):
@@ -138,8 +166,12 @@ def _make_invoices(vendor, count, *, start=1):
 
 
 def _build_vendor():
+    # Same reasoning again — Vendor.code is unique.
     from procurement.models import Vendor
-    return Vendor.objects.create(name='Acme Supplies Ltd', code='V-NPLUS1')
+    vendor, _ = Vendor.objects.get_or_create(
+        code='V-NPLUS1', defaults={'name': 'Acme Supplies Ltd'},
+    )
+    return vendor
 
 
 def _list_via_viewset(user):

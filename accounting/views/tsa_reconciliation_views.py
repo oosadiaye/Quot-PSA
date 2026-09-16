@@ -292,6 +292,132 @@ class TSABankStatementViewSet(viewsets.ModelViewSet):
         serializer = TSABankStatementLineSerializer(qs, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'], url_path='ai-suggest')
+    def ai_suggest(self, request, pk=None):
+        """Propose explanations for lines the auto-matcher could not match.
+
+        Writes nothing. The auto-matcher pairs one line to one book entry
+        on an exact amount; what it cannot express is several instructions
+        settled in one transfer, a partial settlement, or a transfer minus
+        a bank charge. Those are the lines this looks at, and only those.
+
+        Bounded because each line is its own provider round trip — a
+        thousand-line statement must not become a thousand calls because
+        somebody clicked a button.
+        """
+        from django.db import connection
+
+        from accounting.services.ai_reconciliation import (
+            build_prompt, parse_response, tsa_gather_candidates,
+            tsa_to_line_record, validate_all,
+        )
+        from superadmin.ai_client import AIRefused, call_model
+        from superadmin.ai_models import AICapability, TenantAISetting
+
+        stmt = self.get_object()
+
+        tenant = getattr(connection, 'tenant', None)
+        if tenant is None or getattr(tenant, 'schema_name', 'public') == 'public':
+            return Response({'detail': 'No tenant on this request.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        setting = (
+            TenantAISetting.objects.select_related('provider')
+            .filter(tenant=tenant, capability=AICapability.RECONCILIATION)
+            .first()
+        )
+        if setting is None or not setting.is_usable:
+            # Says which switch is off. An empty result here would read as
+            # "nothing to find", which is a different and misleading answer.
+            return Response(
+                {'detail': (
+                    'AI reconciliation is not active for this organisation. '
+                    'Check the capability toggle and that its provider has a key.'
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = min(int(request.data.get('limit', 10)), 25)
+        except (TypeError, ValueError):
+            limit = 10
+
+        line_ids = request.data.get('line_ids') or []
+        qs = stmt.lines.filter(match_status='UNMATCHED')
+        if line_ids:
+            qs = qs.filter(id__in=line_ids)
+
+        results = []
+        for line in qs[:limit]:
+            record = tsa_to_line_record(line)
+            candidates = tsa_gather_candidates(record, stmt)
+            if not candidates:
+                results.append({
+                    'line_id': record.line_id, 'proposals': [], 'rejected': [],
+                    'detail': 'No candidate book entries in the search window.',
+                })
+                continue
+            try:
+                result = call_model(
+                    tenant=tenant, setting=setting,
+                    prompt=build_prompt(record, candidates),
+                    system=(
+                        'You reconcile Nigerian Treasury Single Account bank '
+                        'statements. You propose; a finance officer decides. '
+                        'Never guess: replying with no proposals is correct '
+                        'when nothing fits.'
+                    ),
+                    max_tokens=800,
+                    subject={'model': 'TSABankStatementLine', 'id': record.line_id},
+                )
+            except AIRefused as exc:
+                results.append({'line_id': record.line_id, 'proposals': [],
+                                'rejected': [], 'detail': str(exc)})
+                continue
+            except Exception as exc:                      # noqa: BLE001
+                # A provider outage mid-reconciliation degrades to "no
+                # suggestion", never to a traceback on the reviewer's screen.
+                results.append({
+                    'line_id': record.line_id, 'proposals': [], 'rejected': [],
+                    'detail': f'The AI provider could not be reached: {str(exc)[:200]}',
+                })
+                continue
+
+            accepted, rejected = validate_all(
+                parse_response(result.text), record, candidates,
+            )
+            results.append({
+                'line_id': record.line_id,
+                'line_amount': str(record.amount),
+                'direction': record.direction,
+                'candidates_considered': len(candidates),
+                'proposals': [
+                    {
+                        'transaction_ids': list(p.transaction_ids),
+                        'transaction_type': p.transaction_type,
+                        'kind': p.kind,
+                        'confidence': p.confidence,
+                        'explanation': p.explanation,
+                        'proposed_total': str(p.proposed_total),
+                        'line_amount': str(p.line_amount),
+                        'variance': str(p.variance),
+                    }
+                    for p in accepted
+                ],
+                # Surfaced, not swallowed: a run where most suggestions were
+                # discarded as invented ids is a fact about the chosen model
+                # that whoever chose it needs to see.
+                'rejected': [{'reason': r.reason, 'detail': r.detail} for r in rejected],
+                'cost_usd': str(result.cost_usd),
+            })
+
+        return Response({
+            'statement_id': stmt.id,
+            'lines_examined': len(results),
+            'unmatched_remaining': stmt.lines.filter(match_status='UNMATCHED').count(),
+            'results': results,
+        })
+
     @action(detail=True, methods=['get'])
     def candidates(self, request, pk=None):
         """Unmatched book-side candidates within this statement's window."""

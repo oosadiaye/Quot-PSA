@@ -80,13 +80,11 @@ const MobilizationPaymentList = lazy(() => import('./pages/gov').then(m => ({ de
 const PaymentInstructionList = lazy(() => import('./pages/gov').then(m => ({ default: m.PaymentInstructionList })));
 const RevenueHeadList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueHeadList })));
 const RevenueCollectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.RevenueCollectionList })));
-const NCoAEconomicList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAEconomicList })));
 const NCoAAdminList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAAdminList })));
 const NCoAFunctionalList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAFunctionalList })));
 const NCoAProgrammeList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAProgrammeList })));
 const NCoAFundList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAFundList })));
 const NCoAGeoList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoAGeoList })));
-const NCoACodeList = lazy(() => import('./pages/gov').then(m => ({ default: m.NCoACodeList })));
 const ProcurementThresholdList = lazy(() => import('./pages/gov').then(m => ({ default: m.ProcurementThresholdList })));
 const NoObjectionList = lazy(() => import('./pages/gov').then(m => ({ default: m.NoObjectionList })));
 
@@ -97,6 +95,7 @@ const AppropriationForm = lazy(() => import('./pages/gov/AppropriationForm'));
 const AppropriationDetail = lazy(() => import('./pages/gov/AppropriationDetail'));
 const AppropriationTransactions = lazy(() => import('./pages/gov/AppropriationTransactions'));
 const VirementForm = lazy(() => import('./pages/gov/VirementForm'));
+const VirementList = lazy(() => import('./pages/gov/VirementList'));
 const WarrantForm = lazy(() => import('./pages/gov/WarrantForm'));
 const WarrantDetail = lazy(() => import('./pages/gov/WarrantDetail'));
 const RevenueBudgetForm = lazy(() => import('./pages/gov/RevenueBudgetForm'));
@@ -143,6 +142,7 @@ const ApprovalRulesPage = lazy(() => import('./pages/gov/ApprovalRulesPage'));
 const OverrideAuditPage = lazy(() => import('./pages/gov/OverrideAuditPage'));
 const FiscalYearAdminPage = lazy(() => import('./pages/gov/FiscalYearAdminPage'));
 const AppropriationAdminPage = lazy(() => import('./pages/gov/AppropriationAdminPage'));
+const BudgetCheck = lazy(() => import('./pages/gov/BudgetCheck'));
 const ExecutionReport = lazy(() => import('./pages/gov/reports/ExecutionReport'));
 const GovernmentSetup = lazy(() => import('./pages/gov/GovernmentSetup'));
 const OrganizationManagement = lazy(() => import('./pages/gov/OrganizationManagement'));
@@ -216,6 +216,8 @@ const InventorySettingsPage   = lazy(() => import('./features/settings/Inventory
 const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManagement'));
 const BankAccountSettings = lazy(() => import('./features/settings/BankAccountSettings'));
 const BrandingSettings = lazy(() => import('./features/settings/BrandingSettings'));
+const AISettingsPage = lazy(() => import('./features/settings/AISettings'));
+const SplitPurchaseScanPage = lazy(() => import('./features/procurement/SplitPurchaseScan'));
 const WarrantPrintoutSettingsPage = lazy(() => import('./features/settings/WarrantPrintoutSettings'));
 const WarrantPrintPreview = lazy(() => import('./pages/gov/WarrantPrintPreview'));
 const BatchWarrantPrintPreview = lazy(() => import('./pages/gov/BatchWarrantPrintPreview'));
@@ -419,6 +421,12 @@ function App() {
                       } />
                       <Route path="/settings/bank-accounts" element={
                         <ProtectedRoute requiredRole="admin"><BankAccountSettings /></ProtectedRoute>
+                      } />
+                      <Route path="/procurement/split-scan" element={
+                        <ProtectedRoute requiredPerm="view_purchaseorder"><SplitPurchaseScanPage /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/ai" element={
+                        <ProtectedRoute requiredRole="admin"><AISettingsPage /></ProtectedRoute>
                       } />
                       <Route path="/settings/branding" element={
                         <ProtectedRoute requiredRole="admin"><BrandingSettings /></ProtectedRoute>
@@ -706,6 +714,7 @@ function App() {
                       <Route path="/budget/warrants" element={<ProtectedRoute><WarrantList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget" element={<ProtectedRoute><RevenueBudgetList /></ProtectedRoute>} />
                       <Route path="/budget/revenue-budget/new" element={<ProtectedRoute><RevenueBudgetForm /></ProtectedRoute>} />
+                      <Route path="/budget/check" element={<ProtectedRoute><BudgetCheck /></ProtectedRoute>} />
                       <Route path="/budget/execution-report" element={<ProtectedRoute><ExecutionReport /></ProtectedRoute>} />
                       <Route path="/accounting/tsa-accounts" element={<ProtectedRoute><TSAAccountList /></ProtectedRoute>} />
                       <Route path="/accounting/payment-vouchers" element={<ProtectedRoute><PaymentVoucherList /></ProtectedRoute>} />
@@ -713,7 +722,11 @@ function App() {
                       <Route path="/accounting/payment-instructions" element={<ProtectedRoute><PaymentInstructionList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-heads" element={<ProtectedRoute><RevenueHeadList /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections" element={<ProtectedRoute><RevenueCollectionList /></ProtectedRoute>} />
-                      <Route path="/accounting/ncoa/economic" element={<ProtectedRoute><NCoAEconomicList /></ProtectedRoute>} />
+                      {/* The economic segment was a mirror of the chart of
+                          accounts and has been retired. Bookmarks and
+                          saved links land on the real thing rather than a
+                          dead route. */}
+                      <Route path="/accounting/ncoa/economic" element={<Navigate to="/accounting/coa" replace />} />
                       <Route path="/accounting/ncoa/administrative" element={<ProtectedRoute><NCoAAdminList /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/administrative/new" element={<ProtectedRoute><NCoAAdminForm /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/administrative/:id/edit" element={<ProtectedRoute><NCoAAdminForm /></ProtectedRoute>} />
@@ -729,7 +742,6 @@ function App() {
                       <Route path="/accounting/ncoa/geographic" element={<ProtectedRoute><NCoAGeoList /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/geographic/new" element={<ProtectedRoute><NCoAGeoForm /></ProtectedRoute>} />
                       <Route path="/accounting/ncoa/geographic/:id/edit" element={<ProtectedRoute><NCoAGeoForm /></ProtectedRoute>} />
-                      <Route path="/accounting/ncoa/codes" element={<ProtectedRoute><NCoACodeList /></ProtectedRoute>} />
                       <Route path="/procurement/thresholds" element={<ProtectedRoute><ProcurementThresholdList /></ProtectedRoute>} />
                       <Route path="/procurement/no-objection" element={<ProtectedRoute><NoObjectionList /></ProtectedRoute>} />
 
@@ -739,6 +751,7 @@ function App() {
                       <Route path="/accounting/revenue-collections/new" element={<ProtectedRoute><RevenueCollectionForm /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections/:id" element={<ProtectedRoute><RevenueCollectionDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/new" element={<ProtectedRoute><AppropriationForm /></ProtectedRoute>} />
+                      <Route path="/budget/virements" element={<ProtectedRoute><VirementList /></ProtectedRoute>} />
                       <Route path="/budget/virements/new" element={<ProtectedRoute><VirementForm /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id" element={<ProtectedRoute><AppropriationDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id/transactions" element={<ProtectedRoute><AppropriationTransactions /></ProtectedRoute>} />

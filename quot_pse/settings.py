@@ -274,6 +274,13 @@ SNAPSHOTS_BACKUP_DIR           = os.getenv(
 SNAPSHOTS_RETENTION_DAYS       = int(os.getenv('SNAPSHOTS_RETENTION_DAYS', '14'))
 SNAPSHOTS_MAX_PER_TENANT       = int(os.getenv('SNAPSHOTS_MAX_PER_TENANT', '5'))
 SNAPSHOTS_KEK_HEX              = os.getenv('SNAPSHOTS_KEK_HEX')
+
+# AI provider credentials are encrypted under their own KEK, not under
+# SECRET_KEY. Rotating SECRET_KEY after a leak must not render every
+# provider key undecryptable at the same moment. AI_KEK_HEX_OLD lets a
+# rotation be a background re-wrap rather than an outage.
+AI_KEK_HEX                     = os.getenv('AI_KEK_HEX')
+AI_KEK_HEX_OLD                 = os.getenv('AI_KEK_HEX_OLD')
 SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
 SNAPSHOTS_CREATE_RATE_PER_HOUR   = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
 SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR', '10'))

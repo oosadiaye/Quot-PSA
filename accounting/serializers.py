@@ -217,7 +217,14 @@ class AccountSerializer(serializers.ModelSerializer):
             #     dictates the account type per Nigerian CoA standards.
             first_digit = code[0] if code else ''
             expected_type = self.NIGERIA_COA_SERIES.get(first_digit)
-            if expected_type and expected_type != account_type:
+            # NCoA's 4-series is "Liabilities and Net Assets", so Equity is
+            # valid there too. Sourced from AccountingSettings rather than
+            # restated, because the comment on NIGERIA_COA_SERIES asks for
+            # the two to stay in lockstep and a second literal is exactly
+            # how they drift apart.
+            from accounting.models.advanced import AccountingSettings
+            also_allowed = AccountingSettings.SERIES_ALSO_ALLOWS.get(first_digit, ())
+            if expected_type and expected_type != account_type and account_type not in also_allowed:
                 # Show "Revenue" in the user-facing message even though
                 # the internal choice value is 'Income'.
                 expected_label = 'Revenue' if expected_type == 'Income' else expected_type
@@ -535,15 +542,15 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
         # the Appropriation. Parent-walk the economic segment so a leaf
         # account (e.g. 23100100) validates against a parent
         # appropriation (e.g. 23000000).
-        from accounting.models.ncoa import (
-            AdministrativeSegment, EconomicSegment, FundSegment,
-        )
+        from accounting.models.ncoa import AdministrativeSegment, FundSegment
         from accounting.models.advanced import FiscalYear
         from budget.models import Appropriation
         from decimal import Decimal as _D
 
         admin_seg = AdministrativeSegment.objects.filter(legacy_mda=mda).first()
-        econ_seg  = EconomicSegment.objects.filter(legacy_account=account).first()
+        # No bridge hop for the economic pillar — the appropriation's
+        # economic classifier is the GL account itself.
+        econ_seg  = account
         fund_seg  = FundSegment.objects.filter(legacy_fund=fund).first()
         active_fy = FiscalYear.objects.filter(is_active=True).first()
 
@@ -566,22 +573,23 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
                 'missing_dimensions': missing,
             })
 
-        # Find the active Appropriation for this triple. Walk the
-        # economic parent chain — a leaf-coded transaction may be
-        # legally authorised against a parent appropriation.
-        econ_candidates = [econ_seg]
-        cursor = econ_seg.parent
-        while cursor is not None:
-            econ_candidates.append(cursor)
-            cursor = cursor.parent
+        # Find the active Appropriation for this triple, walking the
+        # economic parent chain: a leaf-coded transaction may be legally
+        # authorised against a parent appropriation when it has no line
+        # of its own. Nearest line wins — passing every ancestor at once
+        # and taking .first() charged the parent even when the account
+        # had its own line.
+        from accounting.services.budget_check_rules import nearest_appropriation
 
-        appro = Appropriation.objects.filter(
-            administrative=admin_seg,
-            economic__in=econ_candidates,
-            fund=fund_seg,
-            fiscal_year=active_fy,
-            status__iexact='ACTIVE',
-        ).first()
+        appro = nearest_appropriation(
+            econ_seg,
+            Appropriation.objects.filter(
+                administrative=admin_seg,
+                fund=fund_seg,
+                fiscal_year=active_fy,
+                status__iexact='ACTIVE',
+            ),
+        )
 
         if not appro:
             raise serializers.ValidationError({

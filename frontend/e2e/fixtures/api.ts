@@ -3,6 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Optional Host override for local runs. django-tenants resolves the
+// schema from the Host header before any view is reached, so an API
+// base of http://127.0.0.1:<port> has no Domain row and every request
+// 404s. Browsers special-case *.localhost to loopback (RFC 6761) but
+// Node's resolver does not, so the browser can use the tenant hostname
+// while these API calls cannot. Setting E2E_API_HOST_HEADER lets them
+// connect by IP and still present the tenant host.
+// Unset in CI, where the API host already resolves.
 export const API_BASE = process.env.E2E_API_URL ?? 'http://localhost:8000';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +32,7 @@ export async function apiContext(): Promise<APIRequestContext> {
   const { token, tenantDomain } = readSession();
   const headers: Record<string, string> = { Authorization: `Token ${token}` };
   if (tenantDomain) headers['X-Tenant-Domain'] = tenantDomain;
+  if (process.env.E2E_API_HOST_HEADER) headers.Host = process.env.E2E_API_HOST_HEADER;
   return request.newContext({
     baseURL: API_BASE,
     extraHTTPHeaders: headers,

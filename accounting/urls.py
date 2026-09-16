@@ -64,7 +64,7 @@ from .views import (
     TreasuryAccountViewSet, PaymentVoucherViewSet, PaymentInstructionViewSet,
     RevenueHeadViewSet, RevenueCollectionViewSet,
     # NCoA Segment API (Phase 8)
-    NCoAAdminSegViewSet, NCoAEconSegViewSet, NCoAFuncSegViewSet,
+    NCoAAdminSegViewSet, NCoAFuncSegViewSet,
     NCoAProgSegViewSet, NCoAFundSegViewSet, NCoAGeoSegViewSet,
     NCoACodeViewSet,
     # IPSAS Reports (Phase 7)
@@ -233,7 +233,6 @@ router.register(r'vendor-advances', VendorAdvanceViewSet, basename='vendor-advan
 
 # ─── NCoA Segments (Phase 8) ─────────────────────────────
 router.register(r'ncoa/administrative', NCoAAdminSegViewSet, basename='ncoa-administrative')
-router.register(r'ncoa/economic', NCoAEconSegViewSet, basename='ncoa-economic')
 router.register(r'ncoa/functional', NCoAFuncSegViewSet, basename='ncoa-functional')
 router.register(r'ncoa/programme', NCoAProgSegViewSet, basename='ncoa-programme')
 router.register(r'ncoa/fund', NCoAFundSegViewSet, basename='ncoa-fund')

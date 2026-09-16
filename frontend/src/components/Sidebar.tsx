@@ -69,6 +69,7 @@ import {
     Handshake,
     FileSignature,
     Archive,
+    Sparkles,
 } from 'lucide-react';
 import { Menu, X } from 'lucide-react';
 import { usePermissions, hasPermission } from '../hooks/usePermissions';
@@ -116,10 +117,11 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'view_budget', module: 'budget',
         subItems: [
             { name: 'Appropriations', path: '/budget/appropriations', icon: FileText },
-            { name: 'Virement (Transfer)', path: '/budget/virements/new', icon: ArrowRightLeft },
+            { name: 'Virement (Transfer)', path: '/budget/virements', icon: ArrowRightLeft },
             { name: 'Revenue Budget', path: '/budget/revenue-budget', icon: Banknote },
             { name: 'Warrants / AIE', path: '/budget/warrants', icon: CreditCard },
             { name: 'Warrant Utilization', path: '/budget/warrant-utilization', icon: Scale },
+            { name: 'Budget Check', path: '/budget/check', icon: ShieldCheck },
             { name: 'Execution Report', path: '/budget/execution-report', icon: TrendingUp },
             { name: 'Variance Analysis', path: '/accounting/budget/variance', icon: TrendingUp },
         ],
@@ -152,16 +154,21 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'NCoA Classification', icon: Layers, path: '/accounting/ncoa/economic',
+        // Five segments, not six. The economic segment was a copy of the
+        // chart of accounts — same codes, same names, same hierarchy —
+        // and now lives under General Ledger > Chart of Accounts. The
+        // rest classify things the GL does not.
+        name: 'NCoA Classification', icon: Layers, path: '/accounting/ncoa/administrative',
         requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
-            { name: 'Economic Segment', path: '/accounting/ncoa/economic', icon: DollarSign },
             { name: 'Administrative (MDA)', path: '/accounting/ncoa/administrative', icon: Building },
             { name: 'Functional (COFOG)', path: '/accounting/ncoa/functional', icon: Target },
             { name: 'Programme', path: '/accounting/ncoa/programme', icon: FileText },
             { name: 'Fund Sources', path: '/accounting/ncoa/fund', icon: Wallet },
             { name: 'Geographic', path: '/accounting/ncoa/geographic', icon: MapPin },
-            { name: 'NCoA Codes', path: '/accounting/ncoa/codes', icon: Layers },
+            // The composite code is assembled from the five segments at
+            // submit time (via /accounting/ncoa/codes/resolve/), not
+            // maintained by hand — so it is not a navigation destination.
         ],
     },
     {
@@ -175,6 +182,9 @@ const menuItems: MenuItem[] = [
             { name: 'Add Suppliers', path: '/procurement/vendors', icon: Building },
             { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
             { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
+            // Advisory: orders that clear a ceiling individually but not
+            // together. Reports only — see features/procurement/SplitPurchaseScan.
+            { name: 'Split & Duplicate Scan', path: '/procurement/split-scan', icon: AlertTriangle },
         ],
     },
     {
@@ -278,10 +288,6 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'Appropriations', icon: DollarSign, path: '/budget/appropriations',
-        requiredPerm: 'view_appropriation', module: 'budget',
-    },
-    {
         name: 'Audit Trail', icon: Shield, path: '/audit/trail',
         requiredPerm: 'view_journalheader', module: 'audit',
     },
@@ -328,6 +334,10 @@ const menuItems: MenuItem[] = [
             { name: 'Warrant Printout', path: '/settings/warrant-printout', icon: FileSignature },
             { name: 'Bank Letter', path: '/settings/bank-letter', icon: Landmark },
             { name: 'Backups', path: '/settings/backups', icon: Archive },
+            // What AI is switched on for this organisation, what it sends
+            // and where. Read-only apart from an off switch — enabling is
+            // a platform decision, see features/settings/AISettings.tsx.
+            { name: 'AI', path: '/settings/ai', icon: Sparkles },
         ],
     },
     {

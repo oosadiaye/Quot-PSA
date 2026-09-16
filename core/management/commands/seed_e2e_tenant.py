@@ -138,8 +138,9 @@ class Command(BaseCommand):
         return fy.id
 
     def _ensure_ncoa_segments(self) -> tuple[int, int, int, int, int, int]:
+        from accounting.models.gl import Account
         from accounting.models.ncoa import (
-            AdministrativeSegment, EconomicSegment, FunctionalSegment,
+            AdministrativeSegment, FunctionalSegment,
             ProgrammeSegment, FundSegment, GeographicSegment,
         )
         admin_, _ = AdministrativeSegment.objects.get_or_create(
@@ -164,13 +165,13 @@ class Command(BaseCommand):
             code="1",
             defaults={"name": "State HQ"},
         )
-        econ, _ = EconomicSegment.objects.get_or_create(
+        # The economic classifier is the GL account.
+        econ, _ = Account.objects.get_or_create(
             code="22020306",
             defaults={
                 "name": "Printing of Security Documents",
-                "account_type_code": "2",
-                "is_posting_level": True,
-                "normal_balance": "DEBIT",
+                "account_type": "Expense",
+                "is_postable": True,
             },
         )
         return admin_.id, fund.id, func.id, prog.id, geo.id, econ.id

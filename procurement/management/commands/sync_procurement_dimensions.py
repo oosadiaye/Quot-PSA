@@ -4,7 +4,8 @@ Background
 ----------
 ``Appropriation`` (budget side) references the new NCoA segment models:
 ``AdministrativeSegment``, ``FundSegment``, ``FunctionalSegment``,
-``ProgrammeSegment``, ``GeographicSegment``, ``EconomicSegment``.
+``ProgrammeSegment``, ``GeographicSegment``, and — for the economic
+segment — ``accounting.Account`` itself.
 
 ``PurchaseRequest`` / ``PurchaseOrder`` / ``GoodsReceivedNote`` (procurement
 side) reference the legacy flat dimension tables defined in

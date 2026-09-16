@@ -18,11 +18,11 @@ class NCoAPagination(PageNumberPagination):
     max_page_size = 10000
 
 from accounting.models.ncoa import (
-    AdministrativeSegment, EconomicSegment, FunctionalSegment,
+    AdministrativeSegment, FunctionalSegment,
     ProgrammeSegment, FundSegment, GeographicSegment, NCoACode,
 )
 from accounting.serializers_ncoa import (
-    AdministrativeSegmentSerializer, EconomicSegmentSerializer,
+    AdministrativeSegmentSerializer,
     FunctionalSegmentSerializer,
     ProgrammeSegmentSerializer, FundSegmentSerializer,
     GeographicSegmentSerializer, NCoACodeSerializer,
@@ -78,159 +78,6 @@ class AdministrativeSegmentViewSet(DimensionImportExportMixin, viewsets.ModelVie
         if fields.get('level') in ('ORGANIZATION', 'SUB_ORG', 'SUB_SUB_ORG', 'UNIT'):
             fields['is_mda'] = True
         return fields
-
-
-class EconomicSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
-    """NCoA Economic Segment (the account / hub segment)."""
-    serializer_class = EconomicSegmentSerializer
-    permission_classes = [IsAuthenticated]
-    pagination_class = NCoAPagination
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['account_type_code', 'is_posting_level', 'is_control_account', 'is_active']
-    search_fields = ['code', 'name']
-    ordering = ['code']
-
-    dimension_label = 'economic_segment'
-    # Template surfaces the full NCoA Economic Segment encoding:
-    #   code (8 digits, X-X-XX-XX-XX positional)
-    #   account_type_code (1 digit — must equal code[0]; one of 1/2/3/4)
-    #   normal_balance (DEBIT or CREDIT — derived from account family)
-    #   is_posting_level (true for leaf accounts that JournalLines hit)
-    # is_control_account is omitted from the template since it's a niche flag;
-    # the importer's get_import_field_mapping still picks it up if present.
-    dimension_template_columns = [
-        'code', 'name', 'account_type_code', 'normal_balance',
-        'is_posting_level', 'is_active', 'description',
-    ]
-    dimension_template_help = [
-        'NCoA Economic Segment import template.',
-        'REQUIRED columns: code (8 digits, max 8 chars), name (max 200 chars),',
-        '  account_type_code (one of: 1, 2, 3, 4 — see family table below).',
-        'OPTIONAL columns: normal_balance (DEBIT or CREDIT, default DEBIT),',
-        '  is_posting_level (default false), is_active (default true), description.',
-        '',
-        'NCoA GL code format — 8-digit positional encoding X-X-XX-XX-XX:',
-        '  position 1   account_type_code  family digit (must match code[0])',
-        '  position 2   sub_type_code      sub-family',
-        '  positions 3-4 account_class_code class within sub-family',
-        '  positions 5-6 sub_class_code     refinement of class',
-        '  positions 7-8 line_item_code     posting-level leaf',
-        '',
-        'Account family table (account_type_code -> first digit of code):',
-        '  1 = Revenue / Income           normal_balance = CREDIT  e.g. 11100100 PAYE',
-        '  2 = Expenditure / Expense      normal_balance = DEBIT   e.g. 21100100 Salaries',
-        '  3 = Assets                     normal_balance = DEBIT   e.g. 31000000 Cash & Equivalents',
-        '  4 = Liabilities and Net Assets normal_balance = CREDIT  e.g. 41000000 Accounts Payable',
-        '',
-        'The first digit of `code` MUST equal account_type_code — the importer rejects mismatches.',
-        'Lines starting with # (like these) are ignored on import.',
-    ]
-    dimension_example_rows = [
-        # Revenue family (1xxxxxxx) — CREDIT-normal
-        ['11000000', 'Tax Revenue',                   '1', 'CREDIT', 'false', 'true', 'Header — non-posting'],
-        ['11100100', 'Pay As You Earn (PAYE)',        '1', 'CREDIT', 'true',  'true', 'Tax revenue — posting'],
-        ['13000000', 'Grants and Transfers',          '1', 'CREDIT', 'true',  'true', 'Grants from FAAC / donors'],
-        # Expenditure family (2xxxxxxx) — DEBIT-normal
-        ['21000000', 'Personnel Costs',               '2', 'DEBIT',  'false', 'true', 'Header — non-posting'],
-        ['21100100', 'Personnel Cost - Salaries',     '2', 'DEBIT',  'true',  'true', 'Recurrent expenditure'],
-        ['22000000', 'Operations & Maintenance',      '2', 'DEBIT',  'true',  'true', 'Other charges'],
-        ['23100400', 'Purchase of Plant & Equipment', '2', 'DEBIT',  'true',  'true', 'Capital expenditure'],
-        # Asset family (3xxxxxxx) — DEBIT-normal
-        ['31000000', 'Cash and Cash Equivalents',     '3', 'DEBIT',  'true',  'true', 'TSA, sub-accounts'],
-        ['31200000', 'Accounts Receivable',           '3', 'DEBIT',  'true',  'true', 'Outstanding receivables'],
-        ['32100100', 'Land (at cost)',                '3', 'DEBIT',  'true',  'true', 'PPE — land'],
-        # Liability / Equity family (4xxxxxxx) — CREDIT-normal
-        ['41000000', 'Accounts Payable',              '4', 'CREDIT', 'true',  'true', 'Vendor liabilities'],
-        ['43100100', 'Accumulated Fund / Fund Balance', '4', 'CREDIT', 'true', 'true', 'Equity-equivalent'],
-    ]
-
-    def get_queryset(self):
-        return EconomicSegment.objects.select_related('parent', 'legacy_account')
-
-    def get_import_field_mapping(self, row: 'pd.Series', columns: set[str]) -> dict:
-        # Defaults align with the NCoA documentation block above:
-        #   - account_type_code: derive from code[0] when blank, else use the column.
-        #     This means a CSV containing only `code` and `name` still imports
-        #     correctly because the family digit IS the first digit of `code`.
-        #   - normal_balance: derive from family (DEBIT for 2/3, CREDIT for 1/4).
-        #   - is_posting_level: false unless explicitly set (header rows are non-posting).
-        fields = super().get_import_field_mapping(row, columns)
-        code_str = str(fields.get('code') or '').strip()
-        first_digit = code_str[0] if code_str else '1'
-        # account_type_code: explicit column wins, else derive from code[0].
-        atc = _str_col(row, 'account_type_code', first_digit if first_digit in '1234' else '1')
-        fields['account_type_code'] = atc
-        # normal_balance: DEBIT for Expenditure (2) and Assets (3); CREDIT otherwise.
-        default_balance = 'DEBIT' if atc in ('2', '3') else 'CREDIT'
-        if 'normal_balance' in columns:
-            nb = _str_col(row, 'normal_balance', default_balance).upper()
-            fields['normal_balance'] = nb if nb in ('DEBIT', 'CREDIT') else default_balance
-        else:
-            fields['normal_balance'] = default_balance
-        fields['is_posting_level'] = _bool_col(row, 'is_posting_level', False)
-        if 'is_control_account' in columns:
-            fields['is_control_account'] = _bool_col(row, 'is_control_account', False)
-        return fields
-
-    @action(detail=False, methods=['get'])
-    def tree(self, request):
-        """Hierarchical tree view of economic segments."""
-        all_segments = list(
-            EconomicSegment.objects.filter(is_active=True)
-            .order_by('code')
-            .values('id', 'code', 'name', 'account_type_code',
-                    'is_posting_level', 'is_control_account',
-                    'normal_balance', 'parent_id')
-        )
-        by_id = {s['id']: {**s, 'children': []} for s in all_segments}
-        roots = []
-        for s in all_segments:
-            node = by_id[s['id']]
-            if s['parent_id'] and s['parent_id'] in by_id:
-                by_id[s['parent_id']]['children'].append(node)
-            elif not s['parent_id']:
-                roots.append(node)
-        return Response(roots)
-
-    @action(detail=False, methods=['get'])
-    def posting_accounts(self, request):
-        """List only posting-level accounts, optionally filtered by type."""
-        account_type = request.query_params.get('type')
-        qs = EconomicSegment.objects.filter(
-            is_posting_level=True, is_active=True,
-        )
-        if account_type:
-            qs = qs.filter(account_type_code=account_type)
-        serializer = EconomicSegmentSerializer(qs.order_by('code'), many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=['post'], url_path='sync-from-coa')
-    def sync_from_coa(self, request):
-        """
-        One-time backfill: walk every ``Account`` in the legacy Chart of
-        Accounts and create / update the matching ``EconomicSegment``.
-
-        Idempotent — re-running only adds rows that don't yet exist and
-        refreshes name / type / active flags on those that do. The forward
-        signal in ``accounting.signals.coa_to_ncoa`` keeps them in lockstep
-        going forward, so this endpoint is normally called only once per
-        tenant during initial setup.
-
-        POST /api/v1/accounting/ncoa/economic/sync-from-coa/
-        Returns:
-            {
-              "created": 47,
-              "updated": 3,
-              "skipped": 0,
-              "skipped_details": [],
-              "total": 50
-            }
-        """
-        from accounting.services.coa_to_ncoa_sync import (
-            sync_all_accounts_to_economic_segments,
-        )
-        result = sync_all_accounts_to_economic_segments()
-        return Response(result)
 
 
 class FunctionalSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
@@ -381,7 +228,9 @@ class NCoACodeViewSet(viewsets.ModelViewSet):
     serializer_class = NCoACodeSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['is_active', 'economic__account_type_code', 'fund']
+    # economic is the GL Account now — it carries account_type, not the
+    # NCoA account_type_code digit the retired segment model used.
+    filterset_fields = ['is_active', 'economic__account_type', 'fund']
     search_fields = ['economic__code', 'economic__name', 'administrative__name']
     ordering = ['economic__code']
 
