@@ -18,7 +18,7 @@
  * come from the same response as the row that was clicked, so the summary
  * and the detail can never disagree.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, X, Info, ShieldCheck } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -139,13 +139,31 @@ const BudgetCheck = () => {
     });
 
     /**
-     * Fiscal year starts blank, and blank means every year.
+     * Open on a real year, not on "all years" showing nothing.
      *
-     * Defaulting to the active year quietly scoped every search: an
-     * officer looking up a code from last year's book got "no budget
-     * line matches" and no hint that a filter they never set was the
-     * reason. A blank field states its own scope.
+     * The register lands scoped to the active fiscal year (or the most
+     * recent one if the calendar marks none), so an officer sees that
+     * year's budget lines straight away rather than an empty page they
+     * have to interpret. "All years" is still a choice in the dropdown.
+     *
+     * The exception is a ``?code=`` lookup: a pasted code may belong to
+     * another year, so scoping it would hide the very line being sought.
+     * There we stay on "all years" and let the code search span them.
      */
+    const cameWithCode = useMemo(
+        () => Boolean(new URLSearchParams(window.location.search).get('code')),
+        [],
+    );
+    useEffect(() => {
+        if (fiscalYearId || cameWithCode || fiscalYears.length === 0) return;
+        const active = fiscalYears.find((f: any) => f.is_active);
+        const latest = [...fiscalYears].sort(
+            (a: any, b: any) => (b.year ?? 0) - (a.year ?? 0),
+        )[0];
+        const pick = active ?? latest;
+        if (pick) setFiscalYearId(String(pick.id));
+    }, [fiscalYears, fiscalYearId, cameWithCode]);
+
     const { data: lines = [], isLoading, isError, error } = useQuery<Line[]>({
         queryKey: ['budget-check-lines', fiscalYearId || 'all'],
         queryFn: async () => {
