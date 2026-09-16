@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, Plus, X } from 'lucide-react';
 import PortalLayout from '../PortalLayout';
@@ -165,8 +166,8 @@ export default function MyLeave() {
               return (
                 <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <Td strong>{r.leave_type}</Td>
-                  <Td>{new Date(r.start_date).toLocaleDateString('en-GB')}</Td>
-                  <Td>{new Date(r.end_date).toLocaleDateString('en-GB')}</Td>
+                  <Td>{formatDate(r.start_date)}</Td>
+                  <Td>{formatDate(r.end_date)}</Td>
                   <Td>{r.total_days}</Td>
                   <Td>
                     <span

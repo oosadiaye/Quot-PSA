@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useDialog } from '../hooks/useDialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -301,7 +302,7 @@ const UserManagement = () => {
                                         </span>
                                     </td>
                                     <td style={{ ...tdStyle, fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                                        {u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB') : '-'}
+                                        {u.created_at ? formatDate(u.created_at) : '-'}
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.25rem' }}>
@@ -597,7 +598,7 @@ const EditUserModal: React.FC<{
                         <div><span style={{ color: 'var(--color-text-muted)' }}>Employee:</span> <span style={{ fontWeight: 600 }}>{user.employee.employee_number}</span></div>
                     )}
                     {user.created_at && (
-                        <div><span style={{ color: 'var(--color-text-muted)' }}>Created:</span> <span style={{ fontWeight: 600 }}>{new Date(user.created_at).toLocaleDateString('en-GB')}</span></div>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Created:</span> <span style={{ fontWeight: 600 }}>{formatDate(user.created_at)}</span></div>
                     )}
                 </div>
 

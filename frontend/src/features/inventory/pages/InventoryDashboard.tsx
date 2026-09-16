@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { formatDate } from '@/utils/date';
 import {
     Package,
     DollarSign,
@@ -439,7 +440,7 @@ const InventoryDashboard = () => {
                                         const color = getMovementColor(mv.movement_type);
                                         const label = getMovementLabel(mv.movement_type);
                                         const date  = mv.created_at
-                                            ? new Date(mv.created_at).toLocaleDateString('en-GB')
+                                            ? formatDate(mv.created_at)
                                             : '—';
                                         const isLast = idx === Math.min(movementsList.length, 8) - 1;
                                         return (

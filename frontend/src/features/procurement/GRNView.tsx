@@ -3,6 +3,7 @@
  * Route: /procurement/grn/:id
  */
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Package, FileText, CheckCircle, XCircle, AlertTriangle,
@@ -280,7 +281,7 @@ export default function GRNView() {
                             marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--color-border)',
                         }}>
                             <DetailRow icon={<FileText size={14} />} label="Purchase Order" value={grn.po_number} />
-                            <DetailRow icon={<Calendar size={14} />} label="Received Date" value={grn.received_date ? new Date(grn.received_date).toLocaleDateString('en-GB') : '—'} />
+                            <DetailRow icon={<Calendar size={14} />} label="Received Date" value={grn.received_date ? formatDate(grn.received_date) : '—'} />
                             <DetailRow icon={<User size={14} />} label="Received By" value={grn.received_by || '—'} />
                             <DetailRow
                                 icon={<Building2 size={14} />}
@@ -322,7 +323,7 @@ export default function GRNView() {
                                                     {line.batch_number || '—'}
                                                 </td>
                                                 <td style={{ ...td, color: line.expiry_date ? 'inherit' : '#94a3b8' }}>
-                                                    {line.expiry_date ? new Date(line.expiry_date).toLocaleDateString('en-GB') : '—'}
+                                                    {line.expiry_date ? formatDate(line.expiry_date) : '—'}
                                                 </td>
                                             </tr>
                                         ))}
@@ -417,7 +418,7 @@ export default function GRNView() {
                             }}>
                                 {journal.document_number || journal.reference_number}
                                 {' · '}
-                                {new Date(journal.posting_date).toLocaleDateString('en-GB')}
+                                {formatDate(journal.posting_date)}
                             </div>
 
                             {/* DR / CR ledger rows */}

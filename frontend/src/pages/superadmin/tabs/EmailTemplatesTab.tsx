@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatDateTime } from '@/utils/date';
 import {
   Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Switch,
   message, Tabs, Drawer, Popconfirm, Typography, Empty,
@@ -203,7 +204,7 @@ const EmailTemplatesTab = () => {
       width: 160,
       render: (dt: string | null, r: EmailTemplate) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {dt ? new Date(dt).toLocaleString('en-GB') : '—'}
+          {dt ? formatDateTime(dt) : '—'}
           {r.updated_by ? <><br />by {r.updated_by}</> : null}
         </Text>
       ),

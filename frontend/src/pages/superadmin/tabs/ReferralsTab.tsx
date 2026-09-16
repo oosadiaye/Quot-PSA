@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatDate } from '@/utils/date';
 import {
   Card, Table, Tag, Button, Space, Modal, Form, Input, InputNumber, Select,
   App, Skeleton, Typography, Row, Col, Tabs, Badge, Statistic, Popconfirm,
@@ -52,7 +53,7 @@ const maskAccount = (acc: string) => {
 // ── Helper: format date ──────────────────────────────────────────────────────
 const fmtDate = (v: string | null | undefined) => {
   if (!v) return '-';
-  return new Date(v).toLocaleDateString('en-GB');
+  return formatDate(v);
 };
 
 const fmtDayjs = (d: any): string => {

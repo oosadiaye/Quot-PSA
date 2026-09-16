@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDateTime } from '@/utils/date';
 import { Download, Trash2, Eye } from 'lucide-react';
 import type { SnapshotJob } from '@/types/snapshots';
 import { SnapshotJobStatusPill } from './SnapshotJobStatusPill';
@@ -50,7 +51,7 @@ export function SnapshotsTable({ jobs, onDelete, isLoading }: Props) {
                 <td className="px-3 py-2">{job.label || '—'}</td>
                 <td className="px-3 py-2">{job.triggered_by_username}</td>
                 <td className="px-3 py-2">
-                  {new Date(job.triggered_at).toLocaleString('en-GB')}
+                  {formatDateTime(job.triggered_at)}
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">
                   {job.size_bytes != null ? formatBytes(job.size_bytes) : '—'}

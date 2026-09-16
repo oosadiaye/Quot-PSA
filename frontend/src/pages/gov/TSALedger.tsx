@@ -14,6 +14,7 @@
  *    bank-reconciliation workflow a like-for-like comparison.
  */
 import { useMemo, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle, Plus, X, FileText, CheckCircle2 } from 'lucide-react';
@@ -425,7 +426,7 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
                             {/* Meta panel */}
                             <div style={{ background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 12, padding: '0.95rem 1.1rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.9rem 1rem', marginBottom: '1.1rem' }}>
                                 {meta('Reference', <span style={{ fontFamily: 'monospace' }}>{data.reference_number || `JV-${data.id}`}</span>)}
-                                {meta('Date', data.posting_date ? new Date(data.posting_date).toLocaleDateString('en-GB') : '—')}
+                                {meta('Date', data.posting_date ? formatDate(data.posting_date) : '—')}
                                 {meta('Status', (
                                     <span style={{ display: 'inline-block', padding: '0.12rem 0.6rem', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: sc.bg, color: sc.color }}>
                                         {data.status}

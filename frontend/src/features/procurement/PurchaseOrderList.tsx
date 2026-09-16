@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, ShoppingCart, Send, CheckCircle, XCircle, FileText, Lock, Package, AlertCircle } from 'lucide-react';
 import { usePurchaseOrders, usePostPO, useSubmitPOForApproval, useApprovePO, useRejectPO, useClosePO } from './hooks/useProcurement';
@@ -300,10 +301,10 @@ export default function PurchaseOrderList() {
                                             {po.vendor_name}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                            {new Date(po.order_date).toLocaleDateString('en-GB')}
+                                            {formatDate(po.order_date)}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                            {po.expected_delivery_date ? new Date(po.expected_delivery_date).toLocaleDateString('en-GB') : '—'}
+                                            {po.expected_delivery_date ? formatDate(po.expected_delivery_date) : '—'}
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
                                             {formatCurrency(Number(po.total_amount || 0))}

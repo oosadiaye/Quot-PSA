@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useSearchParams } from 'react-router-dom';
 import {
     FileText, Filter, Send, Trash2,
@@ -282,7 +283,7 @@ export default function ARManagement() {
                                                 )}
                                             </td>
                                             <td style={{ padding: '1rem 1.5rem' }}>{invoice.customer_name}</td>
-                                            <td style={{ padding: '1rem 1.5rem' }}>{new Date(invoice.due_date).toLocaleDateString('en-GB')}</td>
+                                            <td style={{ padding: '1rem 1.5rem' }}>{formatDate(invoice.due_date)}</td>
                                             <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 600, color: invoice.status === 'Overdue' ? 'var(--color-error)' : 'var(--color-cta)' }}>
                                                 {invoice.currency_code} {parseFloat(invoice.balance_due || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                             </td>

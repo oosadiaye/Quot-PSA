@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     Receipt, Filter, Eye, ExternalLink, BookOpen, X,
@@ -56,7 +57,7 @@ function toArray(payload: any): any[] {
 }
 
 const fmtDate = (d?: string | null) =>
-    d ? new Date(d).toLocaleDateString('en-GB') : '—';
+    d ? formatDate(d) : '—';
 
 const SOURCE_META: Record<Source, { label: string; bg: string; color: string; border: string }> = {
     direct:       { label: 'Direct AP',    bg: '#eef2ff', color: '#4338ca', border: '#c7d2fe' },

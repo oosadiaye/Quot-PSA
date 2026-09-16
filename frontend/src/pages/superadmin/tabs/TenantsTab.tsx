@@ -10,6 +10,7 @@ import {
   ReloadOutlined, KeyOutlined,
 } from '@ant-design/icons';
 import { useState, useMemo, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import {
   useTenants, useCreateTenant, useTenantAction, usePlans,
   useTenantModules, useToggleTenantModule, useImpersonateUser,
@@ -353,7 +354,7 @@ const TenantsTab = () => {
       dataIndex: 'created_on',
       key: 'created_on',
       sorter: (a: Tenant, b: Tenant) => (a.created_on || '').localeCompare(b.created_on || ''),
-      render: (date: string) => date ? new Date(date).toLocaleDateString('en-GB') : '-',
+      render: (date: string) => date ? formatDate(date) : '-',
     },
     {
       title: 'Actions',
@@ -574,11 +575,11 @@ const TenantsTab = () => {
                         />
                       </Descriptions.Item>
                       <Descriptions.Item label="Created">
-                        {new Date(tenantDetail.created_on).toLocaleDateString('en-GB')}
+                        {formatDate(tenantDetail.created_on)}
                       </Descriptions.Item>
                       {tenantDetail.end_date && (
                         <Descriptions.Item label="Expires">
-                          {new Date(tenantDetail.end_date).toLocaleDateString('en-GB')}
+                          {formatDate(tenantDetail.end_date)}
                         </Descriptions.Item>
                       )}
                     </Descriptions>

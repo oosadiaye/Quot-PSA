@@ -37,6 +37,7 @@
  *   drift structurally impossible.
  */
 import type { CSSProperties } from 'react';
+import { formatDate } from '@/utils/date';
 
 // ── Shared types ─────────────────────────────────────────────────────
 // Mirror the backend's JournalDetailSerializer output. Kept here as
@@ -90,7 +91,7 @@ export function JournalHeaderStrip({
                 <div style={labelStyle}>Posting Date</div>
                 <div style={valueStyle}>
                     {journal.posting_date
-                        ? new Date(journal.posting_date).toLocaleDateString('en-GB')
+                        ? formatDate(journal.posting_date)
                         : '—'}
                 </div>
             </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
+import { formatDate } from '@/utils/date';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { BarChart3, Filter, Download, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, Loader2 } from 'lucide-react';
 import { useGLBalances } from '../hooks/useAccountingEnhancements';
@@ -527,7 +528,7 @@ export default function GLReports() {
                                         </div>
                                         <div>
                                             <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.25rem' }}>Posting Date</p>
-                                            <p style={{ fontWeight: 600 }}>{journalDetail.posting_date ? new Date(journalDetail.posting_date).toLocaleDateString('en-GB') : '-'}</p>
+                                            <p style={{ fontWeight: 600 }}>{journalDetail.posting_date ? formatDate(journalDetail.posting_date) : '-'}</p>
                                         </div>
                                         <div>
                                             <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.25rem' }}>Status</p>

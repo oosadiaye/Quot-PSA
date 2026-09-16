@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { formatDate, formatDateTime } from '@/utils/date';
 import apiClient from '../../../api/client';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -107,7 +108,7 @@ const ApprovalHistory = () => {
                                         </span>
                                     </td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-                                        {new Date(approval.created_at).toLocaleDateString('en-GB')}
+                                        {formatDate(approval.created_at)}
                                     </td>
                                 </tr>
                             ))}
@@ -148,7 +149,7 @@ const ApprovalHistory = () => {
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)' }}>{log.user_name || 'System'}</td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{log.comment || '-'}</td>
                                     <td style={{ padding: '1rem', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-                                        {new Date(log.created_at).toLocaleString('en-GB')}
+                                        {formatDateTime(log.created_at)}
                                     </td>
                                 </tr>
                             ))}

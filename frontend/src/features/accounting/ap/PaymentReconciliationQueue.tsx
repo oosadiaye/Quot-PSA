@@ -12,6 +12,7 @@
  * is on the critical path for end-of-contract workflows.
  */
 import { useMemo, useState } from 'react';
+import { formatDateTime } from '@/utils/date';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -286,7 +287,7 @@ function FailureRow({ row, onResolveClick }: FailureRowProps) {
         )}
       </td>
       <td style={{ padding: '12px', fontSize: '12px', color: '#64748b' }}>
-        {new Date(row.created_at).toLocaleString('en-GB')}
+        {formatDateTime(row.created_at)}
       </td>
       <td style={{ padding: '12px' }}>
         {row.resolved ? (
@@ -363,7 +364,7 @@ export default function PaymentReconciliationQueue() {
           </div>
           <div style={{ fontSize: '16px', fontWeight: 600, marginTop: '8px' }}>
             {summaryQ.data?.oldest_pending_at
-              ? new Date(summaryQ.data.oldest_pending_at).toLocaleString('en-GB')
+              ? formatDateTime(summaryQ.data.oldest_pending_at)
               : 'No pending failures'}
           </div>
         </div>
