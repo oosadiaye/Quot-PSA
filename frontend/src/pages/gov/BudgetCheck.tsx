@@ -18,7 +18,7 @@
  * come from the same response as the row that was clicked, so the summary
  * and the detail can never disagree.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, X, Info, ShieldCheck } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -108,6 +108,11 @@ const optionsFrom = (rows: Line[], codeKey: string, nameKey: string) => {
 
 const BudgetCheck = () => {
     const [fiscalYearId, setFiscalYearId] = useState<string>('');
+    // The fiscal year is an input+datalist like every other control, but
+    // its query value is the year's id, not its label — so the box holds
+    // the display text and ``resolveFy`` maps what was typed or picked
+    // back to an id.
+    const [fyText, setFyText] = useState('');
     /**
      * ``?code=BL-2026`` pre-fills the code box.
      *
@@ -154,14 +159,23 @@ const BudgetCheck = () => {
         () => Boolean(new URLSearchParams(window.location.search).get('code')),
         [],
     );
+    // Default once, when the years first load — not every time the field
+    // goes empty, or clearing the box to "all years" would snap straight
+    // back to the default year and that choice would be unreachable.
+    const didDefaultFy = useRef(false);
     useEffect(() => {
-        if (fiscalYearId || cameWithCode || fiscalYears.length === 0) return;
+        if (didDefaultFy.current || cameWithCode || fiscalYears.length === 0) return;
+        didDefaultFy.current = true;
+        if (fiscalYearId) return; // respect a year already chosen
         const active = fiscalYears.find((f: any) => f.is_active);
         const latest = [...fiscalYears].sort(
             (a: any, b: any) => (b.year ?? 0) - (a.year ?? 0),
         )[0];
         const pick = active ?? latest;
-        if (pick) setFiscalYearId(String(pick.id));
+        if (pick) {
+            setFiscalYearId(String(pick.id));
+            setFyText(pick.name || `FY ${pick.year}`);
+        }
     }, [fiscalYears, fiscalYearId, cameWithCode]);
 
     const { data: lines = [], isLoading, isError, error } = useQuery<Line[]>({
@@ -176,6 +190,33 @@ const BudgetCheck = () => {
         },
         staleTime: 60 * 1000,
     });
+
+    const fyOptions = useMemo(
+        () => fiscalYears
+            .map((f: any) => ({ id: String(f.id), year: String(f.year ?? ''), label: f.name || `FY ${f.year}` }))
+            .sort((a, b) => b.year.localeCompare(a.year)),
+        [fiscalYears],
+    );
+
+    /** The fiscal year an input value points at — exact label, then year,
+     *  then a unique substring; null when the box is empty or nothing
+     *  fits, which the caller reads as "all years". */
+    const resolveFy = (text: string) => {
+        const q = text.trim().toLowerCase();
+        if (!q) return null;
+        return (
+            fyOptions.find((o) => o.label.toLowerCase() === q) ||
+            fyOptions.find((o) => o.year === q) ||
+            fyOptions.find((o) => o.label.toLowerCase().includes(q) || o.year.includes(q)) ||
+            null
+        );
+    };
+
+    const onFyChange = (text: string) => {
+        setFyText(text);
+        setSelectedId(null);
+        setFiscalYearId(resolveFy(text)?.id ?? '');
+    };
 
     const mdaOptions = useMemo(() => optionsFrom(lines, 'administrative_code', 'administrative_name'), [lines]);
     const fundOptions = useMemo(() => optionsFrom(lines, 'fund_code', 'fund_name'), [lines]);
@@ -339,17 +380,26 @@ const BudgetCheck = () => {
 
                             <div>
                                 <label style={labelStyle} htmlFor="bc-fy">Fiscal Year</label>
-                                <select
-                                    id="bc-fy"
-                                    value={fiscalYearId}
-                                    onChange={(e) => { setFiscalYearId(e.target.value); setSelectedId(null); }}
-                                    style={controlStyle}
-                                >
-                                    <option value="">All years</option>
-                                    {fiscalYears.map((f: any) => (
-                                        <option key={f.id} value={String(f.id)}>{f.name || `FY ${f.year}`}</option>
-                                    ))}
-                                </select>
+                                <div style={{ position: 'relative' }}>
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <input
+                                        id="bc-fy"
+                                        type="text"
+                                        list="bc-fy-options"
+                                        value={fyText}
+                                        onChange={(e) => onFyChange(e.target.value)}
+                                        placeholder="Type or pick a year"
+                                        style={{ ...controlStyle, paddingLeft: '1.8rem' }}
+                                    />
+                                    {/* The option value is the display label, so picking one
+                                        fills the box with "FY 2026" and resolveFy maps it to
+                                        the year's id. Clear the box for all years. */}
+                                    <datalist id="bc-fy-options">
+                                        {fyOptions.map((o) => (
+                                            <option key={o.id} value={o.label} />
+                                        ))}
+                                    </datalist>
+                                </div>
                             </div>
 
                             <div>
