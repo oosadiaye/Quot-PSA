@@ -89,7 +89,11 @@ const VirementList = () => {
     return (
         <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
             <Sidebar />
-            <main style={{ flex: 1, overflow: 'auto' }}>
+            {/* The sidebar is position:fixed at 260px, so content is offset
+                by the same amount — matching VirementForm and every other
+                page. minWidth:0 lets the table's own horizontal scroll work
+                instead of stretching the flex column. */}
+            <main style={{ flex: 1, minWidth: 0, marginLeft: '260px', padding: '2.5rem' }}>
                 <PageHeader
                     title="Virements"
                     subtitle="Budget transfers between appropriation lines"
@@ -110,7 +114,7 @@ const VirementList = () => {
                     }
                 />
 
-                <div style={{ padding: '1.25rem 1.5rem' }}>
+                <div style={{ marginTop: '1.5rem' }}>
                     <div style={{
                         background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px',
                         overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
