@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Receipt, Search, Eye, ExternalLink, BookOpen, X,
+    Receipt, Filter, Eye, ExternalLink, BookOpen, X,
     Building2, Calendar, FileText, ClipboardCheck, Layers, CheckCircle,
 } from 'lucide-react';
 import { useVendorInvoices, useApproveVendorInvoice, useCreateDraftVoucherFromInvoice } from '../hooks/useAccountingEnhancements';
@@ -66,7 +66,6 @@ export default function APInvoicesRegister() {
     const navigate = useNavigate();
     const { formatCurrency } = useCurrency();
 
-    const [search, setSearch] = useState('');
     const [sourceFilter, setSourceFilter] = useState<'all' | Source>('all');
     const [statusFilter, setStatusFilter] = useState('');
     const [viewing, setViewing] = useState<RegisterRow | null>(null);
@@ -145,16 +144,16 @@ export default function APInvoicesRegister() {
         [rows],
     );
 
+    // Free-text search is delegated to the LibreOffice-style grid's own
+    // "Filter these rows…" box (tableTools); these structured selects narrow
+    // the data set the grid then renders and sorts.
     const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
         return rows.filter((r) => {
             if (sourceFilter !== 'all' && r.source !== sourceFilter) return false;
             if (statusFilter && r.status !== statusFilter) return false;
-            if (!q) return true;
-            return [r.docNumber, r.vendorName, r.reference, r.poNumber, r.verificationNumber]
-                .some((v) => (v || '').toLowerCase().includes(q));
+            return true;
         });
-    }, [rows, search, sourceFilter, statusFilter]);
+    }, [rows, sourceFilter, statusFilter]);
 
     const totalValue = filtered.reduce((s, r) => s + r.amount, 0);
     const verifiedCount = rows.filter((r) => r.source === 'verified').length;
@@ -232,15 +231,9 @@ export default function APInvoicesRegister() {
 
                 {/* Filters */}
                 <div className="card" style={{ padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: '0.85rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
-                        <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search invoice #, verification #, vendor, PO, reference…"
-                            style={{ width: '100%', padding: '0.55rem 0.75rem 0.55rem 2rem', borderRadius: 8, border: '1px solid var(--color-border)' }}
-                        />
-                    </div>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        <Filter size={15} /> Filter
+                    </span>
                     {/* Explicit width beats the global `select { width: 100% }` in
                         index.css, which would otherwise force each select onto its
                         own row. flex:0 0 auto keeps them from growing. */}
@@ -254,12 +247,18 @@ export default function APInvoicesRegister() {
                         <option value="">All Statuses</option>
                         {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                        Click a column header to sort · type in the table’s “Filter these rows…” box to search
+                    </span>
                 </div>
 
-                {/* Register table — horizontally scrollable so the action
-                    column is never clipped on narrower viewports. */}
+                {/* Register table — the LibreOffice-style grid (tableTools)
+                    enhances this: sortable headers, row-number gutter, a
+                    "Filter these rows…" box and an Amount total. No
+                    data-plain-table so it opts IN. Horizontally scrollable so
+                    the action column is never clipped on narrower viewports. */}
                 <div className="card" style={{ padding: 0, overflowX: 'auto', overflowY: 'hidden' }}>
-                    <table data-plain-table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
                                 {['Source', 'Document #', 'Vendor', 'Reference', 'Date', 'Status', 'PO #', 'Amount', ''].map((h, i) => (
