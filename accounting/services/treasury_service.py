@@ -170,9 +170,14 @@ class TSABalanceService:
         with transaction.atomic():
             # Lock both rows in pk-order — pulls fresh
             # ``current_balance`` for the funds check below.
+            # ``of=('self',)`` locks only the TreasuryAccount rows: without
+            # it, ``select_related('gl_cash_account')`` (a nullable FK → LEFT
+            # OUTER JOIN) makes Postgres refuse — "FOR UPDATE cannot be
+            # applied to the nullable side of an outer join" — and every
+            # transfer 500s.
             locked = list(
                 TreasuryAccount.objects
-                .select_for_update()
+                .select_for_update(of=('self',))
                 .select_related('gl_cash_account')
                 .filter(pk__in=[first_pk, second_pk])
                 .order_by('pk')
@@ -190,9 +195,8 @@ class TSABalanceService:
                     f'{source_locked.current_balance} < {amount}.'
                 )
 
-            jv_ref = (
-                f"TT-{TransactionSequence.get_next('tsa_transfer', 'TT-')}"
-            )
+            # get_next already prepends the prefix, so pass it once.
+            jv_ref = TransactionSequence.get_next('tsa_transfer', 'TT-')
             description = (
                 f"TSA transfer {source_locked.account_number} → "
                 f"{target_locked.account_number}"
@@ -232,7 +236,9 @@ class TSABalanceService:
             )
 
             # Post via the chokepoint — assert_balanced + cache invalidation.
-            IPSASJournalService.post_journal(journal, actor)
+            # Capture the re-fetched posted row so the returned journal is
+            # not the stale Draft object.
+            journal = IPSASJournalService.post_journal(journal, actor)
 
             # F()-update both TSA balances under the same atomic.
             TreasuryAccount.objects.filter(pk=source_locked.pk).update(
