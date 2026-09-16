@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle, Plus, X, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, FileDown, AlertTriangle, Plus, X, FileText, CheckCircle2 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import apiClient from '../../api/client';
@@ -359,80 +359,131 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
         },
     });
     const lines: any[] = data?.lines ?? [];
+    const dr = Number(data?.total_debit ?? 0);
+    const cr = Number(data?.total_credit ?? 0);
+    const balanced = Math.abs(dr - cr) < 0.005;
 
-    const cell: React.CSSProperties = {
-        padding: '0.4rem 0.6rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem', color: '#1e293b',
+    const STATUS: Record<string, { bg: string; color: string }> = {
+        Posted: { bg: '#dcfce7', color: '#166534' },
+        Draft: { bg: '#f1f5f9', color: '#475569' },
+        Pending: { bg: '#fef3c7', color: '#92400e' },
+        Reversed: { bg: '#fee2e2', color: '#991b1b' },
+        Cancelled: { bg: '#fee2e2', color: '#991b1b' },
     };
+    const sc = STATUS[data?.status] || STATUS.Draft;
+
+    const cell: React.CSSProperties = { padding: '0.6rem 0.85rem', fontSize: '0.82rem', color: '#1e293b' };
     const head: React.CSSProperties = {
-        padding: '0.4rem 0.6rem', textAlign: 'left', fontSize: '0.66rem', fontWeight: 700,
-        textTransform: 'uppercase', letterSpacing: '0.03em', color: '#64748b', borderBottom: '1px solid #e2e8f0',
+        padding: '0.55rem 0.85rem', textAlign: 'left', fontSize: '0.64rem', fontWeight: 700,
+        textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', borderBottom: '1px solid #eef2f7',
     };
+    const label: React.CSSProperties = {
+        fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.06em',
+        textTransform: 'uppercase', color: '#94a3b8', marginBottom: 3,
+    };
+
+    const meta = (lbl: string, value: React.ReactNode) => (
+        <div>
+            <div style={label}>{lbl}</div>
+            <div style={{ fontSize: '0.86rem', color: '#1e293b', fontWeight: 600 }}>{value}</div>
+        </div>
+    );
 
     return (
         <div role="dialog" aria-modal="true"
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
             onClick={onClose}>
             <div onClick={(e) => e.stopPropagation()}
-                style={{ width: 620, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#fff', borderRadius: 12, padding: '1.4rem 1.5rem', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                    <div>
-                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Journal Entry</h3>
-                        <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-                            The accounting entry behind this ledger line.
+                style={{ width: 640, maxWidth: '100%', maxHeight: '90vh', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(15,23,42,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+                {/* Header band */}
+                <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)', padding: '1.05rem 1.4rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.85rem', flexShrink: 0 }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <FileText size={22} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.01em' }}>Journal Entry</h3>
+                        <p style={{ margin: '0.1rem 0 0', fontSize: '0.74rem', color: 'rgba(255,255,255,0.78)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {data?.reference_number ? `${data.reference_number} · ` : ''}the double entry behind this ledger line
                         </p>
                     </div>
-                    <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b', padding: 4 }}>
-                        <X size={18} />
+                    <button onClick={onClose} aria-label="Close"
+                        style={{ border: 'none', background: 'rgba(255,255,255,0.14)', color: '#fff', cursor: 'pointer', width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <X size={17} />
                     </button>
                 </div>
 
-                {isLoading ? (
-                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
-                ) : isError ? (
-                    <div style={{ color: '#b91c1c', fontSize: '0.82rem', padding: '1rem' }}>
-                        Could not load journal #{journalId}: {String((error as any)?.message || 'unknown error')}
-                    </div>
-                ) : (
-                    <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginBottom: '1rem', fontSize: '0.82rem' }}>
-                            <div><span style={{ color: '#64748b' }}>Reference:</span> <strong style={{ fontFamily: 'monospace' }}>{data.reference_number || `JV-${data.id}`}</strong></div>
-                            <div><span style={{ color: '#64748b' }}>Date:</span> <strong>{data.posting_date ? new Date(data.posting_date).toLocaleDateString('en-GB') : '—'}</strong></div>
-                            <div><span style={{ color: '#64748b' }}>Status:</span> <strong>{data.status}</strong></div>
-                            <div><span style={{ color: '#64748b' }}>JV #:</span> <strong>{data.id}</strong></div>
-                            <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#64748b' }}>Description:</span> {data.description || '—'}</div>
+                <div style={{ padding: '1.25rem 1.4rem', overflow: 'auto' }}>
+                    {isLoading ? (
+                        <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '2rem', textAlign: 'center' }}>Loading…</div>
+                    ) : isError ? (
+                        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.82rem', padding: '0.9rem 1rem', borderRadius: 10 }}>
+                            Could not load journal #{journalId}: {String((error as any)?.message || 'unknown error')}
                         </div>
-
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }} data-plain-table>
-                            <thead>
-                                <tr>
-                                    <th style={head}>Account</th>
-                                    <th style={{ ...head, textAlign: 'right' }}>Debit</th>
-                                    <th style={{ ...head, textAlign: 'right' }}>Credit</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {lines.map((l) => (
-                                    <tr key={l.id}>
-                                        <td style={cell}>
-                                            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.account_code}</span>
-                                            <span style={{ color: '#64748b' }}> — {l.account_name}</span>
-                                            {l.memo ? <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{l.memo}</div> : null}
-                                        </td>
-                                        <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(l.debit) > 0 ? fmtNGN(l.debit) : ''}</td>
-                                        <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(l.credit) > 0 ? fmtNGN(l.credit) : ''}</td>
-                                    </tr>
+                    ) : (
+                        <>
+                            {/* Meta panel */}
+                            <div style={{ background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 12, padding: '0.95rem 1.1rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.9rem 1rem', marginBottom: '1.1rem' }}>
+                                {meta('Reference', <span style={{ fontFamily: 'monospace' }}>{data.reference_number || `JV-${data.id}`}</span>)}
+                                {meta('Date', data.posting_date ? new Date(data.posting_date).toLocaleDateString('en-GB') : '—')}
+                                {meta('Status', (
+                                    <span style={{ display: 'inline-block', padding: '0.12rem 0.6rem', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: sc.bg, color: sc.color }}>
+                                        {data.status}
+                                    </span>
                                 ))}
-                            </tbody>
-                            <tfoot>
-                                <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                    <td style={{ ...cell, fontWeight: 700, textAlign: 'right' }}>Total</td>
-                                    <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmtNGN(data.total_debit)}</td>
-                                    <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmtNGN(data.total_credit)}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </>
-                )}
+                                <div style={{ gridColumn: '1 / -1' }}>{meta('Description', data.description || '—')}</div>
+                            </div>
+
+                            {/* Lines */}
+                            <div style={{ border: '1px solid #eef2f7', borderRadius: 12, overflow: 'hidden' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }} data-plain-table>
+                                    <thead>
+                                        <tr style={{ background: '#f8fafc' }}>
+                                            <th style={head}>Account</th>
+                                            <th style={{ ...head, textAlign: 'right' }}>Debit</th>
+                                            <th style={{ ...head, textAlign: 'right' }}>Credit</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {lines.map((l, i) => {
+                                            const isDr = Number(l.debit) > 0;
+                                            return (
+                                                <tr key={l.id} style={{ borderTop: i === 0 ? 'none' : '1px solid #f4f6f9' }}>
+                                                    <td style={cell}>
+                                                        <div style={{ display: 'flex', gap: '0.55rem' }}>
+                                                            <span style={{ width: 3, borderRadius: 2, background: isDr ? '#f43f5e' : '#10b981', flexShrink: 0 }} />
+                                                            <div style={{ minWidth: 0 }}>
+                                                                <span style={{ fontFamily: 'monospace', fontWeight: 700, background: '#eef2ff', color: '#4f46e5', padding: '0.06rem 0.4rem', borderRadius: 5, fontSize: '0.72rem' }}>{l.account_code}</span>
+                                                                <span style={{ color: '#334155', marginLeft: '0.45rem' }}>{l.account_name}</span>
+                                                                {l.memo ? <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: 2 }}>{l.memo}</div> : null}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: isDr ? '#e11d48' : '#cbd5e1' }}>{isDr ? fmtNGN(l.debit) : '–'}</td>
+                                                    <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: !isDr ? '#059669' : '#cbd5e1' }}>{!isDr ? fmtNGN(l.credit) : '–'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                            <td style={{ ...cell, fontWeight: 800, textAlign: 'right', color: '#334155' }}>Total</td>
+                                            <td style={{ ...cell, textAlign: 'right', fontWeight: 800, color: '#e11d48', fontVariantNumeric: 'tabular-nums' }}>{fmtNGN(dr)}</td>
+                                            <td style={{ ...cell, textAlign: 'right', fontWeight: 800, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>{fmtNGN(cr)}</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            {/* Balanced indicator */}
+                            <div style={{ marginTop: '0.9rem', display: 'flex', justifyContent: 'flex-end' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.32rem 0.75rem', borderRadius: 999, fontSize: '0.74rem', fontWeight: 700, background: balanced ? '#ecfdf5' : '#fef2f2', color: balanced ? '#047857' : '#b91c1c', border: `1px solid ${balanced ? '#a7f3d0' : '#fecaca'}` }}>
+                                    {balanced ? <><CheckCircle2 size={14} /> Balanced — debits equal credits</> : <><AlertTriangle size={14} /> Unbalanced entry</>}
+                                </span>
+                            </div>
+                        </>
+                    )}
+                </div>
             </div>
         </div>
     );
