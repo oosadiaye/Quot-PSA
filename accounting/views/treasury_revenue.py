@@ -450,6 +450,87 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'amount': str(raw_amount),
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['post'], url_path='record-transaction')
+    def record_transaction(self, request, pk=None):
+        """Record a manual cash-book entry (incoming/outgoing) on this TSA.
+
+        ``POST /api/.../tsa-accounts/{id}/record-transaction/``
+
+        Body:
+          - ``direction`` ('IN' | 'OUT', required)
+          - ``amount``    (decimal string, required, > 0)
+          - ``contra_account`` (int, required — the GL account forming
+            the other leg of the entry)
+          - ``date``      (YYYY-MM-DD, optional — defaults to today)
+          - ``narration`` (str, optional)
+
+        Every movement posts a balanced JV to the TSA's ``gl_cash_account``
+        via ``IPSASJournalService.post_journal`` and updates
+        ``current_balance`` under the same lock — so cash never moves on a
+        TSA without a matching GL posting, and the balance cannot drift
+        from the ledger. The entry appears in this account's ledger.
+
+        Returns 201 with the journal id + reference; 400 on validation
+        failure; 404 when the contra account does not exist.
+        """
+        from datetime import datetime as _dt
+        from accounting.services.treasury_service import TSABalanceService
+        from accounting.models.gl import Account
+
+        account = self.get_object()
+
+        direction = (request.data.get('direction') or '').upper()
+        raw_amount = request.data.get('amount')
+        contra_id = request.data.get('contra_account')
+        if not (direction and raw_amount and contra_id):
+            return Response(
+                {'error': 'direction, amount and contra_account are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            contra = Account.objects.get(pk=int(contra_id))
+        except (TypeError, ValueError):
+            return Response({'error': 'contra_account must be an integer id.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Account.DoesNotExist:
+            return Response({'error': f'Contra account #{contra_id} not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        entry_date_raw = request.data.get('date')
+        entry_date = None
+        if entry_date_raw:
+            try:
+                entry_date = _dt.strptime(entry_date_raw, '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return Response({'error': 'date must be YYYY-MM-DD.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        narration = (request.data.get('narration') or '').strip()
+
+        try:
+            journal = TSABalanceService.record_cash_movement(
+                tsa=account,
+                direction=direction,
+                amount=raw_amount,
+                contra_account=contra,
+                actor=request.user,
+                entry_date=entry_date,
+                narration=narration,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        account.refresh_from_db(fields=['current_balance'])
+        return Response({
+            'status': 'recorded',
+            'journal_id': journal.pk,
+            'journal_reference': journal.reference_number,
+            'direction': direction,
+            'amount': str(raw_amount),
+            'current_balance': str(account.current_balance),
+        }, status=status.HTTP_201_CREATED)
+
 
 class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_admin_field = 'appropriation__administrative'

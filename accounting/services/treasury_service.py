@@ -207,8 +207,10 @@ class TSABalanceService:
                 # Inherit MDA from the source TSA (when set) so the GL
                 # roll-up lands on that MDA's bucket — matches how
                 # other TSA-cash postings (process_payment /
-                # process_revenue) already work.
-                mda=getattr(source_locked, 'mda', None),
+                # process_revenue) already work. JournalHeader.mda is a
+                # legacy MDA; TreasuryAccount.mda is an AdministrativeSegment,
+                # so bridge via legacy_mda (or None).
+                mda=getattr(getattr(source_locked, 'mda', None), 'legacy_mda', None),
                 fund=getattr(source_locked.fund_segment, 'legacy_fund', None) if source_locked.fund_segment_id else None,
                 status='Draft',
                 source_module='treasury',
@@ -248,6 +250,162 @@ class TSABalanceService:
                 amount, jv_ref, getattr(actor, 'username', actor),
             )
 
+            return journal
+
+    @classmethod
+    def record_cash_movement(
+        cls,
+        *,
+        tsa,
+        direction: str,
+        amount,
+        contra_account,
+        actor,
+        entry_date=None,
+        narration: str = '',
+    ):
+        """Record a manual cash-book entry on a TSA account.
+
+        A direct incoming or outgoing movement whose other leg the
+        operator chooses — for cash that neither arrives as a
+        ``RevenueCollection`` nor leaves as a ``PaymentInstruction``:
+        bank charges, interest, refunds, direct lodgements, corrections.
+        Any active TSA can record either direction.
+
+        Posts a balanced JV through the same chokepoint as a transfer
+        (``IPSASJournalService.post_journal`` → assert_balanced + cache
+        invalidation + GL roll-up), so the GL, the TSA balance, and the
+        ledger stay in lockstep — and the entry shows in the ledger,
+        because its ``source_module`` is not a revenue/payment document.
+
+            Incoming:  DR  TSA cash        CR  contra
+            Outgoing:  DR  contra          CR  TSA cash
+
+        Args:
+            tsa:            TreasuryAccount the cash moves on.
+            direction:      'IN' (incoming) or 'OUT' (outgoing).
+            amount:         Decimal — must be > 0.
+            contra_account: the Account forming the other leg.
+            actor:          User recording the entry (audit trail).
+            entry_date:     Optional posting date (defaults to today).
+            narration:      Optional human description.
+
+        Returns:
+            The posted JournalHeader.
+
+        Raises:
+            ValueError: invalid inputs (bad direction, non-positive
+                        amount, inactive TSA, missing gl_cash_account,
+                        missing/duplicate contra, insufficient funds).
+        """
+        from datetime import date as _date
+        from decimal import Decimal as _Decimal
+        from django.db.models import F as _F
+        from django.utils import timezone
+        from accounting.models import (
+            JournalHeader, JournalLine, TransactionSequence,
+        )
+        from accounting.models.treasury import TreasuryAccount
+        from accounting.services.ipsas_journal_service import IPSASJournalService
+
+        try:
+            amount = _Decimal(str(amount))
+        except Exception as exc:
+            raise ValueError(f'amount must be a decimal value: {exc}')
+        if amount <= _Decimal('0'):
+            raise ValueError('amount must be greater than zero.')
+
+        direction = (direction or '').upper()
+        if direction not in ('IN', 'OUT'):
+            raise ValueError("direction must be 'IN' (incoming) or 'OUT' (outgoing).")
+
+        if not tsa.is_active:
+            raise ValueError('TSA account must be active.')
+        if not tsa.gl_cash_account_id:
+            raise ValueError(
+                'This TSA has no gl_cash_account configured; assign a GL '
+                'control account on the TreasuryAccount first.'
+            )
+        if contra_account is None:
+            raise ValueError(
+                'A contra GL account is required — it is the other side of the entry.'
+            )
+        if contra_account.pk == tsa.gl_cash_account_id:
+            raise ValueError('The contra account must differ from the TSA cash account.')
+
+        with transaction.atomic():
+            # ``of=('self',)`` locks only the TreasuryAccount row. Without it,
+            # ``select_related('gl_cash_account')`` (a nullable FK → LEFT OUTER
+            # JOIN) makes Postgres refuse: "FOR UPDATE cannot be applied to the
+            # nullable side of an outer join".
+            tsa_locked = (
+                TreasuryAccount.objects
+                .select_for_update(of=('self',))
+                .select_related('gl_cash_account')
+                .get(pk=tsa.pk)
+            )
+
+            if direction == 'OUT' and (tsa_locked.current_balance or _Decimal('0')) < amount:
+                raise ValueError(
+                    f'Insufficient funds in {tsa_locked.account_number}: '
+                    f'{tsa_locked.current_balance} < {amount}.'
+                )
+
+            label = 'Incoming' if direction == 'IN' else 'Outgoing'
+            # get_next already prepends the prefix, so pass it once.
+            jv_ref = TransactionSequence.get_next('tsa_cashbook', 'CB-')
+            description = f"TSA cash book ({label}) {tsa_locked.account_number}"
+            if narration:
+                description = f"{description} | {narration}"
+
+            journal = JournalHeader.objects.create(
+                posting_date=entry_date or _date.today(),
+                reference_number=jv_ref,
+                description=description,
+                # JournalHeader.mda is a legacy MDA; TreasuryAccount.mda is
+                # an AdministrativeSegment. Bridge via legacy_mda (or None).
+                mda=getattr(getattr(tsa_locked, 'mda', None), 'legacy_mda', None),
+                fund=(
+                    getattr(tsa_locked.fund_segment, 'legacy_fund', None)
+                    if tsa_locked.fund_segment_id else None
+                ),
+                status='Draft',
+                source_module='treasury_cashbook',
+                posted_by=actor,
+            )
+            cash = tsa_locked.gl_cash_account
+            memo = narration or f'Cash book {label.lower()}'
+            if direction == 'IN':
+                JournalLine.objects.create(
+                    header=journal, account=cash, debit=amount, credit=_Decimal('0'), memo=memo,
+                )
+                JournalLine.objects.create(
+                    header=journal, account=contra_account, debit=_Decimal('0'), credit=amount, memo=memo,
+                )
+            else:
+                JournalLine.objects.create(
+                    header=journal, account=contra_account, debit=amount, credit=_Decimal('0'), memo=memo,
+                )
+                JournalLine.objects.create(
+                    header=journal, account=cash, debit=_Decimal('0'), credit=amount, memo=memo,
+                )
+
+            # Post via the chokepoint — assert_balanced + cache invalidation.
+            # post_journal re-fetches under select_for_update and returns the
+            # posted row, so capture it (the local object is otherwise stale).
+            journal = IPSASJournalService.post_journal(journal, actor)
+
+            delta = amount if direction == 'IN' else -amount
+            TreasuryAccount.objects.filter(pk=tsa_locked.pk).update(
+                current_balance=_F('current_balance') + delta,
+                updated_at=timezone.now(),
+            )
+
+            logger.info(
+                'TSA CASHBOOK %s: %s | Amount: %s | JV: %s | by=%s',
+                label, tsa_locked.account_number, amount, jv_ref,
+                getattr(actor, 'username', actor),
+            )
             return journal
 
     @classmethod
