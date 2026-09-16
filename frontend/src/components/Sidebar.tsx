@@ -288,10 +288,6 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'Appropriations', icon: DollarSign, path: '/budget/appropriations',
-        requiredPerm: 'view_appropriation', module: 'budget',
-    },
-    {
         name: 'Audit Trail', icon: Shield, path: '/audit/trail',
         requiredPerm: 'view_journalheader', module: 'audit',
     },
