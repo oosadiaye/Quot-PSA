@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { formatDateTime } from '@/utils/date';
 import { X } from 'lucide-react';
 import type { SnapshotJob } from '@/types/snapshots';
 import { SnapshotJobStatusPill } from './SnapshotJobStatusPill';
@@ -37,13 +38,13 @@ export function SnapshotDetailDrawer({ job, onClose }: Props) {
           <Row label="Label">{job.label || '—'}</Row>
           <Row label="Triggered by">{job.triggered_by_username}</Row>
           <Row label="Triggered at">
-            {new Date(job.triggered_at).toLocaleString('en-GB')}
+            {formatDateTime(job.triggered_at)}
           </Row>
           <Row label="Started at">
-            {job.started_at ? new Date(job.started_at).toLocaleString('en-GB') : '—'}
+            {job.started_at ? formatDateTime(job.started_at) : '—'}
           </Row>
           <Row label="Completed at">
-            {job.completed_at ? new Date(job.completed_at).toLocaleString('en-GB') : '—'}
+            {job.completed_at ? formatDateTime(job.completed_at) : '—'}
           </Row>
           <Row label="Size">
             {job.size_bytes != null

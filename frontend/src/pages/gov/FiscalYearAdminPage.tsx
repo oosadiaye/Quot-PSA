@@ -226,7 +226,7 @@ export default function FiscalYearAdminPage() {
                                             color: '#64748b', fontFamily: 'monospace',
                                         }}>
                                             {fy.closed_date
-                                                ? new Date(fy.closed_date).toLocaleDateString('en-GB')
+                                                ? formatDate(fy.closed_date)
                                                 : '—'}
                                         </td>
                                         <td style={{ padding: '10px 14px' }}>

@@ -1,4 +1,5 @@
 import { Card, Table, Tag, Button, Empty, Skeleton } from 'antd';
+import { formatDateTime } from '@/utils/date';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useAuditLogs } from '../hooks/useSuperAdmin';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,7 +15,7 @@ const AuditLogsTab = () => {
 
   const columns = [
     { title: 'Timestamp', dataIndex: 'timestamp', key: 'timestamp', width: 180,
-      render: (text: string) => text ? new Date(text).toLocaleString('en-GB') : '-' },
+      render: (text: string) => text ? formatDateTime(text) : '-' },
     { title: 'Tenant', dataIndex: 'tenant_name', key: 'tenant_name', width: 150 },
     { title: 'Action', dataIndex: 'action_type', key: 'action_type', width: 100,
       render: (type: string) => {

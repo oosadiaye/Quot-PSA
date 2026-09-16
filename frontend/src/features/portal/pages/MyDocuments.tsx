@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FolderOpen,
@@ -302,7 +303,7 @@ export default function MyDocuments() {
                       {doc.category_label} ·{' '}
                       {doc.original_filename || 'file'} ·{' '}
                       {formatBytes(doc.size_bytes)} · uploaded{' '}
-                      {new Date(doc.uploaded_at).toLocaleDateString('en-GB')}
+                      {formatDate(doc.uploaded_at)}
                     </div>
                     {doc.hr_notes && (
                       <div
@@ -328,7 +329,7 @@ export default function MyDocuments() {
                         }}
                       >
                         <AlertTriangle size={12} /> Expires{' '}
-                        {new Date(doc.expires_on!).toLocaleDateString('en-GB')}
+                        {formatDate(doc.expires_on!)}
                       </div>
                     )}
                   </div>
@@ -452,7 +453,7 @@ function VerificationBanner({
         )}
         <strong style={{ fontSize: 14 }}>{submission.cycle.name}</strong>
         <span style={{ fontSize: 12, opacity: 0.8 }}>
-          · deadline {new Date(submission.cycle.deadline).toLocaleDateString('en-GB')}{' '}
+          · deadline {formatDate(submission.cycle.deadline)}{' '}
           ({days >= 0 ? `${days} day${days === 1 ? '' : 's'} left` : 'overdue'})
         </span>
       </div>

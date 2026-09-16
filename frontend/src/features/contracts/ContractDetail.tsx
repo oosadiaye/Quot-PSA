@@ -14,6 +14,7 @@
  * the hero so auditors don't lose granularity.
  */
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { formatDate } from '@/utils/date';
 import {
   Popconfirm, Button, App as AntApp,
   Modal, Form, Input, InputNumber, DatePicker,
@@ -945,13 +946,13 @@ const ContractDetail = () => {
               {contract.signed_date && (
                 <ActivityItem
                   title="Contract Signed"
-                  meta={new Date(contract.signed_date).toLocaleDateString('en-GB')}
+                  meta={formatDate(contract.signed_date)}
                 />
               )}
               {contract.created_at && (
                 <ActivityItem
                   title="Initial Setup"
-                  meta={new Date(contract.created_at).toLocaleDateString('en-GB')}
+                  meta={formatDate(contract.created_at)}
                 />
               )}
             </div>
@@ -1283,12 +1284,12 @@ function MilestonesTab({
               <td style={{ ...td, textAlign: 'right' }}>{Number(m.percentage_weight || 0).toFixed(1)}%</td>
               <td style={td}>
                 {m.target_date
-                  ? new Date(m.target_date).toLocaleDateString('en-GB')
+                  ? formatDate(m.target_date)
                   : '—'}
               </td>
               <td style={{ ...td, color: m.actual_completion_date ? '#0f172a' : '#94a3b8' }}>
                 {m.actual_completion_date
-                  ? new Date(m.actual_completion_date).toLocaleDateString('en-GB')
+                  ? formatDate(m.actual_completion_date)
                   : '—'}
               </td>
               <td style={{ ...td, textAlign: 'center' }}>
@@ -1600,19 +1601,19 @@ function MobilizationTab({
           <div>
             <div style={labelStyle}>Issued On</div>
             <div style={valueStyle}>
-              {payment.created_at ? new Date(payment.created_at).toLocaleDateString('en-GB') : '—'}
+              {payment.created_at ? formatDate(payment.created_at) : '—'}
             </div>
           </div>
           <div>
             <div style={labelStyle}>Approved / Updated</div>
             <div style={valueStyle}>
-              {payment.updated_at ? new Date(payment.updated_at).toLocaleDateString('en-GB') : '—'}
+              {payment.updated_at ? formatDate(payment.updated_at) : '—'}
             </div>
           </div>
           <div>
             <div style={labelStyle}>Paid On</div>
             <div style={valueStyle}>
-              {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-GB') : '—'}
+              {payment.payment_date ? formatDate(payment.payment_date) : '—'}
             </div>
           </div>
         </div>

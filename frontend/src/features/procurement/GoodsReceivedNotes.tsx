@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle, Search, Package, FileText, XCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { useGRNs, usePostGRN, useCancelGRN, useBulkCancelGRN } from './hooks/useProcurement';
@@ -346,7 +347,7 @@ export default function GoodsReceivedNotes() {
                                         </td>
                                         <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{grn.grn_number}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{grn.po_number}</td>
-                                        <td style={{ padding: '0.75rem 1rem' }}>{new Date(grn.received_date).toLocaleDateString('en-GB')}</td>
+                                        <td style={{ padding: '0.75rem 1rem' }}>{formatDate(grn.received_date)}</td>
                                         <td style={{ padding: '0.75rem 1rem' }}>{grn.received_by}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>{getStatusBadge(grn.status)}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Package, FileText, Layers, Info, Truck, AlertTriangle,
@@ -567,7 +568,7 @@ const GRNForm = () => {
                                     {[
                                         { label: 'PO Number',  value: selectedPO.po_number },
                                         { label: 'Vendor',     value: selectedPO.vendor_name },
-                                        { label: 'Order Date', value: selectedPO.order_date ? new Date(selectedPO.order_date).toLocaleDateString('en-GB') : '—' },
+                                        { label: 'Order Date', value: selectedPO.order_date ? formatDate(selectedPO.order_date) : '—' },
                                         { label: 'PO Total',   value: formatCurrency(selectedPO.total_amount || 0) },
                                         { label: 'Total Lines',value: selectedPO.lines?.length || 0 },
                                     ].map(({ label, value }) => (

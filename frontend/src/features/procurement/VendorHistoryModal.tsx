@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatDate } from '@/utils/date';
 import { X, Link2, CheckCircle2, ArrowDownRight, ArrowUpRight, Download } from 'lucide-react';
 import { useVendorTransactionHistory } from './hooks/useProcurement';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -219,10 +220,6 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
         setSelected(new Set());
     };
 
-    // Nigerian convention: dates render DD/MM/YYYY (en-GB).
-    const formatDate = (value: string) =>
-        value ? new Date(value).toLocaleDateString('en-GB') : '';
-
     const buildExportOptions = (): ExportOptions => {
         const columns = [
             { header: 'Date', key: 'date' },
@@ -315,7 +312,7 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                     {isMatched && <CheckCircle2 size={14} color="#22c55e" />}
                 </td>
                 <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                    {new Date(t.date).toLocaleDateString('en-GB')}
+                    {formatDate(t.date)}
                 </td>
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{t.reference}</td>
                 <td style={tdStyle}>

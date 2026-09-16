@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { formatDate } from '@/utils/date';
 import { LayoutDashboard, Wallet, CalendarDays, Clock, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import PortalLayout from '../PortalLayout';
@@ -73,7 +74,7 @@ export default function MyDashboard() {
                         ₦ {formatNaira(data.latest_payslip.net_salary)}
                       </div>
                       <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                        Paid on {new Date(data.latest_payslip.payment_date).toLocaleDateString('en-GB')}
+                        Paid on {formatDate(data.latest_payslip.payment_date)}
                       </div>
                     </div>
                     <Link
@@ -116,8 +117,8 @@ export default function MyDashboard() {
                   <HR />
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>UPCOMING LEAVE</div>
                   <div style={{ fontSize: 13, color: '#0f172a' }}>
-                    {data.upcoming_leave.leave_type} · {new Date(data.upcoming_leave.start_date).toLocaleDateString('en-GB')} –{' '}
-                    {new Date(data.upcoming_leave.end_date).toLocaleDateString('en-GB')}
+                    {data.upcoming_leave.leave_type} · {formatDate(data.upcoming_leave.start_date)} –{' '}
+                    {formatDate(data.upcoming_leave.end_date)}
                   </div>
                 </>
               )}

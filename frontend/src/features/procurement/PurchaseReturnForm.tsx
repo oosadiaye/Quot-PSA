@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     RotateCcw, AlertTriangle, CheckCircle2, Undo2, Save, X,
@@ -271,7 +272,7 @@ const PurchaseReturnForm: React.FC = () => {
                                             </option>
                                             {postedGRNs.map((g: any) => (
                                                 <option key={g.id} value={g.id}>
-                                                    {g.grn_number} — {new Date(g.received_date).toLocaleDateString('en-GB')}
+                                                    {g.grn_number} — {formatDate(g.received_date)}
                                                 </option>
                                             ))}
                                         </select>

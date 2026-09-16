@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle, XCircle, ArrowRight, Search, FileText, Send, Pencil, Trash2, CheckSquare } from 'lucide-react';
 import { usePurchaseRequests, useApprovePR, useRejectPR, useBulkApprovePR, useBulkDeletePR, useSubmitPR } from './hooks/useProcurement';
@@ -461,7 +462,7 @@ export default function PurchaseRequisitions() {
                                                 {req.priority || '—'}
                                             </td>
                                             <td style={{ padding: '1rem 1.5rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                                {new Date(req.requested_date).toLocaleDateString('en-GB')}
+                                                {formatDate(req.requested_date)}
                                             </td>
                                             <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
                                                 {formatCurrency(estTotal)}

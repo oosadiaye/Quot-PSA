@@ -9,6 +9,7 @@
  * into the originating record in two clicks.
  */
 import { useMemo, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -387,7 +388,7 @@ export default function AppropriationTransactions() {
                                 return (
                                     <tr key={`${t.type}-${t.source_id}-${i}`} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                         <td style={td}>
-                                            {t.date ? new Date(t.date).toLocaleDateString('en-GB') : '—'}
+                                            {t.date ? formatDate(t.date) : '—'}
                                         </td>
                                         <td style={td}>
                                             <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#4f46e5' }}>

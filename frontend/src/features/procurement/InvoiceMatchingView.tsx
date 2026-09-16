@@ -4,6 +4,7 @@
  * Route: /procurement/matching/:id
  */
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     FileText, CheckCircle, XCircle, Send, AlertTriangle, ArrowLeft,
@@ -257,9 +258,9 @@ export default function InvoiceMatchingView() {
                             <DetailRow icon={<FileText size={14} />} label="PO Number" value={m.po_number || '—'} />
                             <DetailRow icon={<FileText size={14} />} label="GRN Number" value={m.grn_number || '—'} />
                             <DetailRow icon={<Building2 size={14} />} label="Vendor" value={m.vendor_name || '—'} />
-                            <DetailRow icon={<Calendar size={14} />} label="Invoice Date" value={m.invoice_date ? new Date(m.invoice_date).toLocaleDateString('en-GB') : '—'} />
+                            <DetailRow icon={<Calendar size={14} />} label="Invoice Date" value={m.invoice_date ? formatDate(m.invoice_date) : '—'} />
                             <DetailRow icon={<Scale size={14} />} label="Match Type" value={m.match_type || 'None'} />
-                            <DetailRow icon={<Calendar size={14} />} label="Matched Date" value={m.matched_date ? new Date(m.matched_date).toLocaleDateString('en-GB') : '—'} />
+                            <DetailRow icon={<Calendar size={14} />} label="Matched Date" value={m.matched_date ? formatDate(m.matched_date) : '—'} />
                         </div>
                     </div>
 
@@ -405,7 +406,7 @@ function PostedGlEntries({ journal, formatCurrency }: PostedGlEntriesProps) {
     const journalRef =
         journal.document_number || journal.reference_number || `JV-${journal.id}`;
     const postingDate = journal.posting_date
-        ? new Date(journal.posting_date).toLocaleDateString('en-GB')
+        ? formatDate(journal.posting_date)
         : '';
 
     return (

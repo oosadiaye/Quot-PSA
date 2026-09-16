@@ -9,6 +9,7 @@ import {
   HistoryOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import { useState, useMemo } from 'react';
+import { formatDate, formatDateTime } from '@/utils/date';
 import {
   useUsers, useSaveUser, useToggleUserStatus, useImpersonateUser,
   useImpersonationLogs, useTenants, useBulkDeleteUsers,
@@ -242,7 +243,7 @@ const UsersTab = () => {
       key: 'last_login',
       responsive: ['lg' as const],
       render: (date: string | null) =>
-        date ? <Text type="secondary">{new Date(date).toLocaleDateString('en-GB')}</Text> : <Text type="secondary">Never</Text>,
+        date ? <Text type="secondary">{formatDate(date)}</Text> : <Text type="secondary">Never</Text>,
     },
     {
       title: 'Actions',
@@ -393,10 +394,10 @@ const UsersTab = () => {
                 <Badge status={selectedUser.is_active ? 'success' : 'default'} text={selectedUser.is_active ? 'Active' : 'Inactive'} />
               </Descriptions.Item>
               <Descriptions.Item label="Date Joined">
-                {selectedUser.date_joined ? new Date(selectedUser.date_joined).toLocaleDateString('en-GB') : '-'}
+                {selectedUser.date_joined ? formatDate(selectedUser.date_joined) : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Last Login">
-                {selectedUser.last_login ? new Date(selectedUser.last_login).toLocaleString('en-GB') : 'Never'}
+                {selectedUser.last_login ? formatDateTime(selectedUser.last_login) : 'Never'}
               </Descriptions.Item>
               <Descriptions.Item label="Staff">{selectedUser.is_staff ? 'Yes' : 'No'}</Descriptions.Item>
               <Descriptions.Item label="SuperUser">{selectedUser.is_superuser ? 'Yes' : 'No'}</Descriptions.Item>
@@ -633,13 +634,13 @@ const ImpersonationLogsPanel = () => {
       title: 'Started',
       dataIndex: 'started_at',
       key: 'started_at',
-      render: (v: string) => v ? new Date(v).toLocaleString('en-GB') : '-',
+      render: (v: string) => v ? formatDateTime(v) : '-',
     },
     {
       title: 'Ended',
       dataIndex: 'ended_at',
       key: 'ended_at',
-      render: (v: string | null) => v ? new Date(v).toLocaleString('en-GB') : <Tag color="orange">Active</Tag>,
+      render: (v: string | null) => v ? formatDateTime(v) : <Tag color="orange">Active</Tag>,
     },
     {
       title: 'IP',

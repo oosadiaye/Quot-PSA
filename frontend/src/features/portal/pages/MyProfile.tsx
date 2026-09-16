@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserCircle, Save, Check } from 'lucide-react';
 import PortalLayout from '../PortalLayout';
@@ -84,9 +85,9 @@ export default function MyProfile() {
             <Row label="Position" value={data.position || '—'} />
             <Row label="Type" value={data.employee_type} />
             <Row label="Status" value={data.status} />
-            <Row label="Hire Date" value={new Date(data.hire_date).toLocaleDateString('en-GB')} />
+            <Row label="Hire Date" value={formatDate(data.hire_date)} />
             {data.confirmation_date && (
-              <Row label="Confirmed" value={new Date(data.confirmation_date).toLocaleDateString('en-GB')} />
+              <Row label="Confirmed" value={formatDate(data.confirmation_date)} />
             )}
             <Row label="Bank" value={data.bank_name || '—'} />
             <Row

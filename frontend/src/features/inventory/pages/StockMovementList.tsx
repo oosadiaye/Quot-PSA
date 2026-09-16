@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatDate } from '@/utils/date';
 import {
     useStockMovements,
     useItems,
@@ -77,11 +78,6 @@ const tdStyle: React.CSSProperties = {
     color: 'var(--color-text)',
     borderBottom: '1px solid var(--color-border)',
 };
-
-function formatDate(dateStr: string) {
-    if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleDateString('en-GB');
-}
 
 function isInDateRange(dateStr: string, range: DateRange): boolean {
     if (range === 'all') return true;

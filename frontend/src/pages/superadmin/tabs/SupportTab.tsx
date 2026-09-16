@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatDate, formatDateTime } from '@/utils/date';
 import {
   Card, Table, Tag, Button, Space, Modal, Form, Input, Select, App, Empty,
   Skeleton, Typography, Row, Col, Badge, Drawer, Descriptions, Divider,
@@ -182,7 +183,7 @@ export default function SupportTab() {
       dataIndex: 'created_at',
       key: 'created',
       sorter: (a: SupportTicket, b: SupportTicket) => (a.created_at || '').localeCompare(b.created_at || ''),
-      render: (v: string) => v ? new Date(v).toLocaleDateString('en-GB') : '-',
+      render: (v: string) => v ? formatDate(v) : '-',
     },
     {
       title: 'Actions',
@@ -318,7 +319,7 @@ export default function SupportTab() {
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="Created">
-                {new Date(selectedTicket.created_at).toLocaleString('en-GB')}
+                {formatDateTime(selectedTicket.created_at)}
               </Descriptions.Item>
             </Descriptions>
 
@@ -370,7 +371,7 @@ export default function SupportTab() {
                         <Space>
                           <Text strong>{c.author_name}</Text>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            {new Date(c.created_at).toLocaleString('en-GB')}
+                            {formatDateTime(c.created_at)}
                           </Text>
                           {c.is_internal && <Tag>Internal</Tag>}
                         </Space>

@@ -8,6 +8,7 @@ import {
   WarningOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import { useDashboardStats, useAuditLogs, useExpiringTrials } from '../hooks/useSuperAdmin';
+import { formatDate, formatDateTime } from '@/utils/date';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { useQuery } from '@tanstack/react-query';
 import { superadminApi } from '../../../api/superadmin';
@@ -39,7 +40,7 @@ const OverviewTab = () => {
   const auditColumns = [
     {
       title: 'Timestamp', dataIndex: 'timestamp', key: 'timestamp',
-      render: (ts: string) => ts ? <Text type="secondary" style={{ fontSize: 12 }}>{new Date(ts).toLocaleString('en-GB')}</Text> : '-',
+      render: (ts: string) => ts ? <Text type="secondary" style={{ fontSize: 12 }}>{formatDateTime(ts)}</Text> : '-',
     },
     { title: 'Tenant', dataIndex: 'tenant_name', key: 'tenant_name', render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-' },
     {
@@ -211,7 +212,7 @@ const OverviewTab = () => {
                     </div>
                     <div style={{ flex: 1 }}>
                       <Text strong>{item.name}</Text>
-                      <div><Text type="secondary" style={{ fontSize: 12 }}>Joined {new Date(item.created_on).toLocaleDateString('en-GB')}</Text></div>
+                      <div><Text type="secondary" style={{ fontSize: 12 }}>Joined {formatDate(item.created_on)}</Text></div>
                     </div>
                   </div>
                 ))}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, FileText, CheckCircle, XCircle, Send, RotateCcw } from 'lucide-react';
 import {
@@ -247,7 +248,7 @@ export default function PurchaseReturns() {
                                             {ret.po_number || '—'}
                                         </td>
                                         <td style={{ padding: '0.75rem 1rem', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}>
-                                            {ret.return_date ? new Date(ret.return_date).toLocaleDateString('en-GB') : '—'}
+                                            {ret.return_date ? formatDate(ret.return_date) : '—'}
                                         </td>
                                         <td style={{
                                             padding: '0.75rem 1rem',
