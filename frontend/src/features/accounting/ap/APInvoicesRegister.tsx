@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Receipt, Filter, Eye, ExternalLink, BookOpen, X,
-    Building2, Calendar, FileText, ClipboardCheck, Layers, CheckCircle,
+    Building2, Calendar, FileText, ClipboardCheck, Layers, CheckCircle, Banknote,
 } from 'lucide-react';
 import { useVendorInvoices, useApproveVendorInvoice, useCreateDraftVoucherFromInvoice } from '../hooks/useAccountingEnhancements';
 import { useInvoiceMatchings } from '../../procurement/hooks/useProcurement';
@@ -14,6 +14,7 @@ import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { useDialog } from '../../../hooks/useDialog';
 import logger from '../../../utils/logger';
+import '../styles/glassmorphism.css';
 
 // ───────────────────────────────────────────────────────────────────────────
 // AP Invoices Register — a single central list of every payable document,
@@ -260,7 +261,7 @@ export default function APInvoicesRegister() {
                     "Filter these rows…" box and an Amount total. No
                     data-plain-table so it opts IN. Horizontally scrollable so
                     the action column is never clipped on narrower viewports. */}
-                <div className="card" style={{ padding: 0, overflowX: 'auto', overflowY: 'hidden' }}>
+                <div className="card glass animate-fade" style={{ padding: 0, overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
@@ -279,23 +280,31 @@ export default function APInvoicesRegister() {
                                                 {meta.label}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '0.8rem 1.1rem', maxWidth: 210 }}>
-                                            <span title={row.docNumber} style={{ display: 'block', fontWeight: 600, color: 'var(--color-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.docNumber}</span>
-                                            {row.source === 'verified' && row.verificationNumber && (
-                                                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                                                    via {row.verificationNumber}
+                                        <td style={{ padding: '0.8rem 1.1rem', maxWidth: 190 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+                                                <FileText size={16} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                                                <div style={{ minWidth: 0 }}>
+                                                    <span title={row.docNumber} style={{ display: 'block', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.docNumber}</span>
+                                                    {row.source === 'verified' && row.verificationNumber && (
+                                                        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                                                            via {row.verificationNumber}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
+                                            </div>
                                         </td>
                                         <td style={{ padding: '0.8rem 1.1rem', fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{row.supplierNumber || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem' }}>{row.vendorName}</td>
-                                        <td title={row.reference} style={{ padding: '0.8rem 1.1rem', color: 'var(--color-text-muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', fontSize: 'var(--text-sm)' }}>{row.vendorName}</td>
+                                        <td title={row.reference} style={{ padding: '0.8rem 1.1rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', whiteSpace: 'nowrap', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>{fmtDate(row.date)}</td>
                                         <td style={{ padding: '0.8rem 1.1rem' }}><StatusBadge status={row.status} /></td>
                                         <td style={{ padding: '0.8rem 1.1rem', fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{row.poNumber || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>{formatCurrency(row.amount)}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', fontWeight: 700, fontSize: 'var(--text-sm)' }}>{formatCurrency(row.amount)}</td>
                                         <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', alignItems: 'stretch', width: 132, marginLeft: 'auto' }}>
+                                            {/* Icon action buttons — same compact style as the Chart of
+                                                Journals. Colour still carries the meaning: amber Post,
+                                                indigo Create PV, emerald View PV. Tooltips name each. */}
+                                            <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                                                 {row.invoiceRaw ? (() => {
                                                     // Same (status, has-journal) decision as the AP Invoice page:
                                                     // needsPost → not yet in the GL; canPay → journal exists.
@@ -305,32 +314,32 @@ export default function APInvoicesRegister() {
                                                     return (
                                                         <>
                                                             {needsPost && (
-                                                                <button style={approveBtnStyle} onClick={() => handleApprove(inv.id)} title="Approve this invoice, post the GL journal, and mark it Posted for Treasury to pay">
-                                                                    <CheckCircle size={14} /> Approve &amp; Post
+                                                                <button className="btn" style={{ padding: '0.4rem 0.7rem', fontSize: 'var(--text-xs)', background: '#c2410c', border: '1px solid #9a3412', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }} onClick={() => handleApprove(inv.id)} title="Approve &amp; post the GL journal, then mark Posted for Treasury to pay">
+                                                                    <CheckCircle size={14} /> Post
                                                                 </button>
                                                             )}
                                                             {canPay && (inv.payment_voucher_id ? (
-                                                                <button style={{ ...btnSm, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857' }} onClick={() => navigate(`/accounting/payment-vouchers/${inv.payment_voucher_id}`)} title={`A Payment Voucher (${inv.payment_voucher_number ?? ''}, status ${inv.payment_voucher_status ?? ''}) has already been raised. Click to open it.`}>
-                                                                    <Receipt size={14} /> View PV
+                                                                <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', color: '#047857', borderColor: '#a7f3d0' }} onClick={() => navigate(`/accounting/payment-vouchers/${inv.payment_voucher_id}`)} title={`View Payment Voucher ${inv.payment_voucher_number ?? ''} (${inv.payment_voucher_status ?? ''})`}>
+                                                                    <Receipt size={14} />
                                                                 </button>
                                                             ) : (
                                                                 <>
-                                                                    <button style={{ ...createPvBtnStyle, opacity: createDraftPV.isPending ? 0.6 : 1, cursor: createDraftPV.isPending ? 'not-allowed' : 'pointer' }} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Auto-create a draft Payment Voucher from this invoice (vendor, amount, narration pre-filled)">
-                                                                        <Receipt size={14} /> {createDraftPV.isPending ? 'Creating PV…' : 'Create PV'}
+                                                                    <button className="btn" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', background: '#4f46e5', border: '1px solid #4338ca', color: '#fff', opacity: createDraftPV.isPending ? 0.6 : 1, cursor: createDraftPV.isPending ? 'not-allowed' : 'pointer' }} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Create a draft Payment Voucher from this invoice">
+                                                                        <Receipt size={14} />
                                                                     </button>
-                                                                    <button style={{ ...btnSm, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }} onClick={() => navigate(`/accounting/payments/new?invoice=${inv.id}`)} title="Use the payments form for advanced settlement (multi-invoice, allocations)">
-                                                                        Pay
+                                                                    <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)' }} onClick={() => navigate(`/accounting/payments/new?invoice=${inv.id}`)} title="Pay via the advanced settlement form (multi-invoice, allocations)">
+                                                                        <Banknote size={14} />
                                                                     </button>
                                                                 </>
                                                             ))}
-                                                            <button style={viewBtnStyle} onClick={() => setViewing(row)} title="View invoice detail & GL journal">
-                                                                <Eye size={14} /> View
+                                                            <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)' }} onClick={() => setViewing(row)} title="View invoice detail &amp; GL journal">
+                                                                <Eye size={14} />
                                                             </button>
                                                         </>
                                                     );
                                                 })() : (
-                                                    <button style={viewBtnStyle} onClick={() => row.matchingId && navigate(`/procurement/matching/${row.matchingId}`)} title="Open verification">
-                                                        <ExternalLink size={14} /> Open
+                                                    <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)' }} onClick={() => row.matchingId && navigate(`/procurement/matching/${row.matchingId}`)} title="Open verification">
+                                                        <ExternalLink size={14} />
                                                     </button>
                                                 )}
                                             </div>
@@ -480,17 +489,6 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
 
 const jTh: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' };
 const jTd: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: 'var(--text-sm)', borderTop: '1px solid var(--color-border)' };
-
-// Compact row-action button sizing (the `btn btn-primary` class supplies the
-// primary colour; this only fixes the dimensions). viewBtnStyle is the neutral
-// outline variant used for View / Open.
-const btnSm: React.CSSProperties = { padding: '0.35rem 0.7rem', fontSize: 'var(--text-xs)', fontWeight: 600, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', cursor: 'pointer', whiteSpace: 'nowrap' };
-const viewBtnStyle: React.CSSProperties = { ...btnSm, background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' };
-// Distinct colours so the two lead actions read apart at a glance, and
-// neither clashes with the emerald "View PV": Approve & Post is amber (the
-// budget-checked GL-posting gate); Create PV is indigo (moves to payment).
-const approveBtnStyle: React.CSSProperties = { ...btnSm, background: '#c2410c', border: '1px solid #9a3412', color: '#fff' };
-const createPvBtnStyle: React.CSSProperties = { ...btnSm, background: '#4f46e5', border: '1px solid #4338ca', color: '#fff' };
 
 function Detail({ icon, label, value }: { icon?: React.ReactNode; label: string; value: React.ReactNode }) {
     return (
