@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Receipt, Filter, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit } from 'lucide-react';
+import { Receipt, Filter, X, ChevronDown, Download, FileSpreadsheet, Upload, Eye, BookOpen, FileText, Building2, Calendar, AlertTriangle, Edit, ScanLine } from 'lucide-react';
 import apiClient from '../../../api/client';
 import { useVendorInvoices, useCreateVendorInvoice } from '../hooks/useAccountingEnhancements';
 import { useJournal, useSimulatedInvoiceJournal } from '../hooks/useJournal';
@@ -12,6 +12,7 @@ import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { safeSum } from '../utils/currency';
 import VendorInvoiceForm from './VendorInvoiceForm';
+import AiScanModal from './AiScanModal';
 import '../styles/glassmorphism.css';
 
 export default function APManagement() {
@@ -28,6 +29,8 @@ export default function APManagement() {
     // The invoice the user is currently viewing in the detail modal.
     // Null = no modal open.
     const [viewingInvoice, setViewingInvoice] = useState<any | null>(null);
+    // AI scan-to-draft modal (upload an invoice image/PDF → create a draft).
+    const [showScan, setShowScan] = useState(false);
 
     const { data: invoices, isLoading } = useVendorInvoices({ status: statusFilter });
 
@@ -215,6 +218,9 @@ export default function APManagement() {
                                     )}
                                 </div>
 
+                                <button className="btn btn-outline" onClick={() => setShowScan(true)} title="Scan an invoice image or PDF and auto-create a draft with AI">
+                                    <ScanLine size={18} /> Scan with AI
+                                </button>
                                 <button className="btn btn-primary" onClick={() => setShowForm(true)}>
                                     <Receipt size={18} /> New Invoice
                                 </button>
@@ -351,6 +357,18 @@ export default function APManagement() {
                             invoice={viewingInvoice}
                             onClose={() => setViewingInvoice(null)}
                             formatCurrency={formatCurrency}
+                        />
+                    )}
+
+                    {/* AI scan → open the freshly-created draft for review */}
+                    {showScan && (
+                        <AiScanModal
+                            onClose={() => setShowScan(false)}
+                            onCreated={(invoiceId) => {
+                                setShowScan(false);
+                                setEditingInvoiceId(invoiceId);
+                                setShowForm(true);
+                            }}
                         />
                     )}
                 </div>

@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes as perm_classes
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsApprover
 from django.db.models import Sum, F
@@ -874,6 +875,39 @@ class VendorInvoiceViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
             raise ValidationError("Only draft vendor invoices can be deleted.")
         super().perform_destroy(instance)
+
+    @action(detail=False, methods=['post'], url_path='scan-extract',
+            parser_classes=[MultiPartParser, FormParser])
+    def scan_extract(self, request):
+        """AI-scan an uploaded invoice (image or PDF) into a Draft VendorInvoice.
+
+        Delegates to the extraction service, which sends page images to the
+        tenant's configured ``extraction`` model and maps the returned JSON
+        onto a new Draft the operator then reviews and approves.
+        """
+        from accounting.services.ai_invoice_extraction import extract_invoice_to_draft
+        from superadmin.ai_client import AIRefused
+
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({"error": "No file uploaded. Attach an image or PDF."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        ctype = getattr(upload, 'content_type', '') or ''
+        name = (getattr(upload, 'name', '') or '').lower()
+        if not (ctype.startswith('image/') or ctype == 'application/pdf'
+                or name.endswith(('.pdf', '.png', '.jpg', '.jpeg', '.webp'))):
+            return Response({"error": "Unsupported file type. Upload a PNG/JPG/WebP image or a PDF."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = extract_invoice_to_draft(upload)
+        except AIRefused as exc:
+            return Response({"error": str(exc), "code": "AI_NOT_ENABLED"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001 - provider/parse failures surface to the operator
+            return Response({"error": f"Scan failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def approve_invoice(self, request, pk=None):
