@@ -180,7 +180,7 @@ export default function APInvoicesRegister() {
 
                 {/* Filters */}
                 <div className="card" style={{ padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: '0.85rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+                    <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
                         <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
                         <input
                             value={search}
@@ -189,13 +189,16 @@ export default function APInvoicesRegister() {
                             style={{ width: '100%', padding: '0.55rem 0.75rem 0.55rem 2rem', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as 'all' | Source)} style={{ minWidth: 170 }}>
+                    {/* Explicit width beats the global `select { width: 100% }` in
+                        index.css, which would otherwise force each select onto its
+                        own row. flex:0 0 auto keeps them from growing. */}
+                    <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as 'all' | Source)} style={{ flex: '0 0 auto', width: 190 }}>
                         <option value="all">All Sources</option>
                         <option value="direct">Direct AP</option>
                         <option value="verified">Verified (3-way)</option>
                         <option value="verification">Verification (pending)</option>
                     </select>
-                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ minWidth: 160 }}>
+                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ flex: '0 0 auto', width: 170 }}>
                         <option value="">All Statuses</option>
                         {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
