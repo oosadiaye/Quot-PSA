@@ -995,6 +995,17 @@ def _truthy(v):
 # =============================================================================
 # LOGGING
 # =============================================================================
+# The rotating file handlers below open their files during
+# django.setup(), before any app code runs, so a missing directory
+# raises "ValueError: Unable to configure handler" and kills every
+# management command — check, migrate, runserver, pytest, all of it.
+# logs/ is gitignored (and git cannot track an empty directory anyway),
+# so a fresh clone never has it and only machines that happen to have
+# run the app before can boot. Create it here, next to the handlers
+# that need it.
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -1040,7 +1051,7 @@ LOGGING = {
         },
         'security_file': {
             '()': 'logging.handlers.RotatingFileHandler',
-            'filename': BASE_DIR / 'logs' / 'security.log',
+            'filename': LOG_DIR / 'security.log',
             'maxBytes': 10485760,  # 10MB
             'backupCount': 5,
             'formatter': 'verbose',
@@ -1048,7 +1059,7 @@ LOGGING = {
         },
         'error_file': {
             '()': 'logging.handlers.RotatingFileHandler',
-            'filename': BASE_DIR / 'logs' / 'django_error.log',
+            'filename': LOG_DIR / 'django_error.log',
             'maxBytes': 10485760,  # 10MB
             'backupCount': 5,
             'formatter': 'verbose',
@@ -1056,7 +1067,7 @@ LOGGING = {
         },
         'django_file': {
             '()': 'logging.handlers.RotatingFileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
+            'filename': LOG_DIR / 'django.log',
             'maxBytes': 10485760,  # 10MB
             'backupCount': 5,
             'formatter': 'verbose',
