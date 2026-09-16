@@ -403,6 +403,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
     # blank (vendor_name) — which is why the list was showing ₦0.00
     # across every row and an empty Vendor column.
     vendor_name    = serializers.CharField(source='vendor.name', read_only=True)
+    vendor_code    = serializers.CharField(source='vendor.code', read_only=True, allow_null=True)
     balance_due    = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     currency_code  = serializers.CharField(source='currency.code', read_only=True, allow_null=True)
     mda_name       = serializers.CharField(source='mda.name', read_only=True, allow_null=True)
@@ -422,7 +423,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
         model = VendorInvoice
         fields = [
             'id', 'invoice_number', 'reference', 'description',
-            'vendor', 'vendor_name',
+            'vendor', 'vendor_name', 'vendor_code',
             'invoice_date', 'due_date',
             'purchase_order', 'account', 'account_code', 'account_name',
             'mda', 'mda_name', 'fund', 'fund_name',

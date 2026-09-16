@@ -503,6 +503,7 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
     # in the response was ``vendor_name`` (a string), which forced the
     # client into fragile name-based lookups.
     vendor_id = serializers.ReadOnlyField(source='purchase_order.vendor_id')
+    vendor_code = serializers.ReadOnlyField(source='purchase_order.vendor.code')
     grn_number = serializers.ReadOnlyField(source='goods_received_note.grn_number')
     # Derived: how much vendor is actually owed after deducting any applied down payment
     net_payable = serializers.ReadOnlyField()
@@ -588,7 +589,7 @@ class InvoiceMatchingSerializer(serializers.ModelSerializer):
         model = InvoiceMatching
         fields = [
             'id', 'verification_number',
-            'purchase_order', 'po_number', 'vendor_name', 'vendor_id', 'goods_received_note', 'grn_number',
+            'purchase_order', 'po_number', 'vendor_name', 'vendor_id', 'vendor_code', 'goods_received_note', 'grn_number',
             'invoice_reference', 'invoice_date', 'invoice_amount', 'invoice_tax_amount', 'invoice_subtotal',
             'po_amount', 'grn_amount', 'match_type',
             'status', 'variance_amount', 'variance_percentage', 'variance_reason', 'matched_date',

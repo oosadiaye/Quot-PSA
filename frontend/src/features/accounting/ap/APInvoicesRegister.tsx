@@ -35,6 +35,7 @@ interface RegisterRow {
     source: Source;
     docNumber: string;
     vendorName: string;
+    supplierNumber: string | null;   // Vendor.code — the supplier's number
     reference: string;
     date: string | null;
     amount: number;
@@ -103,6 +104,7 @@ export default function APInvoicesRegister() {
                 source: match ? 'verified' : 'direct',
                 docNumber: inv.invoice_number,
                 vendorName: inv.vendor_name || (inv.vendor ? `#${inv.vendor}` : '—'),
+                supplierNumber: inv.vendor_code ?? null,
                 reference: inv.reference || '',
                 date: inv.invoice_date ?? null,
                 amount: parseFloat(inv.total_amount || '0'),
@@ -123,6 +125,7 @@ export default function APInvoicesRegister() {
                 source: 'verification' as const,
                 docNumber: m.verification_number,
                 vendorName: m.vendor_name || (m.vendor_id ? `#${m.vendor_id}` : '—'),
+                supplierNumber: m.vendor_code ?? null,
                 reference: m.invoice_reference || '',
                 date: m.invoice_date ?? null,
                 amount: parseFloat(m.invoice_amount || '0'),
@@ -261,7 +264,7 @@ export default function APInvoicesRegister() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
-                                {['Source', 'Document #', 'Vendor', 'Reference', 'Date', 'Status', 'PO #', 'Amount', ''].map((h, i) => (
+                                {['Source', 'Document #', 'Vendor', 'Supplier #', 'Reference', 'Date', 'Status', 'PO #', 'Amount', ''].map((h, i) => (
                                     <th key={h || i} style={{ padding: '0.85rem 1.1rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', textAlign: h === 'Amount' ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
@@ -285,6 +288,7 @@ export default function APInvoicesRegister() {
                                             )}
                                         </td>
                                         <td style={{ padding: '0.8rem 1.1rem' }}>{row.vendorName}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{row.supplierNumber || '—'}</td>
                                         <td title={row.reference} style={{ padding: '0.8rem 1.1rem', color: 'var(--color-text-muted)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
                                         <td style={{ padding: '0.8rem 1.1rem', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
                                         <td style={{ padding: '0.8rem 1.1rem' }}><StatusBadge status={row.status} /></td>
@@ -396,7 +400,7 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
 
                 {/* Key details */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', padding: '0.95rem 1rem', marginBottom: '1rem', background: 'rgba(79,70,229,0.04)', border: '1px solid rgba(79,70,229,0.12)', borderRadius: 8 }}>
-                    <Detail icon={<Building2 size={12} />} label="Vendor" value={row.vendorName} />
+                    <Detail icon={<Building2 size={12} />} label="Vendor" value={row.supplierNumber ? `${row.vendorName} · ${row.supplierNumber}` : row.vendorName} />
                     <Detail icon={<Calendar size={12} />} label="Invoice Date" value={fmtDate(inv.invoice_date)} />
                     <Detail icon={<Calendar size={12} />} label="Due Date" value={fmtDate(inv.due_date)} />
                     <Detail label="MDA" value={inv.mda_name || (inv.mda ? `#${inv.mda}` : '—')} />
