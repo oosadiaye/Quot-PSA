@@ -138,28 +138,83 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 models.Q(value_date__isnull=True, collection_date__lte=date_to)
             )
 
-        # --- Opening balance --------------------------------------------------
-        # Start with the account's current_balance, then back out every
-        # movement *within or after* the window. Whatever remains is the
-        # balance at the instant before the window begins.
-        opening_balance = account.current_balance or Decimal('0')
-        if date_from:
-            # Back out all movements from date_from onwards.
-            out_since = PaymentInstruction.objects.filter(
-                tsa_account=account, status='PROCESSED',
-                processed_at__date__gte=date_from,
-            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
-            in_since_pi = RevenueCollection.objects.filter(
-                tsa_account=account, status__in=['POSTED', 'RECONCILED'],
-                value_date__gte=date_from,
-            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
-            in_since_cd = RevenueCollection.objects.filter(
-                tsa_account=account, status__in=['POSTED', 'RECONCILED'],
-                value_date__isnull=True, collection_date__gte=date_from,
-            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
-            opening_balance = (
-                opening_balance + out_since - in_since_pi - in_since_cd
+        # --- GL cash-account movements ---------------------------------------
+        # RevenueCollection and PaymentInstruction are the *documents* an
+        # officer files; they are not the whole story. Cash also moves
+        # through GL journals that have no such document — vendor
+        # registration fees, advance disbursements, inter-TSA transfers,
+        # sweeps — every one of which posts to this account's
+        # ``gl_cash_account``. The ledger read none of them, so a balance
+        # built entirely from journals (as Zenith Bank TSA's 10,000 was,
+        # from a single vendor-registration debit) itemised to nothing.
+        #
+        # Revenue and payment journals are excluded here because their
+        # movements are already shown from the two document sources above;
+        # including the GL twin would double them.
+        from accounting.models.gl import JournalLine
+
+        DOC_SOURCE_MODULES = (
+            'revenue', 'revenue_collection',
+            'payment', 'payment_voucher', 'payment_instruction',
+        )
+        gl_window_qs = JournalLine.objects.none()
+        if account.gl_cash_account_id:
+            gl_window_qs = (
+                JournalLine.objects
+                .filter(account_id=account.gl_cash_account_id, header__status='Posted')
+                .exclude(header__source_module__in=DOC_SOURCE_MODULES)
+                .select_related('header')
             )
+            if date_from:
+                gl_window_qs = gl_window_qs.filter(header__posting_date__gte=date_from)
+            if date_to:
+                gl_window_qs = gl_window_qs.filter(header__posting_date__lte=date_to)
+
+        # The authoritative cash position is the GL cash account's own net —
+        # a debit raises cash, a credit lowers it — across *every* line,
+        # revenue and payment included. It is independent of the
+        # denormalised ``current_balance``, which drifts when a posting path
+        # touches the GL but not the field. Reported alongside so a drift is
+        # surfaced, not hidden.
+        gl_cash_balance = Decimal('0')
+        if account.gl_cash_account_id:
+            gl_all = (
+                JournalLine.objects
+                .filter(account_id=account.gl_cash_account_id, header__status='Posted')
+                .aggregate(dr=Sum('debit'), cr=Sum('credit'))
+            )
+            gl_cash_balance = (gl_all['dr'] or Decimal('0')) - (gl_all['cr'] or Decimal('0'))
+
+        # --- Opening balance --------------------------------------------------
+        # Anchored on the movements themselves, not current_balance: opening
+        # is the net of everything before the window (nil for full history,
+        # since a TSA row carries no opening-balance field), so the running
+        # column ends at what the listed movements actually produce.
+        opening_balance = Decimal('0')
+        if date_from:
+            out_before = PaymentInstruction.objects.filter(
+                tsa_account=account, status='PROCESSED',
+                processed_at__date__lt=date_from,
+            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+            in_before_vd = RevenueCollection.objects.filter(
+                tsa_account=account, status__in=['POSTED', 'RECONCILED'],
+                value_date__lt=date_from,
+            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+            in_before_cd = RevenueCollection.objects.filter(
+                tsa_account=account, status__in=['POSTED', 'RECONCILED'],
+                value_date__isnull=True, collection_date__lt=date_from,
+            ).aggregate(s=Sum('amount'))['s'] or Decimal('0')
+            gl_before = Decimal('0')
+            if account.gl_cash_account_id:
+                gl_b = (
+                    JournalLine.objects
+                    .filter(account_id=account.gl_cash_account_id, header__status='Posted',
+                            header__posting_date__lt=date_from)
+                    .exclude(header__source_module__in=DOC_SOURCE_MODULES)
+                    .aggregate(dr=Sum('debit'), cr=Sum('credit'))
+                )
+                gl_before = (gl_b['dr'] or Decimal('0')) - (gl_b['cr'] or Decimal('0'))
+            opening_balance = in_before_vd + in_before_cd - out_before + gl_before
 
         # --- Build merged, date-ordered entry list ----------------------------
         entries = []
@@ -196,6 +251,24 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'source_id': rc.id,
             })
 
+        for jl in gl_window_qs:
+            h = jl.header
+            # On a cash (asset) account a debit is money in, a credit money
+            # out — the reverse of the bank-statement columns, so they swap.
+            debit = jl.credit or Decimal('0')    # cash out -> ledger debit
+            credit = jl.debit or Decimal('0')    # cash in  -> ledger credit
+            entries.append({
+                'date': h.posting_date,
+                'type': 'CREDIT' if credit else 'DEBIT',
+                'reference': h.reference_number or f'JV-{h.id}',
+                'narration': h.description or '',
+                'counterparty': '',
+                'debit': debit,
+                'credit': credit,
+                'source': 'JOURNAL',
+                'source_id': h.id,
+            })
+
         # Chronological; tie-break by source so debits and credits on the same
         # day are deterministically ordered.
         entries.sort(key=lambda e: (e['date'] or datetime.min.date(), e['source']))
@@ -209,6 +282,9 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             e['running_balance'] = running
             total_debits += e['debit']
             total_credits += e['credit']
+
+        current_balance = account.current_balance or Decimal('0')
+        balance_reconciled = abs(gl_cash_balance - current_balance) < Decimal('0.01')
 
         return Response({
             'account': {
@@ -226,6 +302,13 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'closing_balance': running,
             'total_debits': total_debits,
             'total_credits': total_credits,
+            # Authoritative GL cash position and whether the stored
+            # current_balance agrees with it. When ``balance_reconciled`` is
+            # false the field has drifted and the ledger's closing is the
+            # figure to trust; ``balance_discrepancy`` is current minus GL.
+            'gl_cash_balance': gl_cash_balance,
+            'balance_reconciled': balance_reconciled,
+            'balance_discrepancy': current_balance - gl_cash_balance,
             'entries': entries,
         })
 
@@ -365,6 +448,87 @@ class TreasuryAccountViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'current_balance': str(target.current_balance),
             },
             'amount': str(raw_amount),
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='record-transaction')
+    def record_transaction(self, request, pk=None):
+        """Record a manual cash-book entry (incoming/outgoing) on this TSA.
+
+        ``POST /api/.../tsa-accounts/{id}/record-transaction/``
+
+        Body:
+          - ``direction`` ('IN' | 'OUT', required)
+          - ``amount``    (decimal string, required, > 0)
+          - ``contra_account`` (int, required — the GL account forming
+            the other leg of the entry)
+          - ``date``      (YYYY-MM-DD, optional — defaults to today)
+          - ``narration`` (str, optional)
+
+        Every movement posts a balanced JV to the TSA's ``gl_cash_account``
+        via ``IPSASJournalService.post_journal`` and updates
+        ``current_balance`` under the same lock — so cash never moves on a
+        TSA without a matching GL posting, and the balance cannot drift
+        from the ledger. The entry appears in this account's ledger.
+
+        Returns 201 with the journal id + reference; 400 on validation
+        failure; 404 when the contra account does not exist.
+        """
+        from datetime import datetime as _dt
+        from accounting.services.treasury_service import TSABalanceService
+        from accounting.models.gl import Account
+
+        account = self.get_object()
+
+        direction = (request.data.get('direction') or '').upper()
+        raw_amount = request.data.get('amount')
+        contra_id = request.data.get('contra_account')
+        if not (direction and raw_amount and contra_id):
+            return Response(
+                {'error': 'direction, amount and contra_account are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            contra = Account.objects.get(pk=int(contra_id))
+        except (TypeError, ValueError):
+            return Response({'error': 'contra_account must be an integer id.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Account.DoesNotExist:
+            return Response({'error': f'Contra account #{contra_id} not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        entry_date_raw = request.data.get('date')
+        entry_date = None
+        if entry_date_raw:
+            try:
+                entry_date = _dt.strptime(entry_date_raw, '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return Response({'error': 'date must be YYYY-MM-DD.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        narration = (request.data.get('narration') or '').strip()
+
+        try:
+            journal = TSABalanceService.record_cash_movement(
+                tsa=account,
+                direction=direction,
+                amount=raw_amount,
+                contra_account=contra,
+                actor=request.user,
+                entry_date=entry_date,
+                narration=narration,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        account.refresh_from_db(fields=['current_balance'])
+        return Response({
+            'status': 'recorded',
+            'journal_id': journal.pk,
+            'journal_reference': journal.reference_number,
+            'direction': direction,
+            'amount': str(raw_amount),
+            'current_balance': str(account.current_balance),
         }, status=status.HTTP_201_CREATED)
 
 
