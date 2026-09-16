@@ -95,6 +95,7 @@ const AppropriationForm = lazy(() => import('./pages/gov/AppropriationForm'));
 const AppropriationDetail = lazy(() => import('./pages/gov/AppropriationDetail'));
 const AppropriationTransactions = lazy(() => import('./pages/gov/AppropriationTransactions'));
 const VirementForm = lazy(() => import('./pages/gov/VirementForm'));
+const VirementList = lazy(() => import('./pages/gov/VirementList'));
 const WarrantForm = lazy(() => import('./pages/gov/WarrantForm'));
 const WarrantDetail = lazy(() => import('./pages/gov/WarrantDetail'));
 const RevenueBudgetForm = lazy(() => import('./pages/gov/RevenueBudgetForm'));
@@ -750,6 +751,7 @@ function App() {
                       <Route path="/accounting/revenue-collections/new" element={<ProtectedRoute><RevenueCollectionForm /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections/:id" element={<ProtectedRoute><RevenueCollectionDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/new" element={<ProtectedRoute><AppropriationForm /></ProtectedRoute>} />
+                      <Route path="/budget/virements" element={<ProtectedRoute><VirementList /></ProtectedRoute>} />
                       <Route path="/budget/virements/new" element={<ProtectedRoute><VirementForm /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id" element={<ProtectedRoute><AppropriationDetail /></ProtectedRoute>} />
                       <Route path="/budget/appropriations/:id/transactions" element={<ProtectedRoute><AppropriationTransactions /></ProtectedRoute>} />

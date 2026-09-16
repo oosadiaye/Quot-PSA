@@ -117,7 +117,7 @@ const menuItems: MenuItem[] = [
         requiredPerm: 'view_budget', module: 'budget',
         subItems: [
             { name: 'Appropriations', path: '/budget/appropriations', icon: FileText },
-            { name: 'Virement (Transfer)', path: '/budget/virements/new', icon: ArrowRightLeft },
+            { name: 'Virement (Transfer)', path: '/budget/virements', icon: ArrowRightLeft },
             { name: 'Revenue Budget', path: '/budget/revenue-budget', icon: Banknote },
             { name: 'Warrants / AIE', path: '/budget/warrants', icon: CreditCard },
             { name: 'Warrant Utilization', path: '/budget/warrant-utilization', icon: Scale },
