@@ -253,6 +253,77 @@ class TSABalanceService:
             return journal
 
     @classmethod
+    def gl_cash_balance(cls, tsa) -> 'Decimal':
+        """The authoritative cash position: the net of the TSA's GL cash
+        account over every posted journal line (a debit raises cash, a
+        credit lowers it). This is the number ``current_balance`` should
+        equal — double-entry is the source of truth, the denormalised
+        field is a cache of it."""
+        from decimal import Decimal as _Decimal
+        from django.db.models import Sum
+        from accounting.models.gl import JournalLine
+
+        if not tsa.gl_cash_account_id:
+            return _Decimal('0')
+        agg = (
+            JournalLine.objects
+            .filter(account_id=tsa.gl_cash_account_id, header__status='Posted')
+            .aggregate(dr=Sum('debit'), cr=Sum('credit'))
+        )
+        return (agg['dr'] or _Decimal('0')) - (agg['cr'] or _Decimal('0'))
+
+    @classmethod
+    def reconcile_balance(cls, tsa) -> 'Decimal':
+        """Set one TSA's ``current_balance`` to its GL cash net and return it.
+
+        Repairs drift from any posting path that touched the GL cash
+        account without updating the field (e.g. vendor advances). Idempotent
+        — running it twice leaves the same result.
+        """
+        from django.db.models import F  # noqa: F401  (kept for symmetry)
+        from django.utils import timezone
+        from accounting.models.treasury import TreasuryAccount
+
+        gl_net = cls.gl_cash_balance(tsa)
+        TreasuryAccount.objects.filter(pk=tsa.pk).update(
+            current_balance=gl_net, updated_at=timezone.now(),
+        )
+        logger.info(
+            'TSA RECONCILE: %s | %s -> %s',
+            tsa.account_number, tsa.current_balance, gl_net,
+        )
+        return gl_net
+
+    @classmethod
+    def reconcile_from_gl_account(cls, gl_account) -> None:
+        """Reconcile every TSA that uses ``gl_account`` as its cash control.
+
+        Called right after a posting that credits/debits a TSA cash GL
+        account outside the balance-updating services (vendor advances,
+        their clearances), so ``current_balance`` never lags the GL for
+        those paths again.
+        """
+        from accounting.models.treasury import TreasuryAccount
+
+        acct_id = getattr(gl_account, 'pk', gl_account)
+        for tsa in TreasuryAccount.objects.filter(gl_cash_account_id=acct_id):
+            cls.reconcile_balance(tsa)
+
+    @classmethod
+    def reconcile_all(cls, *, dry_run: bool = False):
+        """Reconcile every TSA with a GL cash account. Returns a list of
+        ``(tsa, before, after)`` for reporting. ``dry_run`` computes the
+        target without writing."""
+        from accounting.models.treasury import TreasuryAccount
+
+        out = []
+        for tsa in TreasuryAccount.objects.exclude(gl_cash_account__isnull=True):
+            before = tsa.current_balance
+            after = cls.gl_cash_balance(tsa) if dry_run else cls.reconcile_balance(tsa)
+            out.append((tsa, before, after))
+        return out
+
+    @classmethod
     def record_cash_movement(
         cls,
         *,
