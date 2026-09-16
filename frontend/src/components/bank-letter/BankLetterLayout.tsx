@@ -76,7 +76,7 @@ export default function BankLetterLayout({ batch, settings }: BankLetterLayoutPr
         BANK PAYMENT(S)/CONFIRMATION(S)
       </div>
 
-      <table>
+      <table data-plain-table>
         <thead>
           <tr>
             <th style={{ width: '6%' }}>S/N</th>
