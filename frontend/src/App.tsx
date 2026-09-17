@@ -91,6 +91,7 @@ const NoObjectionList = lazy(() => import('./pages/gov').then(m => ({ default: m
 
 // ── Government Form Pages ────────────────────────────────
 const PaymentVoucherForm = lazy(() => import('./pages/gov/PaymentVoucherForm'));
+const AdvanceRequestForm = lazy(() => import('./pages/gov/AdvanceRequestForm'));
 const RevenueCollectionForm = lazy(() => import('./pages/gov/RevenueCollectionForm'));
 const AppropriationForm = lazy(() => import('./pages/gov/AppropriationForm'));
 const AppropriationDetail = lazy(() => import('./pages/gov/AppropriationDetail'));
@@ -752,6 +753,7 @@ function App() {
 
                       {/* ── Government Form Pages ────────────────── */}
                       <Route path="/accounting/payment-vouchers/new" element={<ProtectedRoute><PaymentVoucherForm /></ProtectedRoute>} />
+                      <Route path="/accounting/advance-requests/new" element={<ProtectedRoute><AdvanceRequestForm /></ProtectedRoute>} />
                       <Route path="/accounting/payment-vouchers/:id" element={<ProtectedRoute><PaymentVoucherDetail /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections/new" element={<ProtectedRoute><RevenueCollectionForm /></ProtectedRoute>} />
                       <Route path="/accounting/revenue-collections/:id" element={<ProtectedRoute><RevenueCollectionDetail /></ProtectedRoute>} />

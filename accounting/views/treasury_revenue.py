@@ -624,6 +624,80 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         }
         return Response(out)
 
+    @action(detail=False, methods=['post'], url_path='create-advance')
+    def create_advance(self, request):
+        """Create a DRAFT Payment Voucher from an advance request.
+
+        Backs the Advance Request page: the operator picks a budget line
+        (appropriation) plus payee / amount / purpose, and we materialise a
+        draft PV (NCoA + TSA resolved server-side) that shows up in the PV
+        list for the normal approval -> payment workflow.
+        """
+        from decimal import Decimal, InvalidOperation
+        from budget.models import Appropriation
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_advance, PVFactoryError,
+        )
+
+        appro_id = request.data.get('appropriation')
+        if not appro_id:
+            return Response(
+                {'error': 'A budget line (appropriation) is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        appro = (
+            Appropriation.objects.select_related(
+                'administrative', 'economic', 'functional',
+                'programme', 'fund', 'geographic',
+            ).filter(pk=appro_id).first()
+        )
+        if appro is None:
+            return Response(
+                {'error': 'Budget line not found.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payee_name = (request.data.get('payee_name') or '').strip()
+        purpose = (request.data.get('purpose') or '').strip()
+        if not payee_name:
+            return Response(
+                {'error': 'Payee / beneficiary name is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not purpose:
+            return Response(
+                {'error': 'Purpose of the advance is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+        except (InvalidOperation, TypeError):
+            amount = Decimal('0')
+        if amount <= 0:
+            return Response(
+                {'error': 'Advance amount must be greater than zero.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            pv = create_draft_voucher_from_advance(
+                appropriation=appro,
+                payee_name=payee_name,
+                amount=amount,
+                advance_type=(request.data.get('advance_type') or 'Advance').strip(),
+                purpose=purpose,
+                payee_bank=(request.data.get('payee_bank') or '').strip(),
+                payee_account=(request.data.get('payee_account') or '').strip(),
+                actor=request.user,
+            )
+        except PVFactoryError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            PaymentVoucherSerializer(pv).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve a PV.

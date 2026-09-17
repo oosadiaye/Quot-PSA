@@ -268,3 +268,74 @@ def create_draft_voucher_from_mobilization(
         updated_by=actor,
     )
     return pv
+
+
+@transaction.atomic
+def create_draft_voucher_from_advance(
+    *,
+    appropriation,
+    payee_name: str,
+    amount,
+    advance_type: str = "Advance",
+    purpose: str = "",
+    payee_bank: str = "",
+    payee_account: str = "",
+    actor=None,
+) -> "PaymentVoucherGov":
+    """Create a DRAFT PaymentVoucherGov from an advance request.
+
+    An advance is a pre-payment (mobilisation, imprest, staff, travel, ...)
+    that is not tied to a vendor invoice. The operator picks a budget line
+    (Appropriation) which supplies the NCoA classification; we resolve the
+    composite NCoA code and the Treasury account, then materialise a draft
+    PV so the advance flows through the normal review -> approval -> payment
+    workflow and appears in the PV list immediately.
+
+    Raises PVFactoryError when prerequisites are missing (TSA, NCoA).
+    """
+    from accounting.models.gl import TransactionSequence
+    from accounting.models.treasury import PaymentVoucherGov, TreasuryAccount
+    from accounting.services.ncoa_service import NCoAService, NCoAResolutionError
+
+    tsa = TreasuryAccount.objects.filter(is_active=True).first()
+    if tsa is None:
+        raise PVFactoryError(
+            "No active Treasury Account configured. Set up a TSA before "
+            "requesting an advance."
+        )
+
+    # Resolve the composite NCoA code from the budget line's six segments.
+    try:
+        ncoa = NCoAService.resolve_code(
+            admin_code=appropriation.administrative.code,
+            economic_code=appropriation.economic.code,
+            functional_code=appropriation.functional.code,
+            programme_code=appropriation.programme.code,
+            fund_code=appropriation.fund.code,
+            geo_code=appropriation.geographic.code,
+        )
+    except NCoAResolutionError as e:
+        raise PVFactoryError(f"Could not resolve NCoA for the budget line: {e}")
+
+    amount = Decimal(str(amount))
+    narration = f"[{advance_type}] {purpose}".strip()[:500]
+    source = f"ADV/{getattr(appropriation, 'budget_code', '') or appropriation.pk}"[:100]
+
+    pv = PaymentVoucherGov.objects.create(
+        voucher_number=TransactionSequence.get_next('payment_voucher', prefix='PV-'),
+        payment_type="ADVANCE",
+        ncoa_code=ncoa,
+        appropriation=appropriation,
+        payee_name=(payee_name or "")[:200],
+        payee_account=(payee_account or "")[:20],
+        payee_bank=(payee_bank or "")[:100],
+        gross_amount=amount,
+        wht_amount=Decimal("0"),
+        net_amount=amount,
+        narration=narration,
+        tsa_account=tsa,
+        source_document=source,
+        status="DRAFT",
+        created_by=actor,
+    )
+    return pv
