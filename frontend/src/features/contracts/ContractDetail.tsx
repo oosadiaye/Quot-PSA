@@ -1152,7 +1152,7 @@ function StatCard({ label, value, footer, accent }: StatCardProps) {
   return (
     <div
       style={{
-        ...card({ pad: '1.25rem' }),
+        ...card({ pad: '1rem 1.1rem' }),
         ...(isIndigo ? statCardIndigo : null),
       }}
     >
@@ -2031,8 +2031,8 @@ const pageGrid: React.CSSProperties = {
 
 function card(opts?: { pad?: string | number }): React.CSSProperties {
   return {
-    background: '#fff',
-    border: '1px solid #e2e8f0',
+    background: 'var(--color-surface, #fff)',
+    border: '1px solid var(--color-border, #e2e8f0)',
     borderRadius: 16,
     boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
     padding: opts?.pad ?? '1.25rem',
@@ -2195,7 +2195,7 @@ const stepperConnector = ({ filled }: { filled: boolean }): React.CSSProperties 
 // Stats grid
 const statsGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
   gap: '1rem',
 };
 const statTopRow: React.CSSProperties = {
@@ -2203,13 +2203,17 @@ const statTopRow: React.CSSProperties = {
   marginBottom: '0.75rem',
 };
 const statLabel: React.CSSProperties = {
-  fontSize: 10, fontWeight: 700, color: '#94a3b8',
-  textTransform: 'uppercase', letterSpacing: '0.15em',
+  fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted, #94a3b8)',
+  textTransform: 'uppercase', letterSpacing: '0.08em',
   margin: 0,
 };
 const statValue: React.CSSProperties = {
-  fontSize: '1.6rem', fontWeight: 900, color: '#0f172a',
-  letterSpacing: '-0.025em', margin: 0,
+  // Sized to fit typical NGN amounts without clipping; tabular figures
+  // keep the digits aligned like the rest of the ledger surfaces.
+  fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-text, #0f172a)',
+  letterSpacing: '-0.02em', margin: 0,
+  whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
+  overflow: 'hidden', textOverflow: 'ellipsis',
 };
 const statSubtle: React.CSSProperties = {
   fontSize: 10, fontWeight: 500, color: '#94a3b8',
