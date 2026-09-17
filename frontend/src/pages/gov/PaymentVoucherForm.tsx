@@ -22,43 +22,22 @@
  */
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { formatDate } from '@/utils/date';
+import { formatThousandsInput, stripThousands } from '@/utils/number';
 import { useNavigate } from 'react-router-dom';
-import { Save, AlertCircle, Receipt, Search, FileText, Building2 } from 'lucide-react';
+import { Save, AlertCircle, Receipt, Search, FileText, Building2, X } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
 import { useCreatePV, useNCoASegments } from '../../hooks/useGovForms';
 import apiClient from '../../api/client';
-import { useWithholdingTaxes, usePaymentDeductionCodes } from '../../features/accounting/hooks/useAccountingEnhancements';
-import { Plus, X } from 'lucide-react';
+import {
+    DeductionLinesEditor,
+    serializeDeductions,
+    type DeductionRow,
+} from './DeductionLinesEditor';
 
-type DeductionType =
-    | 'WHT' | 'STAMP_DUTY' | 'VAT_WITHHELD'
-    | 'HANDLING' | 'INSURANCE' | 'RETENTION' | 'OTHER';
-
-// A deduction line is now driven entirely by a chosen master setting —
-// either a Withholding Tax code or a Payment Deduction code. The setting
-// carries the GL account and the basis (percentage of gross or a fixed
-// amount); the line's GL + amount are derived, never typed by hand, so
-// what posts always matches the configured setting.
-interface DeductionRow {
-    _uid: number;
-    selection: string;          // 'wht:<id>' | 'ded:<id>' | '' — the picked setting
-    deduction_type: DeductionType;
-    description: string;
-    withholding_tax: string;    // WHT code FK id (string), '' when none
-    deduction_code: string;     // PaymentDeductionCode FK id (string), '' when none
-    calc: 'percentage' | 'fixed';
-    rate: string;               // percent — informational + recompute basis
-    amount: string;             // computed from the setting + gross
-    gl_account: string;         // GL FK id (string), derived from the setting
-    gl_label: string;           // "code — name" for the read-only GL display
-    basis: string;              // "5%" or "₦1,500.00" for display
-}
-
-// Compact field style retained for the dense deduction-line grid and the
-// computed Total/Net display boxes, which need a tighter footprint than the
-// canonical full-size `.input` class.
+// Compact field style retained for the computed Total/Net display boxes,
+// which need a tighter footprint than the canonical full-size `.input` class.
 const inputStyle: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.625rem', borderRadius: '6px',
     border: '2.5px solid var(--color-border)', background: 'var(--color-surface)',
@@ -141,112 +120,20 @@ export default function PaymentVoucherForm() {
         setForm(prev => ({ ...prev, [field]: value }));
 
     // ── Deduction lines ───────────────────────────────────────────────
-    // Each row posts one CR line to the deduction's GL account at
-    // payment time. Net paid to vendor = gross − Σ amount.
+    // Each row posts one CR line to its setting's GL account at payment
+    // time. Net paid to vendor = gross − Σ amount. The grid + all its
+    // logic live in the shared DeductionLinesEditor.
     const [deductions, setDeductions] = useState<DeductionRow[]>([]);
-    const nextDeductionUid = useRef(1);
-
-    // Deduction settings — both masters feed one searchable dropdown.
-    const { data: whtData } = useWithholdingTaxes({ is_active: true });
-    const whtCodes: Array<{ id: number; code: string; name: string; rate: number | string; withholding_account?: number; withholding_account_display?: { code: string; name: string } | null }> =
-        Array.isArray(whtData) ? whtData : (whtData?.results ?? []);
-    const { data: dedData } = usePaymentDeductionCodes({ is_active: true });
-    const deductionCodes: Array<{ id: number; code: string; name: string; deduction_type: DeductionType; deduction_type_display: string; calculation_method: 'percentage' | 'fixed'; rate: string; fixed_amount: string; gl_account: number | null; gl_account_code: string | null; gl_account_name: string | null }> =
-        Array.isArray(dedData) ? dedData : (dedData?.results ?? []);
-
-    // One flat option list: WHT codes first, then deduction codes. Both the
-    // label (code — name) and the sublabel (category · basis) are searchable
-    // by SearchableSelect, so typing "handling", "WHT", "5%" or a code all work.
-    const deductionOptions = useMemo(() => ([
-        ...whtCodes.map(w => ({
-            value: `wht:${w.id}`,
-            label: `${w.code} — ${w.name}`,
-            sublabel: `Withholding Tax · ${parseFloat(String(w.rate || '0'))}%`,
-        })),
-        ...deductionCodes.map(c => ({
-            value: `ded:${c.id}`,
-            label: `${c.code} — ${c.name}`,
-            sublabel: `${c.deduction_type_display} · ${c.calculation_method === 'fixed' ? fmtNGN(c.fixed_amount) : parseFloat(String(c.rate || '0')) + '%'}`,
-        })),
-    ]), [whtCodes, deductionCodes]);
-
-    const addDeduction = () => {
-        setDeductions(prev => [...prev, {
-            _uid: nextDeductionUid.current++,
-            selection: '', deduction_type: 'OTHER', description: '',
-            withholding_tax: '', deduction_code: '', calc: 'percentage',
-            rate: '', amount: '0', gl_account: '', gl_label: '', basis: '',
-        }]);
-    };
-    const removeDeduction = (uid: number) =>
-        setDeductions(prev => prev.filter(d => d._uid !== uid));
-
-    // Pick a setting → derive type / GL / rate / amount from it. Nothing on
-    // the line is typed by hand, so the posted credit always matches config.
-    const selectDeduction = (uid: number, value: string) =>
-        setDeductions(prev => prev.map(d => {
-            if (d._uid !== uid) return d;
-            const gross = parseFloat(form.gross_amount) || 0;
-            if (!value) {
-                return {
-                    ...d, selection: '', deduction_type: 'OTHER', description: '',
-                    withholding_tax: '', deduction_code: '', calc: 'percentage',
-                    rate: '', amount: '0', gl_account: '', gl_label: '', basis: '',
-                };
-            }
-            const [src, idStr] = value.split(':');
-            if (src === 'wht') {
-                const w = whtCodes.find(x => String(x.id) === idStr);
-                if (!w) return d;
-                const rate = parseFloat(String(w.rate || '0'));
-                const amount = gross > 0 ? gross * rate / 100 : 0;
-                return {
-                    ...d, selection: value, deduction_type: 'WHT',
-                    withholding_tax: idStr, deduction_code: '', calc: 'percentage',
-                    rate: String(rate), amount: amount.toFixed(2), basis: `${rate}%`,
-                    gl_account: w.withholding_account ? String(w.withholding_account) : '',
-                    gl_label: w.withholding_account_display
-                        ? `${w.withholding_account_display.code} — ${w.withholding_account_display.name}` : '',
-                    description: `${w.code} ${w.name}`,
-                };
-            }
-            const c = deductionCodes.find(x => String(x.id) === idStr);
-            if (!c) return d;
-            const isPct = c.calculation_method === 'percentage';
-            const rate = parseFloat(String(c.rate || '0'));
-            const fixed = parseFloat(String(c.fixed_amount || '0'));
-            const amount = isPct ? (gross > 0 ? gross * rate / 100 : 0) : fixed;
-            return {
-                ...d, selection: value, deduction_type: c.deduction_type,
-                withholding_tax: '', deduction_code: idStr,
-                calc: c.calculation_method,
-                rate: isPct ? String(rate) : '0', amount: amount.toFixed(2),
-                basis: isPct ? `${rate}%` : fmtNGN(fixed),
-                gl_account: c.gl_account ? String(c.gl_account) : '',
-                gl_label: c.gl_account_code ? `${c.gl_account_code} — ${c.gl_account_name}` : '',
-                description: `${c.code} ${c.name}`,
-            };
-        }));
+    const grossNum = parseFloat(form.gross_amount) || 0;
 
     const totalDeductions = useMemo(
         () => deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0),
         [deductions],
     );
-    const netAmount = useMemo(() => {
-        const gross = parseFloat(form.gross_amount) || 0;
-        return Math.max(0, gross - totalDeductions);
-    }, [form.gross_amount, totalDeductions]);
-
-    // Recompute every percentage line whenever the gross changes — fixed
-    // lines keep their configured flat amount.
-    useEffect(() => {
-        const gross = parseFloat(form.gross_amount) || 0;
-        setDeductions(prev => prev.map(d => {
-            if (!d.selection || d.calc !== 'percentage') return d;
-            const rate = parseFloat(d.rate || '0');
-            return { ...d, amount: (gross > 0 ? gross * rate / 100 : 0).toFixed(2) };
-        }));
-    }, [form.gross_amount]);
+    const netAmount = useMemo(
+        () => Math.max(0, grossNum - totalDeductions),
+        [grossNum, totalDeductions],
+    );
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -351,17 +238,7 @@ export default function PaymentVoucherForm() {
             // wht_amount kept at 0 on the header when deduction lines are used;
             // the backend reads the sum of WHT-typed deduction rows.
             wht_amount: deductions.length > 0 ? '0' : (form.wht_amount || '0'),
-            deductions: deductions
-                .filter(d => d.selection && parseFloat(d.amount) > 0 && d.gl_account)
-                .map(d => ({
-                    deduction_type: d.deduction_type,
-                    description: d.description,
-                    withholding_tax: d.withholding_tax ? parseInt(d.withholding_tax) : null,
-                    deduction_code: d.deduction_code ? parseInt(d.deduction_code) : null,
-                    rate: parseFloat(d.rate || '0') || 0,
-                    amount: parseFloat(d.amount),
-                    gl_account: parseInt(d.gl_account),
-                })),
+            deductions: serializeDeductions(deductions),
             narration: form.narration,
             source_document: form.source_document,
             invoice_number: form.invoice_number,
@@ -565,9 +442,13 @@ export default function PaymentVoucherForm() {
                             <div>
                                 <label style={labelStyle}>Gross Amount (NGN)<span className="required-mark"> *</span></label>
                                 <input className="input" style={{ fontSize: 'var(--text-base)', fontWeight: 700 }}
-                                    type="number" step="0.01" min="0.01" required
-                                    value={form.gross_amount}
-                                    onChange={e => set('gross_amount', e.target.value)} placeholder="0.00" />
+                                    type="text" inputMode="decimal" required
+                                    value={formatThousandsInput(form.gross_amount)}
+                                    onChange={e => {
+                                        const raw = stripThousands(e.target.value);
+                                        if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) set('gross_amount', raw);
+                                    }}
+                                    placeholder="0.00" />
                             </div>
                             <div>
                                 <label style={labelStyle}>Total Deductions</label>
@@ -595,99 +476,12 @@ export default function PaymentVoucherForm() {
                             </div>
                         </div>
 
-                        {/* Deduction lines */}
-                        <div style={{
-                            border: '1px solid var(--color-border)',
-                            borderRadius: '8px',
-                            padding: '0.75rem',
-                            background: 'rgba(0,0,0,0.02)',
-                        }}>
-                            <div style={{
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                marginBottom: '0.5rem',
-                            }}>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
-                                    Deduction Lines · GL &amp; amount posted from the setting
-                                </span>
-                                <button type="button"
-                                    onClick={() => addDeduction()}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '0.25rem',
-                                        padding: '0.3rem 0.55rem', fontSize: '0.7rem',
-                                        borderRadius: '6px', border: '1px solid var(--color-border)',
-                                        background: 'var(--color-surface)', cursor: 'pointer',
-                                        color: 'var(--color-text)',
-                                    }}>
-                                    <Plus size={12} /> Add Deduction
-                                </button>
-                            </div>
-                            {deductions.length === 0 ? (
-                                <p style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', margin: '0.5rem 0 0' }}>
-                                    No deductions. Add a line and pick a Withholding Tax or Payment
-                                    Deduction setting — its GL account and rate/amount post automatically.
-                                </p>
-                            ) : (
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '2.4fr 0.7fr 1fr 1.8fr auto',
-                                    gap: '0.4rem', padding: '0 0.1rem',
-                                    fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
-                                    letterSpacing: '0.04em', color: 'var(--color-text-muted)',
-                                }}>
-                                    <span>Deduction setting</span>
-                                    <span style={{ textAlign: 'center' }}>Basis</span>
-                                    <span style={{ textAlign: 'right' }}>Amount</span>
-                                    <span>GL account</span>
-                                    <span />
-                                </div>
-                            )}
-                            {deductions.map(d => (
-                                <div key={d._uid} style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '2.4fr 0.7fr 1fr 1.8fr auto',
-                                    gap: '0.4rem',
-                                    marginTop: '0.4rem',
-                                    alignItems: 'center',
-                                }}>
-                                    <SearchableSelect
-                                        options={deductionOptions}
-                                        value={d.selection}
-                                        onChange={(v) => selectDeduction(d._uid, v)}
-                                        placeholder="Search WHT or deduction setting…"
-                                    />
-                                    <div style={{
-                                        fontSize: '0.72rem', fontWeight: 600, textAlign: 'center',
-                                        color: 'var(--color-text-muted)',
-                                    }}>
-                                        {d.selection ? d.basis : '—'}
-                                    </div>
-                                    <div style={{
-                                        ...inputStyle, fontSize: '0.72rem', fontWeight: 700,
-                                        background: 'rgba(234,179,8,0.06)', color: '#ca8a04',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                                    }}>
-                                        {fmtNGN(d.amount)}
-                                    </div>
-                                    <div style={{
-                                        fontSize: '0.68rem', display: 'flex', alignItems: 'center',
-                                        overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                                        color: d.gl_label ? 'var(--color-text)' : '#ef4444',
-                                    }} title={d.gl_label || 'The selected setting has no GL account'}>
-                                        {d.gl_label || 'No GL on setting'}
-                                    </div>
-                                    <button type="button"
-                                        onClick={() => removeDeduction(d._uid)}
-                                        title="Remove deduction"
-                                        style={{
-                                            padding: '0.3rem', border: 'none', background: 'none',
-                                            cursor: 'pointer', color: '#ef4444',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        }}>
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
+                        {/* Deduction lines — shared editor (create + draft edit) */}
+                        <DeductionLinesEditor
+                            gross={grossNum}
+                            deductions={deductions}
+                            setDeductions={setDeductions}
+                        />
 
                         <div style={{ marginTop: '1.5rem' }}>
                             <label style={labelStyle}>Narration<span className="required-mark"> *</span></label>
