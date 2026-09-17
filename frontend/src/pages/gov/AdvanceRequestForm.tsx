@@ -81,10 +81,14 @@ export default function AdvanceRequestForm() {
         staleTime: 5 * 60 * 1000,
     });
 
+    // The picker is keyed on the vendor CODE: the dropdown shows
+    // "code — name" plus the TIN so the operator can identify a vendor by
+    // number or name, while the selected (closed) field shows just the code.
     const vendorOptions = useMemo(() => (vendors || []).map(v => ({
         value: String(v.id),
-        label: v.name,
-        sublabel: `${v.code}${v.tax_id ? ' · TIN ' + v.tax_id : ''}`,
+        label: `${v.code} — ${v.name}`,
+        selectedLabel: v.code,
+        sublabel: v.tax_id ? `TIN ${v.tax_id}` : 'No TIN',
     })), [vendors]);
 
     const selectedVendor = useMemo(
@@ -160,24 +164,30 @@ export default function AdvanceRequestForm() {
                             </div>
                         )}
 
-                        {/* Vendor */}
+                        {/* Vendor — pick by code (searchable) → name + TIN fill in */}
                         <section style={sectionCard}>
                             <h3 style={sectionTitle}>Vendor</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.2fr 0.9fr', gap: '1.25rem' }}>
                                 <div>
-                                    <label style={fioriLabel}>Supplier / Vendor <span style={{ color: '#bb0000' }}>*</span></label>
+                                    <label style={fioriLabel}>Vendor Code <span style={{ color: '#bb0000' }}>*</span></label>
                                     <SearchableSelect
                                         options={vendorOptions}
                                         value={form.vendor}
                                         onChange={(v) => set('vendor', v)}
-                                        placeholder="Search vendor by name or code…"
+                                        placeholder="Type code or name…"
                                         required
                                     />
                                 </div>
                                 <div>
-                                    <label style={fioriLabel}>Vendor Code / TIN</label>
+                                    <label style={fioriLabel}>Vendor Name</label>
                                     <input style={fioriReadonly} readOnly
-                                        value={selectedVendor ? `${selectedVendor.code}${selectedVendor.tax_id ? '  ·  TIN ' + selectedVendor.tax_id : ''}` : ''}
+                                        value={selectedVendor ? selectedVendor.name : ''}
+                                        placeholder="—" />
+                                </div>
+                                <div>
+                                    <label style={fioriLabel}>TIN</label>
+                                    <input style={fioriReadonly} readOnly
+                                        value={selectedVendor?.tax_id || ''}
                                         placeholder="—" />
                                 </div>
                             </div>
