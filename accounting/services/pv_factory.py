@@ -270,37 +270,17 @@ def create_draft_voucher_from_mobilization(
     return pv
 
 
-def resolve_vendor_advance_account():
-    """The postable balance-sheet account a vendor down payment lands on.
-
-    A down payment is an advance to the supplier — a *balance-sheet asset*,
-    never an expense (DR advance/prepayment, CR cash). The dedicated
-    ``vendor_advance`` reconciliation account is a control account that
-    forbids direct posting (it is fed from the vendor sub-ledger), so we pick
-    the tenant's postable prepayment / supplier-advance asset instead. The
-    operator never chooses a G/L — it is system-determined, SAP-style.
-
-    Returns the Account, or None when the CoA has no suitable postable asset.
-    """
-    from accounting.models import Account
-    base = (
-        Account.objects
-        .filter(account_type='Asset', is_postable=True, is_active=True)
-        .exclude(reconciliation_type='vendor_advance')  # control account
-        .exclude(name__iregex=r'personal|staff|motor|bicycle|housing|furniture|spetacle|correspond')
-    )
-    for pattern in (r'contractor|supplier|vendor', r'prepay', r'advance'):
-        acc = base.filter(name__iregex=pattern).first()
-        if acc:
-            return acc
-    return None
-
-
 @transaction.atomic
 def create_draft_voucher_from_advance(
     *,
     vendor,
     amount,
+    admin_code: str,
+    economic_code: str,
+    functional_code: str,
+    programme_code: str,
+    fund_code: str,
+    geo_code: str,
     purpose: str = "",
     reference: str = "",
     due_date=None,
@@ -308,25 +288,23 @@ def create_draft_voucher_from_advance(
 ) -> "PaymentVoucherGov":
     """Create a DRAFT PaymentVoucherGov for a vendor down payment.
 
-    A vendor down payment (SAP special-G/L "A") is a pre-payment to a
-    supplier that is NOT charged to an expense line — it is capitalised as a
-    balance-sheet advance and cleared later against the vendor's invoices.
-    The operator supplies the vendor, amount, due date and text; we resolve
-    the postable advance/prepayment asset (economic segment) and the Treasury
-    account, then materialise a draft PV so the down payment flows through the
-    normal review -> approval -> payment workflow and appears in the PV list.
+    The operator supplies the vendor, amount and the full NCoA budget line —
+    MDA at the header plus the line item's G/L, fund, functional, geographic
+    and programme segments. We resolve the composite NCoA, **budget-check** the
+    resulting appropriation (the advance is reserved against the expenditure
+    line), and materialise a draft PV. At payment the advance disburses to the
+    vendor-advances recon under special G/L "A"; the expense books later when
+    the advance clears against the vendor's invoice.
 
-    The non-economic NCoA segments are seeded from the tenant's first active
-    appropriation as a default classification the operator can refine on the
-    draft; the economic segment is the advance asset, so posting is
-    DR advance / CR cash with no expense hit.
-
-    Raises PVFactoryError when prerequisites are missing (TSA, advance
-    account, or a segment source).
+    Raises PVFactoryError for missing prerequisites (TSA, fiscal year, invalid
+    segments), and lets budget.services.BudgetExceededError propagate so the
+    caller can report a budget shortfall.
     """
     from accounting.models.gl import TransactionSequence
     from accounting.models.treasury import PaymentVoucherGov, TreasuryAccount
+    from accounting.models.advanced import FiscalYear
     from accounting.services.ncoa_service import NCoAService, NCoAResolutionError
+    from budget.services import BudgetValidationService
     from budget.models import Appropriation
 
     tsa = TreasuryAccount.objects.filter(is_active=True).first()
@@ -336,39 +314,42 @@ def create_draft_voucher_from_advance(
             "requesting a down payment."
         )
 
-    advance_account = resolve_vendor_advance_account()
-    if advance_account is None:
-        raise PVFactoryError(
-            "No postable advance / prepayment asset account found in the "
-            "Chart of Accounts to charge the down payment to."
-        )
+    amount = Decimal(str(amount))
 
-    # Default budget-execution segments from the first active appropriation;
-    # the economic segment is swapped to the advance asset so the PV posts as
-    # a balance-sheet advance rather than an expense.
-    appro = (
-        Appropriation.objects
-        .select_related('administrative', 'functional', 'programme', 'fund', 'geographic')
-        .filter(status='ACTIVE').first()
-    )
-    if appro is None:
-        raise PVFactoryError(
-            "No active appropriation available to classify the down payment. "
-            "Set up the budget before requesting vendor advances."
-        )
+    # Resolve the composite NCoA from the six segments the operator chose.
     try:
         ncoa = NCoAService.resolve_code(
-            admin_code=appro.administrative.code,
-            economic_code=advance_account.code,
-            functional_code=appro.functional.code,
-            programme_code=appro.programme.code,
-            fund_code=appro.fund.code,
-            geo_code=appro.geographic.code,
+            admin_code=admin_code,
+            economic_code=economic_code,
+            functional_code=functional_code,
+            programme_code=programme_code,
+            fund_code=fund_code,
+            geo_code=geo_code,
         )
     except NCoAResolutionError as e:
-        raise PVFactoryError(f"Could not resolve the advance classification: {e}")
+        raise PVFactoryError(f"Invalid budget line: {e}")
 
-    amount = Decimal(str(amount))
+    # Budget-line check — reserve the advance against the expenditure line.
+    fy = FiscalYear.objects.filter(is_active=True).first()
+    if fy is None:
+        raise PVFactoryError(
+            "No active fiscal year configured — cannot budget-check the advance."
+        )
+    # Raises BudgetExceededError (→ 400 in the view) when the line has no
+    # appropriation or insufficient balance for the amount.
+    result = BudgetValidationService.validate_expenditure(
+        administrative_id=ncoa.administrative_id,
+        economic_id=ncoa.economic_id,
+        fund_id=ncoa.fund_id,
+        fiscal_year_id=fy.id,
+        amount=amount,
+        functional_id=ncoa.functional_id,
+        programme_id=ncoa.programme_id,
+    )
+    appropriation = Appropriation.objects.filter(
+        pk=result.get('appropriation_id'),
+    ).first()
+
     vendor_name = getattr(vendor, 'name', '') or ''
     narration = (
         f"Vendor down payment — {vendor_name}"
@@ -380,7 +361,7 @@ def create_draft_voucher_from_advance(
         voucher_number=TransactionSequence.get_next('payment_voucher', prefix='PV-'),
         payment_type="ADVANCE",
         ncoa_code=ncoa,
-        appropriation=None,           # balance-sheet advance — no budget line
+        appropriation=appropriation,  # budget line the advance is checked against
         vendor=vendor,                # links the special-GL advance to the vendor
         special_gl_indicator="A",     # SAP special G/L "A" — down payment
         payee_name=vendor_name[:200],
