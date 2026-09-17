@@ -325,7 +325,7 @@ const menuItems: MenuItem[] = [
             { name: 'Government Config', path: '/settings/government', icon: Building },
             { name: 'Fiscal Year', path: '/settings/fiscal-year', icon: CalendarCheck },
             { name: 'Bank Accounts', path: '/settings/bank-accounts', icon: Landmark },
-            { name: 'Tax Management', path: '/settings/tax', icon: Receipt },
+            { name: 'Payment Deduction', path: '/settings/tax', icon: Receipt },
             { name: 'Branding & Company', path: '/settings/branding', icon: Building },
             { name: 'Accounting Settings', path: '/settings/accounting', icon: Settings },
             // Tenant-wide warrant printout config — letterhead + 3

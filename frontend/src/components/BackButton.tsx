@@ -87,7 +87,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/settings/accounting': 'Accounting Settings',
   '/settings/accounting/currencies': 'Currencies',
   '/settings/fiscal-year': 'Fiscal Year',
-  '/settings/tax': 'Tax Management',
+  '/settings/tax': 'Payment Deduction',
   '/settings/bank-accounts': 'Bank Accounts',
   // Without this the generic titlecaser renders the segment as "Ai".
   '/settings/ai': 'AI',
