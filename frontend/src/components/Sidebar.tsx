@@ -107,7 +107,7 @@ const menuItems: MenuItem[] = [
             { name: 'Revenue Entries (IGR)', path: '/accounting/revenue-collections', icon: Banknote },
             { name: 'Chart of Accounts', path: '/accounting/coa', icon: List },
             { name: 'AP Invoice', path: '/accounting/ap', icon: Receipt },
-            { name: 'Advance Request', path: '/accounting/advance-requests/new', icon: HandCoins },
+            { name: 'Vendor Down Payment', path: '/accounting/advance-requests/new', icon: HandCoins },
             { name: 'AP Invoices Register', path: '/accounting/ap-invoices', icon: Layers },
             { name: 'Trial Balance', path: '/accounting/reports/trial-balance', icon: ClipboardCheck },
             { name: 'GL Reports', path: '/accounting/reports', icon: BarChart3 },

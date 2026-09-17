@@ -626,47 +626,31 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='create-advance')
     def create_advance(self, request):
-        """Create a DRAFT Payment Voucher from an advance request.
+        """Create a DRAFT Payment Voucher for a vendor down payment.
 
-        Backs the Advance Request page: the operator picks a budget line
-        (appropriation) plus payee / amount / purpose, and we materialise a
-        draft PV (NCoA + TSA resolved server-side) that shows up in the PV
-        list for the normal approval -> payment workflow.
+        Backs the Vendor Down Payment page (SAP-style special-G/L "A"): the
+        operator picks a vendor plus amount / due date / text — no expense
+        line. We charge it to the postable advance/prepayment asset (resolved
+        server-side) so posting is DR advance / CR cash, and materialise a
+        draft PV that shows up in the PV list for the normal approval ->
+        payment workflow.
         """
         from decimal import Decimal, InvalidOperation
-        from budget.models import Appropriation
+        from procurement.models import Vendor
         from accounting.services.pv_factory import (
             create_draft_voucher_from_advance, PVFactoryError,
         )
 
-        appro_id = request.data.get('appropriation')
-        if not appro_id:
+        vendor_id = request.data.get('vendor')
+        if not vendor_id:
             return Response(
-                {'error': 'A budget line (appropriation) is required.'},
+                {'error': 'A vendor is required for the down payment.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        appro = (
-            Appropriation.objects.select_related(
-                'administrative', 'economic', 'functional',
-                'programme', 'fund', 'geographic',
-            ).filter(pk=appro_id).first()
-        )
-        if appro is None:
+        vendor = Vendor.objects.filter(pk=vendor_id).first()
+        if vendor is None:
             return Response(
-                {'error': 'Budget line not found.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        payee_name = (request.data.get('payee_name') or '').strip()
-        purpose = (request.data.get('purpose') or '').strip()
-        if not payee_name:
-            return Response(
-                {'error': 'Payee / beneficiary name is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not purpose:
-            return Response(
-                {'error': 'Purpose of the advance is required.'},
+                {'error': 'Vendor not found.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -675,19 +659,18 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             amount = Decimal('0')
         if amount <= 0:
             return Response(
-                {'error': 'Advance amount must be greater than zero.'},
+                {'error': 'Down payment amount must be greater than zero.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        due_date = request.data.get('due_date') or None
         try:
             pv = create_draft_voucher_from_advance(
-                appropriation=appro,
-                payee_name=payee_name,
+                vendor=vendor,
                 amount=amount,
-                advance_type=(request.data.get('advance_type') or 'Advance').strip(),
-                purpose=purpose,
-                payee_bank=(request.data.get('payee_bank') or '').strip(),
-                payee_account=(request.data.get('payee_account') or '').strip(),
+                purpose=(request.data.get('purpose') or '').strip(),
+                reference=(request.data.get('reference') or '').strip(),
+                due_date=due_date,
                 actor=request.user,
             )
         except PVFactoryError as e:
