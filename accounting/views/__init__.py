@@ -51,7 +51,7 @@ from .banking import (  # noqa: F401
 # Tax
 from .tax import (  # noqa: F401
     TaxRegistrationViewSet, TaxExemptionViewSet, TaxReturnViewSet,
-    WithholdingTaxViewSet, TaxCodeViewSet,
+    WithholdingTaxViewSet, TaxCodeViewSet, PaymentDeductionCodeViewSet,
 )
 
 # Cost & Profit Centers

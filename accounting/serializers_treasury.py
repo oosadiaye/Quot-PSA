@@ -131,6 +131,45 @@ class PaymentDeductionListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PaymentDeductionCodeSerializer(serializers.ModelSerializer):
+    """Writable config serializer for the reusable deduction-code master.
+
+    Backs the CRUD grid on the Deductions tab: each code carries a GL
+    account and a calculation basis (percentage of gross OR fixed amount).
+    """
+    deduction_type_display = serializers.CharField(source='get_deduction_type_display', read_only=True)
+    calculation_method_display = serializers.CharField(source='get_calculation_method_display', read_only=True)
+    gl_account_code = serializers.CharField(source='gl_account.code', read_only=True, allow_null=True)
+    gl_account_name = serializers.CharField(source='gl_account.name', read_only=True, allow_null=True)
+
+    class Meta:
+        from accounting.models.tax import PaymentDeductionCode  # local to avoid circular
+        model = PaymentDeductionCode
+        fields = [
+            'id', 'code', 'name', 'deduction_type', 'deduction_type_display',
+            'calculation_method', 'calculation_method_display',
+            'rate', 'fixed_amount',
+            'gl_account', 'gl_account_code', 'gl_account_name',
+            'is_active', 'description',
+        ]
+        read_only_fields = ['id']
+
+    def validate(self, attrs):
+        """Keep the basis fields consistent with the chosen method.
+
+        A percentage code holds its value in ``rate`` (``fixed_amount`` is
+        zeroed); a fixed code holds it in ``fixed_amount`` (``rate`` zeroed).
+        We normalise rather than reject so a 0% rate stays valid (e.g. the
+        abolished stamp duty retained for historical records).
+        """
+        method = attrs.get('calculation_method') or getattr(self.instance, 'calculation_method', 'percentage')
+        if method == 'percentage':
+            attrs['fixed_amount'] = Decimal('0')
+        elif method == 'fixed':
+            attrs['rate'] = Decimal('0')
+        return attrs
+
+
 class PaymentVoucherSerializer(serializers.ModelSerializer):
     ncoa_full_code = serializers.CharField(source='ncoa_code.full_code', read_only=True)
     ncoa_account_name = serializers.CharField(source='ncoa_code.account_name', read_only=True)

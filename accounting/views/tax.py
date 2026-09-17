@@ -4,11 +4,13 @@ from rest_framework.decorators import action
 from .common import AccountingPagination
 from ..models import (
     TaxRegistration, TaxExemption, TaxReturn, WithholdingTax, TaxCode,
+    PaymentDeductionCode,
 )
 from ..serializers import (
     TaxRegistrationSerializer, TaxExemptionSerializer, TaxReturnSerializer,
     WithholdingTaxSerializer, TaxCodeSerializer,
 )
+from ..serializers_treasury import PaymentDeductionCodeSerializer
 
 
 class TaxRegistrationViewSet(viewsets.ModelViewSet):
@@ -49,4 +51,16 @@ class TaxCodeViewSet(viewsets.ModelViewSet):
     serializer_class = TaxCodeSerializer
     filterset_fields = ['tax_type', 'direction', 'is_active']
     search_fields = ['code', 'name']
+    pagination_class = AccountingPagination
+
+
+class PaymentDeductionCodeViewSet(viewsets.ModelViewSet):
+    """CRUD for the reusable deduction-code master (Deductions tab).
+
+    Tenant-wide config, like WithholdingTax/TaxCode — no MDA scoping.
+    """
+    queryset = PaymentDeductionCode.objects.all().select_related('gl_account')
+    serializer_class = PaymentDeductionCodeSerializer
+    filterset_fields = ['deduction_type', 'calculation_method', 'is_active']
+    search_fields = ['code', 'name', 'description']
     pagination_class = AccountingPagination
