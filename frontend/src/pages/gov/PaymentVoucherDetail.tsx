@@ -375,10 +375,25 @@ export default function PaymentVoucherDetail() {
                         <div style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: GOV.blue, fontWeight: 600, background: 'rgba(30,77,140,0.06)', padding: '0.7rem 0.85rem', borderRadius: 8, border: '1px solid rgba(30,77,140,0.2)', wordBreak: 'break-all' }}>
                             {pv.ncoa_full_code}
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                            <div><div style={fieldLabel}>MDA</div><div style={fieldValue}>{pv.ncoa_mda_name || '—'}</div></div>
-                            <div><div style={fieldLabel}>Account</div><div style={fieldValue}>{pv.ncoa_account_name || '—'}</div></div>
-                        </div>
+                        {/* Segment breakdown — each of the six segments listed as
+                            two columns: the segment code and its description. */}
+                        {Array.isArray(pv.ncoa_segments) && pv.ncoa_segments.length > 0 && (
+                            <div style={{ marginTop: '1rem', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '0.75rem', padding: '0.5rem 0.85rem', background: 'rgba(148,163,184,0.08)', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                                    <span>Code</span>
+                                    <span>Description</span>
+                                </div>
+                                {pv.ncoa_segments.map((s: { segment: string; code: string; name: string }) => (
+                                    <div key={s.segment} style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '0.75rem', padding: '0.55rem 0.85rem', borderTop: '1px solid var(--color-border)', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 2 }}>{s.segment}</div>
+                                            <div style={{ fontFamily: 'monospace', fontWeight: 700, color: GOV.blue, fontSize: 'var(--text-sm)' }}>{s.code || '—'}</div>
+                                        </div>
+                                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text)' }}>{s.name || '—'}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </Section>
                 )}
 

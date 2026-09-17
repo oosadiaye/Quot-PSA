@@ -179,6 +179,7 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
     ncoa_full_code = serializers.CharField(source='ncoa_code.full_code', read_only=True)
     ncoa_account_name = serializers.CharField(source='ncoa_code.account_name', read_only=True)
     ncoa_mda_name = serializers.CharField(source='ncoa_code.mda_name', read_only=True)
+    ncoa_segments = serializers.SerializerMethodField()
     appropriation_ref = serializers.SerializerMethodField()
     tsa_account_number = serializers.CharField(
         source='tsa_account.account_number', read_only=True,
@@ -202,6 +203,7 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'voucher_number', 'payment_type',
             'ncoa_code', 'ncoa_full_code', 'ncoa_account_name', 'ncoa_mda_name',
+            'ncoa_segments',
             'appropriation', 'appropriation_ref', 'warrant',
             'payee_name', 'payee_account', 'payee_bank', 'payee_sort_code',
             'gross_amount', 'wht_amount', 'net_amount',
@@ -221,6 +223,30 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
     def get_total_deductions(self, obj: PaymentVoucherGov) -> str:
         total = sum((d.amount for d in obj.deductions.all()), Decimal('0'))
         return str(total)
+
+    def get_ncoa_segments(self, obj: PaymentVoucherGov):
+        """The six NCoA segments, each as {segment, code, name}, so the PV
+        detail page can list the classification segment-by-segment (code +
+        description) instead of only the concatenated full code."""
+        code = obj.ncoa_code
+        if not code:
+            return []
+        pairs = [
+            ('Administrative', code.administrative),
+            ('Economic', code.economic),
+            ('Functional', code.functional),
+            ('Programme', code.programme),
+            ('Fund', code.fund),
+            ('Geographic', code.geographic),
+        ]
+        return [
+            {
+                'segment': label,
+                'code': getattr(seg, 'code', '') or '',
+                'name': getattr(seg, 'name', '') or '',
+            }
+            for label, seg in pairs if seg is not None
+        ]
 
     def _sync_deductions(self, pv, deductions_data):
         """Rebuild the deduction child rows from the payload.
