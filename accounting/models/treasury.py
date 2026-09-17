@@ -263,7 +263,10 @@ class PaymentVoucherGov(AuditBaseModel):
         # only know about the single-WHT model.
         total_deductions = self.wht_amount or Decimal('0')
         if self.pk:
-            extra = self.deductions.aggregate(
+            # Only positive lines count — a non-positive amount must never
+            # inflate net_amount above gross (or drive it negative), which
+            # would mislead approvers vs. what actually posts at disbursement.
+            extra = self.deductions.filter(amount__gt=0).aggregate(
                 s=models.Sum('amount')
             )['s'] or Decimal('0')
             # If deduction lines exist, trust them as the source of truth.
@@ -272,7 +275,7 @@ class PaymentVoucherGov(AuditBaseModel):
                 # Mirror the sum of WHT-typed deductions onto wht_amount for
                 # reports that still read the flat field.
                 wht_sum = self.deductions.filter(
-                    deduction_type='WHT'
+                    deduction_type='WHT', amount__gt=0,
                 ).aggregate(s=models.Sum('amount'))['s'] or Decimal('0')
                 self.wht_amount = wht_sum
         self.net_amount = (self.gross_amount or Decimal('0')) - total_deductions

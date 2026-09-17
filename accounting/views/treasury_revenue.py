@@ -685,6 +685,7 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             )
 
         due_date = request.data.get('due_date') or None
+        deductions = request.data.get('deductions') or []
         try:
             pv = create_draft_voucher_from_advance(
                 vendor=vendor,
@@ -693,6 +694,7 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 reference=(request.data.get('reference') or '').strip(),
                 due_date=due_date,
                 actor=request.user,
+                deductions=deductions,
                 **segments,
             )
         except (PVFactoryError, BudgetExceededError) as e:
@@ -893,7 +895,9 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             and pv.vendor_id
         )
 
-        with transaction.atomic():
+        from accounting.services.base_posting import TransactionPostingError
+        try:
+          with transaction.atomic():
             # Update payment instruction
             if hasattr(pv, 'payment_instruction'):
                 pi = pv.payment_instruction
@@ -916,6 +920,16 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 # Records the advance on the vendor account as OUTSTANDING,
                 # to be cleared against the vendor's invoices later.
                 from accounting.services.vendor_advance import VendorAdvanceService
+                # Carry any deductions added on the voucher (e.g. WHT) into the
+                # disbursement so cash out is net while the advance stays gross.
+                advance_deductions = [
+                    {
+                        'account': d.gl_account,
+                        'amount': d.amount,
+                        'memo': d.description or d.get_deduction_type_display(),
+                    }
+                    for d in pv.deductions.select_related('gl_account').all()
+                ]
                 advance = VendorAdvanceService.disburse(
                     vendor=pv.vendor,
                     amount=pv.gross_amount,
@@ -926,6 +940,7 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     actor=request.user,
                     bank_account=pv.tsa_account,
                     notes=pv.narration,
+                    deductions=advance_deductions,
                 )
                 journal = advance.disbursement_journal
             else:
@@ -938,6 +953,11 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             pv.status = 'PAID'
             pv.journal = journal
             pv.save(update_fields=['status', 'journal', 'updated_at'])
+        except TransactionPostingError as e:
+            # Misconfiguration (e.g. deductions >= gross, no cash GL) must
+            # surface as a clean 400, not an unhandled 500. The atomic block
+            # has already rolled back cleanly at this point.
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(PaymentVoucherSerializer(pv).data)
 
