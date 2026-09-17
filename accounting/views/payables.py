@@ -2512,12 +2512,20 @@ class PaymentAllocationViewSet(viewsets.ModelViewSet):
         super().perform_destroy(instance)
 
 
-class PaymentVoucherDeductionViewSet(viewsets.ReadOnlyModelViewSet):
+class PaymentVoucherDeductionViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only, flat list of every deduction taken at payment time — WHT,
     retention, handling, stamp duty, etc. Backs the Deductions tab of the
     Payment Deduction console. Deductions are created during PV processing,
     so this endpoint only exposes them for review, never edits them.
+
+    Cross-tenant isolation is enforced by django-tenants (this is a tenant
+    model). Within a tenant, SEPARATED MDA-isolation mode scopes each MDA to
+    its own vouchers — the same rule ``PaymentVoucherViewSet`` applies via
+    ``appropriation__administrative``, reached here one hop deeper through
+    ``payment_voucher``.
     """
+    org_filter_admin_field = 'payment_voucher__appropriation__administrative'
+
     queryset = (
         PaymentVoucherDeduction.objects
         .select_related('payment_voucher', 'gl_account', 'withholding_tax')
