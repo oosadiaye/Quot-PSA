@@ -14,6 +14,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import Sidebar from '../../components/Sidebar';
 import SearchableSelect from '../../components/SearchableSelect';
 import apiClient from '../../api/client';
+import { useNCoASegments } from '../../hooks/useGovForms';
 import { formatThousandsInput, stripThousands } from '@/utils/number';
 
 interface Vendor {
@@ -22,6 +23,8 @@ interface Vendor {
     name: string;
     tax_id?: string;
 }
+
+interface Segment { id: number; code: string; name: string; }
 
 // ── SAP Fiori design tokens ───────────────────────────────────────────
 const FIORI = {
@@ -67,6 +70,8 @@ export default function AdvanceRequestForm() {
     const [formError, setFormError] = useState('');
     const [form, setForm] = useState({
         vendor: '', amount: '', due_date: '', reference: '', purpose: '',
+        // Budget line: MDA (header) + the line item's five segments.
+        admin: '', economic: '', functional: '', programme: '', fund: '', geo: '',
     });
     const set = (field: string, value: string) => setForm(p => ({ ...p, [field]: value }));
 
@@ -96,6 +101,19 @@ export default function AdvanceRequestForm() {
         [vendors, form.vendor],
     );
 
+    // NCoA segment lists for the budget line pickers. Options carry the
+    // segment CODE as their value so the payload sends codes directly.
+    const { data: segments } = useNCoASegments();
+    const segOptions = (rows?: Segment[]) => (rows || []).map(s => ({
+        value: s.code, label: `${s.code} — ${s.name}`, selectedLabel: s.code,
+    }));
+    const adminOptions = useMemo(() => segOptions(segments?.administrative), [segments]);
+    const economicOptions = useMemo(() => segOptions(segments?.economic), [segments]);
+    const functionalOptions = useMemo(() => segOptions(segments?.functional), [segments]);
+    const programmeOptions = useMemo(() => segOptions(segments?.programme), [segments]);
+    const fundOptions = useMemo(() => segOptions(segments?.fund), [segments]);
+    const geoOptions = useMemo(() => segOptions(segments?.geographic), [segments]);
+
     const createDownPayment = useMutation({
         mutationFn: async (payload: Record<string, unknown>) => {
             const { data } = await apiClient.post('/accounting/payment-vouchers/create-advance/', payload);
@@ -110,6 +128,11 @@ export default function AdvanceRequestForm() {
         setFormError('');
         if (!form.vendor) { setFormError('Select a vendor for the down payment.'); return; }
         if (amtNum <= 0) { setFormError('Enter a valid down payment amount.'); return; }
+        if (!form.admin) { setFormError('Select the MDA at the header.'); return; }
+        if (!form.economic || !form.fund || !form.functional || !form.geo || !form.programme) {
+            setFormError('Complete the budget line item — G/L, fund, functional, geographic and programme are all required.');
+            return;
+        }
         try {
             await createDownPayment.mutateAsync({
                 vendor: Number(form.vendor),
@@ -117,6 +140,12 @@ export default function AdvanceRequestForm() {
                 due_date: form.due_date || null,
                 reference: form.reference,
                 purpose: form.purpose,
+                admin_code: form.admin,
+                economic_code: form.economic,
+                functional_code: form.functional,
+                programme_code: form.programme,
+                fund_code: form.fund,
+                geo_code: form.geo,
             });
             navigate('/accounting/payment-vouchers');
         } catch (err: any) {
@@ -193,6 +222,50 @@ export default function AdvanceRequestForm() {
                             </div>
                         </section>
 
+                        {/* Budget Line — MDA (header) + line item, checked against the appropriation */}
+                        <section style={sectionCard}>
+                            <h3 style={sectionTitle}>Budget Line</h3>
+                            <div style={{ fontSize: '0.75rem', color: FIORI.label, marginBottom: '0.9rem' }}>
+                                MDA sits at the header; the line item (G/L, fund, functional, geographic, programme)
+                                is checked against the appropriation.
+                            </div>
+                            <div style={{ marginBottom: '1rem' }}>
+                                <label style={fioriLabel}>MDA (Administrative) <span style={{ color: '#bb0000' }}>*</span></label>
+                                <SearchableSelect options={adminOptions} value={form.admin}
+                                    onChange={(v) => set('admin', v)} placeholder="Search MDA by code or name…" required />
+                            </div>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FIORI.label, margin: '0 0 0.5rem' }}>
+                                Line Item <span style={{ color: '#bb0000' }}>*</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem' }}>
+                                <div>
+                                    <label style={fioriLabel}>G/L Code</label>
+                                    <SearchableSelect options={economicOptions} value={form.economic}
+                                        onChange={(v) => set('economic', v)} placeholder="G/L…" required />
+                                </div>
+                                <div>
+                                    <label style={fioriLabel}>Fund</label>
+                                    <SearchableSelect options={fundOptions} value={form.fund}
+                                        onChange={(v) => set('fund', v)} placeholder="Fund…" required />
+                                </div>
+                                <div>
+                                    <label style={fioriLabel}>Functional</label>
+                                    <SearchableSelect options={functionalOptions} value={form.functional}
+                                        onChange={(v) => set('functional', v)} placeholder="Functional…" required />
+                                </div>
+                                <div>
+                                    <label style={fioriLabel}>Geographic</label>
+                                    <SearchableSelect options={geoOptions} value={form.geo}
+                                        onChange={(v) => set('geo', v)} placeholder="Geo…" required />
+                                </div>
+                                <div>
+                                    <label style={fioriLabel}>Programme</label>
+                                    <SearchableSelect options={programmeOptions} value={form.programme}
+                                        onChange={(v) => set('programme', v)} placeholder="Programme…" required />
+                                </div>
+                            </div>
+                        </section>
+
                         {/* Payment details */}
                         <section style={sectionCard}>
                             <h3 style={sectionTitle}>Payment Details</h3>
@@ -220,18 +293,15 @@ export default function AdvanceRequestForm() {
                                     <label style={fioriLabel}>Special G/L Indicator</label>
                                     <input style={fioriReadonly} readOnly value="A — Down Payment" />
                                 </div>
-                                <div>
-                                    <label style={fioriLabel}>G/L Account (determined)</label>
-                                    <input style={fioriReadonly} readOnly value="Supplier advances / prepayment (asset)" />
-                                </div>
                             </div>
                             <div style={{
                                 marginTop: '0.9rem', fontSize: '0.75rem', color: FIORI.label,
                                 background: 'rgba(10,110,209,0.05)', border: `1px solid rgba(10,110,209,0.15)`,
                                 borderRadius: '6px', padding: '0.55rem 0.75rem',
                             }}>
-                                No expense is posted. The advance is charged to the supplier-advance / prepayment
-                                asset account (system-determined) and cleared against the vendor's future invoices.
+                                Checked against the budget line above. On payment the advance posts to Vendor Advances
+                                (special G/L “A”) on the vendor account; the expense books when it is cleared against the
+                                vendor's invoice.
                             </div>
                         </section>
 

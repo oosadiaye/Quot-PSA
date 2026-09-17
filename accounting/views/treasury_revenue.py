@@ -640,6 +640,7 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         from accounting.services.pv_factory import (
             create_draft_voucher_from_advance, PVFactoryError,
         )
+        from budget.services import BudgetExceededError
 
         vendor_id = request.data.get('vendor')
         if not vendor_id:
@@ -663,6 +664,26 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Budget line — MDA (header) + the line item's five segment codes.
+        # All six are mandatory; the factory resolves the NCoA and
+        # budget-checks the resulting appropriation.
+        segments = {
+            'admin_code':      (request.data.get('admin_code') or '').strip(),
+            'economic_code':   (request.data.get('economic_code') or '').strip(),
+            'functional_code': (request.data.get('functional_code') or '').strip(),
+            'programme_code':  (request.data.get('programme_code') or '').strip(),
+            'fund_code':       (request.data.get('fund_code') or '').strip(),
+            'geo_code':        (request.data.get('geo_code') or '').strip(),
+        }
+        missing = [k for k, v in segments.items() if not v]
+        if missing:
+            return Response(
+                {'error': 'Budget line is incomplete — the line item (G/L, '
+                          'fund, functional, geographic, programme) and MDA '
+                          'are all required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         due_date = request.data.get('due_date') or None
         try:
             pv = create_draft_voucher_from_advance(
@@ -672,8 +693,9 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 reference=(request.data.get('reference') or '').strip(),
                 due_date=due_date,
                 actor=request.user,
+                **segments,
             )
-        except PVFactoryError as e:
+        except (PVFactoryError, BudgetExceededError) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(
