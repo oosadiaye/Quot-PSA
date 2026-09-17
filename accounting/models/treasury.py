@@ -151,6 +151,7 @@ class PaymentVoucherGov(AuditBaseModel):
     ]
     PAYMENT_TYPE_CHOICES = [
         ('VENDOR',      'Vendor / Contractor Payment'),
+        ('ADVANCE',     'Advance Request'),
         ('SALARY',      'Salary Payment'),
         ('ALLOWANCE',   'Allowance / Honorarium'),
         ('PENSION',     'Pension Remittance'),

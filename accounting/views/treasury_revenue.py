@@ -624,6 +624,63 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         }
         return Response(out)
 
+    @action(detail=False, methods=['post'], url_path='create-advance')
+    def create_advance(self, request):
+        """Create a DRAFT Payment Voucher for a vendor down payment.
+
+        Backs the Vendor Down Payment page (SAP-style special-G/L "A"): the
+        operator picks a vendor plus amount / due date / text — no expense
+        line. We charge it to the postable advance/prepayment asset (resolved
+        server-side) so posting is DR advance / CR cash, and materialise a
+        draft PV that shows up in the PV list for the normal approval ->
+        payment workflow.
+        """
+        from decimal import Decimal, InvalidOperation
+        from procurement.models import Vendor
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_advance, PVFactoryError,
+        )
+
+        vendor_id = request.data.get('vendor')
+        if not vendor_id:
+            return Response(
+                {'error': 'A vendor is required for the down payment.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vendor = Vendor.objects.filter(pk=vendor_id).first()
+        if vendor is None:
+            return Response(
+                {'error': 'Vendor not found.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+        except (InvalidOperation, TypeError):
+            amount = Decimal('0')
+        if amount <= 0:
+            return Response(
+                {'error': 'Down payment amount must be greater than zero.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        due_date = request.data.get('due_date') or None
+        try:
+            pv = create_draft_voucher_from_advance(
+                vendor=vendor,
+                amount=amount,
+                purpose=(request.data.get('purpose') or '').strip(),
+                reference=(request.data.get('reference') or '').strip(),
+                due_date=due_date,
+                actor=request.user,
+            )
+        except PVFactoryError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            PaymentVoucherSerializer(pv).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve a PV.
