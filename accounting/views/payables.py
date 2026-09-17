@@ -9,6 +9,8 @@ from ..models import (
     Account, JournalHeader, JournalLine, BudgetEncumbrance, TransactionSequence,
 )
 from ..serializers import VendorInvoiceSerializer, PaymentSerializer, PaymentAllocationSerializer
+from ..models.treasury import PaymentVoucherDeduction
+from ..serializers_treasury import PaymentDeductionListSerializer
 
 
 class VendorInvoiceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
@@ -2508,3 +2510,19 @@ class PaymentAllocationViewSet(viewsets.ModelViewSet):
         if instance.payment.status != 'Draft':
             raise ValidationError("Can only remove allocations from Draft payments.")
         super().perform_destroy(instance)
+
+
+class PaymentVoucherDeductionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only, flat list of every deduction taken at payment time — WHT,
+    retention, handling, stamp duty, etc. Backs the Deductions tab of the
+    Payment Deduction console. Deductions are created during PV processing,
+    so this endpoint only exposes them for review, never edits them.
+    """
+    queryset = (
+        PaymentVoucherDeduction.objects
+        .select_related('payment_voucher', 'gl_account', 'withholding_tax')
+        .order_by('-created_at')
+    )
+    serializer_class = PaymentDeductionListSerializer
+    filterset_fields = ['deduction_type', 'payment_voucher']
+    pagination_class = AccountingPagination

@@ -19,7 +19,7 @@ from .core_gl import (  # noqa: F401
 )
 
 # Payables
-from .payables import VendorInvoiceViewSet, PaymentViewSet, PaymentAllocationViewSet  # noqa: F401
+from .payables import VendorInvoiceViewSet, PaymentViewSet, PaymentAllocationViewSet, PaymentVoucherDeductionViewSet  # noqa: F401
 
 # Receivables
 from .receivables import CustomerInvoiceViewSet, ReceiptViewSet, ReceiptAllocationViewSet, CustomerLedgerView  # noqa: F401

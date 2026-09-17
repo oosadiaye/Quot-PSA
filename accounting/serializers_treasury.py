@@ -103,6 +103,34 @@ class PaymentVoucherDeductionSerializer(serializers.ModelSerializer):
         return value
 
 
+class PaymentDeductionListSerializer(serializers.ModelSerializer):
+    """Flat, read-only view of every deduction taken at payment time.
+
+    Backs the Deductions tab of the Payment Deduction console: one row per
+    deduction line, carrying the parent PV's number / payee / status so the
+    list stands on its own without opening each voucher.
+    """
+    deduction_type_display = serializers.CharField(source='get_deduction_type_display', read_only=True)
+    pv_number = serializers.CharField(source='payment_voucher.voucher_number', read_only=True)
+    payee_name = serializers.CharField(source='payment_voucher.payee_name', read_only=True)
+    pv_status = serializers.CharField(source='payment_voucher.status', read_only=True)
+    gl_account_code = serializers.CharField(source='gl_account.code', read_only=True)
+    gl_account_name = serializers.CharField(source='gl_account.name', read_only=True)
+    withholding_tax_code = serializers.CharField(source='withholding_tax.code', read_only=True, allow_null=True)
+
+    class Meta:
+        from accounting.models.treasury import PaymentVoucherDeduction  # local to avoid circular
+        model = PaymentVoucherDeduction
+        fields = [
+            'id', 'payment_voucher', 'pv_number', 'payee_name', 'pv_status',
+            'deduction_type', 'deduction_type_display', 'description',
+            'withholding_tax_code', 'rate', 'amount',
+            'gl_account', 'gl_account_code', 'gl_account_name',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
 class PaymentVoucherSerializer(serializers.ModelSerializer):
     ncoa_full_code = serializers.CharField(source='ncoa_code.full_code', read_only=True)
     ncoa_account_name = serializers.CharField(source='ncoa_code.account_name', read_only=True)

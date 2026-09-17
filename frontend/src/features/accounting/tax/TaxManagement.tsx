@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import SearchableSelect from '../../../components/SearchableSelect';
-import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, Receipt, ShieldCheck } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, Receipt, ShieldCheck, Scissors } from 'lucide-react';
+import { formatDate } from '@/utils/date';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
@@ -57,8 +58,36 @@ interface WithholdingTax {
     is_active: boolean;
 }
 
+interface Deduction {
+    id: number;
+    payment_voucher: number;
+    pv_number: string;
+    payee_name: string;
+    pv_status: string;
+    deduction_type: string;
+    deduction_type_display: string;
+    description: string;
+    rate: string;
+    amount: string;
+    gl_account_code: string;
+    gl_account_name: string;
+    created_at: string;
+}
+
 type TaxCodeSortKey = 'code' | 'name' | 'tax_type' | 'direction' | 'rate' | 'is_active';
 type WHTSortKey = 'code' | 'name' | 'income_type' | 'rate' | 'is_active';
+
+const DEDUCTION_TYPES = [
+    { value: 'WHT', label: 'Withholding Tax' },
+    { value: 'STAMP_DUTY', label: 'Stamp Duty' },
+    { value: 'VAT_WITHHELD', label: 'VAT Withheld at Source' },
+    { value: 'HANDLING', label: 'Bank / Handling Charges' },
+    { value: 'INSURANCE', label: 'Insurance Premium' },
+    { value: 'RETENTION', label: 'Contract Retention' },
+    { value: 'OTHER', label: 'Other Deduction' },
+];
+
+const fmtNGN = (v: string | number) => '₦' + Number(v || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const TAX_TYPES = [
     { value: 'vat', label: 'VAT' },
@@ -104,7 +133,7 @@ const labelStyle: React.CSSProperties = {
 
 export default function TaxManagement() {
     const { showConfirm } = useDialog();
-    const [activeTab, setActiveTab] = useState<'taxcodes' | 'wht'>('taxcodes');
+    const [activeTab, setActiveTab] = useState<'taxcodes' | 'wht' | 'deductions'>('taxcodes');
 
     // ── Tax Code state ────────────────────────────────────────
     const [showTaxCodeForm, setShowTaxCodeForm] = useState(false);
@@ -130,6 +159,27 @@ export default function TaxManagement() {
     const createWHT = useCreateWithholdingTax();
     const updateWHT = useUpdateWithholdingTax();
     const deleteWHT = useDeleteWithholdingTax();
+
+    // ── Deductions (read-only: deductions taken at payment time) ──────
+    const [deductionSearch, setDeductionSearch] = useState('');
+    const [deductionTypeFilter, setDeductionTypeFilter] = useState('');
+    const { data: deductionsRaw, isLoading: deductionsLoading } = useQuery<Deduction[]>({
+        queryKey: ['payment-deductions'],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/payment-deductions/', { params: { page_size: 500 } });
+            return Array.isArray(data) ? data : (data.results ?? []);
+        },
+        staleTime: 30 * 1000,
+    });
+    const filteredDeductions = useMemo(() => {
+        const q = deductionSearch.trim().toLowerCase();
+        return (deductionsRaw ?? []).filter((d) => {
+            if (deductionTypeFilter && d.deduction_type !== deductionTypeFilter) return false;
+            if (!q) return true;
+            return [d.pv_number, d.payee_name, d.description, d.deduction_type_display]
+                .some((v) => (v || '').toLowerCase().includes(q));
+        });
+    }, [deductionsRaw, deductionSearch, deductionTypeFilter]);
 
     // ── GL Account dropdowns ──────────────────────────────────
     // page_size bumped to 9999 so the searchable dropdown shows the full
@@ -361,11 +411,11 @@ export default function TaxManagement() {
     return (
         <SettingsLayout>
             <PageHeader
-                title="Tax Management"
-                subtitle="Configure tax codes (VAT) and withholding tax with GL account integration"
+                title="Payment Deduction"
+                subtitle="Configure tax codes and withholding tax, and review deductions taken at payment time"
                 icon={<ShieldCheck size={22} />}
                 backButton={false}
-                actions={
+                actions={activeTab === 'deductions' ? undefined : (
                     <button
                         className="btn-primary ripple"
                         onClick={() => {
@@ -383,7 +433,7 @@ export default function TaxManagement() {
                             : <><Plus size={18} style={{ marginRight: '8px' }} /> {activeTab === 'taxcodes' ? 'Add Tax Code' : 'Add WHT Code'}</>
                         }
                     </button>
-                }
+                )}
             />
 
             {/* Tabs */}
@@ -393,6 +443,9 @@ export default function TaxManagement() {
                 </button>
                 <button style={tabStyle(activeTab === 'wht')} onClick={() => { setActiveTab('wht'); setShowTaxCodeForm(false); resetTaxCodeForm(); }}>
                     <ShieldCheck size={18} /> Withholding Tax
+                </button>
+                <button style={tabStyle(activeTab === 'deductions')} onClick={() => { setActiveTab('deductions'); setShowTaxCodeForm(false); resetTaxCodeForm(); setShowWHTForm(false); resetWHTForm(); }}>
+                    <Scissors size={18} /> Deductions
                 </button>
             </div>
 
@@ -846,6 +899,79 @@ export default function TaxManagement() {
                                 </h3>
                                 <p style={{ fontSize: 'var(--text-sm)' }}>
                                     {whtSearch ? 'No WHT codes match your search.' : 'Create your first withholding tax code to configure tax deductions.'}
+                                </p>
+                            </div>
+                        )}
+                    </GlassCard>
+                </>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════
+                DEDUCTIONS TAB — read-only list of deductions taken at
+                payment time (WHT, retention, handling, stamp duty, …).
+               ═══════════════════════════════════════════════════════════ */}
+            {activeTab === 'deductions' && (
+                <>
+                    {/* Search + type filter */}
+                    <GlassCard style={{ padding: '1.25rem', marginBottom: '1.5rem' }} className="animate-fade-in">
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '0 1rem', flex: '1 1 260px', minWidth: 0 }}>
+                                <Search size={20} style={{ color: 'var(--text-muted)' }} />
+                                <input type="text" placeholder="Filter by PV #, payee, or description..."
+                                    value={deductionSearch} onChange={(e) => setDeductionSearch(e.target.value)}
+                                    style={{ flex: 1, border: 'none', background: 'transparent', padding: '0.75rem 0', color: 'var(--text-primary)', fontWeight: 500, outline: 'none' }}
+                                />
+                            </div>
+                            <select value={deductionTypeFilter} onChange={(e) => setDeductionTypeFilter(e.target.value)} className="glass-input" style={{ flex: '0 0 auto', width: 230, fontSize: 'var(--text-sm)' }}>
+                                <option value="">All deduction types</option>
+                                {DEDUCTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                            </select>
+                        </div>
+                    </GlassCard>
+
+                    {/* Deductions table */}
+                    <GlassCard style={{ padding: 0 }} className="animate-fade-in">
+                        {deductionsLoading ? (
+                            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading deductions…</div>
+                        ) : (
+                            <table className="glass-table" style={{ width: '100%' }}>
+                                <thead>
+                                    <tr>
+                                        <th style={{ width: '12%' }}>PV #</th>
+                                        <th style={{ width: '16%' }}>Payee</th>
+                                        <th style={{ width: '13%' }}>Type</th>
+                                        <th style={{ width: '17%' }}>Description</th>
+                                        <th style={{ width: '6%' }}>Rate</th>
+                                        <th style={{ width: '12%', textAlign: 'right' }}>Amount</th>
+                                        <th style={{ width: '16%' }}>GL Account</th>
+                                        <th style={{ width: '8%' }}>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredDeductions.map((d, idx) => (
+                                        <tr key={d.id} className="stagger-item" style={{ animationDelay: `${idx * 0.03}s` }}>
+                                            <td style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>{d.pv_number}</td>
+                                            <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{d.payee_name || '—'}</td>
+                                            <td><span className="badge-glass" style={{ fontSize: 'var(--text-xs)' }}>{d.deduction_type_display}</span></td>
+                                            <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{d.description || '—'}</td>
+                                            <td style={{ fontFamily: 'monospace' }}>{parseFloat(d.rate) ? `${parseFloat(d.rate)}%` : '—'}</td>
+                                            <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>{fmtNGN(d.amount)}</td>
+                                            <td style={{ fontSize: 'var(--text-sm)' }} title={d.gl_account_name}>{d.gl_account_code ? `${d.gl_account_code} — ${d.gl_account_name}` : '—'}</td>
+                                            <td style={{ fontSize: 'var(--text-sm)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{formatDate(d.created_at)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+
+                        {!deductionsLoading && filteredDeductions.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+                                <div style={{ width: '80px', height: '80px', background: 'rgba(36, 113, 163, 0.05)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                                    <Scissors size={40} style={{ opacity: 0.5 }} />
+                                </div>
+                                <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>No deductions found</h3>
+                                <p style={{ fontSize: 'var(--text-sm)' }}>
+                                    {deductionSearch || deductionTypeFilter ? 'No deductions match your filters.' : 'Deductions taken at payment time (WHT, retention, handling, …) will appear here.'}
                                 </p>
                             </div>
                         )}
