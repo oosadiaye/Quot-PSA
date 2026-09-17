@@ -187,6 +187,8 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
     has_instruction = serializers.SerializerMethodField()
     deductions = PaymentVoucherDeductionSerializer(many=True, required=False)
     total_deductions = serializers.SerializerMethodField()
+    vendor_name = serializers.CharField(source='vendor.name', read_only=True, allow_null=True)
+    vendor_code = serializers.CharField(source='vendor.code', read_only=True, allow_null=True)
 
     # Payee details are optional at PV creation time — the Treasury/Bank
     # processing workflow may capture them later (e.g., via vendor master
@@ -209,6 +211,7 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
             'gross_amount', 'wht_amount', 'net_amount',
             'narration', 'tsa_account', 'tsa_account_number',
             'source_document', 'invoice_number', 'invoice_date',
+            'vendor', 'vendor_name', 'vendor_code', 'special_gl_indicator',
             'status', 'journal', 'notes',
             'has_instruction',
             'deductions', 'total_deductions',
@@ -216,7 +219,7 @@ class PaymentVoucherSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'voucher_number', 'net_amount',
-            'total_deductions',
+            'total_deductions', 'vendor_name', 'vendor_code',
             'created_at', 'updated_at', 'journal',
         ]
 

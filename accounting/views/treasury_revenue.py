@@ -863,6 +863,14 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
         bank_reference = request.data.get('bank_reference', '')
 
+        # A vendor down payment (special G/L "A") disburses as a VendorAdvance
+        # against the vendor sub-ledger, not an ordinary expense posting.
+        is_advance = bool(
+            pv.payment_type == 'ADVANCE'
+            and pv.special_gl_indicator == 'A'
+            and pv.vendor_id
+        )
+
         with transaction.atomic():
             # Update payment instruction
             if hasattr(pv, 'payment_instruction'):
@@ -873,14 +881,37 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 pi.save(update_fields=['status', 'bank_reference', 'processed_at', 'updated_at'])
 
                 # ── Update TSA balance (cash leaves government account) ──
-                from accounting.services.treasury_service import TSABalanceService
-                TSABalanceService.process_payment(pi)
+                # The advance disbursement service posts its own
+                # DR-Vendor-Advances / CR-Cash journal and re-syncs the TSA
+                # from the GL, so running process_payment here too would
+                # decrement the TSA twice. Skip it for advances.
+                if not is_advance:
+                    from accounting.services.treasury_service import TSABalanceService
+                    TSABalanceService.process_payment(pi)
 
-            # Post IPSAS journal entry via the extracted service.
-            from accounting.services.payment_voucher_posting import (
-                post_payment_voucher_to_gl,
-            )
-            journal = post_payment_voucher_to_gl(pv, user=request.user)
+            if is_advance:
+                # DR Vendor-Advances recon (special G/L "A") / CR Cash.
+                # Records the advance on the vendor account as OUTSTANDING,
+                # to be cleared against the vendor's invoices later.
+                from accounting.services.vendor_advance import VendorAdvanceService
+                advance = VendorAdvanceService.disburse(
+                    vendor=pv.vendor,
+                    amount=pv.gross_amount,
+                    source_type='AP_DOWNPAYMENT',
+                    source_id=pv.id,
+                    reference=pv.source_document or pv.voucher_number,
+                    posting_date=timezone.now().date(),
+                    actor=request.user,
+                    bank_account=pv.tsa_account,
+                    notes=pv.narration,
+                )
+                journal = advance.disbursement_journal
+            else:
+                # Post IPSAS journal entry via the extracted service.
+                from accounting.services.payment_voucher_posting import (
+                    post_payment_voucher_to_gl,
+                )
+                journal = post_payment_voucher_to_gl(pv, user=request.user)
 
             pv.status = 'PAID'
             pv.journal = journal

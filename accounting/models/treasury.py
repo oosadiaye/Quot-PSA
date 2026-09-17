@@ -198,6 +198,20 @@ class PaymentVoucherGov(AuditBaseModel):
     )
     invoice_number   = models.CharField(max_length=50, blank=True, default='')
     invoice_date     = models.DateField(null=True, blank=True)
+    # Vendor down payment / advance linkage (SAP special-G/L "A"). Set for
+    # ADVANCE vouchers so that, when paid, the disbursement is recorded as a
+    # VendorAdvance against the vendor sub-ledger (DR Vendor-Advances recon /
+    # CR Cash) instead of an ordinary expense posting, and shows on the
+    # vendor account until cleared against the vendor's invoices.
+    vendor           = models.ForeignKey(
+        'procurement.Vendor', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='payment_vouchers',
+    )
+    special_gl_indicator = models.CharField(
+        max_length=1, blank=True, default='',
+        help_text="SAP special G/L indicator. 'A' = vendor down payment / "
+                  "advance; blank for ordinary payments.",
+    )
     status           = models.CharField(
         max_length=15, choices=STATUS_CHOICES, default='DRAFT',
     )

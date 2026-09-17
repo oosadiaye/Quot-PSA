@@ -415,6 +415,24 @@ export default function PaymentVoucherDetail() {
                                 : <div style={fieldValue}>{pv.invoice_number || '—'}</div>}
                         </div>
                     </div>
+                    {pv.special_gl_indicator === 'A' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginTop: '1rem' }}>
+                            <div>
+                                <div style={fieldLabel}>Vendor</div>
+                                <div style={fieldValue}>{pv.vendor_name || '—'}{pv.vendor_code ? `  (${pv.vendor_code})` : ''}</div>
+                            </div>
+                            <div>
+                                <div style={fieldLabel}>Special G/L</div>
+                                <div style={{ ...fieldValue, color: GOV.blue }}>A — Down Payment</div>
+                            </div>
+                            <div style={{ gridColumn: 'span 2' }}>
+                                <div style={fieldLabel}>Advance treatment</div>
+                                <div style={{ ...fieldValue, fontWeight: 500 }}>
+                                    Posts to Vendor Advances (special G/L) on payment; shown on the vendor account until cleared.
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </Section>
             </div>
         </AccountingLayout>
