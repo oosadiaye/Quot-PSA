@@ -33,12 +33,30 @@
         color: #008751;
         margin-bottom: 4px;
     }
+    .header .brand-logo {
+        max-height: 64px;
+        max-width: 200px;
+        margin: 0 auto 6px;
+        display: block;
+        object-fit: contain;
+    }
     .header .state-name {
         font-size: 16px;
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 1px;
         color: #008751;
+    }
+    .header .brand-tagline {
+        font-size: 11px;
+        font-style: italic;
+        color: #64748b;
+        margin-top: 2px;
+    }
+    .header .brand-contact {
+        font-size: 10px;
+        color: #64748b;
+        margin-top: 2px;
     }
     .header .doc-title {
         font-size: 18px;
@@ -206,8 +224,15 @@
     <div class="page">
         <!-- Header -->
         <div class="header">
-            <div class="crest">&#127975;</div>
-            <div class="state-name">{{ state_name|default:"State Government" }}</div>
+            {% if branding.logo_data_uri %}
+                <img class="brand-logo" src="{{ branding.logo_data_uri }}" alt="Logo">
+            {% else %}
+                <div class="crest">&#127975;</div>
+            {% endif %}
+            <div class="state-name">{{ branding.name|default:state_name|default:"State Government" }}</div>
+            {% if branding.tagline %}<div class="brand-tagline">{{ branding.tagline }}</div>{% endif %}
+            {% if branding.address_line %}<div class="brand-contact">{{ branding.address_line }}</div>{% endif %}
+            {% if branding.contact_line %}<div class="brand-contact">{{ branding.contact_line }}</div>{% endif %}
             <div class="doc-title">Payment Voucher</div>
         </div>
 

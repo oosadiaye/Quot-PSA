@@ -6,13 +6,18 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     CheckCircle, Send, CreditCard, Printer, AlertCircle, Edit3, X,
-    Receipt, Building2, Banknote, Hash, FileText,
+    Receipt, Building2, Banknote, Hash, FileText, Scissors,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import AccountingLayout from '../../features/accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { usePaymentVoucherDetail, usePVAction, useUpdatePV } from '../../hooks/useGovForms';
+import { useWithholdingTaxes, usePaymentDeductionCodes } from '../../features/accounting/hooks/useAccountingEnhancements';
 import { formatApiError } from '../../utils/apiError';
+import { formatThousandsInput, stripThousands } from '../../utils/number';
+import {
+    DeductionLinesEditor, serializeDeductions, hydrateDeductions, type DeductionRow,
+} from './DeductionLinesEditor';
 import apiClient from '../../api/client';
 
 const fmtNGN = (v: number | string) => {
@@ -73,6 +78,20 @@ export default function PaymentVoucherDetail() {
         source_document: '', invoice_number: '',
     });
 
+    // Editable deduction lines (DRAFT only). Settings load here too so the
+    // saved lines hydrate back to their WHT/deduction-code selection; the
+    // shared editor de-dupes the same react-query fetches.
+    const [deductions, setDeductions] = useState<DeductionRow[]>([]);
+    const { data: whtData } = useWithholdingTaxes({ is_active: true });
+    const whtCodes: any[] = Array.isArray(whtData) ? whtData : (whtData?.results ?? []);
+    const { data: dedData } = usePaymentDeductionCodes({ is_active: true });
+    const deductionCodes: any[] = Array.isArray(dedData) ? dedData : (dedData?.results ?? []);
+
+    const startEditing = () => {
+        setDeductions(hydrateDeductions(pv?.deductions, whtCodes, deductionCodes));
+        setEditing(true);
+    };
+
     // Re-seed the edit buffer whenever the loaded PV changes (e.g.,
     // after a successful PATCH refetch).
     useEffect(() => {
@@ -131,6 +150,9 @@ export default function PaymentVoucherDetail() {
                     narration:       draft.narration,
                     source_document: draft.source_document,
                     invoice_number:  draft.invoice_number,
+                    // Full deduction set — the serializer rebuilds the child
+                    // rows from this on every save (payment-time recognition).
+                    deductions:      serializeDeductions(deductions),
                 },
             });
             setEditing(false);
@@ -177,7 +199,7 @@ export default function PaymentVoucherDetail() {
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', padding: '0.3rem 0.75rem', borderRadius: 999, fontSize: 12, fontWeight: 700, letterSpacing: '0.03em', background: statusColor, color: '#fff' }}>{pv.status}</span>
             {pv.status === 'DRAFT' && !editing && (
-                <button onClick={() => setEditing(true)} style={btnLight}><Edit3 size={16} /> Edit Draft</button>
+                <button onClick={startEditing} style={btnLight}><Edit3 size={16} /> Edit Draft</button>
             )}
             {pv.status === 'DRAFT' && editing && (
                 <>
@@ -283,10 +305,12 @@ export default function PaymentVoucherDetail() {
                             <div style={fieldLabel}>Gross Amount</div>
                             {editing ? (
                                 <input
-                                    type="number" step="0.01" min="0" max="999999999999.99"
-                                    value={draft.gross_amount}
-                                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                    onChange={(e) => setDraft({ ...draft, gross_amount: e.target.value })}
+                                    type="text" inputMode="decimal"
+                                    value={formatThousandsInput(draft.gross_amount)}
+                                    onChange={(e) => {
+                                        const raw = stripThousands(e.target.value);
+                                        if (raw === '' || /^\d*\.?\d{0,2}$/.test(raw)) setDraft({ ...draft, gross_amount: raw });
+                                    }}
                                     style={{ ...inlineInput, fontFamily: 'monospace' }}
                                 />
                             ) : (
@@ -312,16 +336,64 @@ export default function PaymentVoucherDetail() {
                     </div>
                 </Section>
 
+                {/* Deductions — editable while the draft is being edited */}
+                {(editing || (pv.deductions && pv.deductions.length > 0)) && (
+                    <Section icon={<Scissors size={16} />} title="Deductions">
+                        {editing ? (
+                            <DeductionLinesEditor
+                                gross={Number(draft.gross_amount) || 0}
+                                deductions={deductions}
+                                setDeductions={setDeductions}
+                            />
+                        ) : (
+                            <div style={{ display: 'grid', gap: '0.5rem' }}>
+                                {pv.deductions.map((d: any) => (
+                                    <div key={d.id} style={{
+                                        display: 'grid', gridTemplateColumns: '1.4fr 0.7fr 1fr 1.6fr',
+                                        gap: '0.6rem', alignItems: 'center', padding: '0.5rem 0.7rem',
+                                        borderRadius: 8, background: 'rgba(148,163,184,0.06)',
+                                        border: '1px solid var(--color-border)', fontSize: 'var(--text-xs)',
+                                    }}>
+                                        <span style={{ fontWeight: 600 }}>{d.deduction_type_display || d.deduction_type}</span>
+                                        <span style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                                            {parseFloat(d.rate) ? `${parseFloat(d.rate)}%` : '—'}
+                                        </span>
+                                        <span style={{ fontFamily: 'monospace', fontWeight: 700, textAlign: 'right', color: GOV.red }}>{fmtNGN(d.amount)}</span>
+                                        <span style={{ color: 'var(--color-text-muted)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }} title={`${d.gl_account_code || ''} ${d.gl_account_name || ''}`}>
+                                            {d.gl_account_code ? `${d.gl_account_code} — ${d.gl_account_name}` : '—'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </Section>
+                )}
+
                 {/* NCoA */}
                 {pv.ncoa_full_code && (
                     <Section icon={<Hash size={16} />} title="NCoA Classification">
                         <div style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: GOV.blue, fontWeight: 600, background: 'rgba(30,77,140,0.06)', padding: '0.7rem 0.85rem', borderRadius: 8, border: '1px solid rgba(30,77,140,0.2)', wordBreak: 'break-all' }}>
                             {pv.ncoa_full_code}
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                            <div><div style={fieldLabel}>MDA</div><div style={fieldValue}>{pv.ncoa_mda_name || '—'}</div></div>
-                            <div><div style={fieldLabel}>Account</div><div style={fieldValue}>{pv.ncoa_account_name || '—'}</div></div>
-                        </div>
+                        {/* Segment breakdown — each of the six segments listed as
+                            two columns: the segment code and its description. */}
+                        {Array.isArray(pv.ncoa_segments) && pv.ncoa_segments.length > 0 && (
+                            <div style={{ marginTop: '1rem', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '0.75rem', padding: '0.5rem 0.85rem', background: 'rgba(148,163,184,0.08)', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                                    <span>Code</span>
+                                    <span>Description</span>
+                                </div>
+                                {pv.ncoa_segments.map((s: { segment: string; code: string; name: string }) => (
+                                    <div key={s.segment} style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '0.75rem', padding: '0.55rem 0.85rem', borderTop: '1px solid var(--color-border)', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 2 }}>{s.segment}</div>
+                                            <div style={{ fontFamily: 'monospace', fontWeight: 700, color: GOV.blue, fontSize: 'var(--text-sm)' }}>{s.code || '—'}</div>
+                                        </div>
+                                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text)' }}>{s.name || '—'}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </Section>
                 )}
 
