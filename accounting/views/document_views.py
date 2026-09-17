@@ -3,10 +3,14 @@ Document Print Views — Quot PSE
 Renders Payment Voucher and Revenue Receipt as printable HTML documents.
 Users print via browser (Ctrl+P / Print to PDF).
 """
+import base64
+import mimetypes
+
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.http import HttpResponse
 from django.conf import settings
+from django.db import connection
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,6 +18,51 @@ from rest_framework.authentication import TokenAuthentication, SessionAuthentica
 
 from accounting.models.treasury import PaymentVoucherGov
 from accounting.models.revenue import RevenueCollection
+
+
+def tenant_branding_context():
+    """Branding (name, contact, logo) for the current tenant's letterhead.
+
+    The logo is embedded as a base64 data URI so the printed HTML is fully
+    self-contained — the SPA opens the print response as a blob URL, where a
+    relative /media/ image (and its Token auth) would not resolve.
+    """
+    tenant = getattr(connection, 'tenant', None)
+    if tenant is None:
+        return {}
+
+    logo_data_uri = ''
+    logo = getattr(tenant, 'logo', None)
+    if logo:
+        try:
+            logo.open('rb')
+            raw = logo.read()
+            logo.close()
+            mime = mimetypes.guess_type(logo.name)[0] or 'image/png'
+            logo_data_uri = 'data:%s;base64,%s' % (
+                mime, base64.b64encode(raw).decode('ascii'),
+            )
+        except Exception:
+            # A missing/unreadable logo file must never break the printout.
+            logo_data_uri = ''
+
+    addr_parts = [p for p in (
+        getattr(tenant, 'address', ''), getattr(tenant, 'city', ''),
+        getattr(tenant, 'state', ''), getattr(tenant, 'country', ''),
+        getattr(tenant, 'postal_code', ''),
+    ) if p]
+    contact_parts = [p for p in (
+        getattr(tenant, 'phone', ''), getattr(tenant, 'email', ''),
+        getattr(tenant, 'website', ''),
+    ) if p]
+
+    return {
+        'name': getattr(tenant, 'name', '') or '',
+        'tagline': getattr(tenant, 'tagline', '') or '',
+        'address_line': ', '.join(addr_parts),
+        'contact_line': '  •  '.join(contact_parts),
+        'logo_data_uri': logo_data_uri,
+    }
 
 
 @api_view(['GET'])
@@ -48,6 +97,7 @@ def payment_voucher_print(request, pk):
     html = render_to_string('accounting/payment_voucher_print.html', {
         'pv': pv,
         'state_name': state_name,
+        'branding': tenant_branding_context(),
     }, request=request)
     return HttpResponse(html, content_type='text/html; charset=utf-8')
 
