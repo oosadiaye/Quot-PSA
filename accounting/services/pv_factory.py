@@ -381,6 +381,8 @@ def create_draft_voucher_from_advance(
         payment_type="ADVANCE",
         ncoa_code=ncoa,
         appropriation=None,           # balance-sheet advance — no budget line
+        vendor=vendor,                # links the special-GL advance to the vendor
+        special_gl_indicator="A",     # SAP special G/L "A" — down payment
         payee_name=vendor_name[:200],
         payee_account="",
         payee_bank="",
