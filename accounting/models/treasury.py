@@ -312,6 +312,14 @@ class PaymentVoucherDeduction(AuditBaseModel):
         'accounting.WithholdingTax', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='pv_deductions',
     )
+    deduction_code = models.ForeignKey(
+        'accounting.PaymentDeductionCode', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='pv_deductions',
+        help_text=(
+            'Payment Deduction setting this line was created from '
+            '(carries its GL account and percentage/fixed basis).'
+        ),
+    )
     rate = models.DecimalField(
         max_digits=5, decimal_places=2, default=0,
         help_text='Rate used to compute amount (informational).',

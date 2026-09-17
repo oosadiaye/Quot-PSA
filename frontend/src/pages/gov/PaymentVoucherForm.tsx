@@ -29,32 +29,31 @@ import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
 import { useCreatePV, useNCoASegments } from '../../hooks/useGovForms';
 import apiClient from '../../api/client';
-import { useWithholdingTaxes } from '../../features/accounting/hooks/useAccountingEnhancements';
-import { useAccounts } from '../../features/accounting/hooks/useBudgetDimensions';
+import { useWithholdingTaxes, usePaymentDeductionCodes } from '../../features/accounting/hooks/useAccountingEnhancements';
 import { Plus, X } from 'lucide-react';
 
 type DeductionType =
     | 'WHT' | 'STAMP_DUTY' | 'VAT_WITHHELD'
     | 'HANDLING' | 'INSURANCE' | 'RETENTION' | 'OTHER';
 
-const DEDUCTION_TYPES: Array<[DeductionType, string]> = [
-    ['WHT',          'Withholding Tax'],
-    ['STAMP_DUTY',   'Stamp Duty'],
-    ['VAT_WITHHELD', 'VAT Withheld at Source'],
-    ['HANDLING',     'Bank / Handling Charges'],
-    ['INSURANCE',    'Insurance Premium'],
-    ['RETENTION',    'Contract Retention'],
-    ['OTHER',        'Other Deduction'],
-];
-
+// A deduction line is now driven entirely by a chosen master setting —
+// either a Withholding Tax code or a Payment Deduction code. The setting
+// carries the GL account and the basis (percentage of gross or a fixed
+// amount); the line's GL + amount are derived, never typed by hand, so
+// what posts always matches the configured setting.
 interface DeductionRow {
     _uid: number;
+    selection: string;          // 'wht:<id>' | 'ded:<id>' | '' — the picked setting
     deduction_type: DeductionType;
     description: string;
-    withholding_tax: string;   // FK id as string, optional
-    rate: string;              // percent, for informational display / compute
-    amount: string;
-    gl_account: string;        // FK id as string
+    withholding_tax: string;    // WHT code FK id (string), '' when none
+    deduction_code: string;     // PaymentDeductionCode FK id (string), '' when none
+    calc: 'percentage' | 'fixed';
+    rate: string;               // percent — informational + recompute basis
+    amount: string;             // computed from the setting + gross
+    gl_account: string;         // GL FK id (string), derived from the setting
+    gl_label: string;           // "code — name" for the read-only GL display
+    basis: string;              // "5%" or "₦1,500.00" for display
 }
 
 // Compact field style retained for the dense deduction-line grid and the
@@ -147,47 +146,86 @@ export default function PaymentVoucherForm() {
     const [deductions, setDeductions] = useState<DeductionRow[]>([]);
     const nextDeductionUid = useRef(1);
 
+    // Deduction settings — both masters feed one searchable dropdown.
     const { data: whtData } = useWithholdingTaxes({ is_active: true });
-    const whtCodes: Array<{ id: number; code: string; name: string; rate: number | string; withholding_account?: number }> =
+    const whtCodes: Array<{ id: number; code: string; name: string; rate: number | string; withholding_account?: number; withholding_account_display?: { code: string; name: string } | null }> =
         Array.isArray(whtData) ? whtData : (whtData?.results ?? []);
-    const { data: liabilityAccts } = useAccounts({ account_type: 'Liability', is_active: true });
-    const { data: expenseAccts } = useAccounts({ account_type: 'Expense', is_active: true });
-    const allAccts: Array<{ id: number; code: string; name: string; account_type: string }> = [
-        ...(liabilityAccts ?? []),
-        ...(expenseAccts ?? []),
-    ];
+    const { data: dedData } = usePaymentDeductionCodes({ is_active: true });
+    const deductionCodes: Array<{ id: number; code: string; name: string; deduction_type: DeductionType; deduction_type_display: string; calculation_method: 'percentage' | 'fixed'; rate: string; fixed_amount: string; gl_account: number | null; gl_account_code: string | null; gl_account_name: string | null }> =
+        Array.isArray(dedData) ? dedData : (dedData?.results ?? []);
 
-    const addDeduction = (type: DeductionType = 'WHT') => {
+    // One flat option list: WHT codes first, then deduction codes. Both the
+    // label (code — name) and the sublabel (category · basis) are searchable
+    // by SearchableSelect, so typing "handling", "WHT", "5%" or a code all work.
+    const deductionOptions = useMemo(() => ([
+        ...whtCodes.map(w => ({
+            value: `wht:${w.id}`,
+            label: `${w.code} — ${w.name}`,
+            sublabel: `Withholding Tax · ${parseFloat(String(w.rate || '0'))}%`,
+        })),
+        ...deductionCodes.map(c => ({
+            value: `ded:${c.id}`,
+            label: `${c.code} — ${c.name}`,
+            sublabel: `${c.deduction_type_display} · ${c.calculation_method === 'fixed' ? fmtNGN(c.fixed_amount) : parseFloat(String(c.rate || '0')) + '%'}`,
+        })),
+    ]), [whtCodes, deductionCodes]);
+
+    const addDeduction = () => {
         setDeductions(prev => [...prev, {
             _uid: nextDeductionUid.current++,
-            deduction_type: type,
-            description: '',
-            withholding_tax: '',
-            rate: '',
-            amount: '0',
-            gl_account: '',
+            selection: '', deduction_type: 'OTHER', description: '',
+            withholding_tax: '', deduction_code: '', calc: 'percentage',
+            rate: '', amount: '0', gl_account: '', gl_label: '', basis: '',
         }]);
     };
     const removeDeduction = (uid: number) =>
         setDeductions(prev => prev.filter(d => d._uid !== uid));
-    const updateDeduction = (uid: number, field: keyof DeductionRow, value: string) =>
+
+    // Pick a setting → derive type / GL / rate / amount from it. Nothing on
+    // the line is typed by hand, so the posted credit always matches config.
+    const selectDeduction = (uid: number, value: string) =>
         setDeductions(prev => prev.map(d => {
             if (d._uid !== uid) return d;
-            const next = { ...d, [field]: value };
-            // WHT: when a WHT code is picked, copy its rate + GL account and
-            // recompute the amount from the current gross subtotal.
-            if (field === 'withholding_tax' && value) {
-                const wht = whtCodes.find(w => String(w.id) === value);
-                if (wht) {
-                    const gross = parseFloat(form.gross_amount) || 0;
-                    const rate = parseFloat(String(wht.rate || '0'));
-                    next.rate = String(rate);
-                    next.amount = gross > 0 ? (gross * rate / 100).toFixed(2) : next.amount;
-                    if (wht.withholding_account) next.gl_account = String(wht.withholding_account);
-                    if (!next.description) next.description = `${wht.code} ${wht.name}`;
-                }
+            const gross = parseFloat(form.gross_amount) || 0;
+            if (!value) {
+                return {
+                    ...d, selection: '', deduction_type: 'OTHER', description: '',
+                    withholding_tax: '', deduction_code: '', calc: 'percentage',
+                    rate: '', amount: '0', gl_account: '', gl_label: '', basis: '',
+                };
             }
-            return next;
+            const [src, idStr] = value.split(':');
+            if (src === 'wht') {
+                const w = whtCodes.find(x => String(x.id) === idStr);
+                if (!w) return d;
+                const rate = parseFloat(String(w.rate || '0'));
+                const amount = gross > 0 ? gross * rate / 100 : 0;
+                return {
+                    ...d, selection: value, deduction_type: 'WHT',
+                    withholding_tax: idStr, deduction_code: '', calc: 'percentage',
+                    rate: String(rate), amount: amount.toFixed(2), basis: `${rate}%`,
+                    gl_account: w.withholding_account ? String(w.withholding_account) : '',
+                    gl_label: w.withholding_account_display
+                        ? `${w.withholding_account_display.code} — ${w.withholding_account_display.name}` : '',
+                    description: `${w.code} ${w.name}`,
+                };
+            }
+            const c = deductionCodes.find(x => String(x.id) === idStr);
+            if (!c) return d;
+            const isPct = c.calculation_method === 'percentage';
+            const rate = parseFloat(String(c.rate || '0'));
+            const fixed = parseFloat(String(c.fixed_amount || '0'));
+            const amount = isPct ? (gross > 0 ? gross * rate / 100 : 0) : fixed;
+            return {
+                ...d, selection: value, deduction_type: c.deduction_type,
+                withholding_tax: '', deduction_code: idStr,
+                calc: c.calculation_method,
+                rate: isPct ? String(rate) : '0', amount: amount.toFixed(2),
+                basis: isPct ? `${rate}%` : fmtNGN(fixed),
+                gl_account: c.gl_account ? String(c.gl_account) : '',
+                gl_label: c.gl_account_code ? `${c.gl_account_code} — ${c.gl_account_name}` : '',
+                description: `${c.code} ${c.name}`,
+            };
         }));
 
     const totalDeductions = useMemo(
@@ -198,6 +236,17 @@ export default function PaymentVoucherForm() {
         const gross = parseFloat(form.gross_amount) || 0;
         return Math.max(0, gross - totalDeductions);
     }, [form.gross_amount, totalDeductions]);
+
+    // Recompute every percentage line whenever the gross changes — fixed
+    // lines keep their configured flat amount.
+    useEffect(() => {
+        const gross = parseFloat(form.gross_amount) || 0;
+        setDeductions(prev => prev.map(d => {
+            if (!d.selection || d.calc !== 'percentage') return d;
+            const rate = parseFloat(d.rate || '0');
+            return { ...d, amount: (gross > 0 ? gross * rate / 100 : 0).toFixed(2) };
+        }));
+    }, [form.gross_amount]);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -303,11 +352,12 @@ export default function PaymentVoucherForm() {
             // the backend reads the sum of WHT-typed deduction rows.
             wht_amount: deductions.length > 0 ? '0' : (form.wht_amount || '0'),
             deductions: deductions
-                .filter(d => parseFloat(d.amount) > 0 && d.gl_account)
+                .filter(d => d.selection && parseFloat(d.amount) > 0 && d.gl_account)
                 .map(d => ({
                     deduction_type: d.deduction_type,
                     description: d.description,
                     withholding_tax: d.withholding_tax ? parseInt(d.withholding_tax) : null,
+                    deduction_code: d.deduction_code ? parseInt(d.deduction_code) : null,
                     rate: parseFloat(d.rate || '0') || 0,
                     amount: parseFloat(d.amount),
                     gl_account: parseInt(d.gl_account),
@@ -557,10 +607,10 @@ export default function PaymentVoucherForm() {
                                 marginBottom: '0.5rem',
                             }}>
                                 <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
-                                    Deduction Lines · posted at payment time
+                                    Deduction Lines · GL &amp; amount posted from the setting
                                 </span>
                                 <button type="button"
-                                    onClick={() => addDeduction('WHT')}
+                                    onClick={() => addDeduction()}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '0.25rem',
                                         padding: '0.3rem 0.55rem', fontSize: '0.7rem',
@@ -571,64 +621,60 @@ export default function PaymentVoucherForm() {
                                     <Plus size={12} /> Add Deduction
                                 </button>
                             </div>
-                            {deductions.length === 0 && (
+                            {deductions.length === 0 ? (
                                 <p style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', margin: '0.5rem 0 0' }}>
-                                    No deductions. Add WHT, stamp duty, handling charges, etc. —
-                                    each line posts one credit row at payment time.
+                                    No deductions. Add a line and pick a Withholding Tax or Payment
+                                    Deduction setting — its GL account and rate/amount post automatically.
                                 </p>
+                            ) : (
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '2.4fr 0.7fr 1fr 1.8fr auto',
+                                    gap: '0.4rem', padding: '0 0.1rem',
+                                    fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
+                                    letterSpacing: '0.04em', color: 'var(--color-text-muted)',
+                                }}>
+                                    <span>Deduction setting</span>
+                                    <span style={{ textAlign: 'center' }}>Basis</span>
+                                    <span style={{ textAlign: 'right' }}>Amount</span>
+                                    <span>GL account</span>
+                                    <span />
+                                </div>
                             )}
                             {deductions.map(d => (
                                 <div key={d._uid} style={{
                                     display: 'grid',
-                                    gridTemplateColumns: '1.1fr 1.3fr 0.8fr 1fr 1.5fr auto',
+                                    gridTemplateColumns: '2.4fr 0.7fr 1fr 1.8fr auto',
                                     gap: '0.4rem',
-                                    marginTop: '0.5rem',
+                                    marginTop: '0.4rem',
                                     alignItems: 'center',
                                 }}>
-                                    <select style={{ ...inputStyle, fontSize: '0.7rem' }}
-                                        value={d.deduction_type}
-                                        onChange={e => updateDeduction(d._uid, 'deduction_type', e.target.value)}>
-                                        {DEDUCTION_TYPES.map(([v, lbl]) =>
-                                            <option key={v} value={v}>{lbl}</option>
-                                        )}
-                                    </select>
-                                    {d.deduction_type === 'WHT' ? (
-                                        <select style={{ ...inputStyle, fontSize: '0.7rem' }}
-                                            value={d.withholding_tax}
-                                            onChange={e => updateDeduction(d._uid, 'withholding_tax', e.target.value)}>
-                                            <option value="">— pick WHT code —</option>
-                                            {whtCodes.map(w => (
-                                                <option key={w.id} value={w.id}>
-                                                    {w.code} · {w.name} ({w.rate}%)
-                                                </option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <input style={{ ...inputStyle, fontSize: '0.7rem' }}
-                                            placeholder="Description"
-                                            value={d.description}
-                                            onChange={e => updateDeduction(d._uid, 'description', e.target.value)} />
-                                    )}
-                                    <input style={{ ...inputStyle, fontSize: '0.7rem' }}
-                                        type="number" step="0.01" min="0"
-                                        placeholder="Rate %"
-                                        value={d.rate}
-                                        onChange={e => updateDeduction(d._uid, 'rate', e.target.value)} />
-                                    <input style={{ ...inputStyle, fontSize: '0.7rem', fontWeight: 600 }}
-                                        type="number" step="0.01" min="0"
-                                        placeholder="Amount"
-                                        value={d.amount}
-                                        onChange={e => updateDeduction(d._uid, 'amount', e.target.value)} />
-                                    <select style={{ ...inputStyle, fontSize: '0.7rem' }}
-                                        value={d.gl_account}
-                                        onChange={e => updateDeduction(d._uid, 'gl_account', e.target.value)}>
-                                        <option value="">— GL account —</option>
-                                        {allAccts.map(a => (
-                                            <option key={a.id} value={a.id}>
-                                                {a.code} · {a.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <SearchableSelect
+                                        options={deductionOptions}
+                                        value={d.selection}
+                                        onChange={(v) => selectDeduction(d._uid, v)}
+                                        placeholder="Search WHT or deduction setting…"
+                                    />
+                                    <div style={{
+                                        fontSize: '0.72rem', fontWeight: 600, textAlign: 'center',
+                                        color: 'var(--color-text-muted)',
+                                    }}>
+                                        {d.selection ? d.basis : '—'}
+                                    </div>
+                                    <div style={{
+                                        ...inputStyle, fontSize: '0.72rem', fontWeight: 700,
+                                        background: 'rgba(234,179,8,0.06)', color: '#ca8a04',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                                    }}>
+                                        {fmtNGN(d.amount)}
+                                    </div>
+                                    <div style={{
+                                        fontSize: '0.68rem', display: 'flex', alignItems: 'center',
+                                        overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                                        color: d.gl_label ? 'var(--color-text)' : '#ef4444',
+                                    }} title={d.gl_label || 'The selected setting has no GL account'}>
+                                        {d.gl_label || 'No GL on setting'}
+                                    </div>
                                     <button type="button"
                                         onClick={() => removeDeduction(d._uid)}
                                         title="Remove deduction"

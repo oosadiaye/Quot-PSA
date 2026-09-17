@@ -82,6 +82,9 @@ class PaymentVoucherDeductionSerializer(serializers.ModelSerializer):
     withholding_tax_code = serializers.CharField(
         source='withholding_tax.code', read_only=True, allow_null=True,
     )
+    deduction_code_ref = serializers.CharField(
+        source='deduction_code.code', read_only=True, allow_null=True,
+    )
 
     class Meta:
         from accounting.models.treasury import PaymentVoucherDeduction  # local to avoid circular
@@ -89,12 +92,14 @@ class PaymentVoucherDeductionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'deduction_type', 'deduction_type_display',
             'description', 'withholding_tax', 'withholding_tax_code',
+            'deduction_code', 'deduction_code_ref',
             'rate', 'amount',
             'gl_account', 'gl_account_code', 'gl_account_name',
         ]
         read_only_fields = [
             'id', 'deduction_type_display',
             'gl_account_code', 'gl_account_name', 'withholding_tax_code',
+            'deduction_code_ref',
         ]
 
     def validate_amount(self, value):
