@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
     Banknote, TrendingDown, CreditCard,
-    ChevronRight,
+    ChevronRight, CalendarClock,
 } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -12,7 +12,7 @@ import {
     useCreatePaymentAllocation, useVendorInvoices,
     useAccountingSettings,
 } from '../hooks/useAccountingEnhancements';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
     useVendors, useDownPaymentRequests, useProcessDownPayment,
@@ -113,6 +113,20 @@ interface DownPaymentRequestRow {
     amount: string;
     payment_type?: string;
     status: 'Approved' | string;
+}
+
+// Contract mobilization advance (from /contracts/mobilization-payments/).
+// Merged into this tab from the retired standalone page.
+interface MobilizationRow {
+    id: number;
+    contract: number;
+    contract_number?: string;
+    vendor_name?: string;
+    amount: string;
+    payment_voucher_number?: string | null;
+    created_at?: string;
+    payment_date?: string | null;
+    status: string;
 }
 
 // Axios error shape after the API client transforms backend DRF
@@ -808,6 +822,33 @@ export default function OutgoingPaymentsPage() {
     const showSuccess = (msg: string) => { setNotification({ msg, type: 'success' }); setTimeout(() => setNotification(null), 3500); };
     const showError   = (msg: string) => { setNotification({ msg, type: 'error'   }); setTimeout(() => setNotification(null), 4500); };
 
+    // ─── contract mobilization advances ───────────────────────────────────────
+    // Merged in from the (retired) standalone Mobilization Advances page:
+    // mobilisation is just another vendor advance, so it belongs on this tab.
+    const queryClient = useQueryClient();
+    const { data: mobilizationsRaw, isLoading: loadingMobilizations } = useQuery({
+        queryKey: ['mobilization-payments'],
+        queryFn: () => apiClient.get('/contracts/mobilization-payments/').then((r) => r.data),
+        staleTime: 30_000,
+    });
+    const mobilizationList: MobilizationRow[] = Array.isArray(mobilizationsRaw)
+        ? mobilizationsRaw
+        : ((mobilizationsRaw as { results?: MobilizationRow[] } | undefined)?.results ?? []);
+    const approveMobilization = useMutation({
+        mutationFn: (mobId: number) => apiClient.post(`/contracts/mobilization-payments/${mobId}/approve/`),
+        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mobilization-payments'] }); showSuccess('Mobilization advance approved.'); },
+        onError: (err: unknown) => showError(extractApiErrorMessage(err, 'Failed to approve mobilization advance.')),
+    });
+    const scheduleMobilization = useMutation({
+        mutationFn: (mobId: number) => apiClient.post(`/contracts/mobilization-payments/${mobId}/schedule-payment/`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['mobilization-payments'] });
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+            showSuccess('Draft Payment Voucher created for the mobilization advance — post it from the Payments tab / Payment Vouchers.');
+        },
+        onError: (err: unknown) => showError(extractApiErrorMessage(err, 'Failed to schedule mobilization advance.')),
+    });
+
     // ─── summary metrics ──────────────────────────────────────────────────────
     // Cast the React-Query payload arrays once into our typed row shapes
     // so the downstream filters/reducers can use real properties without
@@ -1193,7 +1234,7 @@ export default function OutgoingPaymentsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Advances & Downpayments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process procurement-approved down payment requests and record vendor advances</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process procurement-approved down payment requests, record vendor advances, and track contract mobilization</p>
                 </div>
                 <button onClick={() => setShowAdvanceForm(true)} style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
@@ -1387,6 +1428,79 @@ export default function OutgoingPaymentsPage() {
                                                         style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
                                                         <Eye size={12} /> View
                                                     </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* Contract mobilization advances — merged in from the retired
+                standalone Mobilization Advances page. Each line reads
+                "Mobilization advance for <vendor> (<contract #>)". */}
+            <div style={{ marginTop: '28px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#0ea5e9' }} />
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>Contract Mobilization Advances</span>
+                </div>
+                {loadingMobilizations ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Loading…</div>
+                ) : !mobilizationList.length ? (
+                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center' }}>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>No mobilization advances issued against contracts.</p>
+                    </div>
+                ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                            <thead>
+                                <tr style={{ background: '#f0f9ff' }}>
+                                    {['Advance', 'Amount', 'PV Reference', 'Issued On', 'Status', 'Actions'].map(h => (
+                                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#0369a1', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e0f2fe', whiteSpace: 'nowrap' }}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {mobilizationList.map((m) => (
+                                    <tr key={m.id} style={{ borderBottom: '1px solid #f0f9ff' }}>
+                                        <td style={{ padding: '11px 14px' }}>
+                                            <button
+                                                onClick={() => navigate(`/contracts/${m.contract}`)}
+                                                title="Open the contract"
+                                                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', color: '#1e293b', fontWeight: 600, fontSize: '13px' }}
+                                            >
+                                                Mobilization advance for {m.vendor_name || '—'} ({m.contract_number || '—'})
+                                            </button>
+                                        </td>
+                                        <td style={{ padding: '11px 14px', fontWeight: 700, color: '#0369a1' }}>{formatCurrency(m.amount)}</td>
+                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{m.payment_voucher_number || '—'}</td>
+                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(m.created_at)}</td>
+                                        <td style={{ padding: '11px 14px' }}><StatusBadge status={m.status} /></td>
+                                        <td style={{ padding: '11px 14px' }}>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                {m.status === 'PENDING' && (
+                                                    <button
+                                                        onClick={() => { if (window.confirm(`Approve mobilization advance of ${formatCurrency(m.amount)} for ${m.vendor_name} on ${m.contract_number}? This authorises Treasury to raise the disbursement Payment Voucher.`)) approveMobilization.mutate(m.id); }}
+                                                        disabled={approveMobilization.isPending}
+                                                        style={{ padding: '5px 10px', border: '1px solid #16a34a', borderRadius: '6px', background: '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}
+                                                    >
+                                                        <CheckCircle2 size={12} /> Approve
+                                                    </button>
+                                                )}
+                                                {m.status === 'APPROVED' && !m.payment_voucher_number && (
+                                                    <button
+                                                        onClick={() => { if (window.confirm(`Schedule ${formatCurrency(m.amount)} mobilization for ${m.vendor_name}? A draft Payment Voucher will be created for Treasury to post.`)) scheduleMobilization.mutate(m.id); }}
+                                                        disabled={scheduleMobilization.isPending}
+                                                        style={{ padding: '5px 10px', border: '1px solid #7c3aed', borderRadius: '6px', background: '#f5f3ff', color: '#7c3aed', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}
+                                                    >
+                                                        <CalendarClock size={12} /> Schedule
+                                                    </button>
+                                                )}
+                                                {!!m.payment_voucher_number && (
+                                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>PV raised</span>
                                                 )}
                                             </div>
                                         </td>

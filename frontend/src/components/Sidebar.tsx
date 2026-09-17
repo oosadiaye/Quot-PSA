@@ -139,10 +139,9 @@ const menuItems: MenuItem[] = [
             // from the same mental cluster as account management.
             { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
-            // Mobilization advances live with payment vouchers because
-            // they're the *trigger* for a PV — operator scans this list
-            // to see "which advances are PENDING and need a PV raised".
-            { name: 'Mobilization Advances', path: '/accounting/mobilization-advances', icon: Banknote },
+            // Mobilization advances are now merged into Outgoing Payments →
+            // Advances tab (Contract Mobilization Advances), so the standalone
+            // link is retired.
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
             { name: 'Payment Batches', path: '/accounting/payment-batches', icon: Layers },
             // H2 follow-up (WS6) — operator surface for cascade failures.
