@@ -1,4 +1,6 @@
 from datetime import date
+from decimal import Decimal
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -58,6 +60,66 @@ class WithholdingTax(models.Model):
         related_name='withholding_tax_codes',
     )
     is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} — {self.name}"
+
+
+class PaymentDeductionCode(models.Model):
+    """
+    Reusable deduction/charge rule applied at payment time.
+
+    Config/master model (tenant-wide reference data — NOT MDA-scoped).
+    Each code maps a statutory or operational deduction to a GL account
+    and a calculation basis (percentage of gross, or a fixed amount).
+    A code drives the amount that lands on a PaymentVoucherDeduction line.
+    """
+
+    # Codes mirror PaymentVoucherDeduction.DEDUCTION_TYPE_CHOICES so a code
+    # can be linked cleanly to the deduction line it produces.
+    DEDUCTION_TYPE_CHOICES = [
+        ('WHT',          'Withholding Tax'),
+        ('STAMP_DUTY',   'Stamp Duty'),
+        ('VAT_WITHHELD', 'VAT Withheld at Source'),
+        ('HANDLING',     'Bank / Handling Charges'),
+        ('INSURANCE',    'Insurance Premium'),
+        ('RETENTION',    'Contract Retention'),
+        ('OTHER',        'Other Deduction'),
+    ]
+
+    CALCULATION_METHOD_CHOICES = [
+        ('percentage', 'Percentage of gross'),
+        ('fixed',      'Fixed amount'),
+    ]
+
+    code = models.CharField(max_length=20, unique=True, db_index=True, default='')
+    name = models.CharField(max_length=150, default='')
+    deduction_type = models.CharField(
+        max_length=15, choices=DEDUCTION_TYPE_CHOICES, db_index=True, default='OTHER',
+    )
+    calculation_method = models.CharField(
+        max_length=10, choices=CALCULATION_METHOD_CHOICES, default='percentage',
+    )
+    rate = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Percentage rate applied to gross when method is "percentage".',
+    )
+    fixed_amount = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Flat amount deducted when method is "fixed".',
+    )
+    gl_account = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='payment_deduction_codes',
+        help_text='GL liability/revenue account credited when this deduction is taken.',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    description = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['code']

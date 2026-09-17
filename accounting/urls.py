@@ -23,7 +23,7 @@ from .views import (
     CashFlowCategoryViewSet, CashFlowForecastViewSet, BankStatementViewSet,
     # Tax
     TaxRegistrationViewSet, TaxExemptionViewSet, TaxReturnViewSet,
-    WithholdingTaxViewSet, TaxCodeViewSet,
+    WithholdingTaxViewSet, TaxCodeViewSet, PaymentDeductionCodeViewSet,
     # Cost & Profit Centers
     CostCenterViewSet, ProfitCenterViewSet, CostAllocationRuleViewSet,
     # Deferred, Leases, Treasury
@@ -151,6 +151,7 @@ router.register(r'tax-exemptions', TaxExemptionViewSet, basename='tax-exemption'
 router.register(r'tax-returns', TaxReturnViewSet, basename='tax-return')
 router.register(r'withholding-taxes', WithholdingTaxViewSet, basename='withholding-tax')
 router.register(r'tax-codes', TaxCodeViewSet, basename='tax-code')
+router.register(r'payment-deduction-codes', PaymentDeductionCodeViewSet, basename='payment-deduction-code')
 
 # ─── Cost & Profit Centers ────────────────────────────────────
 router.register(r'cost-centers', CostCenterViewSet, basename='cost-center')

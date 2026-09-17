@@ -174,6 +174,18 @@ interface WithholdingTaxFormData {
     is_active?: boolean;
 }
 
+interface PaymentDeductionCodeFormData {
+    code: string;
+    name: string;
+    deduction_type: string;
+    calculation_method: string;
+    rate: string;
+    fixed_amount: string;
+    gl_account: number | string | null;
+    is_active?: boolean;
+    description?: string;
+}
+
 // ============================================================================
 // CURRENCY HOOKS
 // ============================================================================
@@ -1124,6 +1136,67 @@ export const useDeleteWithholdingTax = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: WITHHOLDING_TAXES_QUERY_ROOT });
+        },
+    });
+};
+
+// ================================
+// PAYMENT DEDUCTION CODE HOOKS
+// ================================
+// Reusable deduction-code master (Deductions tab of Payment Deduction):
+// each code carries a GL account and a calculation basis (percentage of
+// gross OR fixed amount). Tenant-wide config, like WithholdingTax/TaxCode.
+const PAYMENT_DEDUCTION_CODES_QUERY_ROOT = ['payment-deduction-codes', 'v1'] as const;
+
+export const usePaymentDeductionCodes = (filters: Record<string, unknown> = {}) => {
+    return useQuery({
+        queryKey: [...PAYMENT_DEDUCTION_CODES_QUERY_ROOT, filters],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/payment-deduction-codes/', {
+                params: { page_size: 10000, ...filters },
+            });
+            return Array.isArray(data) ? data : (data?.results ?? []);
+        },
+        staleTime: DEFAULT_STALE_TIME,
+        refetchOnMount: 'always',
+        retry: false,
+    });
+};
+
+export const useCreatePaymentDeductionCode = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (payload: PaymentDeductionCodeFormData) => {
+            const { data } = await apiClient.post('/accounting/payment-deduction-codes/', payload);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: PAYMENT_DEDUCTION_CODES_QUERY_ROOT });
+        },
+    });
+};
+
+export const useUpdatePaymentDeductionCode = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, ...payload }: PaymentDeductionCodeFormData & { id: number }) => {
+            const { data } = await apiClient.put(`/accounting/payment-deduction-codes/${id}/`, payload);
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: PAYMENT_DEDUCTION_CODES_QUERY_ROOT });
+        },
+    });
+};
+
+export const useDeletePaymentDeductionCode = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => {
+            await apiClient.delete(`/accounting/payment-deduction-codes/${id}/`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: PAYMENT_DEDUCTION_CODES_QUERY_ROOT });
         },
     });
 };

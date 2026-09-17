@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import SearchableSelect from '../../../components/SearchableSelect';
-import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, Receipt, ShieldCheck, Scissors } from 'lucide-react';
-import { formatDate } from '@/utils/date';
+import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, Receipt, ShieldCheck, Scissors, Percent, Banknote } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
@@ -13,6 +12,10 @@ import {
     useCreateWithholdingTax,
     useUpdateWithholdingTax,
     useDeleteWithholdingTax,
+    usePaymentDeductionCodes,
+    useCreatePaymentDeductionCode,
+    useUpdatePaymentDeductionCode,
+    useDeletePaymentDeductionCode,
 } from '../hooks/useAccountingEnhancements';
 import StatusBadge from '../components/shared/StatusBadge';
 import GlassCard from '../components/shared/GlassCard';
@@ -58,24 +61,26 @@ interface WithholdingTax {
     is_active: boolean;
 }
 
-interface Deduction {
+interface DeductionCode {
     id: number;
-    payment_voucher: number;
-    pv_number: string;
-    payee_name: string;
-    pv_status: string;
+    code: string;
+    name: string;
     deduction_type: string;
     deduction_type_display: string;
-    description: string;
+    calculation_method: string;
+    calculation_method_display: string;
     rate: string;
-    amount: string;
-    gl_account_code: string;
-    gl_account_name: string;
-    created_at: string;
+    fixed_amount: string;
+    gl_account: number | null;
+    gl_account_code: string | null;
+    gl_account_name: string | null;
+    is_active: boolean;
+    description: string;
 }
 
 type TaxCodeSortKey = 'code' | 'name' | 'tax_type' | 'direction' | 'rate' | 'is_active';
 type WHTSortKey = 'code' | 'name' | 'income_type' | 'rate' | 'is_active';
+type DeductionCodeSortKey = 'code' | 'name' | 'deduction_type' | 'calculation_method' | 'is_active';
 
 const DEDUCTION_TYPES = [
     { value: 'WHT', label: 'Withholding Tax' },
@@ -125,6 +130,18 @@ const initialWHTForm = {
     is_active: true,
 };
 
+const initialDeductionForm = {
+    code: '',
+    name: '',
+    deduction_type: 'WHT',
+    calculation_method: 'percentage',
+    rate: '',
+    fixed_amount: '',
+    gl_account: '' as string | number,
+    is_active: true,
+    description: '',
+};
+
 const labelStyle: React.CSSProperties = {
     display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
     color: 'var(--text-secondary)', marginBottom: '8px',
@@ -160,26 +177,18 @@ export default function TaxManagement() {
     const updateWHT = useUpdateWithholdingTax();
     const deleteWHT = useDeleteWithholdingTax();
 
-    // ── Deductions (read-only: deductions taken at payment time) ──────
+    // ── Deduction code state (CRUD config: reusable deduction rules) ──
+    const [showDeductionForm, setShowDeductionForm] = useState(false);
+    const [editingDeduction, setEditingDeduction] = useState<DeductionCode | null>(null);
     const [deductionSearch, setDeductionSearch] = useState('');
     const [deductionTypeFilter, setDeductionTypeFilter] = useState('');
-    const { data: deductionsRaw, isLoading: deductionsLoading } = useQuery<Deduction[]>({
-        queryKey: ['payment-deductions'],
-        queryFn: async () => {
-            const { data } = await apiClient.get('/accounting/payment-deductions/', { params: { page_size: 500 } });
-            return Array.isArray(data) ? data : (data.results ?? []);
-        },
-        staleTime: 30 * 1000,
-    });
-    const filteredDeductions = useMemo(() => {
-        const q = deductionSearch.trim().toLowerCase();
-        return (deductionsRaw ?? []).filter((d) => {
-            if (deductionTypeFilter && d.deduction_type !== deductionTypeFilter) return false;
-            if (!q) return true;
-            return [d.pv_number, d.payee_name, d.description, d.deduction_type_display]
-                .some((v) => (v || '').toLowerCase().includes(q));
-        });
-    }, [deductionsRaw, deductionSearch, deductionTypeFilter]);
+    const [deductionSort, setDeductionSort] = useState<{ key: DeductionCodeSortKey; direction: 'asc' | 'desc' } | null>(null);
+    const [deductionForm, setDeductionForm] = useState(initialDeductionForm);
+
+    const { data: deductionCodes, isLoading: deductionsLoading } = usePaymentDeductionCodes();
+    const createDeduction = useCreatePaymentDeductionCode();
+    const updateDeduction = useUpdatePaymentDeductionCode();
+    const deleteDeduction = useDeletePaymentDeductionCode();
 
     // ── GL Account dropdowns ──────────────────────────────────
     // page_size bumped to 9999 so the searchable dropdown shows the full
@@ -316,6 +325,55 @@ export default function TaxManagement() {
         }
     };
 
+    // ── Deduction code handlers ───────────────────────────────
+    const resetDeductionForm = () => { setDeductionForm(initialDeductionForm); setEditingDeduction(null); };
+
+    const handleDeductionSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Send the value on the field that matches the chosen method; zero
+        // the other so the record stays internally consistent (the backend
+        // serializer normalises this too, but we keep the payload honest).
+        const isPct = deductionForm.calculation_method === 'percentage';
+        const payload = {
+            ...deductionForm,
+            rate: isPct ? (deductionForm.rate || '0') : '0',
+            fixed_amount: isPct ? '0' : (deductionForm.fixed_amount || '0'),
+            gl_account: deductionForm.gl_account || null,
+        };
+        if (editingDeduction) {
+            updateDeduction.mutate({ id: editingDeduction.id, ...payload }, {
+                onSuccess: () => { setShowDeductionForm(false); resetDeductionForm(); },
+            });
+        } else {
+            createDeduction.mutate(payload, {
+                onSuccess: () => { setShowDeductionForm(false); resetDeductionForm(); },
+            });
+        }
+    };
+
+    const handleEditDeduction = (d: DeductionCode) => {
+        setEditingDeduction(d);
+        setDeductionForm({
+            code: d.code,
+            name: d.name,
+            deduction_type: d.deduction_type,
+            calculation_method: d.calculation_method,
+            rate: d.rate,
+            fixed_amount: d.fixed_amount,
+            gl_account: d.gl_account || '',
+            is_active: d.is_active,
+            description: d.description,
+        });
+        setShowDeductionForm(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleDeleteDeduction = async (id: number, name: string) => {
+        if (await showConfirm(`Delete deduction code "${name}"? This action cannot be undone.`)) {
+            deleteDeduction.mutate(id);
+        }
+    };
+
     // ── Sorting helpers ───────────────────────────────────────
     const requestTaxCodeSort = (key: TaxCodeSortKey) => {
         let direction: 'asc' | 'desc' = 'asc';
@@ -327,6 +385,12 @@ export default function TaxManagement() {
         let direction: 'asc' | 'desc' = 'asc';
         if (whtSort && whtSort.key === key && whtSort.direction === 'asc') direction = 'desc';
         setWHTSort({ key, direction });
+    };
+
+    const requestDeductionSort = (key: DeductionCodeSortKey) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (deductionSort && deductionSort.key === key && deductionSort.direction === 'asc') direction = 'desc';
+        setDeductionSort({ key, direction });
     };
 
     const sortedTaxCodes = useMemo(() => {
@@ -377,6 +441,33 @@ export default function TaxManagement() {
             : <ChevronDown size={14} style={{ marginLeft: '4px' }} />;
     };
 
+    const sortedDeductionCodes = useMemo(() => {
+        const q = deductionSearch.trim().toLowerCase();
+        let filtered = (Array.isArray(deductionCodes) ? deductionCodes : []).filter((d: DeductionCode) => {
+            if (deductionTypeFilter && d.deduction_type !== deductionTypeFilter) return false;
+            if (!q) return true;
+            return [d.code, d.name, d.deduction_type_display, d.description]
+                .some((v) => (v || '').toLowerCase().includes(q));
+        });
+        if (deductionSort) {
+            filtered.sort((a: any, b: any) => {
+                const aVal = a[deductionSort.key];
+                const bVal = b[deductionSort.key];
+                if (aVal < bVal) return deductionSort.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return deductionSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return filtered;
+    }, [deductionCodes, deductionSearch, deductionTypeFilter, deductionSort]);
+
+    const getDeductionSortIndicator = (key: DeductionCodeSortKey) => {
+        if (!deductionSort || deductionSort.key !== key) return null;
+        return deductionSort.direction === 'asc'
+            ? <ChevronUp size={14} style={{ marginLeft: '4px' }} />
+            : <ChevronDown size={14} style={{ marginLeft: '4px' }} />;
+    };
+
     // ── Loading / Error ───────────────────────────────────────
     if (tcLoading || whtLoading) return <LoadingScreen message="Loading tax management..." />;
 
@@ -412,25 +503,28 @@ export default function TaxManagement() {
         <SettingsLayout>
             <PageHeader
                 title="Payment Deduction"
-                subtitle="Configure tax codes and withholding tax, and review deductions taken at payment time"
+                subtitle="Configure tax codes, withholding tax, and reusable deduction codes (GL account + percentage or fixed amount)"
                 icon={<ShieldCheck size={22} />}
                 backButton={false}
-                actions={activeTab === 'deductions' ? undefined : (
+                actions={(
                     <button
                         className="btn-primary ripple"
                         onClick={() => {
                             if (activeTab === 'taxcodes') {
                                 if (showTaxCodeForm && !editingTaxCode) { setShowTaxCodeForm(false); }
                                 else { resetTaxCodeForm(); setShowTaxCodeForm(true); }
-                            } else {
+                            } else if (activeTab === 'wht') {
                                 if (showWHTForm && !editingWHT) { setShowWHTForm(false); }
                                 else { resetWHTForm(); setShowWHTForm(true); }
+                            } else {
+                                if (showDeductionForm && !editingDeduction) { setShowDeductionForm(false); }
+                                else { resetDeductionForm(); setShowDeductionForm(true); }
                             }
                         }}
                     >
-                        {((activeTab === 'taxcodes' && showTaxCodeForm && !editingTaxCode) || (activeTab === 'wht' && showWHTForm && !editingWHT))
+                        {((activeTab === 'taxcodes' && showTaxCodeForm && !editingTaxCode) || (activeTab === 'wht' && showWHTForm && !editingWHT) || (activeTab === 'deductions' && showDeductionForm && !editingDeduction))
                             ? <><X size={18} style={{ marginRight: '8px' }} /> Close Form</>
-                            : <><Plus size={18} style={{ marginRight: '8px' }} /> {activeTab === 'taxcodes' ? 'Add Tax Code' : 'Add WHT Code'}</>
+                            : <><Plus size={18} style={{ marginRight: '8px' }} /> {activeTab === 'taxcodes' ? 'Add Tax Code' : activeTab === 'wht' ? 'Add WHT Code' : 'Add Deduction'}</>
                         }
                     </button>
                 )}
@@ -438,10 +532,10 @@ export default function TaxManagement() {
 
             {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                <button style={tabStyle(activeTab === 'taxcodes')} onClick={() => { setActiveTab('taxcodes'); setShowWHTForm(false); resetWHTForm(); }}>
+                <button style={tabStyle(activeTab === 'taxcodes')} onClick={() => { setActiveTab('taxcodes'); setShowWHTForm(false); resetWHTForm(); setShowDeductionForm(false); resetDeductionForm(); }}>
                     <Receipt size={18} /> Tax Codes (VAT)
                 </button>
-                <button style={tabStyle(activeTab === 'wht')} onClick={() => { setActiveTab('wht'); setShowTaxCodeForm(false); resetTaxCodeForm(); }}>
+                <button style={tabStyle(activeTab === 'wht')} onClick={() => { setActiveTab('wht'); setShowTaxCodeForm(false); resetTaxCodeForm(); setShowDeductionForm(false); resetDeductionForm(); }}>
                     <ShieldCheck size={18} /> Withholding Tax
                 </button>
                 <button style={tabStyle(activeTab === 'deductions')} onClick={() => { setActiveTab('deductions'); setShowTaxCodeForm(false); resetTaxCodeForm(); setShowWHTForm(false); resetWHTForm(); }}>
@@ -907,17 +1001,171 @@ export default function TaxManagement() {
             )}
 
             {/* ═══════════════════════════════════════════════════════════
-                DEDUCTIONS TAB — read-only list of deductions taken at
-                payment time (WHT, retention, handling, stamp duty, …).
+                DEDUCTIONS TAB — CRUD config for reusable deduction codes
+                (WHT, retention, handling, stamp duty, …). Each code assigns
+                a GL account and a basis: percentage of gross OR fixed amount.
                ═══════════════════════════════════════════════════════════ */}
             {activeTab === 'deductions' && (
                 <>
+                    {/* Deduction Code Form */}
+                    {showDeductionForm && (
+                        <div className="animate-slide-down" style={{ marginBottom: '2rem' }}>
+                            <GlassCard gradient style={{ padding: '2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                    <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                        {editingDeduction ? 'Edit Deduction Code' : 'Create New Deduction Code'}
+                                    </h2>
+                                    <button onClick={() => { setShowDeductionForm(false); resetDeductionForm(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleDeductionSubmit}>
+                                    {/* Row 1: Code, Name, Active */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr auto', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                                        <div>
+                                            <label style={labelStyle}>Deduction Code<span className="required-mark"> *</span></label>
+                                            <input type="text" required maxLength={20} value={deductionForm.code}
+                                                onChange={(e) => setDeductionForm({ ...deductionForm, code: e.target.value })}
+                                                placeholder="e.g. DED-RET5" className="glass-input"
+                                                style={{ width: '100%', fontFamily: 'monospace', fontSize: 'var(--text-base)' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
+                                            <input type="text" required value={deductionForm.name}
+                                                onChange={(e) => setDeductionForm({ ...deductionForm, name: e.target.value })}
+                                                placeholder="e.g. Contract Retention 5%" className="glass-input"
+                                                style={{ width: '100%', fontSize: 'var(--text-base)' }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '12px' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
+                                                <div style={{
+                                                    width: '24px', height: '24px', borderRadius: '6px',
+                                                    border: '2px solid var(--primary)',
+                                                    background: deductionForm.is_active ? 'var(--primary)' : 'transparent',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    transition: 'all 0.2s',
+                                                }}>
+                                                    {deductionForm.is_active && <Check size={16} color="white" strokeWidth={3} />}
+                                                    <input type="checkbox" checked={deductionForm.is_active}
+                                                        onChange={(e) => setDeductionForm({ ...deductionForm, is_active: e.target.checked })}
+                                                        style={{ position: 'absolute', opacity: 0, cursor: 'pointer' }}
+                                                    />
+                                                </div>
+                                                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>Active</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {/* Row 2: Type, Method, Rate/Fixed (basis toggles on method) */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 170px', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                                        <div>
+                                            <label style={labelStyle}>Deduction Type<span className="required-mark"> *</span></label>
+                                            <select value={deductionForm.deduction_type}
+                                                onChange={(e) => setDeductionForm({ ...deductionForm, deduction_type: e.target.value })}
+                                                required className="glass-input" style={{ width: '100%', fontSize: 'var(--text-sm)' }}
+                                            >
+                                                {DEDUCTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={labelStyle}>Calculation Method<span className="required-mark"> *</span></label>
+                                            <select value={deductionForm.calculation_method}
+                                                onChange={(e) => setDeductionForm({ ...deductionForm, calculation_method: e.target.value })}
+                                                required className="glass-input" style={{ width: '100%', fontSize: 'var(--text-sm)' }}
+                                            >
+                                                <option value="percentage">Percentage of gross</option>
+                                                <option value="fixed">Fixed amount</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            {deductionForm.calculation_method === 'percentage' ? (
+                                                <>
+                                                    <label style={labelStyle}>Rate (%)<span className="required-mark"> *</span></label>
+                                                    <div style={{ position: 'relative' }}>
+                                                        <input type="number" required step="0.01" min="0" max="100"
+                                                            value={deductionForm.rate}
+                                                            onChange={(e) => setDeductionForm({ ...deductionForm, rate: e.target.value })}
+                                                            placeholder="5.00" className="glass-input"
+                                                            style={{ width: '100%', fontSize: 'var(--text-base)', paddingRight: '2rem' }}
+                                                        />
+                                                        <span style={{
+                                                            position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                                                            fontSize: 'var(--text-sm)', color: 'var(--text-muted)', fontWeight: 600,
+                                                        }}>%</span>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <label style={labelStyle}>Fixed Amount (₦)<span className="required-mark"> *</span></label>
+                                                    <div style={{ position: 'relative' }}>
+                                                        <input type="number" required step="0.01" min="0"
+                                                            value={deductionForm.fixed_amount}
+                                                            onChange={(e) => setDeductionForm({ ...deductionForm, fixed_amount: e.target.value })}
+                                                            placeholder="1000.00" className="glass-input"
+                                                            style={{ width: '100%', fontSize: 'var(--text-base)', paddingLeft: '1.6rem' }}
+                                                        />
+                                                        <span style={{
+                                                            position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+                                                            fontSize: 'var(--text-sm)', color: 'var(--text-muted)', fontWeight: 600,
+                                                        }}>₦</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Row 3: GL Account Integration */}
+                                    <div style={{ background: 'rgba(79,70,229,0.04)', border: '1px solid rgba(79,70,229,0.15)', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+                                        <p style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#4f46e5', marginBottom: '1rem' }}>
+                                            GL Account Integration
+                                        </p>
+                                        <label style={labelStyle}>Deduction GL Account (credited at payment time)<span className="required-mark"> *</span></label>
+                                        <SearchableSelect
+                                            options={allAccountOptions}
+                                            value={deductionForm.gl_account ? String(deductionForm.gl_account) : ''}
+                                            onChange={(v) => setDeductionForm({ ...deductionForm, gl_account: v ? Number(v) : '' })}
+                                            placeholder="Search GL by code or name…"
+                                            required
+                                        />
+                                    </div>
+
+                                    {/* Row 4: Description */}
+                                    <div style={{ marginBottom: '2rem' }}>
+                                        <label style={labelStyle}>Description</label>
+                                        <textarea value={deductionForm.description}
+                                            onChange={(e) => setDeductionForm({ ...deductionForm, description: e.target.value })}
+                                            placeholder="Optional description..." className="glass-input"
+                                            rows={2} style={{ width: '100%', fontSize: 'var(--text-sm)', resize: 'vertical' }}
+                                        />
+                                    </div>
+
+                                    {/* Actions */}
+                                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                                        <button className="btn-glass" onClick={() => { setShowDeductionForm(false); resetDeductionForm(); }} type="button" style={{ minWidth: '120px' }}>
+                                            Discard
+                                        </button>
+                                        <button className="btn-primary ripple" type="submit"
+                                            disabled={createDeduction.isPending || updateDeduction.isPending}
+                                            style={{ minWidth: '160px' }}
+                                        >
+                                            {createDeduction.isPending || updateDeduction.isPending
+                                                ? 'Processing...'
+                                                : (editingDeduction ? 'Save Changes' : 'Create Deduction')}
+                                        </button>
+                                    </div>
+                                </form>
+                            </GlassCard>
+                        </div>
+                    )}
+
                     {/* Search + type filter */}
                     <GlassCard style={{ padding: '1.25rem', marginBottom: '1.5rem' }} className="animate-fade-in">
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '0 1rem', flex: '1 1 260px', minWidth: 0 }}>
                                 <Search size={20} style={{ color: 'var(--text-muted)' }} />
-                                <input type="text" placeholder="Filter by PV #, payee, or description..."
+                                <input type="text" placeholder="Filter by code, name, or description..."
                                     value={deductionSearch} onChange={(e) => setDeductionSearch(e.target.value)}
                                     style={{ flex: 1, border: 'none', background: 'transparent', padding: '0.75rem 0', color: 'var(--text-primary)', fontWeight: 500, outline: 'none' }}
                                 />
@@ -929,49 +1177,77 @@ export default function TaxManagement() {
                         </div>
                     </GlassCard>
 
-                    {/* Deductions table */}
+                    {/* Deduction Codes table */}
                     <GlassCard style={{ padding: 0 }} className="animate-fade-in">
                         {deductionsLoading ? (
-                            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading deductions…</div>
+                            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading deduction codes…</div>
                         ) : (
                             <table className="glass-table" style={{ width: '100%' }}>
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '12%' }}>PV #</th>
-                                        <th style={{ width: '16%' }}>Payee</th>
-                                        <th style={{ width: '13%' }}>Type</th>
-                                        <th style={{ width: '17%' }}>Description</th>
-                                        <th style={{ width: '6%' }}>Rate</th>
-                                        <th style={{ width: '12%', textAlign: 'right' }}>Amount</th>
-                                        <th style={{ width: '16%' }}>GL Account</th>
-                                        <th style={{ width: '8%' }}>Date</th>
+                                        <th style={{ width: '12%', cursor: 'pointer', userSelect: 'none' }} onClick={() => requestDeductionSort('code')}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>Code {getDeductionSortIndicator('code')}</div>
+                                        </th>
+                                        <th style={{ width: '22%', cursor: 'pointer', userSelect: 'none' }} onClick={() => requestDeductionSort('name')}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>Name {getDeductionSortIndicator('name')}</div>
+                                        </th>
+                                        <th style={{ width: '15%', cursor: 'pointer', userSelect: 'none' }} onClick={() => requestDeductionSort('deduction_type')}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>Type {getDeductionSortIndicator('deduction_type')}</div>
+                                        </th>
+                                        <th style={{ width: '14%', cursor: 'pointer', userSelect: 'none' }} onClick={() => requestDeductionSort('calculation_method')}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>Method {getDeductionSortIndicator('calculation_method')}</div>
+                                        </th>
+                                        <th style={{ width: '11%', textAlign: 'right' }}>Rate / Amount</th>
+                                        <th style={{ width: '18%' }}>GL Account</th>
+                                        <th style={{ width: '6%', cursor: 'pointer', userSelect: 'none' }} onClick={() => requestDeductionSort('is_active')}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>Status {getDeductionSortIndicator('is_active')}</div>
+                                        </th>
+                                        <th style={{ width: '8%', textAlign: 'center' }}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredDeductions.map((d, idx) => (
+                                    {sortedDeductionCodes.map((d: DeductionCode, idx: number) => (
                                         <tr key={d.id} className="stagger-item" style={{ animationDelay: `${idx * 0.03}s` }}>
-                                            <td style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>{d.pv_number}</td>
-                                            <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{d.payee_name || '—'}</td>
+                                            <td style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{d.code}</td>
+                                            <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{d.name}</td>
                                             <td><span className="badge-glass" style={{ fontSize: 'var(--text-xs)' }}>{d.deduction_type_display}</span></td>
-                                            <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{d.description || '—'}</td>
-                                            <td style={{ fontFamily: 'monospace' }}>{parseFloat(d.rate) ? `${parseFloat(d.rate)}%` : '—'}</td>
-                                            <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>{fmtNGN(d.amount)}</td>
-                                            <td style={{ fontSize: 'var(--text-sm)' }} title={d.gl_account_name}>{d.gl_account_code ? `${d.gl_account_code} — ${d.gl_account_name}` : '—'}</td>
-                                            <td style={{ fontSize: 'var(--text-sm)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{formatDate(d.created_at)}</td>
+                                            <td>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                                    {d.calculation_method === 'percentage' ? <Percent size={13} /> : <Banknote size={13} />}
+                                                    {d.calculation_method_display}
+                                                </span>
+                                            </td>
+                                            <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>
+                                                {d.calculation_method === 'percentage' ? `${parseFloat(d.rate)}%` : fmtNGN(d.fixed_amount)}
+                                            </td>
+                                            <td style={{ fontSize: 'var(--text-sm)' }} title={d.gl_account_name || ''}>
+                                                {d.gl_account_code ? `${d.gl_account_code} — ${d.gl_account_name}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                                            </td>
+                                            <td><StatusBadge status={d.is_active ? 'Active' : 'Inactive'} /></td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                                                    <button onClick={() => handleEditDeduction(d)} className="btn-glass" style={{ padding: '6px 10px' }} title="Edit">
+                                                        <Edit size={14} color="var(--primary)" />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteDeduction(d.id, d.name)} className="btn-glass" style={{ padding: '6px 10px' }} title="Delete">
+                                                        <Trash2 size={14} color="#ef4444" />
+                                                    </button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         )}
 
-                        {!deductionsLoading && filteredDeductions.length === 0 && (
+                        {!deductionsLoading && sortedDeductionCodes.length === 0 && (
                             <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
                                 <div style={{ width: '80px', height: '80px', background: 'rgba(36, 113, 163, 0.05)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
                                     <Scissors size={40} style={{ opacity: 0.5 }} />
                                 </div>
-                                <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>No deductions found</h3>
+                                <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>No deduction codes yet</h3>
                                 <p style={{ fontSize: 'var(--text-sm)' }}>
-                                    {deductionSearch || deductionTypeFilter ? 'No deductions match your filters.' : 'Deductions taken at payment time (WHT, retention, handling, …) will appear here.'}
+                                    {deductionSearch || deductionTypeFilter ? 'No deduction codes match your filters.' : 'Create a deduction code to define reusable WHT, retention, handling, or stamp-duty rules with a GL account and rate.'}
                                 </p>
                             </div>
                         )}

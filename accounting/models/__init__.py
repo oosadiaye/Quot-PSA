@@ -119,6 +119,7 @@ __all__ = [
     'TaxReturn',
     'WithholdingTax',
     'TaxCode',
+    'PaymentDeductionCode',
     'TaxRate',
     'VATReturn',
     'VATReturnDetail',
