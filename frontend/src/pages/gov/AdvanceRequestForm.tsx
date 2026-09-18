@@ -16,6 +16,9 @@ import SearchableSelect from '../../components/SearchableSelect';
 import apiClient from '../../api/client';
 import { useNCoASegments } from '../../hooks/useGovForms';
 import { formatThousandsInput, stripThousands } from '@/utils/number';
+import {
+    DeductionLinesEditor, serializeDeductions, type DeductionRow,
+} from './DeductionLinesEditor';
 
 interface Vendor {
     id: number;
@@ -74,6 +77,8 @@ export default function AdvanceRequestForm() {
         admin: '', economic: '', functional: '', programme: '', fund: '', geo: '',
     });
     const set = (field: string, value: string) => setForm(p => ({ ...p, [field]: value }));
+    // Deductions withheld at disbursement (e.g. WHT) — applied when paid.
+    const [deductions, setDeductions] = useState<DeductionRow[]>([]);
 
     const { data: vendors } = useQuery<Vendor[]>({
         queryKey: ['vendors', 'active'],
@@ -122,6 +127,12 @@ export default function AdvanceRequestForm() {
     });
 
     const amtNum = parseFloat(form.amount) || 0;
+    // Cash out is net of deductions — they must total less than the gross.
+    const dedTotal = useMemo(
+        () => deductions.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0),
+        [deductions],
+    );
+    const dedExceedsGross = amtNum > 0 && dedTotal >= amtNum;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -131,6 +142,10 @@ export default function AdvanceRequestForm() {
         if (!form.admin) { setFormError('Select the MDA at the header.'); return; }
         if (!form.economic || !form.fund || !form.functional || !form.geo || !form.programme) {
             setFormError('Complete the budget line item — G/L, fund, functional, geographic and programme are all required.');
+            return;
+        }
+        if (dedExceedsGross) {
+            setFormError('Total deductions must be less than the down payment amount.');
             return;
         }
         try {
@@ -146,6 +161,7 @@ export default function AdvanceRequestForm() {
                 programme_code: form.programme,
                 fund_code: form.fund,
                 geo_code: form.geo,
+                deductions: serializeDeductions(deductions),
             });
             navigate('/accounting/payment-vouchers');
         } catch (err: any) {
@@ -303,6 +319,31 @@ export default function AdvanceRequestForm() {
                                 (special G/L “A”) on the vendor account; the expense books when it is cleared against the
                                 vendor's invoice.
                             </div>
+                        </section>
+
+                        {/* Deductions — withheld at payment (e.g. WHT) */}
+                        <section style={sectionCard}>
+                            <h3 style={sectionTitle}>Deductions</h3>
+                            <div style={{ fontSize: '0.75rem', color: FIORI.label, marginBottom: '0.75rem' }}>
+                                Withheld when the advance is paid — cash out is net of these; the advance is still
+                                recognised at gross.
+                            </div>
+                            <DeductionLinesEditor gross={amtNum} deductions={deductions} setDeductions={setDeductions} />
+                            {deductions.length > 0 && (
+                                <div style={{
+                                    display: 'flex', justifyContent: 'space-between', gap: '1rem',
+                                    marginTop: '0.75rem', fontSize: '0.8rem',
+                                    color: dedExceedsGross ? '#b91c1c' : FIORI.label,
+                                }}>
+                                    <span>
+                                        Deductions ₦{dedTotal.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                                        {' · '}Net cash ₦{Math.max(amtNum - dedTotal, 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                                    </span>
+                                    {dedExceedsGross && (
+                                        <strong>Total deductions must be less than the down payment amount.</strong>
+                                    )}
+                                </div>
+                            )}
                         </section>
 
                         {/* Reference */}

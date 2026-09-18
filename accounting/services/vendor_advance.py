@@ -104,8 +104,15 @@ class VendorAdvanceService:
         actor,
         bank_account=None,
         notes: str = "",
+        deductions=None,
     ) -> VendorAdvance:
         """Record a new vendor advance + post its disbursement journal.
+
+        ``deductions`` (optional) is a list of ``{'account', 'amount', 'memo'}``
+        withheld at disbursement (e.g. WHT on a down payment). When present the
+        journal becomes DR Vendor-Advance / CR each deduction G/L / CR Cash
+        (net), so only the net cash leaves the TSA while the advance is still
+        recognised at gross. The line-total must stay below the gross amount.
 
         The journal:
             DR  Vendor-Advance Recon (Special GL)    amount
@@ -125,7 +132,7 @@ class VendorAdvanceService:
         this (e.g. ``MobilizationPayment.OneToOneField(Contract)``)
         but we double-guard at the service layer.
         """
-        amount = Decimal(str(amount or 0))
+        amount = quantize_currency(Decimal(str(amount or 0)))
         if amount <= ZERO:
             raise TransactionPostingError(
                 "Vendor advance amount must be greater than zero.",
@@ -145,6 +152,23 @@ class VendorAdvanceService:
                 "DEFAULT_GL_ACCOUNTS['VENDOR_ADVANCE'] in settings.",
             )
         cash_account = cls._resolve_cash_account(bank_account)
+
+        # Deductions withheld at disbursement (e.g. WHT). Each credits its own
+        # G/L; the cash paid out is the gross advance minus their total.
+        ded_lines = []
+        for d in (deductions or []):
+            acct = d.get('account')
+            amt = Decimal(str(d.get('amount') or 0))
+            if acct is None or amt <= ZERO:
+                continue
+            ded_lines.append((acct, quantize_currency(amt), d.get('memo') or 'Deduction'))
+        total_deductions = sum((amt for _, amt, _ in ded_lines), ZERO)
+        if total_deductions >= amount:
+            raise TransactionPostingError(
+                "Deductions on the advance must be less than the gross amount "
+                f"(deductions {total_deductions}, gross {amount})."
+            )
+        net_cash = quantize_currency(amount - total_deductions)
 
         # Idempotency guard.
         if source_id is not None:
@@ -178,9 +202,15 @@ class VendorAdvanceService:
             debit=amount, credit=ZERO,
             memo=f"Advance — {reference}",
         )
+        for acct, amt, memo in ded_lines:
+            JournalLine.objects.create(
+                header=journal, account=acct,
+                debit=ZERO, credit=amt,
+                memo=f"{memo} — {reference}"[:255],
+            )
         JournalLine.objects.create(
             header=journal, account=cash_account,
-            debit=ZERO, credit=amount,
+            debit=ZERO, credit=net_cash,
             memo=f"Cash out — {reference}",
         )
         # FAIL CLOSED: do NOT swallow IPSAS posting errors. Previously

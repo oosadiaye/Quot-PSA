@@ -270,6 +270,87 @@ def create_draft_voucher_from_mobilization(
     return pv
 
 
+def _resolve_advance_deductions(gross: Decimal, deductions) -> list[dict]:
+    """Validate + server-derive the deduction lines for a vendor advance.
+
+    SECURITY: never trust a client-supplied ``gl_account`` or ``amount``.
+    Each incoming line must reference a trusted master record — a
+    ``WithholdingTax`` or a ``PaymentDeductionCode`` — and the GL account,
+    rate and amount are derived from that record here, server-side. This
+    stops an authenticated caller from diverting an advance by naming an
+    arbitrary GL (e.g. cash/suspense/control) on a fake "deduction".
+
+    Returns kwargs dicts ready for ``PaymentVoucherDeduction.objects.create``.
+    Zero-amount lines (e.g. abolished 0% stamp duty) are dropped. Raises
+    ``PVFactoryError`` (→ 400 in the view) for any unknown/misconfigured
+    record or when the deduction total is not below the gross advance.
+    """
+    from accounting.models import WithholdingTax
+    from accounting.models.tax import PaymentDeductionCode
+    from core.models import quantize_currency
+
+    HUNDRED = Decimal('100')
+    resolved: list[dict] = []
+    total = Decimal('0')
+    for d in (deductions or []):
+        wht_id = d.get('withholding_tax')
+        code_id = d.get('deduction_code')
+        if wht_id:
+            wht = WithholdingTax.objects.filter(pk=wht_id, is_active=True).first()
+            if wht is None:
+                raise PVFactoryError(
+                    "A deduction references an unknown or inactive withholding-tax code."
+                )
+            if wht.withholding_account_id is None:
+                raise PVFactoryError(
+                    f"Withholding-tax code {wht.code} has no GL account configured."
+                )
+            rate = wht.rate or Decimal('0')
+            amount = quantize_currency(gross * rate / HUNDRED)
+            row = dict(
+                deduction_type='WHT', description=f"{wht.code} {wht.name}"[:200],
+                withholding_tax=wht, deduction_code=None, rate=rate,
+                gl_account=wht.withholding_account,
+            )
+        elif code_id:
+            code = PaymentDeductionCode.objects.filter(pk=code_id, is_active=True).first()
+            if code is None:
+                raise PVFactoryError(
+                    "A deduction references an unknown or inactive deduction code."
+                )
+            if code.gl_account_id is None:
+                raise PVFactoryError(
+                    f"Deduction code {code.code} has no GL account configured."
+                )
+            if code.calculation_method == 'fixed':
+                rate = Decimal('0')
+                amount = quantize_currency(code.fixed_amount or Decimal('0'))
+            else:
+                rate = code.rate or Decimal('0')
+                amount = quantize_currency(gross * rate / HUNDRED)
+            row = dict(
+                deduction_type=code.deduction_type,
+                description=f"{code.code} {code.name}"[:200],
+                withholding_tax=None, deduction_code=code, rate=rate,
+                gl_account=code.gl_account,
+            )
+        else:
+            raise PVFactoryError(
+                "Each deduction must reference a withholding-tax or deduction code."
+            )
+        if amount <= 0:
+            continue  # nothing to withhold (e.g. a 0% code) — drop the line
+        row['amount'] = amount
+        total += amount
+        resolved.append(row)
+
+    if total >= gross:
+        raise PVFactoryError(
+            f"Total deductions ({total}) must be less than the advance amount ({gross})."
+        )
+    return resolved
+
+
 @transaction.atomic
 def create_draft_voucher_from_advance(
     *,
@@ -285,6 +366,7 @@ def create_draft_voucher_from_advance(
     reference: str = "",
     due_date=None,
     actor=None,
+    deductions=None,
 ) -> "PaymentVoucherGov":
     """Create a DRAFT PaymentVoucherGov for a vendor down payment.
 
@@ -377,4 +459,16 @@ def create_draft_voucher_from_advance(
         status="DRAFT",
         created_by=actor,
     )
+
+    # Deduction lines added at creation (e.g. WHT). The GL/rate/amount are
+    # derived server-side from the referenced master record (never the raw
+    # client payload — see _resolve_advance_deductions) and applied when the
+    # advance disburses at payment.
+    resolved_deductions = _resolve_advance_deductions(amount, deductions)
+    if resolved_deductions:
+        from accounting.models.treasury import PaymentVoucherDeduction
+        for row in resolved_deductions:
+            PaymentVoucherDeduction.objects.create(payment_voucher=pv, **row)
+        pv.save()  # refresh net_amount from the new deduction set
+
     return pv
