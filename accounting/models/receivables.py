@@ -186,6 +186,22 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
 
     class Meta:
         ordering = ['-payment_date', '-payment_number']
+        constraints = [
+            # At most ONE live (non-Void) Payment per Payment Voucher.
+            # Backstops the check-then-create in
+            # ``ensure_draft_payment_for_pv`` so a race (double-submit /
+            # workflow receiver vs. approve) can't materialise two draft
+            # Payments for one PV and disburse the voucher twice. Standalone
+            # payments (payment_voucher NULL) are unaffected.
+            models.UniqueConstraint(
+                fields=['payment_voucher'],
+                condition=(
+                    models.Q(payment_voucher__isnull=False)
+                    & ~models.Q(status='Void')
+                ),
+                name='uniq_live_payment_per_pv',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.payment_number} - {self.payment_date} ({self.total_amount})"

@@ -310,6 +310,12 @@ class TestPaymentVoucherAutoPost:
         'accounting.services.payment_voucher_posting'
         '.post_payment_voucher_to_gl'
     )
+    # Central payment processing: the gov PV now provisions a draft
+    # Payment instead of posting GL on approval.
+    _PATCH_HELPER = (
+        'accounting.services.pv_payment_provisioning'
+        '.ensure_draft_payment_for_pv'
+    )
 
     def _make_pv_gov(self, status='APPROVED'):
         """Simulate a PaymentVoucherGov — no journal_id field."""
@@ -330,20 +336,21 @@ class TestPaymentVoucherAutoPost:
         doc.journal_id = journal_id
         return doc
 
-    def test_paymentvouchergov_fires_on_approve(self):
-        """Service called for paymentvouchergov + action='approve'."""
-        doc = self._make_pv_gov()
-        mock_journal = MagicMock(pk=77)
+    def test_paymentvouchergov_provisions_draft_payment_on_approve(self):
+        """Gov PV → draft Payment provisioned; GL service NOT called.
 
-        with patch(self._PATCH_SERVICE, return_value=mock_journal) as mock_svc, \
-             patch('accounting.models.treasury.PaymentVoucherGov') as mock_model:
+        Disbursement is centralised: the gov PV no longer posts its own
+        GL journal on approval. It only materialises the draft Payment
+        (the GL journal comes later, from the Payment post).
+        """
+        doc = self._make_pv_gov()
+
+        with patch(self._PATCH_SERVICE) as mock_svc, \
+             patch(self._PATCH_HELPER) as mock_helper:
             _fire_paymentvoucher('paymentvouchergov', doc)
 
-        mock_svc.assert_called_once_with(doc, user=None)
-        mock_model.objects.filter.assert_called_once_with(pk=200)
-        mock_model.objects.filter.return_value.update.assert_called_once_with(
-            journal=mock_journal,
-        )
+        mock_svc.assert_not_called()
+        mock_helper.assert_called_once_with(doc)
 
     def test_paymentvoucher_variant_fires_on_approve(self):
         """Service is also called for model_name='paymentvoucher' (legacy)."""
@@ -391,13 +398,13 @@ class TestPaymentVoucherAutoPost:
 
         mock_svc.assert_not_called()
 
-    def test_paymentvoucher_failure_logged_not_raised(self):
-        """Service raises → handler logs WARNING, does NOT re-raise."""
+    def test_paymentvouchergov_provision_failure_logged_not_raised(self):
+        """Helper raises → handler logs WARNING, does NOT re-raise."""
         doc = self._make_pv_gov()
 
         with patch(
-            self._PATCH_SERVICE,
-            side_effect=ValueError('NCoA bridge not seeded'),
+            self._PATCH_HELPER,
+            side_effect=ValueError('sequence unavailable'),
         ), patch(
             'accounting.signals.workflow_dispatch.logger',
         ) as mock_logger:
@@ -406,7 +413,21 @@ class TestPaymentVoucherAutoPost:
 
         assert mock_logger.warning.called
         log_msg = mock_logger.warning.call_args[0][0]
-        assert 'PaymentVoucher' in log_msg
+        assert 'PaymentVoucherGov' in log_msg
+
+    def test_paymentvoucher_legacy_failure_logged_not_raised(self):
+        """Legacy PV: GL service raises → handler logs WARNING, no re-raise."""
+        doc = self._make_pv_legacy(journal_id=None)
+
+        with patch(
+            self._PATCH_SERVICE,
+            side_effect=ValueError('NCoA bridge not seeded'),
+        ), patch(
+            'accounting.signals.workflow_dispatch.logger',
+        ) as mock_logger:
+            _fire_paymentvoucher('paymentvoucher', doc)
+
+        assert mock_logger.warning.called
 
     def test_paymentvoucher_reject_action_ignored(self):
         """Reject action must not trigger the service."""
@@ -424,21 +445,20 @@ class TestPaymentVoucherAutoPost:
 
         mock_svc.assert_not_called()
 
-    def test_paymentvouchergov_handles_paymentvouchergov_variant(self):
-        """Both 'paymentvoucher' and 'paymentvouchergov' route through the
-        same receiver and produce an identical service call."""
+    def test_gov_provisions_payment_while_legacy_posts_gl(self):
+        """The two model names now diverge: the gov PV provisions a draft
+        Payment; the legacy PV keeps the approval-time GL auto-post."""
         mock_journal = MagicMock(pk=99)
         doc_gov = self._make_pv_gov()
         doc_legacy = self._make_pv_legacy(journal_id=None)
 
-        calls = []
-        with patch(self._PATCH_SERVICE, side_effect=lambda d, user: (calls.append(d), mock_journal)[1]):
+        with patch(self._PATCH_SERVICE, return_value=mock_journal) as mock_svc, \
+             patch(self._PATCH_HELPER) as mock_helper:
             _fire_paymentvoucher('paymentvouchergov', doc_gov)
             _fire_paymentvoucher('paymentvoucher', doc_legacy)
 
-        assert len(calls) == 2
-        assert calls[0] is doc_gov
-        assert calls[1] is doc_legacy
+        mock_helper.assert_called_once_with(doc_gov)
+        mock_svc.assert_called_once_with(doc_legacy, user=None)
 
 
 # ---------------------------------------------------------------------------

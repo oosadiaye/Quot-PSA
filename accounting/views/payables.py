@@ -1689,6 +1689,30 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if payment.status == 'Posted':
             return Response({"error": "Payment already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # ── Central-processing controls (apply to BOTH branches) ─────────
+        # A payment generated from a PV inherits that PV's disbursement
+        # controls, which used to live on the removed PV "Mark Paid":
+        #   1. Terminal-status precondition — a voucher already PAID (or
+        #      cancelled/reversed) must never be disbursed again, even if a
+        #      stray second draft Payment still references it. This is the
+        #      real double-pay guard (not the after-the-fact PV→PAID flip).
+        #   2. SoD (maker/checker) — the user who raised / checked /
+        #      approved / scheduled the voucher cannot also disburse it.
+        #      ``SoDViolation`` is translated to a structured 403 by
+        #      ``core.drf_exception_handler``.
+        pv = payment.payment_voucher
+        if pv is not None:
+            if pv.status in ('PAID', 'CANCELLED', 'REVERSED'):
+                return Response(
+                    {"error": (
+                        f'Voucher {pv.voucher_number} is already {pv.status} — '
+                        'it cannot be paid again.'
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            from core.services.sod_evaluator import enforce_action
+            enforce_action(request.user, 'treasury.voucher.pay', pv)
+
         # ── F-48 branch: advance / down-payment ──────────────────────
         # Advances have no invoice yet — they sit in a Special-GL
         # recon account until matched (F-54). Skip the allocations
@@ -1698,8 +1722,53 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if payment.is_advance:
             return self._post_advance_payment(payment, request)
 
-        if not payment.allocations.exists():
-            return Response({"error": "Payment has no allocations."}, status=status.HTTP_400_BAD_REQUEST)
+        # Deduction-aware settlement figures from the linked PV. The PV
+        # carries the gross payable and its deductions (e.g. WHT): we DR
+        # the vendor/AP (or the Expense line for a direct, non-invoice PV)
+        # at gross, CR each deduction G/L, and CR the bank the net cash. A
+        # standalone (non-PV) payment has no deductions, so gross == net ==
+        # total_amount and behaviour is unchanged.
+        pv_deductions = (
+            list(pv.deductions.select_related('gl_account').all())
+            if pv is not None else []
+        )
+        gross = pv.gross_amount if pv is not None else payment.total_amount
+        net = pv.net_amount if pv is not None else payment.total_amount
+        if net is None or net <= 0:
+            return Response(
+                {"error": (
+                    "Voucher deductions must be less than the gross amount "
+                    f"(net payable is {net})."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Central-processing: allocation is optional ONLY for PV-linked
+        # payments (the PV is the authorising document). A standalone
+        # payment with neither a PV nor any allocation has no supporting
+        # document and must not move cash.
+        if pv is None and not payment.allocations.exists():
+            return Response(
+                {"error": (
+                    "A payment must reference a Payment Voucher or an "
+                    "allocated invoice before it can be posted."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Direct (non-invoice) PV branch ───────────────────────────
+        # A PV with no invoice/allocation (SALARY, PENSION, STATUTORY,
+        # direct expense, …) has never had its expense recognised or its
+        # appropriation/warrant checked (an invoice PV was checked at
+        # invoice-posting time). Recognise the expense NOW — DR the PV's
+        # Expenditure line / CR deductions / CR bank (net) — via the
+        # proven ``post_payment_voucher_to_gl`` service, which triggers
+        # the STRICT-appropriation + warrant enforcement on that Expense
+        # debit (accounting/signals/budget_enforcement.py). The generic
+        # DR-AP journal below is only correct when the payable already
+        # exists (invoice PVs / standalone allocations).
+        if pv is not None and not payment.allocations.exists():
+            return self._post_direct_pv_payment(payment, request, pv, net)
 
         # S1-06 — fiscal period gate on the payment_date.
         try:
@@ -1790,13 +1859,17 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-        # Validate allocations sum equals payment total
-        allocation_sum = payment.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        if allocation_sum != payment.total_amount:
-            return Response(
-                {"error": f"Allocation total ({allocation_sum}) does not match payment amount ({payment.total_amount})."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Validate allocations sum equals the gross settled — but ONLY
+        # when allocations exist (allocation is not mandatory). Invoices
+        # are settled at gross; the deduction is withheld from cash, not
+        # from the vendor's settlement.
+        if payment.allocations.exists():
+            allocation_sum = payment.allocations.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            if allocation_sum != gross:
+                return Response(
+                    {"error": f"Allocation total ({allocation_sum}) does not match the voucher gross ({gross})."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         # P2P-C4: Matched Status Validation — ensure invoices are matched before payment
         for allocation in payment.allocations.select_related('invoice').all():
@@ -1924,22 +1997,41 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     geo=getattr(inv, 'geo', None),
                 )
 
-                # Debit AP (reduce liability)
+                # Debit AP at GROSS (extinguish the full payable — the
+                # withheld deduction is remitted separately, not owed to
+                # the vendor).
                 JournalLine.objects.create(
                     header=journal,
                     account=ap_account,
-                    debit=amount,
+                    debit=gross,
                     credit=Decimal('0.00'),
                     memo=f"Payment to {payment.vendor.name if payment.vendor else 'vendor'}",
                     document_number=journal.document_number,
                 )
 
-                # Credit Bank (reduce asset)
+                # Credit each deduction G/L (e.g. WHT liability) — one row
+                # per line, from the linked PV. Skips non-positive rows.
+                for d in pv_deductions:
+                    if d.amount and d.amount > 0 and d.gl_account_id:
+                        JournalLine.objects.create(
+                            header=journal,
+                            account=d.gl_account,
+                            debit=Decimal('0.00'),
+                            credit=d.amount,
+                            memo=(
+                                f"{d.get_deduction_type_display()} on "
+                                f"{payment.payment_number}"
+                                + (f" — {d.description}" if d.description else '')
+                            )[:255],
+                            document_number=journal.document_number,
+                        )
+
+                # Credit Bank at NET (the cash that actually leaves).
                 JournalLine.objects.create(
                     header=journal,
                     account=bank_gl_account,
                     debit=Decimal('0.00'),
-                    credit=amount,
+                    credit=net,
                     memo=f"Bank payment {payment.payment_number}",
                     document_number=journal.document_number,
                 )
@@ -1973,7 +2065,7 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     _BankAccount.objects.filter(
                         pk=payment.bank_account_id,
                     ).update(
-                        current_balance=F('current_balance') - amount,
+                        current_balance=F('current_balance') - net,
                         updated_at=_timezone.now(),
                     )
 
@@ -2051,10 +2143,22 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         except Exception as exc:  # noqa: BLE001
                             _log.warning("PV propagation: PI sync failed for PV %s: %s", pv.pk, exc)
 
-                        # 2. Mark the source VendorInvoice as Paid
-                        #    (allocation-free path — the PV's amount
-                        #    is by definition the full settlement).
-                        if pv.invoice_number:
+                        # 2. Mark the source VendorInvoice as Paid — ONLY
+                        #    on the allocation-free path. When an allocation
+                        #    to this invoice exists (the normal case now —
+                        #    provisioning auto-creates one), the race-safe
+                        #    ``paid_amount += allocation.amount`` loop above
+                        #    already owns paid_amount/status; a second,
+                        #    absolute overwrite here would over-credit a
+                        #    PARTIAL settlement (mark it fully Paid for cash
+                        #    that wasn't paid).
+                        has_alloc_for_invoice = (
+                            bool(pv.invoice_number)
+                            and payment.allocations.filter(
+                                invoice__invoice_number=pv.invoice_number,
+                            ).exists()
+                        )
+                        if pv.invoice_number and not has_alloc_for_invoice:
                             try:
                                 from accounting.models.receivables import VendorInvoice
                                 vi = VendorInvoice.objects.filter(
@@ -2232,11 +2336,14 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("PV propagation: top-level failure for payment %s: %s", payment.pk, exc)
 
-                # Update vendor balance (atomic F()-based)
+                # Update vendor balance (atomic F()-based) — reduced by
+                # GROSS, the full payable settled. ``F`` is the module-level
+                # import (line 4); a function-local re-import here would make
+                # ``F`` a local for the whole method and break the earlier
+                # bank-balance ``F('current_balance')`` use.
                 if payment.vendor:
-                    from django.db.models import F
                     type(payment.vendor).objects.filter(pk=payment.vendor.pk).update(
-                        balance=F('balance') - amount
+                        balance=F('balance') - gross
                     )
 
                 # P2P-C2: Encumbrance Liquidation — reduce/clear
@@ -2338,6 +2445,133 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         from accounting.services import update_gl_from_journal
         update_gl_from_journal(journal)
 
+    def _flip_pv_paid(self, pv):
+        """Flip a linked PV → PAID and its PaymentInstruction → PROCESSED.
+
+        Best-effort, mirrors the normal AP branch's PV propagation. The
+        cash event has already committed, so PI-sync failure is logged,
+        not raised. Guarded against terminal PV states for idempotency.
+        """
+        import logging as _logging
+        from django.utils import timezone as _timezone
+        _log = _logging.getLogger(__name__)
+        if pv.status not in ('PAID', 'CANCELLED', 'REVERSED'):
+            pv.status = 'PAID'
+            pv.save(update_fields=['status', 'updated_at'])
+        try:
+            from accounting.models.treasury import PaymentInstruction
+            pi = PaymentInstruction.objects.filter(payment_voucher=pv).first()
+            if pi and pi.status != 'PROCESSED':
+                pi.status = 'PROCESSED'
+                pi.processed_at = pi.processed_at or _timezone.now()
+                pi.save(update_fields=['status', 'processed_at', 'updated_at'])
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Advance PV propagation: PI sync failed for PV %s: %s", pv.pk, exc)
+
+    def _post_direct_pv_payment(self, payment, request, pv, net):
+        """Post a direct (non-invoice) PV payment.
+
+        Recognises the expense at payment (cash basis): DR the PV's
+        Expenditure line (gross) / CR each deduction / CR the Payment's
+        bank (net), via ``post_payment_voucher_to_gl`` — the same service
+        the removed PV Mark-Paid used — so the STRICT annual-appropriation
+        check fires on the Expense debit
+        (accounting/signals/budget_enforcement.py). The quarterly
+        warrant/AIE ceiling is NOT enforced by that signal at the
+        'payment' stage (by design — the payment view owns it), so this
+        method checks it explicitly below, mirroring the AP/invoice
+        branch. Then links the journal to the Payment, marks it Posted,
+        decrements the bank by net cash, and flips the PV → PAID.
+        """
+        # Fiscal-period gate (same as the AP branch).
+        try:
+            from accounting.services.base_posting import BasePostingService
+            BasePostingService._validate_fiscal_period(payment.payment_date, user=request.user)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {"error": str(exc), "period_closed": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not payment.bank_account_id or not getattr(payment.bank_account, 'gl_account_id', None):
+            return Response(
+                {"error": (
+                    "Pick a bank account (with a configured GL account) before "
+                    "posting — the payment credits that bank's cash GL."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Warrant / AIE ceiling (payment stage) ────────────────────
+        # The AP/invoice branch buckets this from the invoice's mda/fund;
+        # a direct PV carries its dimensions on the NCoA, so resolve the
+        # legacy MDA/Fund via the NCoA→legacy bridge and check the same
+        # ceiling. Fail-open only when the bridge is unseeded (mirrors the
+        # AP branch skipping an invoice with no mda/fund). The check runs
+        # in its own atomic because ``check_warrant_availability`` takes a
+        # ``select_for_update`` lock on the appropriation.
+        from accounting.budget_logic import (
+            check_warrant_availability, warrant_enforcement_enabled,
+        )
+        if warrant_enforcement_enabled():
+            ncoa = pv.ncoa_code
+            w_mda = getattr(getattr(ncoa, 'administrative', None), 'legacy_mda', None)
+            w_fund = getattr(getattr(ncoa, 'fund', None), 'legacy_fund', None)
+            w_account = getattr(ncoa, 'economic', None)
+            if w_mda and w_fund and w_account:
+                with transaction.atomic():
+                    allowed, warrant_msg, info = check_warrant_availability(
+                        dimensions={'mda': w_mda, 'fund': w_fund},
+                        account=w_account, amount=pv.gross_amount,
+                    )
+                if not allowed:
+                    warrants_released = info.get('warrants_released') or Decimal('0')
+                    no_warrant = warrants_released == 0
+                    return Response(
+                        {
+                            "error": (
+                                "No Warrant (AIE) has been released for this "
+                                "expense line. Release a Warrant before posting."
+                                if no_warrant
+                                else f"Warrant limit exceeded: {warrant_msg}"
+                            ),
+                            "warrant_no_warrant": no_warrant,
+                            "warrant_exceeded": not no_warrant,
+                            "info": info,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        from accounting.services.payment_voucher_posting import post_payment_voucher_to_gl
+        from accounting.services.base_posting import TransactionPostingError
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            with transaction.atomic():
+                if not payment.document_number:
+                    payment.document_number = TransactionSequence.get_next('payment_doc', 'PAY-')
+                journal = post_payment_voucher_to_gl(
+                    pv, user=request.user, cash_account=payment.bank_account.gl_account,
+                )
+                payment.journal_entry = journal
+                payment.status = 'Posted'
+                payment.save(_allow_status_change=True)
+
+                from django.utils import timezone as _timezone
+                from accounting.models import BankAccount as _BankAccount
+                _BankAccount.objects.filter(pk=payment.bank_account_id).update(
+                    current_balance=F('current_balance') - net,
+                    updated_at=_timezone.now(),
+                )
+                self._flip_pv_paid(pv)
+        except (TransactionPostingError, DjangoValidationError, ValueError) as exc:
+            msg = (
+                exc.messages[0] if hasattr(exc, 'messages') and getattr(exc, 'messages', None)
+                else str(exc)
+            )
+            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(self.get_serializer(payment).data)
+
     def _post_advance_payment(self, payment, request):
         """F-48 branch of ``post_payment`` — post an advance / down
         payment via the Vendor-Advance Special-GL pattern.
@@ -2413,9 +2647,30 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     or payment.document_number
                     or f"PAY-{payment.pk}"
                 )
+
+                # Deduction-aware advance: the linked PV carries the gross
+                # advance + its deductions (e.g. WHT). Disburse recognises
+                # the advance at GROSS on the vendor sub-ledger, credits
+                # each deduction G/L, and pays out NET — identical
+                # bookkeeping to the (now-removed) PV Mark-Paid path.
+                pv = payment.payment_voucher
+                advance_deductions = [
+                    {
+                        'account': d.gl_account,
+                        'amount': d.amount,
+                        'memo': d.description or d.get_deduction_type_display(),
+                    }
+                    for d in (
+                        pv.deductions.select_related('gl_account').all()
+                        if pv is not None else []
+                    )
+                ]
+                gross = pv.gross_amount if pv is not None else payment.total_amount
+                net = pv.net_amount if pv is not None else payment.total_amount
+
                 advance = VendorAdvanceService.disburse(
                     vendor=payment.vendor,
-                    amount=payment.total_amount,
+                    amount=gross,
                     source_type=VendorAdvanceSource.AP_DOWNPAYMENT,
                     source_id=payment.pk,
                     reference=reference,
@@ -2426,6 +2681,7 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                         f"Advance disbursement — Payment {payment.payment_number} "
                         f"({payment.vendor.name})"
                     ),
+                    deductions=advance_deductions,
                 )
 
                 # Link the disbursement journal back onto the Payment
@@ -2434,26 +2690,27 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 payment.journal_entry = advance.disbursement_journal
                 payment.status = 'Posted'
                 # ``advance_remaining`` mirrors the Special-GL balance —
-                # at posting it equals the full advance amount and
-                # decreases as clearances are recorded.
-                payment.advance_remaining = payment.total_amount
+                # the advance is recognised at GROSS and decreases as
+                # clearances are recorded.
+                payment.advance_remaining = gross
                 payment.save(_allow_status_change=True)
 
-                # Keep BankAccount.current_balance in sync — same
-                # invariant as the AP branch at line ~1856. ``timezone``
-                # is imported locally to match the file's pattern (the
-                # AP branch did the same — see how the previous fix at
-                # this site silently failed because neither this
-                # import nor the broken ``accounting.models.banking``
-                # reference was caught at import time).
+                # Keep BankAccount.current_balance in sync — decrement by
+                # the NET cash that actually left the account.
                 from django.utils import timezone as _timezone
                 from accounting.models import BankAccount as _BankAccount
                 _BankAccount.objects.filter(
                     pk=payment.bank_account_id,
                 ).update(
-                    current_balance=F('current_balance') - payment.total_amount,
+                    current_balance=F('current_balance') - net,
                     updated_at=_timezone.now(),
                 )
+
+                # Central processing: flip the source PV → PAID (+ its
+                # PaymentInstruction → PROCESSED) so the advance can't be
+                # disbursed again from another surface.
+                if pv is not None:
+                    self._flip_pv_paid(pv)
         except TransactionPostingError as exc:
             return Response(
                 {"error": str(exc)},

@@ -5,11 +5,15 @@ Extracts the IPSAS payment journal logic from
 ``accounting/views/treasury_revenue.py`` into a standalone callable that
 can be invoked from:
 
-  1. The view (``PaymentVoucherViewSet.mark_paid``) — same behaviour as
-     before the extraction; call site updated to call this function.
+  1. The central Payment-post flow
+     (``PaymentViewSet._post_direct_pv_payment``) — for a direct,
+     non-invoice ``PaymentVoucherGov`` it recognises the expense at
+     payment, passing the Payment's bank GL as ``cash_account``. (The
+     removed PV ``mark_paid`` used to be the caller.)
   2. The workflow-dispatch receiver
      (``accounting.signals.workflow_dispatch``) — auto-post on workflow
-     approval of ``paymentvoucher`` / ``paymentvouchergov`` documents.
+     approval of the LEGACY ``paymentvoucher`` document only
+     (``paymentvouchergov`` now provisions a draft Payment instead).
 
 Public API
 ----------
@@ -56,6 +60,7 @@ if TYPE_CHECKING:
 def post_payment_voucher_to_gl(
     pv: "PaymentVoucherGov",
     user: "AbstractBaseUser | None" = None,
+    cash_account=None,
 ) -> "JournalHeader":
     """Create and post the IPSAS payment journal for a PaymentVoucherGov.
 
@@ -129,9 +134,11 @@ def post_payment_voucher_to_gl(
         ncoa_code=pv.ncoa_code,
     )
 
-    # Resolve TSA cash GL account (per-TSA → AccountingSettings default
-    # → first 31* asset GL — never a hardcoded code).
-    tsa_gl_account = resolve_tsa_cash_gl(
+    # Cash credit account. When the caller supplies one (the central
+    # Payment-post flow passes the Payment's bank GL), use it; otherwise
+    # resolve the TSA cash GL (per-TSA → AccountingSettings default →
+    # first 31* asset GL — never a hardcoded code).
+    tsa_gl_account = cash_account or resolve_tsa_cash_gl(
         tsa_account=getattr(pv, 'tsa_account', None),
     )
 
