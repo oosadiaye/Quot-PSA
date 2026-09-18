@@ -144,10 +144,11 @@ export function useUpdatePV() {
     });
 }
 
-/** PV Actions: approve, schedule, mark_paid — any of these can post a
- *  GL journal (notably ``pay``/``mark_paid``), so we invalidate the
- *  full ledger cache surface (Trial Balance, Balance Sheet, P&L, Cash
- *  Flow, GL balances) so the next paint reflects the posting. */
+/** PV Actions: approve, schedule_payment — approving/scheduling now
+ *  materialises the draft Payment (disbursement happens when that
+ *  Payment is posted in Outgoing Payments, not here). We still
+ *  invalidate the full ledger cache surface (Trial Balance, Balance
+ *  Sheet, P&L, Cash Flow, GL balances) so downstream views refresh. */
 export function usePVAction() {
     const qc = useQueryClient();
     return useMutation({

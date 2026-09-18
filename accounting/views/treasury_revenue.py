@@ -734,8 +734,30 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        pv.status = 'APPROVED'
-        pv.save(update_fields=['status', 'updated_at'])
+        # Central payment processing: approving a PV materialises its
+        # DRAFT Payment in Outgoing Payments (deduction-aware; auto-
+        # allocated to the invoice, or allocation-free for advances).
+        # Disbursement happens only when that Payment is posted — the PV
+        # no longer posts its own GL journal.
+        from django.db import IntegrityError
+        from accounting.services.pv_payment_provisioning import (
+            ensure_draft_payment_for_pv,
+        )
+        from accounting.services.base_posting import TransactionPostingError
+        try:
+            with transaction.atomic():
+                pv.status = 'APPROVED'
+                pv.save(update_fields=['status', 'updated_at'])
+                ensure_draft_payment_for_pv(pv, actor=request.user)
+        except (TransactionPostingError, IntegrityError) as e:
+            # Provisioning is multi-row (sequence + Payment + allocation)
+            # and guarded by a partial-unique constraint; a race or a
+            # sequence hiccup surfaces as a clean 400 (the atomic block has
+            # rolled back the approval too), not an opaque 500.
+            return Response(
+                {'error': f'Could not provision the payment for this voucher: {e}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(PaymentVoucherSerializer(pv).data)
 
     @action(detail=True, methods=['post'])
@@ -757,10 +779,6 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         scheduled returns 400 with a clear message, AND skips creating
         a duplicate Payment if one is already linked.
         """
-        from accounting.models import TransactionSequence
-        from accounting.models.receivables import Payment
-        from datetime import date as _date
-
         pv = self.get_object()
         # Allow either:
         #   • APPROVED — the canonical "schedule for payment" entry point
@@ -785,63 +803,41 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # warrant availability; the gate fires when they try to post
         # the resulting Draft Payment.
 
-        # PaymentInstruction is created once. On re-entry (SCHEDULED PV
-        # that's missing only the Payment) we reuse the existing one.
-        instruction = getattr(pv, 'payment_instruction', None)
-        if instruction is None:
-            instruction = PaymentInstruction.objects.create(
-                payment_voucher=pv,
-                tsa_account=pv.tsa_account,
-                beneficiary_name=pv.payee_name,
-                beneficiary_account=pv.payee_account,
-                beneficiary_bank=pv.payee_bank,
-                beneficiary_sort=pv.payee_sort_code,
-                amount=pv.net_amount,
-                narration=pv.narration[:200],
-            )
+        # All three writes — PaymentInstruction, the draft Payment (multi-
+        # row: Payment + optional PaymentAllocation), and the status flip —
+        # run in ONE transaction so a partway failure can't leave a PI with
+        # no Payment or a Payment with no allocation. The helper itself
+        # relies on this (it takes a row lock and does no atomic of its own).
+        from accounting.services.pv_payment_provisioning import (
+            ensure_draft_payment_for_pv,
+        )
+        with transaction.atomic():
+            # PaymentInstruction is created once. On re-entry (SCHEDULED PV
+            # that's missing only the Payment) we reuse the existing one.
+            instruction = getattr(pv, 'payment_instruction', None)
+            if instruction is None:
+                instruction = PaymentInstruction.objects.create(
+                    payment_voucher=pv,
+                    tsa_account=pv.tsa_account,
+                    beneficiary_name=pv.payee_name,
+                    beneficiary_account=pv.payee_account,
+                    beneficiary_bank=pv.payee_bank,
+                    beneficiary_sort=pv.payee_sort_code,
+                    amount=pv.net_amount,
+                    narration=pv.narration[:200],
+                )
 
-        # ── Draft Payment row for the Outgoing Payments page ─────────
-        # Idempotency: if some earlier flow already linked a draft
-        # Payment to this PV, reuse it rather than creating a duplicate.
-        # ``cash_payments`` is the reverse manager declared on
-        # ``Payment.payment_voucher``.
-        existing_payment = pv.cash_payments.filter(status='Draft').order_by('id').first()
-        if existing_payment is None:
-            payment_number = TransactionSequence.get_next('payment', 'PAY-')
-            # Resolve the vendor from the linked invoice when available —
-            # the Outgoing Payments page groups rows by vendor name.
-            vendor = None
-            try:
-                from accounting.models.receivables import VendorInvoice
-                if pv.invoice_number:
-                    vi = (
-                        VendorInvoice.objects
-                        .filter(invoice_number=pv.invoice_number)
-                        .select_related('vendor')
-                        .first()
-                    )
-                    if vi and vi.vendor_id:
-                        vendor = vi.vendor
-            except Exception:  # noqa: BLE001 — vendor inference is best-effort
-                vendor = None
+            # ── Draft Payment row for the Outgoing Payments page ─────
+            # Single source of truth — the same helper the approve action
+            # and the backfill command use. Idempotent: reuses the PV's
+            # existing non-void Payment rather than creating a duplicate.
+            existing_payment = ensure_draft_payment_for_pv(pv, actor=request.user)
 
-            existing_payment = Payment.objects.create(
-                payment_number=payment_number,
-                payment_date=_date.today(),
-                payment_method='Wire',  # Treasury operator can change before posting
-                reference_number=pv.voucher_number or '',
-                total_amount=pv.net_amount,
-                status='Draft',
-                payment_voucher=pv,
-                vendor=vendor,
-                document_number=payment_number,
-            )
-
-        # Only flip status on the APPROVED → SCHEDULED transition. On
-        # re-entry (already SCHEDULED) we leave status untouched.
-        if pv.status == 'APPROVED':
-            pv.status = 'SCHEDULED'
-            pv.save(update_fields=['status', 'updated_at'])
+            # Only flip status on the APPROVED → SCHEDULED transition. On
+            # re-entry (already SCHEDULED) we leave status untouched.
+            if pv.status == 'APPROVED':
+                pv.status = 'SCHEDULED'
+                pv.save(update_fields=['status', 'updated_at'])
 
         return Response({
             'instruction': PaymentInstructionSerializer(instruction).data,
@@ -852,114 +848,6 @@ class PaymentVoucherViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 'total_amount': str(existing_payment.total_amount),
             },
         }, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=['post'])
-    def mark_paid(self, request, pk=None):
-        """Mark a PV as paid (after bank confirmation) and post IPSAS journal.
-
-        H8 fix: ALL state changes (PaymentInstruction.status='PROCESSED',
-        TSA balance decrement, GL journal post, PV.status='PAID') run
-        inside ONE outer ``transaction.atomic()``. Without this guard a
-        failure in any later step (e.g. journal posting) would leave
-        ``PaymentInstruction`` PROCESSED and the TSA balance debited
-        with no GL journal — an orphan PROCESSED PI that auditors would
-        see as cash leaving the books with no offsetting accrual.
-        Inner ``transaction.atomic()`` blocks in TSABalanceService /
-        IPSASJournalService nest harmlessly as savepoints under this
-        outer transaction.
-        """
-        pv = self.get_object()
-        if pv.status != 'SCHEDULED':
-            return Response(
-                {'error': f'Only SCHEDULED PVs can be marked paid. Current: "{pv.status}"'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Rule-driven SoD gate. The canonical PV-cycle invariant is:
-        # the user who raised / checked / approved / scheduled a PV
-        # cannot be the same user who marks it paid. Configure those
-        # rules in core.SoDRule with permission_a/b drawn from
-        # treasury.voucher.{create,check,approve,schedule,pay}. With
-        # zero rules this is a no-op; SoDViolation is translated to
-        # a structured 403 by core.drf_exception_handler.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'treasury.voucher.pay', pv)
-
-        bank_reference = request.data.get('bank_reference', '')
-
-        # A vendor down payment (special G/L "A") disburses as a VendorAdvance
-        # against the vendor sub-ledger, not an ordinary expense posting.
-        is_advance = bool(
-            pv.payment_type == 'ADVANCE'
-            and pv.special_gl_indicator == 'A'
-            and pv.vendor_id
-        )
-
-        from accounting.services.base_posting import TransactionPostingError
-        try:
-          with transaction.atomic():
-            # Update payment instruction
-            if hasattr(pv, 'payment_instruction'):
-                pi = pv.payment_instruction
-                pi.status = 'PROCESSED'
-                pi.bank_reference = bank_reference
-                pi.processed_at = timezone.now()
-                pi.save(update_fields=['status', 'bank_reference', 'processed_at', 'updated_at'])
-
-                # ── Update TSA balance (cash leaves government account) ──
-                # The advance disbursement service posts its own
-                # DR-Vendor-Advances / CR-Cash journal and re-syncs the TSA
-                # from the GL, so running process_payment here too would
-                # decrement the TSA twice. Skip it for advances.
-                if not is_advance:
-                    from accounting.services.treasury_service import TSABalanceService
-                    TSABalanceService.process_payment(pi)
-
-            if is_advance:
-                # DR Vendor-Advances recon (special G/L "A") / CR Cash.
-                # Records the advance on the vendor account as OUTSTANDING,
-                # to be cleared against the vendor's invoices later.
-                from accounting.services.vendor_advance import VendorAdvanceService
-                # Carry any deductions added on the voucher (e.g. WHT) into the
-                # disbursement so cash out is net while the advance stays gross.
-                advance_deductions = [
-                    {
-                        'account': d.gl_account,
-                        'amount': d.amount,
-                        'memo': d.description or d.get_deduction_type_display(),
-                    }
-                    for d in pv.deductions.select_related('gl_account').all()
-                ]
-                advance = VendorAdvanceService.disburse(
-                    vendor=pv.vendor,
-                    amount=pv.gross_amount,
-                    source_type='AP_DOWNPAYMENT',
-                    source_id=pv.id,
-                    reference=pv.source_document or pv.voucher_number,
-                    posting_date=timezone.now().date(),
-                    actor=request.user,
-                    bank_account=pv.tsa_account,
-                    notes=pv.narration,
-                    deductions=advance_deductions,
-                )
-                journal = advance.disbursement_journal
-            else:
-                # Post IPSAS journal entry via the extracted service.
-                from accounting.services.payment_voucher_posting import (
-                    post_payment_voucher_to_gl,
-                )
-                journal = post_payment_voucher_to_gl(pv, user=request.user)
-
-            pv.status = 'PAID'
-            pv.journal = journal
-            pv.save(update_fields=['status', 'journal', 'updated_at'])
-        except TransactionPostingError as e:
-            # Misconfiguration (e.g. deductions >= gross, no cash GL) must
-            # surface as a clean 400, not an unhandled 500. The atomic block
-            # has already rolled back cleanly at this point.
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(PaymentVoucherSerializer(pv).data)
 
 
 class PaymentInstructionViewSet(viewsets.ModelViewSet):

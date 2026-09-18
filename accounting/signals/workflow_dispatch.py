@@ -271,6 +271,29 @@ if document_approval_completed is not None:
         if hasattr(document, 'journal_id') and document.journal_id:
             return
 
+        # Central payment processing: the treasury ``PaymentVoucherGov`` no
+        # longer posts its own GL journal on approval — disbursement is
+        # single-sourced through the Payment (Outgoing Payments). Whichever
+        # approval path fires (direct DRF action or this workflow-engine
+        # completion), we only materialise the draft Payment, so the GL
+        # journal is produced exactly once, at payment-post time. This
+        # prevents a double-post.
+        if model_name == 'paymentvouchergov':
+            try:
+                from accounting.services.pv_payment_provisioning import (
+                    ensure_draft_payment_for_pv,
+                )
+                ensure_draft_payment_for_pv(document)
+            except Exception as exc:  # noqa: BLE001 — log-only, mirrors policy
+                logger.warning(
+                    'Workflow-approved PaymentVoucherGov %s draft-payment '
+                    'provisioning failed (retry via Schedule Payment): %s',
+                    getattr(document, 'pk', '?'), exc,
+                )
+            return
+
+        # Legacy PaymentVoucher (accounting.models.advanced) keeps the
+        # approval-time GL auto-post below.
         try:
             from accounting.services.payment_voucher_posting import (
                 post_payment_voucher_to_gl,

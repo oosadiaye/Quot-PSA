@@ -5,7 +5,7 @@
  */
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-    CheckCircle, Send, CreditCard, Printer, AlertCircle, Edit3, X,
+    CheckCircle, Send, Printer, AlertCircle, Edit3, X,
     Receipt, Building2, Banknote, Hash, FileText, Scissors,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -111,8 +111,8 @@ export default function PaymentVoucherDetail() {
         if (!pv?.id) return;
         // Double-submit guard. Bail out immediately if any action is
         // already in flight — prevents the operator from firing
-        // approve + schedule + mark-paid simultaneously by clicking
-        // multiple buttons before the first request resolves.
+        // approve + schedule simultaneously by clicking multiple
+        // buttons before the first request resolves.
         if (actionInFlight) return;
         setActionInFlight(true);
         setActionError('');
@@ -248,11 +248,10 @@ export default function PaymentVoucherDetail() {
                     <Send size={16} /> {pv.status === 'APPROVED' ? 'Schedule Payment' : 'Open in Outgoing Payments'}
                 </button>
             )}
-            {pv.status === 'SCHEDULED' && (
-                <button onClick={() => doAction('mark_paid')} disabled={pvAction.isPending || actionInFlight} style={{ ...btnBase, background: GOV.gold, color: '#fff' }}>
-                    <CreditCard size={16} /> Mark Paid
-                </button>
-            )}
+            {/* Disbursement is centralised: a SCHEDULED (or APPROVED) PV is
+                paid from Outgoing Payments via the button above, never here.
+                "Mark Paid" was removed — the Payment post is the only
+                disbursement event. */}
             <button onClick={openPrint} style={btnLight}><Printer size={16} /> Print PV</button>
         </div>
     );
