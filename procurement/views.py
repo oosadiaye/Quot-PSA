@@ -735,48 +735,12 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Rule-driven SoD gate ────────────────────────────────────
-        # Reads ``SoDRule`` rows scoped to ``same_document``. When a
-        # rule names ``procurement.pr.approve`` and the actor already
-        # exercised the other-side permission on this PR (e.g. created
-        # it), this raises ``SoDViolation`` which the DRF exception
-        # handler (core.drf_exception_handler) translates to a 403
-        # with the structured violations payload. Safe-additive: with
-        # zero rules configured, this is a no-op. The hardcoded
-        # creator-cannot-approve check below stays as a backstop until
-        # tenants explicitly seed a SoD rule covering the same case.
-        from core.services.sod_evaluator import enforce_action
-        # ``requested_by_id`` is the creator field on PurchaseRequest;
-        # the evaluator's default attr map only covers ``created_by_id``,
-        # so we override to point the "creator" action at this field.
-        enforce_action(
-            request.user,
-            'procurement.pr.approve',
-            pr,
-            document_actor_attr_map={
-                'procurement.pr.create': 'requested_by_id',
-                'procurement.pr.submit': 'requested_by_id',
-            },
-        )
-
-        # Self-approval block — superusers retain the override for
-        # break-glass scenarios, but the audit log shows it.
-        if (
-            pr.requested_by_id
-            and pr.requested_by_id == getattr(request.user, 'pk', None)
-            and not getattr(request.user, 'is_superuser', False)
-        ):
-            return Response(
-                {
-                    "error": (
-                        "Segregation of duties: the user who created a PR "
-                        "cannot also approve it. Have a different approver "
-                        "act on this request."
-                    ),
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        # Segregation of duties is enforced by ACCESS + ROLE design —
+        # a role isn't granted conflicting permissions (the hold-scope
+        # SoD check runs at role-assignment time). Anyone who holds the
+        # approve permission may approve (even the creator), and the
+        # superuser/admin has full access. No transaction-level
+        # maker/checker block here.
         try:
             with transaction.atomic():
                 # P2P-H3: Budget Encumbrance on PR Approval
@@ -1251,13 +1215,9 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Rule-driven SoD gate — see PR approve for full rationale.
-        # The PO model uses the standard ``created_by_id`` field
-        # (AuditBaseModel inheritance), so the evaluator's default
-        # attr map handles "creator vs approver" without an override.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'procurement.po.approve', po)
-
+        # SoD is enforced by access + role design, not a transaction-level
+        # maker/checker block (see PR approve). Anyone holding the approve
+        # permission may approve; admin/superuser has full access.
         try:
             po.status = 'Approved'
             po.save()

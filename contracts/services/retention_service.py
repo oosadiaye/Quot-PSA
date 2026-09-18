@@ -31,7 +31,6 @@ from contracts.services.exceptions import (
     RetentionCapError,
     SegregationOfDutiesError,
 )
-from contracts.services.sod import actor_can_bypass_sod
 from core.models import quantize_currency
 
 if TYPE_CHECKING:
@@ -124,27 +123,10 @@ class RetentionService:
                 context={"contract_id": contract.pk, "status": contract.status},
             )
 
-        # ── SoD: contract creator cannot create the release ─────────
-        # Without this gate, the user who drafted the contract could
-        # also create the retention release for that contract — the
-        # release amount can be 50%+ of held retention, real money.
-        # The existing ``approve`` and ``mark_paid`` methods get their
-        # own SoD checks below.
-        if (
-            contract.created_by_id
-            and contract.created_by_id == getattr(actor, 'pk', None)
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise InvalidTransitionError(
-                "Segregation of duties: the user who drafted the contract "
-                "cannot also create its retention release. Have a different "
-                "officer raise the release.",
-                context={
-                    "contract_id": contract.pk,
-                    "contract_drafter_id": contract.created_by_id,
-                    "actor_id": getattr(actor, 'pk', None),
-                },
-            )
+        # SoD via access + role permissions (the retention-release
+        # permission), not a transaction-level "drafter ≠ creator" block.
+        # Anyone holding the permission may raise the release; admin has
+        # full access.
 
         # Uniqueness at DB level too (unique_together), but friendlier error here
         if contract.retention_releases.filter(release_type=release_type).exists():
@@ -229,10 +211,8 @@ class RetentionService:
             raise InvalidTransitionError(
                 f"Release must be PENDING to approve (is {release.status})."
             )
-        if release.created_by_id == actor.pk and not actor_can_bypass_sod(actor):
-            raise SegregationOfDutiesError(
-                "Approver cannot be the same user who created the release.",
-            )
+        # SoD via access + role permissions (no transaction-level
+        # "approver ≠ creator" block) — admin has full access.
 
         # Post the GL accrual journal BEFORE flipping status, so a
         # posting failure rolls the whole approval back atomically (the
@@ -415,32 +395,10 @@ class RetentionService:
                 f"Release must be APPROVED to mark paid (is {release.status})."
             )
 
-        # ── SoD: approver cannot also mark paid ─────────────────────
-        # Retention release is the final cash-out moment for the
-        # contract; the canonical SoD invariant is "the user who
-        # approved the release cannot also disburse it". The release
-        # carries the approver in ``updated_by`` after approve()
-        # commits (line 246 sets it). Also block the creator from
-        # marking paid for symmetry with the broader policy.
-        prior_actor_ids = {
-            release.created_by_id,
-            release.updated_by_id,  # last-set in approve()
-        }
-        if (
-            getattr(actor, 'pk', None) in prior_actor_ids
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise InvalidTransitionError(
-                "Segregation of duties: the user who created or approved "
-                "the retention release cannot also mark it paid. Have a "
-                "different treasury officer perform the disbursement.",
-                context={
-                    "release_id": release.pk,
-                    "prior_actor_ids": [aid for aid in prior_actor_ids if aid],
-                    "actor_id": getattr(actor, 'pk', None),
-                },
-            )
-
+        # SoD via access + role permissions (the retention mark-paid
+        # permission), not a transaction-level "prior actor ≠ payer"
+        # block. Anyone holding the permission may disburse; admin has
+        # full access.
         balance = ContractBalance.objects.select_for_update().get(pk=release.contract_id)
         new_released = quantize_currency(balance.retention_released + release.amount)
         if new_released > balance.retention_held:

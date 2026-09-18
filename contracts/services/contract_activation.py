@@ -41,7 +41,6 @@ from contracts.services.exceptions import (
     SegregationOfDutiesError,
 )
 from contracts.services.numbering import next_contract_number
-from contracts.services.sod import actor_can_bypass_sod
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -77,22 +76,13 @@ class ContractActivationService:
                 context={"contract_id": contract.pk, "status": contract.status},
             )
 
-        # 2. Segregation of duties — activator must not be the creator,
-        #    unless the actor has explicit SoD-bypass (SAP-style override)
-        #    or is a Django superuser. Every bypass is audit-logged on
-        #    the ContractApprovalStep row below (`sod_bypassed=True`).
-        sod_bypassed = actor_can_bypass_sod(actor)
-        if contract.created_by_id == actor.pk and not sod_bypassed:
-            raise SegregationOfDutiesError(
-                "Contract activator cannot be the same user who created the contract. "
-                "Grant the user 'contracts.bypass_sod' if your governance model allows "
-                "the same actor to draft and activate.",
-                context={
-                    "creator_id": contract.created_by_id,
-                    "actor_id": actor.pk,
-                    "contract_id": contract.pk,
-                },
-            )
+        # 2. Segregation of duties is enforced by ACCESS + ROLE
+        #    permissions (the activate_contract permission), not a
+        #    transaction-level "activator ≠ creator" block. Anyone
+        #    holding the permission may activate — including the drafter
+        #    — and the admin has full access. We still record on the
+        #    audit trail when the same user drafted and activated.
+        self_activated = contract.created_by_id == actor.pk
 
         # 3. Required fields sanity
         missing = []
@@ -201,7 +191,7 @@ class ContractActivationService:
             action_by=actor,
             notes=(
                 (notes or "Contract activated.")
-                + ("  [SoD bypassed — same user drafted and activated]" if sod_bypassed else "")
+                + ("  [same user drafted and activated]" if self_activated else "")
             ),
         )
 

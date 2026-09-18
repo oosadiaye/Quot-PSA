@@ -1689,29 +1689,29 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if payment.status == 'Posted':
             return Response({"error": "Payment already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── Central-processing controls (apply to BOTH branches) ─────────
-        # A payment generated from a PV inherits that PV's disbursement
-        # controls, which used to live on the removed PV "Mark Paid":
-        #   1. Terminal-status precondition — a voucher already PAID (or
-        #      cancelled/reversed) must never be disbursed again, even if a
-        #      stray second draft Payment still references it. This is the
-        #      real double-pay guard (not the after-the-fact PV→PAID flip).
-        #   2. SoD (maker/checker) — the user who raised / checked /
-        #      approved / scheduled the voucher cannot also disburse it.
-        #      ``SoDViolation`` is translated to a structured 403 by
-        #      ``core.drf_exception_handler``.
+        # ── Terminal-status precondition (double-pay guard) ──────────────
+        # A voucher already PAID (or cancelled/reversed) must never be
+        # disbursed again, even if a stray second draft Payment still
+        # references it. This is the real double-pay guard (not the
+        # after-the-fact PV→PAID flip).
+        #
+        # NOTE: disbursement segregation of duties is enforced by ACCESS
+        # (the ``IsApprover('post')`` permission + fresh MFA on this
+        # action) and by ROLE DESIGN — a role simply isn't granted both
+        # the approve and the pay permissions. Anyone who *holds* the pay
+        # permission may pay, and the superuser/admin has full access.
+        # We deliberately do NOT add a transaction-level maker/checker
+        # (``enforce_action``) block here that would refuse a permitted
+        # user because they touched an earlier step.
         pv = payment.payment_voucher
-        if pv is not None:
-            if pv.status in ('PAID', 'CANCELLED', 'REVERSED'):
-                return Response(
-                    {"error": (
-                        f'Voucher {pv.voucher_number} is already {pv.status} — '
-                        'it cannot be paid again.'
-                    )},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            from core.services.sod_evaluator import enforce_action
-            enforce_action(request.user, 'treasury.voucher.pay', pv)
+        if pv is not None and pv.status in ('PAID', 'CANCELLED', 'REVERSED'):
+            return Response(
+                {"error": (
+                    f'Voucher {pv.voucher_number} is already {pv.status} — '
+                    'it cannot be paid again.'
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # ── F-48 branch: advance / down-payment ──────────────────────
         # Advances have no invoice yet — they sit in a Special-GL

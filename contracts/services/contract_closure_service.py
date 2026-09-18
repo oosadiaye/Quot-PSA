@@ -40,7 +40,6 @@ from contracts.services.exceptions import (
     RetentionCapError,
     SegregationOfDutiesError,
 )
-from contracts.services.sod import actor_can_bypass_sod
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -80,25 +79,10 @@ class ContractClosureService:
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
             )
-        # ── SoD: contract drafter cannot self-certify completion ────
-        # CompletionCertificate triggers the 50% retention release
-        # eligibility downstream. Self-certification by the drafter
-        # would let one operator drive contract → practical → retain
-        # released without any independent verification.
-        if (
-            contract.created_by_id
-            and contract.created_by_id == getattr(actor, 'pk', None)
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise InvalidTransitionError(
-                "Segregation of duties: the user who drafted the contract "
-                "cannot also issue its practical-completion certificate.",
-                context={
-                    "contract_id": contract.pk,
-                    "contract_drafter_id": contract.created_by_id,
-                    "actor_id": getattr(actor, 'pk', None),
-                },
-            )
+        # SoD is enforced by access + role permissions (the practical-
+        # completion certificate permission), not a transaction-level
+        # "drafter can't self-certify" block. Anyone holding the
+        # permission may issue it; admin has full access.
         cls._assert_no_open_ipcs(contract)
 
         cert = CompletionCertificate.objects.create(
@@ -163,21 +147,7 @@ class ContractClosureService:
                 f"completion (is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
             )
-        # SoD — see issue_practical_completion for rationale.
-        if (
-            contract.created_by_id
-            and contract.created_by_id == getattr(actor, 'pk', None)
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise InvalidTransitionError(
-                "Segregation of duties: the user who drafted the contract "
-                "cannot also issue its final-completion certificate.",
-                context={
-                    "contract_id": contract.pk,
-                    "contract_drafter_id": contract.created_by_id,
-                    "actor_id": getattr(actor, 'pk', None),
-                },
-            )
+        # SoD via access + role permissions (no transaction-level block).
         cls._assert_no_open_ipcs(contract)
 
         # Require that the 50% practical retention release has actually
@@ -241,16 +211,8 @@ class ContractClosureService:
                 f"(is {contract.status}).",
                 context={"contract_id": contract.pk, "status": contract.status},
             )
-        if contract.created_by_id == actor.pk and not actor_can_bypass_sod(actor):
-            raise SegregationOfDutiesError(
-                "Contract closer cannot be the same user who created the contract.",
-                context={
-                    "contract_id": contract.pk,
-                    "creator_id": contract.created_by_id,
-                    "actor_id": actor.pk,
-                },
-            )
-
+        # SoD via access + role permissions (no transaction-level "closer
+        # ≠ creator" block).
         cls._assert_no_open_ipcs(contract)
 
         balance = (
