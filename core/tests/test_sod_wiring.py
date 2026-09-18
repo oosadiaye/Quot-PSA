@@ -1,74 +1,20 @@
 """
-SoD wiring tests — proves the four critical action paths are guarded.
+SoD wiring tests.
 
-These tests intentionally stay no-DB / pure-Python so they run on the
-fast tier. They verify the **wiring** (imports + handler contract) not
-the evaluator's matching logic — that is already covered by
-``test_s23_roles_and_sod.py``.
+Policy: Segregation of Duties is enforced by ACCESS + ROLE design — a
+role is simply not granted conflicting permissions (the ``hold`` scope
+check runs at role-assignment time). Anyone who *holds* a permission may
+exercise it, and the superuser/admin has full access. There is
+deliberately NO transaction-level maker/checker (``enforce_action`` /
+``same_document``) block on action handlers, so a permitted user is
+never refused because they touched an earlier step of the same document.
 
-Three things are checked:
-
-1. ``enforce_action`` is imported by every wired view (text-search
-   the source). This catches accidental removal during refactors.
-2. ``core.drf_exception_handler.project_exception_handler`` is the
-   registered ``EXCEPTION_HANDLER`` in REST_FRAMEWORK settings.
-3. The handler returns a 403 with the structured ``violations``
-   payload when given a synthetic ``SoDViolation``.
+These tests verify the surviving infrastructure — the ``SoDViolation``
+exception handler (still used to surface hold-scope / assignment-time
+violations) and the evaluator's safe-additive contract. They stay
+no-DB / pure-Python so they run on the fast tier.
 """
 from __future__ import annotations
-
-import inspect
-
-
-class TestEnforceActionImports:
-    """Each wired view must reference enforce_action by name.
-
-    A grep on the file source is the cheapest reliable signal — the
-    actual function is imported lazily inside the action handler so we
-    can't introspect via the module namespace.
-    """
-
-    def _source_of(self, dotted_view_path: str) -> str:
-        """Return the source text of the module hosting the wired view."""
-        module_path, _ = dotted_view_path.rsplit('.', 1)
-        import importlib
-        mod = importlib.import_module(module_path)
-        return inspect.getsource(mod)
-
-    def test_pr_approve_uses_enforce_action(self):
-        src = self._source_of('procurement.views.PurchaseRequestViewSet')
-        assert "enforce_action" in src, (
-            "procurement.views must call enforce_action on PR approve"
-        )
-        assert "'procurement.pr.approve'" in src, (
-            "Wiring must reference the seeded permission code"
-        )
-
-    def test_po_approve_uses_enforce_action(self):
-        src = self._source_of('procurement.views.PurchaseOrderViewSet')
-        assert "'procurement.po.approve'" in src, (
-            "Wiring must reference the seeded PO-approve permission code"
-        )
-
-    def test_journal_post_uses_enforce_action(self):
-        src = self._source_of('accounting.views.core_gl.JournalHeaderViewSet')
-        assert "enforce_action" in src, (
-            "core_gl must call enforce_action on post_journal"
-        )
-        assert "'accounting.journal.post'" in src, (
-            "Wiring must reference the seeded journal-post permission code"
-        )
-
-    def test_pv_mark_paid_uses_enforce_action(self):
-        # PaymentVoucherViewSet hosts mark_paid in treasury_revenue.
-        from accounting.views import treasury_revenue
-        src = inspect.getsource(treasury_revenue)
-        assert "enforce_action" in src, (
-            "treasury_revenue must call enforce_action on mark_paid"
-        )
-        assert "'treasury.voucher.pay'" in src, (
-            "Wiring must reference the seeded PV-pay permission code"
-        )
 
 
 class TestExceptionHandlerWired:

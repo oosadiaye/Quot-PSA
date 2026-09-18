@@ -40,7 +40,6 @@ from contracts.services.exceptions import (
     VariationApprovalError,
 )
 from contracts.services.numbering import next_variation_number
-from contracts.services.sod import actor_can_bypass_sod
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -123,12 +122,8 @@ class VariationService:
             raise InvalidTransitionError(
                 f"Variation must be SUBMITTED to review (is {variation.status})."
             )
-        # SoD: reviewer != submitter (submitter = created_by for DRAFT,
-        # but we track the submit action in ApprovalStep; re-use that).
-        if variation.created_by_id == actor.pk and not actor_can_bypass_sod(actor):
-            raise SegregationOfDutiesError(
-                "Reviewer cannot be the same user who drafted the variation."
-            )
+        # SoD via access + role permissions (no transaction-level
+        # "reviewer ≠ submitter" block) — admin has full access.
         variation.transition_to(VariationStatus.REVIEWED)
         cls._record_step(variation, actor, ApprovalAction.VERIFY, notes or "Technical review complete")
         return variation
@@ -175,19 +170,8 @@ class VariationService:
                 context={"tier": variation.approval_tier},
             )
 
-        # Segregation of duties — approver distinct from drafter AND reviewer
-        prior_actors = set(
-            ContractApprovalStep.objects.filter(
-                object_type=ApprovalObjectType.VARIATION,
-                object_id=variation.pk,
-            ).values_list("action_by_id", flat=True)
-        )
-        prior_actors.add(variation.created_by_id)
-        if actor.pk in prior_actors and not actor_can_bypass_sod(actor):
-            raise SegregationOfDutiesError(
-                "Approver cannot also be the drafter or reviewer of this variation.",
-                context={"prior_actors": list(prior_actors), "approver": actor.pk},
-            )
+        # SoD via access + role permissions (no transaction-level
+        # "approver ≠ drafter/reviewer" block) — admin has full access.
 
         # Approve + refresh ceiling atomically.
         #

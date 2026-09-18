@@ -1438,15 +1438,9 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only DRAFT appropriations can be submitted. Current: "{appro.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Rule-driven SoD gate. Reads SoDRule rows scoped to
-        # same_document; with zero matching rules this is a no-op
-        # (safe-additive). SoDViolation → 403 via
-        # core.drf_exception_handler. The seeded permission catalogue
-        # already defines 'budget.appropriation.submit' so a tenant
-        # can configure "creator cannot submit" by adding one rule
-        # with no Python change.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'budget.appropriation.submit', appro)
+        # SoD is enforced by access + role permissions, not a
+        # transaction-level maker/checker block. Anyone holding the
+        # submit permission may submit; admin/superuser has full access.
         appro.status = 'SUBMITTED'
         appro.save(update_fields=['status', 'updated_at'])
         return Response(AppropriationSerializer(appro).data)
@@ -1460,9 +1454,7 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only SUBMITTED appropriations can be approved. Current: "{appro.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # SoD gate — see submit() for full rationale.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'budget.appropriation.approve', appro)
+        # SoD via access + role permissions (no transaction-level block).
         appro.status = 'APPROVED'
         appro.save(update_fields=['status', 'updated_at'])
         return Response(AppropriationSerializer(appro).data)
@@ -1502,13 +1494,7 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     {'error': f'Only APPROVED appropriations can be enacted. Current: "{appro.status}"'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # SoD gate — see submit() for full rationale. ``enact`` is
-            # the cash-impact transition (after this, expenditure can
-            # flow against the appropriation) so the SoD rule is the
-            # most consequential of the three appropriation
-            # transitions to configure.
-            from core.services.sod_evaluator import enforce_action
-            enforce_action(request.user, 'budget.appropriation.approve', appro)
+            # SoD via access + role permissions (no transaction-level block).
             update_fields = ['status', 'enactment_date', 'updated_at']
             appro.status = 'ACTIVE'
             appro.enactment_date = appro.enactment_date or timezone.now().date()
@@ -1890,14 +1876,8 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only PENDING warrants can be released. Current: "{warrant.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # SoD gate — warrant release is the cash-authorisation moment;
-        # the canonical rule is "warrant drafter cannot release". The
-        # permission code 'budget.warrant.release' is already in the
-        # seeded catalogue (core/management/commands/seed_permission_catalog.py:59).
-        # Safe-additive: no rules → no behaviour change.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'budget.warrant.release', warrant)
-
+        # SoD via access + role permissions (no transaction-level block).
+        # Anyone holding the release permission may release; admin has full access.
         warrant.status = 'RELEASED'
         warrant.save(update_fields=['status', 'updated_at'])
 
@@ -1917,9 +1897,7 @@ class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 {'error': f'Only RELEASED warrants can be suspended. Current: "{warrant.status}"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # SoD gate — see release() for rationale.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'budget.warrant.suspend', warrant)
+        # SoD via access + role permissions (no transaction-level block).
 
         warrant.status = 'SUSPENDED'
         warrant.save(update_fields=['status', 'updated_at'])
@@ -2611,15 +2589,9 @@ class AppropriationVirementViewSet(viewsets.ModelViewSet):
             approve_and_apply_virement, VirementError,
         )
         virement = self.get_object()
-        # SoD gate. Virement is the only mid-year way to move money
-        # between appropriations — the canonical SoD rule is "the
-        # operator who initiated the virement cannot also approve
-        # it". The permission code 'budget.virement.approve' is
-        # already in the seeded catalogue
-        # (core/management/commands/seed_permission_catalog.py:56).
-        # Safe-additive: no rules → no behaviour change.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'budget.virement.approve', virement)
+        # SoD via access + role permissions (no transaction-level block).
+        # Anyone holding the virement-approve permission may approve;
+        # admin/superuser has full access.
         try:
             approve_and_apply_virement(virement, user=request.user)
         except VirementError as e:

@@ -137,44 +137,41 @@ class TestContractsSourceModuleDistinct:
 # Budget SoD wiring (H1+H2+H3)
 # ─────────────────────────────────────────────────────────────────────
 
-class TestBudgetSoDWiring:
-    """Wire enforce_action on every budget state-transition that
-    spends money or authorises spending."""
+class TestBudgetSoDIsAccessBased:
+    """Budget SoD is enforced by ACCESS + ROLE permissions, not a
+    transaction-level maker/checker block. The budget state-transitions
+    (appropriation submit/approve/enact, warrant release/suspend,
+    virement approve) do NOT call the transaction-level
+    ``enforce_action`` — anyone holding the permission may act and the
+    admin/superuser has full access. See core/tests/test_sod_wiring.py
+    for the policy note."""
 
-    def test_appropriation_submit_approve_enact_wired(self):
+    def test_budget_transitions_do_not_use_transaction_level_sod(self):
         from budget import views
         src = inspect.getsource(views)
-        assert "'budget.appropriation.submit'" in src
-        assert "'budget.appropriation.approve'" in src
-
-    def test_warrant_release_suspend_wired(self):
-        from budget import views
-        src = inspect.getsource(views)
-        assert "'budget.warrant.release'" in src
-        assert "'budget.warrant.suspend'" in src
-
-    def test_virement_approve_wired(self):
-        from budget import views
-        src = inspect.getsource(views)
-        assert "'budget.virement.approve'" in src
+        assert "enforce_action" not in src, (
+            "Budget state-transitions must not enforce transaction-level "
+            "SoD — segregation is via access/role permissions."
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Contracts SoD — mobilisation, retention, closure
 # ─────────────────────────────────────────────────────────────────────
 
-class TestContractsSoDWiring:
-    """Mobilisation issuance, retention release create+pay, and the
-    three CompletionCertificate-issuing transitions must reject the
-    contract drafter (or prior actor for retention pay)."""
+class TestContractsSoDIsAccessBased:
+    """Contracts SoD is enforced by ACCESS + ROLE permissions, not by
+    transaction-level maker/checker blocks. Mobilisation issuance,
+    retention release/pay, and completion-certificate issuance no longer
+    reject the drafter/prior actor — anyone holding the permission may
+    act and the admin/superuser has full access. (The unrelated
+    appropriation row-lock stays — see Pass 10 H1.)"""
 
-    def test_mobilization_issue_advance_has_sod(self):
+    def test_mobilization_has_no_transaction_level_sod(self):
         from contracts.services import mobilization_service
         src = inspect.getsource(mobilization_service)
-        assert 'actor_can_bypass_sod' in src
-        assert 'created_by_id == getattr(actor' in src, (
-            'mobilization.issue_advance must reject contract drafter.'
-        )
+        assert 'created_by_id == getattr(actor' not in src
+        assert 'cannot also issue its mobilisation advance' not in src
 
     def test_mobilization_locks_appropriation(self):
         from contracts.services import mobilization_service
@@ -184,24 +181,17 @@ class TestContractsSoDWiring:
             'appropriation row — see Pass 10 H1.'
         )
 
-    def test_retention_create_release_has_sod(self):
+    def test_retention_has_no_transaction_level_sod(self):
         from contracts.services import retention_service
         src = inspect.getsource(retention_service)
-        # Find the create_release block specifically
-        assert 'cannot also create its retention release' in src
+        assert 'cannot also create its retention release' not in src
+        assert 'cannot also mark it paid' not in src
 
-    def test_retention_mark_paid_has_sod(self):
-        from contracts.services import retention_service
-        src = inspect.getsource(retention_service)
-        assert 'cannot also mark it paid' in src or 'prior_actor_ids' in src
-
-    def test_completion_certificate_issuance_has_sod(self):
+    def test_completion_certificate_has_no_transaction_level_sod(self):
         from contracts.services import contract_closure_service
         src = inspect.getsource(contract_closure_service)
-        # Both practical and final completion certificate issuance
-        # must reject the contract drafter.
-        assert 'cannot also issue its practical-completion' in src
-        assert 'cannot also issue its final-completion' in src
+        assert 'cannot also issue its practical-completion' not in src
+        assert 'cannot also issue its final-completion' not in src
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -26,7 +26,6 @@ from django.db.models import F
 from django.utils import timezone
 
 from contracts.services.exceptions import ConcurrencyError
-from contracts.services.sod import actor_can_bypass_sod
 
 from contracts.models import (
     Contract,
@@ -84,83 +83,11 @@ class MobilizationService:
                 },
             )
 
-        # ── SoD: contract creator cannot issue mobilisation ─────────
-        # Mobilisation is the single largest upfront cash outflow on
-        # most contracts (typically 10-25% of contract value paid
-        # before any work starts).
-        #
-        # H16 fix: the previous check only blocked the contract
-        # drafter. A vendor-registration officer or any prior contract
-        # approver could still issue mobilisation through a different
-        # route, defeating the SoD intent. The expanded check now
-        # blocks:
-        #   1. The user who drafted the contract.
-        #   2. The user who registered the vendor (vendor.created_by).
-        #   3. Any user who acted on a previous ContractApprovalStep
-        #      for this contract.
-        #
-        # Bypass paths (superuser, tenant admin, explicit
-        # contracts.bypass_sod permission) preserved via the existing
-        # ``actor_can_bypass_sod`` helper.
-        actor_pk = getattr(actor, 'pk', None)
-        if actor_pk and not actor_can_bypass_sod(actor):
-            # 1. Contract drafter
-            if contract.created_by_id and contract.created_by_id == actor_pk:
-                raise InvalidTransitionError(
-                    "Segregation of duties: the user who drafted the contract "
-                    "cannot also issue its mobilisation advance. Have a "
-                    "different officer perform this action.",
-                    context={
-                        "contract_id":   contract.pk,
-                        "conflict":      "contract_drafter",
-                        "contract_drafter_id": contract.created_by_id,
-                        "actor_id":      actor_pk,
-                    },
-                )
-
-            # 2. Vendor registrar — the officer who created the Vendor
-            # master record cannot also disburse advance funds to that
-            # vendor (classic vendor-master / payments SoD split).
-            vendor = getattr(contract, 'vendor', None)
-            vendor_creator_id = getattr(vendor, 'created_by_id', None) if vendor else None
-            if vendor_creator_id and vendor_creator_id == actor_pk:
-                raise InvalidTransitionError(
-                    "Segregation of duties: the user who registered this "
-                    "vendor cannot also issue mobilisation advances to "
-                    "that vendor. Have a different officer perform this "
-                    "action.",
-                    context={
-                        "contract_id":  contract.pk,
-                        "conflict":     "vendor_registrar",
-                        "vendor_id":    getattr(vendor, 'pk', None),
-                        "vendor_registrar_id": vendor_creator_id,
-                        "actor_id":     actor_pk,
-                    },
-                )
-
-            # 3. Prior contract approver — anyone who has signed an
-            # approval step on this contract cannot also disburse the
-            # advance. Catches the case where the same officer
-            # approves the contract and then immediately issues
-            # mobilisation through a different route.
-            from contracts.models.audit import ContractApprovalStep
-            prior_approver_ids = set(
-                ContractApprovalStep.objects
-                .filter(contract=contract)
-                .values_list('action_by_id', flat=True)
-            )
-            if actor_pk in prior_approver_ids:
-                raise InvalidTransitionError(
-                    "Segregation of duties: a user who has already "
-                    "approved this contract cannot also issue its "
-                    "mobilisation advance. Have a different officer "
-                    "perform this action.",
-                    context={
-                        "contract_id":  contract.pk,
-                        "conflict":     "prior_contract_approver",
-                        "actor_id":     actor_pk,
-                    },
-                )
+        # SoD is enforced by access + role permissions (the mobilisation
+        # permission), not a transaction-level maker/checker block. Anyone
+        # holding the permission may issue the advance — including the
+        # contract drafter, the vendor registrar, or a prior approver —
+        # and the admin/superuser has full access.
 
         # ── Strict budget appropriation check ─────────────────────────
         # Mobilization is a real cash outflow that hits the same
@@ -326,25 +253,9 @@ class MobilizationService:
                 },
             )
 
-        # SoD: approver ≠ issuer (created_by). Same governance shape as
-        # ``RetentionService.approve``. ``actor_can_bypass_sod`` covers
-        # superusers and tenant admins with the explicit bypass perm.
-        if (
-            payment.created_by_id
-            and payment.created_by_id == getattr(actor, "pk", None)
-            and not actor_can_bypass_sod(actor)
-        ):
-            raise SegregationOfDutiesError(
-                "Segregation of duties: the user who issued the "
-                "mobilisation advance cannot also approve it. Have a "
-                "different officer approve before treasury raises the PV.",
-                context={
-                    "payment_id":   payment.pk,
-                    "issuer_id":    payment.created_by_id,
-                    "actor_id":     getattr(actor, "pk", None),
-                },
-            )
-
+        # SoD via access + role permissions (no transaction-level
+        # "approver ≠ issuer" block) — anyone holding the approve
+        # permission may approve; admin has full access.
         payment.status     = MobilizationPaymentStatus.APPROVED
         payment.updated_by = actor
         payment.save(update_fields=["status", "updated_by", "updated_at"])

@@ -1167,15 +1167,12 @@ class JournalViewSet(viewsets.ModelViewSet):
         """Post journal entry to GL balances in real-time."""
         journal = self.get_object()
 
-        # Rule-driven SoD gate. Reads ``SoDRule`` rows scoped to
-        # ``same_document`` naming ``accounting.journal.post``. The
-        # canonical case it blocks: the user who created or approved
-        # the journal cannot also post it. Safe-additive — no rule,
-        # no behaviour change. ``SoDViolation`` is translated to a
-        # structured 403 by ``core.drf_exception_handler``.
-        from core.services.sod_evaluator import enforce_action
-        enforce_action(request.user, 'accounting.journal.post', journal)
-
+        # Segregation of duties is enforced by ACCESS + ROLE design (a
+        # role isn't granted conflicting permissions; the hold-scope
+        # SoD check runs at role-assignment time) — not by a
+        # transaction-level maker/checker block here. Anyone who holds
+        # the post permission may post; the superuser/admin has full
+        # access.
         try:
             payload = self._perform_post(journal, request.user)
             return Response({'status': 'Journal posted successfully.', **payload})

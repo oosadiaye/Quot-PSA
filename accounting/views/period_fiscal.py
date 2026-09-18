@@ -937,19 +937,9 @@ class FiscalPeriodReopenApprovalViewSet(viewsets.ReadOnlyModelViewSet):
 
         approval = self.get_object()
 
-        # Second-actor enforcement — must not match the requester.
-        if approval.requested_by_id == user.id:
-            return Response(
-                {
-                    'error': (
-                        'You cannot approve your own reopen request. '
-                        'A different user with the reopen_fiscal_period '
-                        'permission must approve.'
-                    ),
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        # SoD is enforced by access + role permissions (the reopen
+        # permission), not a transaction-level second-actor block —
+        # anyone holding the permission may approve, admin has full access.
         if approval.status != FiscalPeriodReopenApproval.STATUS_PENDING:
             return Response(
                 {

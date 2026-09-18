@@ -318,33 +318,41 @@ class TestDbTriggerLastLine:
 # ── #11 Segregation of Duties ──────────────────────────────────────────
 
 class TestSegregationOfDuties:
+    """SoD is enforced by ACCESS + ROLE permissions, not a
+    transaction-level maker/checker block. The same actor may drive
+    consecutive IPC steps — no ``SegregationOfDutiesError`` is raised
+    (admin/superuser has full access, and any permitted user may act)."""
 
-    def test_drafter_cannot_certify_own_ipc(
-        self, activated_contract, drafter,
-    ):
+    def test_drafter_may_certify_own_ipc(self, activated_contract, drafter):
         ipc = _submit(activated_contract, drafter, cumulative="5000000.00")
-        with pytest.raises(SegregationOfDutiesError):
-            IPCService.certify(ipc=ipc, actor=drafter)
+        # No SoD block — the drafter may certify their own IPC.
+        IPCService.certify(ipc=ipc, actor=drafter)
 
-    def test_certifier_cannot_approve_own_certification(
+    def test_same_actor_may_certify_then_approve(
         self, activated_contract, drafter, certifier,
     ):
         ipc = _submit(activated_contract, drafter, cumulative="5000000.00")
         IPCService.certify(ipc=ipc, actor=certifier)
-        with pytest.raises(SegregationOfDutiesError):
-            IPCService.approve(ipc=ipc, actor=certifier)
+        # No SoD block — the certifier may also approve.
+        IPCService.approve(ipc=ipc, actor=certifier)
 
-    def test_approver_cannot_raise_voucher(
+    def test_raise_voucher_is_not_sod_blocked_for_prior_actor(
         self, activated_contract, drafter, certifier, approver,
     ):
         ipc = _submit(activated_contract, drafter, cumulative="5000000.00")
         IPCService.certify(ipc=ipc, actor=certifier)
         IPCService.approve(ipc=ipc, actor=approver)
-        with pytest.raises(SegregationOfDutiesError):
+        # The approver reaching raise_voucher must NOT be SoD-blocked; any
+        # other error (e.g. an unrelated PV lookup) is not our concern.
+        try:
             IPCService.raise_voucher(
                 ipc=ipc, payment_voucher_id=1,
                 voucher_gross=ipc.net_payable, actor=approver,
             )
+        except SegregationOfDutiesError:  # pragma: no cover
+            pytest.fail("SoD must be access/role-based, not a transaction-level block")
+        except Exception:
+            pass
 
 
 # ── #12 Contract not active ────────────────────────────────────────────

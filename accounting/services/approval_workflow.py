@@ -227,22 +227,11 @@ class ApprovalWorkflowService:
             )
 
         # ── S1-08 — Maker-Checker segregation of duties ──────────────────
-        # The user who submitted the document cannot approve their own work.
-        # Bypass allowed ONLY for superuser (emergency override path).
-        submitter_id = getattr(instance, 'submitted_by_id', None)
-        if submitter_id and submitter_id == user.id and not getattr(user, 'is_superuser', False):
-            return ApprovalActionResult(
-                success=False,
-                action='APPROVE',
-                new_status=instance.status,
-                message=(
-                    'Maker-checker violation: the submitter of a document '
-                    'cannot approve it. A different user must approve.'
-                ),
-                next_level=instance.current_level,
-                is_fully_approved=False,
-            )
-
+        # Segregation of duties is enforced by ACCESS + ROLE permissions
+        # (a role isn't granted conflicting permissions), not by a
+        # transaction-level maker/checker block. Anyone holding the
+        # approve permission may approve — including the submitter — and
+        # the admin/superuser has full access.
         target_level = level or (instance.current_level + 1)
 
         # ── S1-08 — Idempotency guard ────────────────────────────────────

@@ -63,7 +63,6 @@ from contracts.services.exceptions import (
 from contracts.services.mobilization_service import MobilizationService
 from contracts.services.numbering import next_ipc_number
 from contracts.services.retention_service import RetentionService
-from contracts.services.sod import actor_can_bypass_sod
 from core.models import quantize_currency
 
 if TYPE_CHECKING:
@@ -1705,27 +1704,14 @@ class IPCService:
         *,
         role: str,
     ) -> None:
-        """Control 10 — actor must not have taken any prior role on this IPC.
-
-        Tenant Admins / Django superusers / users granted
-        ``contracts.bypass_sod`` transparently skip this check. Every such
-        bypass is still audit-logged on the ContractApprovalStep row via
-        ``_record_step`` (the caller tags the notes when appropriate), so
-        auditors can grep for overrides.
+        """No-op — Segregation of duties is enforced by ACCESS + ROLE
+        permissions, not by a transaction-level "actor took a prior role
+        on this IPC" block. Anyone holding the permission for a step
+        (certify / approve / raise-voucher / mark-paid) may perform it,
+        and the admin/superuser has full access. Retained as a hook so the
+        call sites (which pass ``role=`` for audit context) don't change.
         """
-        if actor_can_bypass_sod(actor):
-            return
-        prior = cls._prior_actor_ids(ipc)
-        if actor.pk in prior:
-            raise SegregationOfDutiesError(
-                f"Actor cannot be the {role}: they already acted on this IPC.",
-                context={
-                    "ipc_id": ipc.pk,
-                    "actor_id": actor.pk,
-                    "role": role,
-                    "prior_actors": sorted(prior),
-                },
-            )
+        return
 
     @staticmethod
     def _record_step(
