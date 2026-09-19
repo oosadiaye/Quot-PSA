@@ -38,7 +38,7 @@ const inp: React.CSSProperties = {
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
-type ActiveTab = 'payments' | 'advances' | 'posted';
+type ActiveTab = 'payments' | 'posted';
 
 // ─── domain row shapes ────────────────────────────────────────────────────
 // Minimal interfaces covering only the fields this page reads. Kept
@@ -245,6 +245,7 @@ function PaymentFormModal({
     paymentVouchers = [],
     pvRequired = false,
     initialValues,
+    footerSlot = null,
     onSubmit,
     onClose,
     isLoading,
@@ -261,6 +262,13 @@ function PaymentFormModal({
      * continues to work.
      */
     initialValues?: Partial<typeof BLANK_PAYMENT>;
+    /**
+     * Optional slot rendered just above the modal's submit/confirm
+     * buttons. Used by the edit-and-post (review-before-post) flow to
+     * surface the proposed journal entries so the operator sees what
+     * will hit the GL before committing.
+     */
+    footerSlot?: React.ReactNode;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     // ``useState({...})`` evaluates the initial state ONCE on mount, so
@@ -584,6 +592,11 @@ function PaymentFormModal({
                             )}
                         </div>
                     </div>
+                    {footerSlot && (
+                        <div style={{ marginTop: '20px' }}>
+                            {footerSlot}
+                        </div>
+                    )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
                         <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                         <button type="submit" disabled={isLoading} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
@@ -711,6 +724,108 @@ function SummaryCard({ label, value, sub, accent }: SummaryCardProps) {
     );
 }
 
+// ─── proposed / posted journal-entries preview ──────────────────────────────
+// Compact preview of the double-entry a payment WILL post (or, once posted,
+// DID post). Backed by GET /accounting/payments/{id}/proposed_entries/.
+// Rendered inside the New Outgoing Payment modal during the edit-and-post
+// (review-before-post) flow so the operator can audit the GL impact before
+// committing the disbursement.
+interface ProposedEntryLine {
+    account: string;
+    account_code: string;
+    debit: string;
+    credit: string;
+    memo: string;
+}
+interface ProposedEntriesResponse {
+    posted: boolean;
+    entries: ProposedEntryLine[];
+    total_debit: string;
+    total_credit: string;
+    balanced: boolean;
+}
+
+function ProposedEntries({ paymentId }: { paymentId: number }) {
+    const { formatCurrency } = useCurrency();
+    const { data, isLoading, error } = useQuery<ProposedEntriesResponse>({
+        queryKey: ['payment-proposed-entries', paymentId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`);
+            return data;
+        },
+        enabled: !!paymentId,
+    });
+
+    // A decimal string counts as "present" on a line only when it parses to
+    // a non-zero number — the other side's cell is then left blank so each
+    // line reads as a single DR or CR the way a ledger does.
+    const isNonZero = (v: string): boolean => (parseFloat(v) || 0) !== 0;
+
+    const cellStyle: React.CSSProperties = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#334155' };
+    const numCellStyle: React.CSSProperties = { ...cellStyle, textAlign: 'right', fontFamily: 'monospace', whiteSpace: 'nowrap' };
+    const headStyle: React.CSSProperties = { padding: '6px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' };
+
+    return (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                    {data?.posted ? 'Posted journal entries' : 'Proposed journal entries (will post on confirm)'}
+                </span>
+                {data && (
+                    data.balanced ? (
+                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#166534' }}>Balanced ✓</span>
+                    ) : (
+                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b' }}>Unbalanced</span>
+                    )
+                )}
+            </div>
+
+            {isLoading && (
+                <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Loading entries…</div>
+            )}
+            {error && (
+                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
+                    Failed to load proposed entries. {(error as Error)?.message ?? 'Please try again.'}
+                </div>
+            )}
+            {data && !isLoading && (
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 8 }}>
+                        <thead>
+                            <tr>
+                                <th style={headStyle}>Account</th>
+                                <th style={{ ...headStyle, textAlign: 'right' }}>Debit</th>
+                                <th style={{ ...headStyle, textAlign: 'right' }}>Credit</th>
+                                <th style={headStyle}>Memo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.entries.map((e, i) => (
+                                <tr key={`${e.account_code}-${i}`}>
+                                    <td style={cellStyle}>
+                                        <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{e.account_code}</span> {e.account}
+                                    </td>
+                                    <td style={numCellStyle}>{isNonZero(e.debit) ? formatCurrency(e.debit) : ''}</td>
+                                    <td style={numCellStyle}>{isNonZero(e.credit) ? formatCurrency(e.credit) : ''}</td>
+                                    <td style={cellStyle}>{e.memo}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                <td style={{ ...cellStyle, fontWeight: 700 }}>Totals</td>
+                                <td style={{ ...numCellStyle, fontWeight: 800, color: '#1e293b' }}>{formatCurrency(data.total_debit)}</td>
+                                <td style={{ ...numCellStyle, fontWeight: 800, color: '#1e293b' }}>{formatCurrency(data.total_credit)}</td>
+                                <td style={cellStyle} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── main page ────────────────────────────────────────────────────────────────
 export default function OutgoingPaymentsPage() {
     const { formatCurrency } = useCurrency();
@@ -770,8 +885,11 @@ export default function OutgoingPaymentsPage() {
     } | null>(null);
 
     // ─── queries ─────────────────────────────────────────────────────────────
-    const { data: payments, isLoading: loadingPayments } = usePayments({ is_advance: false });
-    const { data: advances, isLoading: loadingAdvances } = usePayments({ is_advance: true });
+    // One list for BOTH regular payments and vendor advances — the tab used
+    // to split them into two queries + two tabs, but they are now shown in a
+    // single unified table (a "Type" column distinguishes them). ``advancesList``
+    // is derived below by filtering ``is_advance``.
+    const { data: payments, isLoading: loadingPayments } = usePayments({});
     const { data: vendors } = useVendors();
     const { data: bankAccounts } = useBankAccounts({ is_active: true });
     // Allocation pickers (New Payment + Clear Advance) need every PAYABLE
@@ -854,7 +972,9 @@ export default function OutgoingPaymentsPage() {
     // so the downstream filters/reducers can use real properties without
     // re-asserting at every site.
     const paymentsList = (payments as PaymentRow[] | undefined) ?? [];
-    const advancesList = (advances as PaymentRow[] | undefined) ?? [];
+    // Advances are a subset of the unified payments list (kept for the
+    // Advance Balance KPI and any advance-specific accessor).
+    const advancesList = paymentsList.filter((p) => p.is_advance);
     const todayStr        = new Date().toISOString().slice(0, 10);
     const paidToday       = paymentsList.filter(p => p.payment_date === todayStr)
         .reduce((s, p) => s + parseFloat(p.total_amount || '0'), 0);
@@ -1004,238 +1124,21 @@ export default function OutgoingPaymentsPage() {
     // destroyed any internal state it held. Module-scope keeps the
     // component identity stable across renders.
 
-    // ─── payments tab (JSX variable — avoids sub-component remount on parent state changes) ───
-    const paymentsTabJSX = (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
-                </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        disabled={selectedPaymentIds.length === 0}
-                        onClick={() => navigate('/accounting/payment-batches', {
-                            state: { presetPaymentIds: selectedPaymentIds },
-                        })}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            padding: '9px 18px', border: 'none', borderRadius: '9px',
-                            background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
-                            cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
-                        }}>
-                        Add to Batch ({selectedPaymentIds.length})
-                    </button>
-                    <button onClick={() => setShowPaymentForm(true)} style={{
-                        display: 'flex', alignItems: 'center', gap: '6px',
-                        padding: '9px 18px', border: 'none', borderRadius: '9px',
-                        background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
-                        cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-                    }}>
-                        <Plus size={15} /> New Payment
-                    </button>
-                </div>
-            </div>
-
-            {loadingPayments ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
-            ) : !paymentsList.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
-                    <Banknote size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No payments yet. Click "New Payment" to start.</p>
-                </div>
-            ) : (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                            <tr style={{ background: '#f8fafc' }}>
-                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
-                                {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {paymentsList.map((pay) => (
-                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {/* Only ``Posted`` payments can join a bank batch — the
-                                            batch service rejects anything still Draft/Cancelled,
-                                            so disable the checkbox rather than let the operator
-                                            pick a row the server will reject. */}
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedPaymentIds.includes(pay.id)}
-                                            disabled={pay.status !== 'Posted'}
-                                            onChange={(e) => setSelectedPaymentIds(prev => (
-                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
-                                            ))}
-                                            aria-label={`Select payment ${pay.payment_number} for batch`}
-                                        />
-                                    </td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
-                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
-                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        <div style={{ display: 'flex', gap: '6px' }}>
-                                            {pay.status === 'Draft' && (
-                                                <>
-                                                    {/* Post — open the New Outgoing Payment
-                                                        modal prefilled with this draft's
-                                                        values (vendor / amount / method /
-                                                        ref / PV / bank) so the operator can
-                                                        confirm or change the bank account
-                                                        before posting to GL. The submit
-                                                        handler detects ``editingPaymentId``
-                                                        and runs a PATCH + post_payment/
-                                                        sequence instead of POSTing a new
-                                                        Payment row. */}
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditingPaymentId(pay.id);
-                                                            setPaymentPrefill({
-                                                                vendor: pay.vendor ? String(pay.vendor) : '',
-                                                                payment_date: pay.payment_date || new Date().toISOString().slice(0, 10),
-                                                                total_amount: String(pay.total_amount ?? ''),
-                                                                payment_method: pay.payment_method || 'Wire',
-                                                                bank_account: pay.bank_account ? String(pay.bank_account) : '',
-                                                                reference_number: pay.reference_number || '',
-                                                                payment_voucher: pay.payment_voucher ? String(pay.payment_voucher) : '',
-                                                            });
-                                                            setShowPaymentForm(true);
-                                                        }}
-                                                        title="Post payment — review bank account first"
-                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                        <Play size={12} /> Post
-                                                    </button>
-                                                    <button onClick={() => setDeleteConfirm({ id: pay.id, number: pay.payment_number })}
-                                                        title="Delete"
-                                                        aria-label={`Delete payment ${pay.payment_number}`}
-                                                        type="button"
-                                                        style={{ padding: '5px 8px', border: 'none', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', cursor: 'pointer' }}>
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </>
-                                            )}
-                                            {/* View Accounting Entry — visible only when the
-                                                payment has been posted AND a journal id is
-                                                set. Opens an inline modal showing the
-                                                journal header + DR/CR lines so the operator
-                                                can audit the posting without leaving the
-                                                Outgoing Payments workflow. */}
-                                            {pay.status === 'Posted' && pay.journal_entry && (
-                                                <button
-                                                    onClick={() => setViewJournalFor({
-                                                        journalId: pay.journal_entry as number,
-                                                        sourceLabel: `Payment ${pay.payment_number}`,
-                                                        amount: pay.total_amount,
-                                                        isAdvance: false,
-                                                    })}
-                                                    title="View accounting entry (journal)"
-                                                    aria-label={`View journal for ${pay.payment_number}`}
-                                                    type="button"
-                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                    <Eye size={12} /> View
-                                                </button>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-
-    // ─── posted-payments tab ──────────────────────────────────────────────────
-    // A read-only register of payments already posted to the GL — the
-    // "Payments" tab is the working queue (drafts to post, batching); this is
-    // the audit view. Each row opens its journal entry via the same modal.
-    const postedPayments = paymentsList.filter((p) => p.status === 'Posted');
-    const postedTotal = postedPayments.reduce((s, p) => s + Number(p.total_amount || 0), 0);
-    const postedTabJSX = (
-        <div>
-            <div style={{ marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry.</p>
-            </div>
-            {loadingPayments ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
-            ) : !postedPayments.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
-                    <CheckCircle2 size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No posted payments yet.</p>
-                </div>
-            ) : (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                            <tr style={{ background: '#f8fafc' }}>
-                                {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {postedPayments.map((pay) => (
-                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
-                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
-                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {pay.journal_entry ? (
-                                            <button
-                                                onClick={() => setViewJournalFor({
-                                                    journalId: pay.journal_entry as number,
-                                                    sourceLabel: `Payment ${pay.payment_number}`,
-                                                    amount: pay.total_amount,
-                                                    isAdvance: false,
-                                                })}
-                                                title="View accounting entry (journal)"
-                                                type="button"
-                                                style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                <Eye size={12} /> View JV
-                                            </button>
-                                        ) : <span style={{ color: '#cbd5e1' }}>—</span>}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                        <tfoot>
-                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
-                                <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
-                                <td colSpan={4} />
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-
-    // ─── advances tab ─────────────────────────────────────────────────────────
+    // ─── advance origination tools (declared BEFORE paymentsTabJSX so it
+    //     can be embedded below the unified payments table) ──────────────────
+    // Split out of the retired "Vendor Advances" tab. These are the advance
+    // *origination* surfaces only — create a manual advance, process a
+    // procurement-approved down payment request, and approve/schedule a
+    // contract mobilization. The posted/draft advance ROWS themselves now
+    // live in the unified payments table above (Type column), so the old
+    // "Manual Vendor Advances" table has been dropped.
     const dprList: DownPaymentRequestRow[] = Array.isArray(downPaymentRequests)
         ? (downPaymentRequests as DownPaymentRequestRow[])
         : ((downPaymentRequests as { results?: DownPaymentRequestRow[] } | undefined)?.results ?? []);
 
-    const advancesTabJSX = (
+    const advanceToolsJSX = (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Advances & Downpayments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process procurement-approved down payment requests, record vendor advances, and track contract mobilization</p>
-                </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px' }}>
                 <button onClick={() => setShowAdvanceForm(true)} style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
                     padding: '9px 18px', border: 'none', borderRadius: '9px',
@@ -1284,152 +1187,6 @@ export default function OutgoingPaymentsPage() {
                                                     <ChevronRight size={12} /> Process
                                                 </button>
                                             )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-
-            {/* Manual advances */}
-            <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#d97706' }} />
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>Manual Vendor Advances</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px' }}>
-                    <AlertTriangle size={14} color="#d97706" style={{ marginTop: '1px', flexShrink: 0 }} />
-                    <p style={{ margin: 0, fontSize: '12px', color: '#92400e' }}>
-                        Manual advances start as <strong>Draft</strong>. Click <strong>Post</strong> on a draft row to confirm the bank account and push the disbursement journal to the GL — same flow as the Payments tab.
-                    </p>
-                </div>
-                {loadingAdvances ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Loading…</div>
-                ) : !advancesList.length ? (
-                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>No manual advances recorded. Use "New Advance" above.</p>
-                    </div>
-                ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                            <thead>
-                                <tr style={{ background: '#fffbeb' }}>
-                                    {['Payment #', 'Vendor', 'Date', 'Amount', 'Type', 'Remaining', 'Status', 'Actions'].map(h => (
-                                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#92400e', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #fde68a', whiteSpace: 'nowrap' }}>{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {advancesList.map((adv) => (
-                                    <tr key={adv.id} style={{ borderBottom: '1px solid #fef9c3' }}>
-                                        <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{adv.payment_number}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{adv.vendor_name || '—'}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(adv.payment_date)}</td>
-                                        <td style={{ padding: '11px 14px', fontWeight: 700, color: '#d97706' }}>{formatCurrency(adv.total_amount)}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{adv.advance_type || 'Vendor Advance'}</td>
-                                        <td style={{ padding: '11px 14px', fontWeight: 600, color: parseFloat(adv.advance_remaining || '0') > 0 ? '#d97706' : '#16a34a' }}>
-                                            {formatCurrency(adv.advance_remaining || '0')}
-                                        </td>
-                                        <td style={{ padding: '11px 14px' }}><StatusBadge status={adv.status} /></td>
-                                        <td style={{ padding: '11px 14px' }}>
-                                            <div style={{ display: 'flex', gap: '6px' }}>
-                                                {adv.status === 'Draft' && (
-                                                    <>
-                                                        {/* Post — opens the Payment modal
-                                                            prefilled with this advance's
-                                                            values (vendor / amount / method /
-                                                            ref / PV / bank) so the operator
-                                                            can confirm or change the bank
-                                                            account before posting to GL.
-                                                            ``editingPaymentId`` flags the
-                                                            submit handler to PATCH + post
-                                                            instead of POST-create. Backed by
-                                                            the same ``postPayment`` mutation
-                                                            the Payments tab uses — but the
-                                                            backend routes is_advance=true to
-                                                            ``VendorAdvanceService.disburse``
-                                                            so the journal becomes
-                                                            DR Vendor-Advance Recon / CR Cash
-                                                            (F-48) instead of the standard
-                                                            DR AP / CR Bank (which would need
-                                                            allocations the advance doesn't have). */}
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingPaymentId(adv.id);
-                                                                setPaymentPrefill({
-                                                                    vendor: adv.vendor ? String(adv.vendor) : '',
-                                                                    payment_date: adv.payment_date || new Date().toISOString().slice(0, 10),
-                                                                    total_amount: String(adv.total_amount ?? ''),
-                                                                    payment_method: adv.payment_method || 'Wire',
-                                                                    bank_account: adv.bank_account ? String(adv.bank_account) : '',
-                                                                    reference_number: adv.reference_number || '',
-                                                                    payment_voucher: adv.payment_voucher ? String(adv.payment_voucher) : '',
-                                                                });
-                                                                setShowPaymentForm(true);
-                                                            }}
-                                                            title="Post advance — review bank account first"
-                                                            style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                            <Play size={12} /> Post
-                                                        </button>
-                                                        <button onClick={() => setDeleteConfirm({ id: adv.id, number: adv.payment_number })}
-                                                            title="Delete"
-                                                            aria-label={`Delete advance ${adv.payment_number}`}
-                                                            type="button"
-                                                            style={{ padding: '5px 8px', border: 'none', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', cursor: 'pointer' }}>
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </>
-                                                )}
-                                                {/* Clear (F-54) — visible on Posted advances
-                                                    that still have an outstanding balance
-                                                    AND a linked VendorAdvance row (set by
-                                                    the backend serializer once the F-48
-                                                    disburse journal has posted). Opens the
-                                                    Clear-Advance modal where the operator
-                                                    picks an invoice to allocate against and
-                                                    enters the amount to recover. */}
-                                                {adv.status === 'Posted'
-                                                    && adv.linked_vendor_advance_id
-                                                    && parseFloat(adv.advance_remaining || '0') > 0 && (
-                                                    <button
-                                                        onClick={() => setClearAdvance({
-                                                            advanceId: adv.linked_vendor_advance_id as number,
-                                                            paymentNumber: adv.payment_number,
-                                                            vendorId: adv.vendor,
-                                                            vendorName: adv.vendor_name || '',
-                                                            outstanding: adv.advance_remaining || '0',
-                                                        })}
-                                                        title="Clear / Allocate advance against an invoice (F-54)"
-                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dbeafe', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                        <CheckCircle2 size={12} /> Clear
-                                                    </button>
-                                                )}
-                                                {/* View Accounting Entry — same as the
-                                                    Payments tab. For F-48 advance posts the
-                                                    journal is:
-                                                       DR Vendor-Advance Recon   amount
-                                                       CR Cash / Bank                    amount
-                                                    so the operator can confirm the disbursement
-                                                    journal actually posted against the right
-                                                    GLs without leaving the page. */}
-                                                {adv.status === 'Posted' && adv.journal_entry && (
-                                                    <button
-                                                        onClick={() => setViewJournalFor({
-                                                            journalId: adv.journal_entry as number,
-                                                            sourceLabel: `Advance ${adv.payment_number}`,
-                                                            amount: adv.total_amount,
-                                                            isAdvance: true,
-                                                        })}
-                                                        title="View accounting entry (journal)"
-                                                        aria-label={`View journal for ${adv.payment_number}`}
-                                                        type="button"
-                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                        <Eye size={12} /> View
-                                                    </button>
-                                                )}
-                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -1514,6 +1271,275 @@ export default function OutgoingPaymentsPage() {
         </div>
     );
 
+    // ─── payments tab (JSX variable — avoids sub-component remount on parent state changes) ───
+    const paymentsTabJSX = (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        disabled={selectedPaymentIds.length === 0}
+                        onClick={() => navigate('/accounting/payment-batches', {
+                            state: { presetPaymentIds: selectedPaymentIds },
+                        })}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '9px 18px', border: 'none', borderRadius: '9px',
+                            background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
+                            cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
+                        }}>
+                        Add to Batch ({selectedPaymentIds.length})
+                    </button>
+                    <button onClick={() => setShowPaymentForm(true)} style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '9px 18px', border: 'none', borderRadius: '9px',
+                        background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff',
+                        cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                    }}>
+                        <Plus size={15} /> New Payment
+                    </button>
+                </div>
+            </div>
+
+            {loadingPayments ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
+            ) : !paymentsList.length ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                    <Banknote size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
+                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No payments yet. Click "New Payment" to start.</p>
+                </div>
+            ) : (
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
+                                {['Payment #', 'Vendor', 'Type', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paymentsList.map((pay) => (
+                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {/* Only ``Posted`` payments can join a bank batch — the
+                                            batch service rejects anything still Draft/Cancelled,
+                                            so disable the checkbox rather than let the operator
+                                            pick a row the server will reject. */}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPaymentIds.includes(pay.id)}
+                                            disabled={pay.status !== 'Posted'}
+                                            onChange={(e) => setSelectedPaymentIds(prev => (
+                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
+                                            ))}
+                                            aria-label={`Select payment ${pay.payment_number} for batch`}
+                                        />
+                                    </td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {pay.is_advance ? (
+                                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap' }}>
+                                                {pay.advance_type || 'Advance'}
+                                            </span>
+                                        ) : (
+                                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569' }}>
+                                                Payment
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
+                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
+                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                            {pay.status === 'Draft' && (
+                                                <>
+                                                    {/* Post — open the New Outgoing Payment
+                                                        modal prefilled with this draft's
+                                                        values (vendor / amount / method /
+                                                        ref / PV / bank) so the operator can
+                                                        confirm or change the bank account
+                                                        before posting to GL. The submit
+                                                        handler detects ``editingPaymentId``
+                                                        and runs a PATCH + post_payment/
+                                                        sequence instead of POSTing a new
+                                                        Payment row. */}
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingPaymentId(pay.id);
+                                                            setPaymentPrefill({
+                                                                vendor: pay.vendor ? String(pay.vendor) : '',
+                                                                payment_date: pay.payment_date || new Date().toISOString().slice(0, 10),
+                                                                total_amount: String(pay.total_amount ?? ''),
+                                                                payment_method: pay.payment_method || 'Wire',
+                                                                bank_account: pay.bank_account ? String(pay.bank_account) : '',
+                                                                reference_number: pay.reference_number || '',
+                                                                payment_voucher: pay.payment_voucher ? String(pay.payment_voucher) : '',
+                                                            });
+                                                            setShowPaymentForm(true);
+                                                        }}
+                                                        title="Post payment — review bank account first"
+                                                        style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                        <Play size={12} /> Post
+                                                    </button>
+                                                    <button onClick={() => setDeleteConfirm({ id: pay.id, number: pay.payment_number })}
+                                                        title="Delete"
+                                                        aria-label={`Delete payment ${pay.payment_number}`}
+                                                        type="button"
+                                                        style={{ padding: '5px 8px', border: 'none', borderRadius: '6px', background: '#fee2e2', color: '#dc2626', cursor: 'pointer' }}>
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </>
+                                            )}
+                                            {/* Clear (F-54) — Posted ADVANCE rows only. The
+                                                unified table now carries advances too, so the
+                                                clearance action that used to live on the
+                                                Advances tab is mirrored here. Rendered only
+                                                when the backend has linked a VendorAdvance
+                                                Special-GL row (``linked_vendor_advance_id``).
+                                                Opens the same Clear-Advance modal. */}
+                                            {pay.status === 'Posted'
+                                                && pay.is_advance
+                                                && pay.linked_vendor_advance_id && (
+                                                <button
+                                                    onClick={() => setClearAdvance({
+                                                        advanceId: pay.linked_vendor_advance_id as number,
+                                                        paymentNumber: pay.payment_number,
+                                                        vendorId: pay.vendor ?? null,
+                                                        vendorName: pay.vendor_name || '',
+                                                        outstanding: pay.advance_remaining || '0',
+                                                    })}
+                                                    title="Clear / Allocate advance against an invoice (F-54)"
+                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#dbeafe', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                    <CheckCircle2 size={12} /> Clear
+                                                </button>
+                                            )}
+                                            {/* View Accounting Entry — visible only when the
+                                                payment has been posted AND a journal id is
+                                                set. Opens an inline modal showing the
+                                                journal header + DR/CR lines so the operator
+                                                can audit the posting without leaving the
+                                                Outgoing Payments workflow. */}
+                                            {pay.status === 'Posted' && pay.journal_entry && (
+                                                <button
+                                                    onClick={() => setViewJournalFor({
+                                                        journalId: pay.journal_entry as number,
+                                                        sourceLabel: `Payment ${pay.payment_number}`,
+                                                        amount: pay.total_amount,
+                                                        isAdvance: Boolean(pay.is_advance),
+                                                    })}
+                                                    title="View accounting entry (journal)"
+                                                    aria-label={`View journal for ${pay.payment_number}`}
+                                                    type="button"
+                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                    <Eye size={12} /> View
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* ── Advance origination & requests ────────────────────────────
+                The retired "Vendor Advances" tab's origination tools now live
+                directly beneath the unified payments table: record a manual
+                vendor advance, process a procurement-approved down payment
+                request, or approve/schedule a contract mobilization. The
+                advance ROWS themselves appear in the table above (Type
+                column), so there is no separate advances table here. */}
+            <div style={{ borderTop: '2px solid #e2e8f0', margin: '32px 0 0', paddingTop: '24px' }}>
+                <div style={{ marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Advance origination &amp; requests</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Record vendor advances, process procurement-approved down payment requests, and track contract mobilization</p>
+                </div>
+                {advanceToolsJSX}
+            </div>
+        </div>
+    );
+
+    // ─── posted-payments tab ──────────────────────────────────────────────────
+    // A read-only register of payments already posted to the GL — the
+    // "Payments" tab is the working queue (drafts to post, batching); this is
+    // the audit view. Each row opens its journal entry via the same modal.
+    const postedPayments = paymentsList.filter((p) => p.status === 'Posted');
+    const postedTotal = postedPayments.reduce((s, p) => s + Number(p.total_amount || 0), 0);
+    const postedTabJSX = (
+        <div>
+            <div style={{ marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry.</p>
+            </div>
+            {loadingPayments ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
+            ) : !postedPayments.length ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                    <CheckCircle2 size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
+                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No posted payments yet.</p>
+                </div>
+            ) : (
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                                {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {postedPayments.map((pay) => (
+                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
+                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
+                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
+                                    <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {pay.journal_entry ? (
+                                            <button
+                                                onClick={() => setViewJournalFor({
+                                                    journalId: pay.journal_entry as number,
+                                                    sourceLabel: `Payment ${pay.payment_number}`,
+                                                    amount: pay.total_amount,
+                                                    isAdvance: false,
+                                                })}
+                                                title="View accounting entry (journal)"
+                                                type="button"
+                                                style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+                                                <Eye size={12} /> View JV
+                                            </button>
+                                        ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
+                                <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
+                                <td colSpan={4} />
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+
     // ─── render ───────────────────────────────────────────────────────────────
     return (
         <AccountingLayout>
@@ -1553,7 +1579,6 @@ export default function OutgoingPaymentsPage() {
                     {([
                         { key: 'payments', label: 'Payments',         icon: <CreditCard size={14} /> },
                         { key: 'posted',   label: 'Posted Payments',  icon: <CheckCircle2 size={14} /> },
-                        { key: 'advances', label: 'Vendor Advances',  icon: <TrendingDown size={14} /> },
                     ] as { key: ActiveTab; label: string; icon: React.ReactNode }[]).map(tab => (
                         <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
@@ -1571,7 +1596,6 @@ export default function OutgoingPaymentsPage() {
                 <div style={{ padding: '24px' }}>
                     {activeTab === 'payments' && paymentsTabJSX}
                     {activeTab === 'posted' && postedTabJSX}
-                    {activeTab === 'advances' && advancesTabJSX}
                 </div>
             </div>
 
@@ -1584,6 +1608,11 @@ export default function OutgoingPaymentsPage() {
                     paymentVouchers={paymentVouchers}
                     pvRequired={pvRequired}
                     initialValues={paymentPrefill || undefined}
+                    // Review-before-post: when posting an existing Draft
+                    // (editingPaymentId set) show the proposed journal entries
+                    // so the operator sees what will hit the GL before
+                    // confirming. Omitted for the create-new flow (no id yet).
+                    footerSlot={editingPaymentId ? <ProposedEntries paymentId={editingPaymentId} /> : null}
                     onSubmit={handleSubmitPayment}
                     // Clear prefill alongside closing so the next plain
                     // "+ New Payment" click opens a blank form again.
