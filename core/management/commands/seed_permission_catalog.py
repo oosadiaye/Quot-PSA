@@ -337,209 +337,17 @@ ROLES: dict[str, dict] = {
 
 # ─── DEFAULT SoD RULES ────────────────────────────────────────────────
 #
-# Each rule names two permissions that must not be exercised together
-# on the same document (``same_document``) or held by the same user
-# at all (``hold``). Tenants edit, deactivate, or extend these; the
-# evaluator reads from the database every call so changes take effect
-# immediately.
+# Segregation of duties is enforced by ACCESS + ROLE design — a role is
+# not granted conflicting permissions, and anyone who holds a permission
+# may exercise it (the superuser/admin has full access). There is NO
+# transaction-level maker/checker ("same_document") enforcement, so no
+# default rules are seeded. A tenant can still add ``hold``-scope rules
+# ("a user must not hold both permissions") via the SoD-rules admin if
+# they want role-assignment-time segregation; the evaluator reads them
+# from the DB. The previous 23 ``same_document`` rules are deactivated
+# below on re-seed (they had no effect once enforcement was removed).
 
-SOD_RULES: list[dict] = [
-    # ── Procurement maker / checker chain ────────────────────────────
-    {
-        'code': 'sod.pr.maker_checker',
-        'name': 'PR — raiser cannot approve own requisition',
-        'permission_a': 'procurement.pr.create',
-        'permission_b': 'procurement.pr.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'PPA s.32 — purchase requisition approval must be performed by a different officer from the raiser.',
-    },
-    {
-        'code': 'sod.po.maker_checker',
-        'name': 'PO — creator cannot approve own purchase order',
-        'permission_a': 'procurement.po.create',
-        'permission_b': 'procurement.po.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Authoriser of a PO must not be the same officer who created it.',
-    },
-    {
-        'code': 'sod.invoice.match_approve',
-        'name': 'Invoice — matcher cannot also approve match',
-        'permission_a': 'procurement.invoice.match',
-        'permission_b': 'procurement.invoice.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': '3-way match is a control; approval of the match must be performed independently.',
-    },
-    {
-        'code': 'sod.tender.evaluate_award',
-        'name': 'Tender — evaluator cannot also award',
-        'permission_a': 'procurement.tender.evaluate',
-        'permission_b': 'procurement.tender.award',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Tender evaluation and award decision must be in different hands (PPA s.34).',
-    },
-    {
-        'code': 'sod.vendor.create_approve',
-        'name': 'Vendor — creator cannot approve own vendor record',
-        'permission_a': 'procurement.vendor.create',
-        'permission_b': 'procurement.vendor.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Phantom-vendor risk — creator and approver must be different.',
-    },
-
-    # ── Accounting maker / checker chain ─────────────────────────────
-    {
-        'code': 'sod.journal.create_approve',
-        'name': 'Journal — creator cannot approve own JV',
-        'permission_a': 'accounting.journal.create',
-        'permission_b': 'accounting.journal.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'JV approval is the 2-eyes control on accounting entries.',
-    },
-    {
-        'code': 'sod.journal.approve_post',
-        'name': 'Journal — approver cannot also post',
-        'permission_a': 'accounting.journal.approve',
-        'permission_b': 'accounting.journal.post',
-        'scope': 'same_document', 'severity': 'warn',
-        'description': '4-eyes between approve and post is preferred; warn-only because the AG often legitimately holds both for adjusting entries.',
-    },
-    {
-        'code': 'sod.payable.create_approve',
-        'name': 'AP invoice — creator cannot approve own invoice',
-        'permission_a': 'accounting.payable.create',
-        'permission_b': 'accounting.payable.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Approval of a vendor invoice must be performed by a different officer from the data-entry clerk.',
-    },
-    {
-        'code': 'sod.bankrec.prepare_approve',
-        'name': 'Bank reconciliation — preparer cannot approve',
-        'permission_a': 'accounting.bankrec.create',
-        'permission_b': 'accounting.bankrec.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Bank-rec is a key control; preparer and approver must be different.',
-    },
-
-    # ── Budget maker / checker chain ─────────────────────────────────
-    {
-        'code': 'sod.appropriation.draft_approve',
-        'name': 'Appropriation — drafter cannot approve own line',
-        'permission_a': 'budget.appropriation.create',
-        'permission_b': 'budget.appropriation.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Drafter and approver of an appropriation line must be different.',
-    },
-    {
-        'code': 'sod.virement.create_approve',
-        'name': 'Virement — initiator cannot approve own virement',
-        'permission_a': 'budget.virement.create',
-        'permission_b': 'budget.virement.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Virement approval must be by a different officer to prevent retroactive overrun hiding.',
-    },
-    {
-        'code': 'sod.warrant.create_release',
-        'name': 'Warrant — drafter cannot release the warrant',
-        'permission_a': 'budget.warrant.create',
-        'permission_b': 'budget.warrant.release',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Cash-release warrant must be signed (released) by the AG / budget director, not the drafter.',
-    },
-
-    # ── Treasury / payment chain ─────────────────────────────────────
-    {
-        'code': 'sod.voucher.create_check',
-        'name': 'PV — creator cannot also check',
-        'permission_a': 'treasury.voucher.create',
-        'permission_b': 'treasury.voucher.check',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Voucher checker is the first 2-eyes step; cannot be performed by the creator.',
-    },
-    {
-        'code': 'sod.voucher.check_approve',
-        'name': 'PV — checker cannot approve same voucher',
-        'permission_a': 'treasury.voucher.check',
-        'permission_b': 'treasury.voucher.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': '4-eyes — approval cannot be by the checker.',
-    },
-    {
-        'code': 'sod.voucher.approve_pay',
-        'name': 'PV — approver cannot also process payment',
-        'permission_a': 'treasury.voucher.approve',
-        'permission_b': 'treasury.voucher.pay',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Authorisation and cash-out must be in different hands.',
-    },
-    {
-        'code': 'sod.transfer.create_approve',
-        'name': 'TSA transfer — initiator cannot approve own transfer',
-        'permission_a': 'treasury.transfer.create',
-        'permission_b': 'treasury.transfer.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'TSA-to-TSA transfer is high-risk; initiator and approver must differ.',
-    },
-
-    # ── Contract / IPC chain (the existing 5-stage signoff) ──────────
-    {
-        'code': 'sod.contract.create_activate',
-        'name': 'Contract — creator cannot activate own contract',
-        'permission_a': 'contracts.contract.create',
-        'permission_b': 'contracts.contract.activate',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Contract activation must be by a different officer (mirrors existing contract_activation SoD).',
-    },
-    {
-        'code': 'sod.ipc.submit_certify',
-        'name': 'IPC — submitter cannot certify',
-        'permission_a': 'contracts.ipc.submit',
-        'permission_b': 'contracts.ipc.certify',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'IPC technical certification independent of submitter.',
-    },
-    {
-        'code': 'sod.ipc.certify_approve',
-        'name': 'IPC — certifier cannot approve',
-        'permission_a': 'contracts.ipc.certify',
-        'permission_b': 'contracts.ipc.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Approval is the financial gate; certification is technical. Must be different actors.',
-    },
-    {
-        'code': 'sod.ipc.approve_pay',
-        'name': 'IPC — approver cannot mark paid',
-        'permission_a': 'contracts.ipc.approve',
-        'permission_b': 'contracts.ipc.pay',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Cash-out must be by treasury, not by the contract approver.',
-    },
-    {
-        'code': 'sod.variation.create_approve',
-        'name': 'Variation — raiser cannot approve own write-up',
-        'permission_a': 'contracts.contract.variation',
-        'permission_b': 'contracts.contract.varapprove',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Contract variation approval is a high-risk decision; cannot be by the raiser.',
-    },
-
-    # ── HRM / Payroll ────────────────────────────────────────────────
-    {
-        'code': 'sod.payroll.create_approve',
-        'name': 'Payroll — creator cannot approve own run',
-        'permission_a': 'hrm.payroll.create',
-        'permission_b': 'hrm.payroll.approve',
-        'scope': 'same_document', 'severity': 'block',
-        'description': 'Payroll approval (large cash-out) must be 2-eyes from creation.',
-    },
-    {
-        'code': 'sod.payroll.approve_post',
-        'name': 'Payroll — approver cannot also post to GL',
-        'permission_a': 'hrm.payroll.approve',
-        'permission_b': 'hrm.payroll.post',
-        'scope': 'same_document', 'severity': 'warn',
-        'description': '4-eyes between payroll approve and GL post is preferred but optional for small entities.',
-    },
-]
+SOD_RULES: list[dict] = []
 
 
 class Command(BaseCommand):
@@ -673,3 +481,13 @@ class Command(BaseCommand):
             )
             sod_count += 1
         self.stdout.write(f'  sod rules: {sod_count} upserted')
+
+        # Deactivate any previously-seeded transaction-level rules —
+        # ``same_document`` SoD is no longer enforced (segregation is via
+        # access/role permissions). Only system rules are touched; a
+        # tenant's own hand-added rules are left alone.
+        deactivated = SoDRule.objects.filter(
+            scope='same_document', is_system=True, is_active=True,
+        ).update(is_active=False)
+        if deactivated:
+            self.stdout.write(f'  sod rules: {deactivated} legacy same_document deactivated')

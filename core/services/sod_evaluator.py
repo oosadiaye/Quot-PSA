@@ -103,6 +103,34 @@ def actor_can_bypass(actor: Optional[AbstractUser]) -> bool:
             actor.pk,
         )
         return True
+    # Tenant admin and the curated All-Access role also bypass — the admin
+    # has FULL access, consistent with the access-control layers
+    # (RBACPermission / IsApprover both bypass ``utr.role == 'admin'`` and
+    # the all_access role). Without this, SoD would be the one place a
+    # tenant admin is NOT treated as a full-access superuser.
+    try:
+        from core.permissions import _user_has_all_access
+        if _user_has_all_access(actor):
+            logger.warning(
+                'sod_evaluator: bypass via all_access role by user_id=%s', actor.pk,
+            )
+            return True
+    except Exception:  # noqa: BLE001 — never let a bypass lookup hard-fail
+        pass
+    try:
+        from django.db import connection
+        from tenants.models import UserTenantRole
+        tenant = getattr(connection, 'tenant', None)
+        if tenant is not None and getattr(tenant, 'schema_name', 'public') != 'public':
+            if UserTenantRole.objects.filter(
+                user_id=actor.pk, tenant_id=tenant.pk, role='admin', is_active=True,
+            ).exists():
+                logger.warning(
+                    'sod_evaluator: bypass via tenant admin by user_id=%s', actor.pk,
+                )
+                return True
+    except Exception:  # noqa: BLE001
+        pass
     return False
 
 
