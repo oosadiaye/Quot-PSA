@@ -161,10 +161,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_request = self.get_object()
         if leave_request.status != 'Pending':
             return Response({'error': 'Only pending requests can be approved'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if leave_request.employee.user == request.user:
-            return Response({'error': 'You cannot approve your own leave request'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # SoD is enforced by access + role permissions (the leave-approve
+        # permission), not a transaction-level self-approval block —
+        # anyone holding the permission may approve; admin has full access.
         leave_request.status = 'Approved'
         leave_request.approved_by = request.user
         leave_request.approved_date = timezone.now()

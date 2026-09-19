@@ -266,9 +266,9 @@ class IsApprover(permissions.BasePermission):
         self.message = (
             f'You are not authorised to {verb_label} this {model_name}. '
             f'Missing permission: {perm}. '
-            f'This is a Segregation-of-Duties control — the initiator of a '
-            f'document cannot also {verb_label} it. Ask a different authorised '
-            f'user, or request the {perm} permission from your tenant admin.'
+            f'Access is permission-based — request the {perm} permission '
+            f'from your tenant admin (segregation of duties is enforced by '
+            f'role design, not by blocking the document initiator).'
         )
         return False
 

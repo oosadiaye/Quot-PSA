@@ -238,10 +238,12 @@ class TestFiscalPeriodReopenTwoActor:
         response = view.reopen_request(view.request, pk=closed_fiscal_period.pk)
         assert response.status_code == 400
 
-    def test_self_approval_rejected_with_403(
+    def test_requester_with_permission_may_approve_own_request(
         self, closed_fiscal_period, maker_user,
     ):
-        """V7 second-actor check — requester cannot approve own request."""
+        """SoD is access/role-based: a user holding the reopen permission
+        may approve their own request (no transaction-level second-actor
+        block). Admin/superuser likewise has full access."""
         from accounting.models import FiscalPeriodReopenApproval
         from accounting.views.period_fiscal import (
             FiscalPeriodReopenApprovalViewSet,
@@ -266,16 +268,14 @@ class TestFiscalPeriodReopenTwoActor:
             target_obj=approval,
         )
         response = view.approve(view.request, pk=approval.pk)
-        assert response.status_code == 403
-        assert 'cannot approve your own' in response.data['error']
+        assert response.status_code == 200
 
-        # Period must remain closed.
+        # The reopen executes — period is no longer closed and the
+        # approval leaves PENDING.
         closed_fiscal_period.refresh_from_db()
-        assert closed_fiscal_period.is_closed is True
-
-        # Approval must remain PENDING.
+        assert closed_fiscal_period.is_closed is False
         approval.refresh_from_db()
-        assert approval.status == 'PENDING'
+        assert approval.status != 'PENDING'
 
     def test_second_actor_approval_executes_reopen(
         self, closed_fiscal_period, maker_user, checker_user,
