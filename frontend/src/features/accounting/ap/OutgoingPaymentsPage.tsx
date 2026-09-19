@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -444,6 +444,31 @@ function PaymentFormModal({
             };
         });
     };
+
+    // Auto-allocate on open. When the modal opens already carrying a PV
+    // — the "Post" edit-and-post flow, or an upstream prefilled launch —
+    // and no invoice is chosen yet, resolve and select the PV's invoice
+    // by default so an INVOICE payment shows its invoice added without a
+    // manual hunt. An advance PV carries no ``invoice_number``, so nothing
+    // is selected and the allocation stays empty (advances are cleared
+    // later via F-54, not allocated here). Runs once, after the PV +
+    // invoice data have loaded.
+    const autoAllocatedRef = useRef(false);
+    useEffect(() => {
+        if (autoAllocatedRef.current) return;
+        const pvId = form.payment_voucher;
+        if (!pvId || form.invoice) return;                 // no PV, or already chosen
+        if (!paymentVouchers.length || !openInvoices.length) return;  // wait for data
+        autoAllocatedRef.current = true;                   // attempt once — data is ready
+        const pv = paymentVouchers.find((p) => String(p.id) === String(pvId));
+        const pvInvoiceNumber = (pv?.invoice_number || '').trim();
+        if (!pvInvoiceNumber) return;                      // advance / no-invoice PV → leave empty
+        const match = openInvoices.find((inv) =>
+            (inv.invoice_number || '').trim().toLowerCase() === pvInvoiceNumber.toLowerCase()
+            && invoiceOutstanding(inv) > 0.005,
+        );
+        if (match) setForm((prev) => ({ ...prev, invoice: String(match.id) }));
+    }, [form.payment_voucher, form.invoice, paymentVouchers, openInvoices]);
 
     const containerRef = useFocusTrap(true, onClose);
     return (
