@@ -247,7 +247,17 @@ def create_draft_voucher_from_mobilization(
     # to a data-fix mistake, this gives us a recovery path.
     pv = PaymentVoucherGov.objects.create(
         voucher_number=voucher_number,
-        payment_type="VENDOR",
+        # A mobilisation IS a supplier advance against the contract, so
+        # it must be tagged as one — ``payment_type='ADVANCE'`` +
+        # ``special_gl_indicator='A'`` + the ``vendor`` FK. This is the
+        # exact triple ``ensure_draft_payment_for_pv`` checks to route
+        # the draft Payment down the Special-GL advance path
+        # (DR Vendor-Advance recon / CR Bank, no invoice allocation),
+        # so mobilisation now rides the SAME central pipeline as a manual
+        # vendor advance rather than a bespoke bypass.
+        payment_type="ADVANCE",
+        special_gl_indicator="A",
+        vendor=vendor,
         ncoa_code=contract.ncoa_code,
         # The contract may not have an Appropriation FK populated
         # (it's optional on the model); leaving None lets the
