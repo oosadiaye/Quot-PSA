@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
     Banknote, TrendingDown, CreditCard,
-    ChevronRight, CalendarClock,
+    ChevronRight,
 } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -12,7 +12,7 @@ import {
     useCreatePaymentAllocation, useVendorInvoices,
     useAccountingSettings,
 } from '../hooks/useAccountingEnhancements';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import {
     useVendors, useDownPaymentRequests, useProcessDownPayment,
@@ -113,20 +113,6 @@ interface DownPaymentRequestRow {
     amount: string;
     payment_type?: string;
     status: 'Approved' | string;
-}
-
-// Contract mobilization advance (from /contracts/mobilization-payments/).
-// Merged into this tab from the retired standalone page.
-interface MobilizationRow {
-    id: number;
-    contract: number;
-    contract_number?: string;
-    vendor_name?: string;
-    amount: string;
-    payment_voucher_number?: string | null;
-    created_at?: string;
-    payment_date?: string | null;
-    status: string;
 }
 
 // Axios error shape after the API client transforms backend DRF
@@ -856,6 +842,10 @@ export default function OutgoingPaymentsPage() {
     const { formatCurrency } = useCurrency();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<ActiveTab>('payments');
+    // Type filter for the main Payments (working) table. 'all' shows every
+    // non-posted row; otherwise narrows to a single display type (see
+    // ``typeOf`` below).
+    const [typeFilter, setTypeFilter] = useState<string>('all');
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     // Payments selected for a bank payment batch. Only ``Posted`` rows are
     // selectable (see the checkbox column) — the batch service rejects
@@ -964,33 +954,6 @@ export default function OutgoingPaymentsPage() {
     // ─── helpers ──────────────────────────────────────────────────────────────
     const showSuccess = (msg: string) => { setNotification({ msg, type: 'success' }); setTimeout(() => setNotification(null), 3500); };
     const showError   = (msg: string) => { setNotification({ msg, type: 'error'   }); setTimeout(() => setNotification(null), 4500); };
-
-    // ─── contract mobilization advances ───────────────────────────────────────
-    // Merged in from the (retired) standalone Mobilization Advances page:
-    // mobilisation is just another vendor advance, so it belongs on this tab.
-    const queryClient = useQueryClient();
-    const { data: mobilizationsRaw, isLoading: loadingMobilizations } = useQuery({
-        queryKey: ['mobilization-payments'],
-        queryFn: () => apiClient.get('/contracts/mobilization-payments/').then((r) => r.data),
-        staleTime: 30_000,
-    });
-    const mobilizationList: MobilizationRow[] = Array.isArray(mobilizationsRaw)
-        ? mobilizationsRaw
-        : ((mobilizationsRaw as { results?: MobilizationRow[] } | undefined)?.results ?? []);
-    const approveMobilization = useMutation({
-        mutationFn: (mobId: number) => apiClient.post(`/contracts/mobilization-payments/${mobId}/approve/`),
-        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mobilization-payments'] }); showSuccess('Mobilization advance approved.'); },
-        onError: (err: unknown) => showError(extractApiErrorMessage(err, 'Failed to approve mobilization advance.')),
-    });
-    const scheduleMobilization = useMutation({
-        mutationFn: (mobId: number) => apiClient.post(`/contracts/mobilization-payments/${mobId}/schedule-payment/`),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['mobilization-payments'] });
-            queryClient.invalidateQueries({ queryKey: ['payments'] });
-            showSuccess('Draft Payment Voucher created for the mobilization advance — post it from the Payments tab / Payment Vouchers.');
-        },
-        onError: (err: unknown) => showError(extractApiErrorMessage(err, 'Failed to schedule mobilization advance.')),
-    });
 
     // ─── summary metrics ──────────────────────────────────────────────────────
     // Cast the React-Query payload arrays once into our typed row shapes
@@ -1152,11 +1115,13 @@ export default function OutgoingPaymentsPage() {
     // ─── advance origination tools (declared BEFORE paymentsTabJSX so it
     //     can be embedded below the unified payments table) ──────────────────
     // Split out of the retired "Vendor Advances" tab. These are the advance
-    // *origination* surfaces only — create a manual advance, process a
-    // procurement-approved down payment request, and approve/schedule a
-    // contract mobilization. The posted/draft advance ROWS themselves now
-    // live in the unified payments table above (Type column), so the old
-    // "Manual Vendor Advances" table has been dropped.
+    // *origination* surfaces only — create a manual advance and process a
+    // procurement-approved down payment request. The posted/draft advance
+    // ROWS themselves now live in the unified payments table above (Type
+    // column), so the old "Manual Vendor Advances" table has been dropped.
+    // Contract mobilization advances also surface in that unified table as
+    // ``Supplier Advance`` rows once their PV is approved, so the standalone
+    // mobilization table that used to live here has been removed too.
     const dprList: DownPaymentRequestRow[] = Array.isArray(downPaymentRequests)
         ? (downPaymentRequests as DownPaymentRequestRow[])
         : ((downPaymentRequests as { results?: DownPaymentRequestRow[] } | undefined)?.results ?? []);
@@ -1220,80 +1185,21 @@ export default function OutgoingPaymentsPage() {
                     </div>
                 )}
             </div>
-
-            {/* Contract mobilization advances — merged in from the retired
-                standalone Mobilization Advances page. Each line reads
-                "Mobilization advance for <vendor> (<contract #>)". */}
-            <div style={{ marginTop: '28px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#0ea5e9' }} />
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>Contract Mobilization Advances</span>
-                </div>
-                {loadingMobilizations ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Loading…</div>
-                ) : !mobilizationList.length ? (
-                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>No mobilization advances issued against contracts.</p>
-                    </div>
-                ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                            <thead>
-                                <tr style={{ background: '#f0f9ff' }}>
-                                    {['Advance', 'Amount', 'PV Reference', 'Issued On', 'Status', 'Actions'].map(h => (
-                                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#0369a1', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e0f2fe', whiteSpace: 'nowrap' }}>{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {mobilizationList.map((m) => (
-                                    <tr key={m.id} style={{ borderBottom: '1px solid #f0f9ff' }}>
-                                        <td style={{ padding: '11px 14px' }}>
-                                            <button
-                                                onClick={() => navigate(`/contracts/${m.contract}`)}
-                                                title="Open the contract"
-                                                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', color: '#1e293b', fontWeight: 600, fontSize: '13px' }}
-                                            >
-                                                Mobilization advance for {m.vendor_name || '—'} ({m.contract_number || '—'})
-                                            </button>
-                                        </td>
-                                        <td style={{ padding: '11px 14px', fontWeight: 700, color: '#0369a1' }}>{formatCurrency(m.amount)}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{m.payment_voucher_number || '—'}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(m.created_at)}</td>
-                                        <td style={{ padding: '11px 14px' }}><StatusBadge status={m.status} /></td>
-                                        <td style={{ padding: '11px 14px' }}>
-                                            <div style={{ display: 'flex', gap: '6px' }}>
-                                                {m.status === 'PENDING' && (
-                                                    <button
-                                                        onClick={() => { if (window.confirm(`Approve mobilization advance of ${formatCurrency(m.amount)} for ${m.vendor_name} on ${m.contract_number}? This authorises Treasury to raise the disbursement Payment Voucher.`)) approveMobilization.mutate(m.id); }}
-                                                        disabled={approveMobilization.isPending}
-                                                        style={{ padding: '5px 10px', border: '1px solid #16a34a', borderRadius: '6px', background: '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}
-                                                    >
-                                                        <CheckCircle2 size={12} /> Approve
-                                                    </button>
-                                                )}
-                                                {m.status === 'APPROVED' && !m.payment_voucher_number && (
-                                                    <button
-                                                        onClick={() => { if (window.confirm(`Schedule ${formatCurrency(m.amount)} mobilization for ${m.vendor_name}? A draft Payment Voucher will be created for Treasury to post.`)) scheduleMobilization.mutate(m.id); }}
-                                                        disabled={scheduleMobilization.isPending}
-                                                        style={{ padding: '5px 10px', border: '1px solid #7c3aed', borderRadius: '6px', background: '#f5f3ff', color: '#7c3aed', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}
-                                                    >
-                                                        <CalendarClock size={12} /> Schedule
-                                                    </button>
-                                                )}
-                                                {!!m.payment_voucher_number && (
-                                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>PV raised</span>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
         </div>
+    );
+
+    // ─── type filter + working set ─────────────────────────────────────────────
+    // ``typeOf`` collapses a row to its display type: a regular Payment or a
+    // specific advance kind (Vendor Advance / Vendor Deposit / Supplier
+    // Advance …). Drives both the toolbar's type <select> and the working-set
+    // filter below.
+    const typeOf = (p: PaymentRow) => (p.is_advance ? (p.advance_type || 'Advance') : 'Payment');
+    const paymentTypes = Array.from(new Set(paymentsList.map(typeOf))).sort();
+    // The main Payments tab is the WORKING queue: non-posted rows only (drafts
+    // to review/post), narrowed by the chosen type. Posted rows move to the
+    // Posted Payments tab, where batching now lives.
+    const workingPayments = paymentsList.filter(
+        (p) => p.status !== 'Posted' && (typeFilter === 'all' || typeOf(p) === typeFilter),
     );
 
     // ─── payments tab (JSX variable — avoids sub-component remount on parent state changes) ───
@@ -1304,20 +1210,18 @@ export default function OutgoingPaymentsPage() {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
                     <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        disabled={selectedPaymentIds.length === 0}
-                        onClick={() => navigate('/accounting/payment-batches', {
-                            state: { presetPaymentIds: selectedPaymentIds },
-                        })}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <select
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                        aria-label="Filter payments by type"
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            padding: '9px 18px', border: 'none', borderRadius: '9px',
-                            background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
-                            cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
+                            padding: '8px 12px', border: '1.5px solid #d1d5db', borderRadius: '9px',
+                            background: '#fff', color: '#374151', fontSize: '13px', cursor: 'pointer',
                         }}>
-                        Add to Batch ({selectedPaymentIds.length})
-                    </button>
+                        <option value="all">All types</option>
+                        {paymentTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
                     <button onClick={() => setShowPaymentForm(true)} style={{
                         display: 'flex', alignItems: 'center', gap: '6px',
                         padding: '9px 18px', border: 'none', borderRadius: '9px',
@@ -1331,40 +1235,24 @@ export default function OutgoingPaymentsPage() {
 
             {loadingPayments ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
-            ) : !paymentsList.length ? (
+            ) : !workingPayments.length ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
                     <Banknote size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No payments yet. Click "New Payment" to start.</p>
+                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No payments match this view.</p>
                 </div>
             ) : (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
-                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
                                 {['Payment #', 'Vendor', 'Type', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
-                            {paymentsList.map((pay) => (
+                            {workingPayments.map((pay) => (
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {/* Only ``Posted`` payments can join a bank batch — the
-                                            batch service rejects anything still Draft/Cancelled,
-                                            so disable the checkbox rather than let the operator
-                                            pick a row the server will reject. */}
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedPaymentIds.includes(pay.id)}
-                                            disabled={pay.status !== 'Posted'}
-                                            onChange={(e) => setSelectedPaymentIds(prev => (
-                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
-                                            ))}
-                                            aria-label={`Select payment ${pay.payment_number} for batch`}
-                                        />
-                                    </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}>
@@ -1480,14 +1368,13 @@ export default function OutgoingPaymentsPage() {
             {/* ── Advance origination & requests ────────────────────────────
                 The retired "Vendor Advances" tab's origination tools now live
                 directly beneath the unified payments table: record a manual
-                vendor advance, process a procurement-approved down payment
-                request, or approve/schedule a contract mobilization. The
-                advance ROWS themselves appear in the table above (Type
-                column), so there is no separate advances table here. */}
+                vendor advance and process a procurement-approved down payment
+                request. The advance ROWS themselves appear in the table above
+                (Type column), so there is no separate advances table here. */}
             <div style={{ borderTop: '2px solid #e2e8f0', margin: '32px 0 0', paddingTop: '24px' }}>
                 <div style={{ marginBottom: '16px' }}>
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Advance origination &amp; requests</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Record vendor advances, process procurement-approved down payment requests, and track contract mobilization</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Record vendor advances and process procurement-approved down payment requests</p>
                 </div>
                 {advanceToolsJSX}
             </div>
@@ -1502,9 +1389,27 @@ export default function OutgoingPaymentsPage() {
     const postedTotal = postedPayments.reduce((s, p) => s + Number(p.total_amount || 0), 0);
     const postedTabJSX = (
         <div>
-            <div style={{ marginBottom: '16px' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Select rows to add to a bank batch, or open a row to view its journal entry.</p>
+                </div>
+                {/* Batching lives here now: every posted payment is eligible for
+                    a bank payment batch, so the selection checkboxes + this
+                    button moved off the working Payments tab onto this register. */}
+                <button
+                    disabled={selectedPaymentIds.length === 0}
+                    onClick={() => navigate('/accounting/payment-batches', {
+                        state: { presetPaymentIds: selectedPaymentIds },
+                    })}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '9px 18px', border: 'none', borderRadius: '9px',
+                        background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
+                        cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
+                    }}>
+                    Add to Batch ({selectedPaymentIds.length})
+                </button>
             </div>
             {loadingPayments ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
@@ -1518,6 +1423,7 @@ export default function OutgoingPaymentsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
+                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
                                 {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
                                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
@@ -1526,6 +1432,20 @@ export default function OutgoingPaymentsPage() {
                         <tbody>
                             {postedPayments.map((pay) => (
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '11px 14px' }}>
+                                        {/* Every posted payment is batchable — the batch
+                                            service only rejects non-posted rows, and this
+                                            register shows posted rows exclusively, so the
+                                            checkbox is enabled for all of them. */}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPaymentIds.includes(pay.id)}
+                                            onChange={(e) => setSelectedPaymentIds(prev => (
+                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
+                                            ))}
+                                            aria-label={`Select payment ${pay.payment_number} for batch`}
+                                        />
+                                    </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
@@ -1554,7 +1474,7 @@ export default function OutgoingPaymentsPage() {
                         </tbody>
                         <tfoot>
                             <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
+                                <td colSpan={4} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
                                 <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
                                 <td colSpan={4} />
                             </tr>
