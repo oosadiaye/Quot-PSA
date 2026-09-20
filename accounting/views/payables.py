@@ -2677,6 +2677,21 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # The advance credits the SELECTED bank's cash GL — require it to be
+        # configured rather than silently falling back to the tenant's default
+        # consolidated cash account (which makes every bank post to the same
+        # line and defeats per-bank reconciliation). Mirrors the direct-PV
+        # branch's bank-GL precondition.
+        if not getattr(payment.bank_account, 'gl_account_id', None):
+            return Response(
+                {"error": (
+                    f"Bank account '{payment.bank_account.name}' has no GL "
+                    "(cash-at-bank) account configured. Set its GL account in "
+                    "Settings → Bank Accounts before posting — the advance "
+                    "credits that account."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Disburse via the canonical Special-GL service. Idempotency:
         # the service refuses to post a duplicate against
