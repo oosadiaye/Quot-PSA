@@ -377,6 +377,8 @@ class DownPaymentRequestSerializer(serializers.ModelSerializer):
     vendor_name = serializers.ReadOnlyField(source='purchase_order.vendor.name')
     bank_account_name = serializers.ReadOnlyField(source='bank_account.name')
     payment_number = serializers.ReadOnlyField(source='payment.payment_number')
+    # The draft advance PV raised for this request (central pipeline).
+    payment_voucher_number = serializers.ReadOnlyField(source='payment_voucher.voucher_number')
     # Exposes the unspent advance balance from the linked Payment record.
     # Used by the invoice verification form to show how much can still be deducted.
     advance_remaining = serializers.SerializerMethodField()
@@ -393,10 +395,13 @@ class DownPaymentRequestSerializer(serializers.ModelSerializer):
             'calc_type', 'calc_value', 'requested_amount',
             'payment_method', 'bank_account', 'bank_account_name',
             'status', 'notes', 'payment', 'payment_number', 'advance_remaining',
+            'payment_voucher', 'payment_voucher_number',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
         read_only_fields = [
-            'id', 'request_number', 'advance_remaining', 'created_at', 'updated_at', 'created_by', 'updated_by',
+            'id', 'request_number', 'advance_remaining',
+            'payment_voucher', 'payment_voucher_number',
+            'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
 
 

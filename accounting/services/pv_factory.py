@@ -482,3 +482,86 @@ def create_draft_voucher_from_advance(
         pv.save()  # refresh net_amount from the new deduction set
 
     return pv
+
+
+@transaction.atomic
+def create_draft_voucher_from_down_payment(*, dpr, actor=None) -> "PaymentVoucherGov":
+    """Create (or fetch) a DRAFT advance PaymentVoucherGov for a PO down
+    payment request.
+
+    A PO down payment is a supplier advance (SAP special G/L "A"): at payment
+    it posts DR Vendor-Advance recon / CR bank and is cleared later against the
+    PO's invoices. The PV is tagged ``ADVANCE`` / ``special_gl_indicator='A'`` /
+    ``vendor`` so it rides the SAME central pipeline as contract mobilisation —
+    approve the PV → draft Payment in Outgoing Payments → post.
+
+    Budget is NOT re-checked here: approving the PO already committed its
+    appropriation (``ProcurementBudgetLink``), and we reuse that committed NCoA
+    line + appropriation for the PV (PVs require an NCoA; the PO itself only
+    carries legacy dimensions).
+
+    Idempotent: returns the existing linked PV when ``dpr.payment_voucher`` is
+    set. Raises ``PVFactoryError`` when prerequisites are missing (PO not
+    committed → no budget line, no vendor, or no active TSA).
+    """
+    from accounting.models.gl import TransactionSequence
+    from accounting.models.treasury import PaymentVoucherGov, TreasuryAccount
+
+    # Idempotency — an existing linked PV wins.
+    if getattr(dpr, 'payment_voucher_id', None):
+        return dpr.payment_voucher
+
+    po = dpr.purchase_order
+    vendor = getattr(po, 'vendor', None)
+    if vendor is None:
+        raise PVFactoryError(
+            "Purchase order has no vendor — cannot raise the down-payment "
+            "advance voucher."
+        )
+
+    # The committed budget line (created when the PO was approved) supplies the
+    # NCoA + appropriation the advance PV must carry.
+    link = getattr(po, 'budget_link', None)
+    ncoa = getattr(link, 'ncoa_code', None)
+    if ncoa is None:
+        raise PVFactoryError(
+            "Purchase order has no committed budget line yet — approve the PO "
+            "first so its appropriation/NCoA is committed, then the "
+            "down-payment advance can be raised."
+        )
+    appropriation = getattr(link, 'appropriation', None)
+
+    tsa = TreasuryAccount.objects.filter(is_active=True).first()
+    if tsa is None:
+        raise PVFactoryError(
+            "No active Treasury Account configured. Configure a TSA before "
+            "raising the down payment."
+        )
+
+    amount = Decimal(str(dpr.requested_amount or 0))
+    vendor_name = getattr(vendor, 'name', '') or ''
+    po_number = getattr(po, 'po_number', '') or f"PO-{po.pk}"
+    narration = f"PO down payment advance — {po_number} ({vendor_name})"[:500]
+    voucher_number = TransactionSequence.get_next('payment_voucher', prefix='PV-')
+
+    pv = PaymentVoucherGov.objects.create(
+        voucher_number=voucher_number,
+        payment_type="ADVANCE",
+        special_gl_indicator="A",
+        vendor=vendor,
+        ncoa_code=ncoa,
+        appropriation=appropriation,
+        payee_name=vendor_name[:200],
+        payee_account=getattr(vendor, "bank_account_number", "") or "",
+        payee_bank=getattr(vendor, "bank_name", "") or "",
+        gross_amount=amount,
+        wht_amount=Decimal("0"),
+        net_amount=amount,
+        narration=narration,
+        tsa_account=tsa,
+        # Canonical cross-document idempotency key (one live PV per source).
+        source_document=(dpr.request_number or po_number),
+        status="DRAFT",
+        created_by=actor,
+    )
+    return pv
