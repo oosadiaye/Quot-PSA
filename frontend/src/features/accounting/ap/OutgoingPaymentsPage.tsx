@@ -464,7 +464,7 @@ function PaymentFormModal({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="payment-modal-title"
-                style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 620, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}
+                style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 'min(940px, 94vw)', boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
