@@ -272,6 +272,34 @@ class TestEnsureDraftPaymentForPV:
         assert p1.id == p2.id
         assert pv.cash_payments.exclude(status='Void').count() == 1
 
+    def test_softdeleted_draft_frees_pv_for_reschedule(self, db):
+        """A soft-deleted draft Payment must NOT keep the PV's unique slot.
+
+        Deleting a DRAFT outgoing payment (only a POSTED one needs a reversal)
+        must let the PV be re-scheduled. Regression for the
+        ``uniq_live_payment_per_pv`` IntegrityError: the partial index excluded
+        only ``status='Void'``, so a soft-deleted draft (is_deleted=True, status
+        still 'Draft') kept occupying the slot and blocked re-provisioning.
+        """
+        from accounting.services.pv_payment_provisioning import ensure_draft_payment_for_pv
+        from accounting.models.receivables import Payment
+        vendor = _vendor()
+        pv = _make_pv(payment_type='ADVANCE', special_gl='A', vendor=vendor,
+                      gross=Decimal('50000.00'))
+        p1 = ensure_draft_payment_for_pv(pv)
+        p1.delete()  # soft delete — is_deleted=True, status stays 'Draft'
+        tomb = Payment.all_objects.get(pk=p1.pk)
+        assert tomb.is_deleted is True
+        assert tomb.status == 'Draft'
+
+        # Re-schedule from the PV — must NOT raise IntegrityError.
+        p2 = ensure_draft_payment_for_pv(pv)
+        assert p2.id != p1.id
+        assert p2.status == 'Draft'
+        # Exactly one LIVE payment; the deleted draft remains only as a tombstone.
+        assert Payment.objects.filter(payment_voucher=pv).count() == 1
+        assert Payment.all_objects.filter(payment_voucher=pv).count() == 2
+
 
 # ── Posting through the real DRF action ────────────────────────────────
 
