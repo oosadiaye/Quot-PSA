@@ -1228,6 +1228,30 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 format_post_error(e, context='purchase order'),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # If this PO carries a down payment request, raise its DRAFT advance PV
+        # now — approving the PO ran the budget encumbrance (PurchaseOrder.save
+        # → process_budget_encumbrance), so the committed NCoA/appropriation the
+        # PV needs is available. The advance then flows PV → approve → draft
+        # Payment → post. Best-effort + log-only: a down-payment-PV hiccup must
+        # not block the PO approval itself (operator can retry via the request's
+        # own approve/process action).
+        dpr = DownPaymentRequest.objects.filter(purchase_order=po).first()
+        if dpr and not dpr.payment_voucher_id and dpr.status in ('Pending', 'Approved'):
+            try:
+                from accounting.services.pv_factory import (
+                    create_draft_voucher_from_down_payment,
+                )
+                pv = create_draft_voucher_from_down_payment(dpr=dpr, actor=request.user)
+                dpr.payment_voucher = pv
+                if dpr.status == 'Pending':
+                    dpr.status = 'Approved'
+                dpr.save(update_fields=['payment_voucher', 'status'])
+            except Exception as exc:  # noqa: BLE001 — log-only, don't block PO approval
+                logger.warning(
+                    "PO %s approved but down-payment advance PV not raised: %s",
+                    po.po_number, exc,
+                )
         return Response({"status": "Purchase Order approved.", "po_status": po.status})
 
     @action(detail=True, methods=['post'])
@@ -1441,9 +1465,27 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if warrant_err is not None:
             return warrant_err
 
-        dpr.status = 'Approved'
-        dpr.save()
-        return Response({"status": "Down payment request approved."})
+        # Central pipeline: raise a DRAFT advance PaymentVoucher (special G/L
+        # "A") so the down payment flows PV → approve → draft Payment → post,
+        # exactly like contract mobilisation. No direct Payment is created.
+        # Atomic so a factory failure (e.g. PO not yet committed) rolls back
+        # the status flip and surfaces a clear error.
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_down_payment, PVFactoryError,
+        )
+        try:
+            with transaction.atomic():
+                pv = create_draft_voucher_from_down_payment(dpr=dpr, actor=request.user)
+                dpr.status = 'Approved'
+                dpr.payment_voucher = pv
+                dpr.save(update_fields=['status', 'payment_voucher'])
+        except PVFactoryError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            "status": "Down payment request approved; draft advance PV raised.",
+            "created_pv_id": pv.pk,
+            "created_pv_number": pv.voucher_number,
+        })
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -1457,56 +1499,41 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
-        """Finance processes the DPR — creates a Draft Payment record and marks DPR as Processed."""
+        """Finance step: ensure the draft advance PV exists and mark the
+        request Processed.
+
+        Central pipeline — the disbursing Payment is materialised when that
+        advance PV is APPROVED (``ensure_draft_payment_for_pv``) and posted
+        from Outgoing Payments. This no longer creates a Payment directly, so
+        there is a single origination and disbursement path (matches how the
+        old mobilisation ``mark_paid`` direct-disburse was retired).
+        """
         dpr = self.get_object()
         if dpr.status != 'Approved':
             return Response({"error": "Only approved requests can be processed."}, status=status.HTTP_400_BAD_REQUEST)
-        if dpr.payment_id:
-            return Response({"error": "A payment has already been created for this request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Re-check the warrant ceiling at processing — approval may predate
-        # the current warrant balance, and this is the step that creates
-        # the disbursing Payment, so it's the last chokepoint where the
-        # PO's appropriation is still known (the Payment row carries no
-        # MDA/Fund/account, so the disbursement post itself cannot re-check).
-        warrant_err = _down_payment_warrant_error(dpr.purchase_order, dpr.requested_amount)
-        if warrant_err is not None:
-            return warrant_err
-
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_down_payment, PVFactoryError,
+        )
         try:
-            from accounting.models import Payment
-            import datetime
-
-            year = datetime.date.today().year
-            seq = Payment.objects.filter(payment_number__startswith=f'PAY-{year}-').count() + 1
-            payment_number = f'PAY-{year}-{seq:05d}'
-
-            method_map = {'Bank': 'Wire', 'Cash': 'Cash'}
-            payment = Payment.objects.create(
-                payment_number=payment_number,
-                payment_date=datetime.date.today(),
-                payment_method=method_map.get(dpr.payment_method, 'Wire'),
-                total_amount=dpr.requested_amount,
-                vendor=dpr.purchase_order.vendor,
-                bank_account=dpr.bank_account,
-                is_advance=True,
-                advance_type='Supplier Advance',
-                advance_remaining=dpr.requested_amount,
-                status='Draft',
-                reference_number=dpr.request_number,
-                created_by=request.user,
-            )
-            dpr.payment = payment
-            dpr.status = 'Processed'
-            dpr.save()
-            return Response({
-                "status": "Payment record created.",
-                "payment_id": payment.id,
-                "payment_number": payment.payment_number,
-            })
+            with transaction.atomic():
+                if not dpr.payment_voucher_id:
+                    dpr.payment_voucher = create_draft_voucher_from_down_payment(
+                        dpr=dpr, actor=request.user,
+                    )
+                dpr.status = 'Processed'
+                dpr.save(update_fields=['payment_voucher', 'status'])
+        except PVFactoryError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Failed to process DownPaymentRequest {dpr.request_number}: {e}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            "status": "Draft advance PV ready — approve it in Payment Vouchers "
+                      "to create the Outgoing Payment.",
+            "created_pv_id": dpr.payment_voucher_id,
+            "created_pv_number": dpr.payment_voucher.voucher_number,
+        })
 
 
 class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):

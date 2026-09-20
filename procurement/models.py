@@ -1418,6 +1418,15 @@ class DownPaymentRequest(StatusTransitionMixin, AuditBaseModel):
         'accounting.Payment', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='down_payment_source'
     )
+    # The draft advance Payment Voucher raised for this request. Central
+    # pipeline: approving the PO (or this request) creates a DRAFT advance PV
+    # here — approving THAT PV materialises the draft Payment in Outgoing
+    # Payments, which is the single disbursement event. Links + guards
+    # idempotency so the PV is created at most once.
+    payment_voucher = models.ForeignKey(
+        'accounting.PaymentVoucherGov', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='down_payment_requests',
+    )
 
     class Meta:
         ordering = ['-created_at']
