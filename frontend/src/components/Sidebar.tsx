@@ -145,6 +145,9 @@ const menuItems: MenuItem[] = [
             // Advances tab (Contract Mobilization Advances), so the standalone
             // link is retired.
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            // Read-only register of every posted payment (advances + regular),
+            // the audit view of what actually hit the GL.
+            { name: 'Payment Register', path: '/accounting/payment-register', icon: BookOpen },
             { name: 'Payment Batches', path: '/accounting/payment-batches', icon: Layers },
             // H2 follow-up (WS6) — operator surface for cascade failures.
             // Sits next to Outgoing Payments because the failures come
