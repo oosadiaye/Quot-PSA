@@ -187,17 +187,25 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     class Meta:
         ordering = ['-payment_date', '-payment_number']
         constraints = [
-            # At most ONE live (non-Void) Payment per Payment Voucher.
-            # Backstops the check-then-create in
+            # At most ONE live (non-Void, not soft-deleted) Payment per
+            # Payment Voucher. Backstops the check-then-create in
             # ``ensure_draft_payment_for_pv`` so a race (double-submit /
             # workflow receiver vs. approve) can't materialise two draft
             # Payments for one PV and disburse the voucher twice. Standalone
             # payments (payment_voucher NULL) are unaffected.
+            #
+            # ``is_deleted=False`` is REQUIRED in the condition: a draft
+            # Payment is soft-deleted (is_deleted=True, status stays 'Draft'),
+            # and without this a deleted draft would keep occupying the slot —
+            # blocking re-scheduling the PV ("duplicate key … uniq_live_
+            # payment_per_pv"). A deleted draft frees the PV to be re-scheduled
+            # (only a POSTED payment needs a reversal, not a re-schedule).
             models.UniqueConstraint(
                 fields=['payment_voucher'],
                 condition=(
                     models.Q(payment_voucher__isnull=False)
                     & ~models.Q(status='Void')
+                    & models.Q(is_deleted=False)
                 ),
                 name='uniq_live_payment_per_pv',
             ),
