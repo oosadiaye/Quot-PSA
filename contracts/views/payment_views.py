@@ -50,7 +50,6 @@ from contracts.serializers import (
     IPCSerializer,
     IPCSubmitSerializer,
     MeasurementBookSerializer,
-    MobilizationMarkPaidSerializer,
     MobilizationPaymentSerializer,
     RetentionActionSerializer,
     RetentionCreateSerializer,
@@ -399,33 +398,28 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
         permission_classes=[CanRaiseVoucher],
     )
     def schedule_payment(self, request, pk=None):
-        """Create a DRAFT PaymentVoucher AND a DRAFT Payment for this
-        APPROVED mobilization. Idempotent.
+        """Ensure the DRAFT advance PaymentVoucher exists for this
+        mobilization and return it. Idempotent.
 
-        After this call:
-          • Draft PV is in the Payment Vouchers list
-          • Draft Payment is in the Outgoing Payments page
-          • ``payment.payment_voucher`` is linked
-          • Treasury reviews/posts the Payment as normal
-          • PV pay cascade → ``mark_paid`` flips status to PAID
+        ``issue`` already auto-creates the PV, so this is a safety net for
+        legacy mobilizations. The cash Payment is NOT created here — it is
+        materialised in Outgoing Payments when the PV is APPROVED (via
+        ``ensure_draft_payment_for_pv``), then Treasury posts it, which is
+        the single disbursement event.
 
         Body: optional ``{"notes": "..."}`` overrides the auto-generated
-        PV narration. Second call returns the existing records.
+        PV narration. Second call returns the existing PV.
         """
         payment = self.get_object()
         notes = (request.data or {}).get("notes", "")
         with translate_service_errors():
-            payment, pv, draft_payment = MobilizationService.schedule_payment(
+            payment, pv = MobilizationService.schedule_payment(
                 payment=payment, actor=request.user, notes=notes,
             )
         return Response({
             **MobilizationPaymentSerializer(payment).data,
-            # Surface both downstream record identities so the
-            # frontend can deep-link without a second fetch.
             "created_pv_id": pv.pk,
             "created_pv_number": pv.voucher_number,
-            "created_payment_id": draft_payment.pk,
-            "created_payment_number": draft_payment.payment_number,
             # The canonical idempotency key — exposed so an operator
             # / API client can audit cross-document linkage at a
             # glance ("show me everything stamped MOB-…").
@@ -454,21 +448,11 @@ class MobilizationPaymentViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return Response(MobilizationPaymentSerializer(payment).data)
 
-    @action(detail=True, methods=["post"], url_path="mark-paid",
-            permission_classes=[CanMarkIPCPaid])
-    def mark_paid(self, request, pk=None):
-        payment = self.get_object()
-        payload = MobilizationMarkPaidSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        data = payload.validated_data
-        with translate_service_errors():
-            payment = MobilizationService.mark_paid(
-                payment=payment,
-                payment_voucher_id=data["payment_voucher_id"],
-                payment_date=data["payment_date"],
-                actor=request.user,
-            )
-        return Response(MobilizationPaymentSerializer(payment).data)
+    # NOTE: the old ``mark-paid`` action was removed. Mobilisation is now
+    # disbursed by POSTING its advance Payment in Outgoing Payments (the
+    # single cash door). ``PaymentViewSet._post_advance_payment`` calls
+    # ``MobilizationService.record_disbursement`` to bump
+    # ``ContractBalance.mobilization_paid`` and flip the advance → PAID.
 
 
 # ── Retention releases ────────────────────────────────────────────────

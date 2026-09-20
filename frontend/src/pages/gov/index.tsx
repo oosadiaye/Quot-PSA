@@ -1458,11 +1458,11 @@ export const MobilizationPaymentList = () => {
         },
     });
 
-    // Schedule-for-payment action: POST /contracts/mobilization-payments/{id}/schedule-payment/
-    // Creates BOTH a DRAFT PaymentVoucherGov (the document) and a
-    // DRAFT Payment (the cash event in Outgoing Payments). Backend
-    // is idempotent across multiple layers — see the comment block
-    // on MobilizationService.schedule_payment.
+    // Ensure-PV action: POST /contracts/mobilization-payments/{id}/schedule-payment/
+    // Issuing the advance already auto-creates the DRAFT PaymentVoucherGov;
+    // this is an idempotent safety net that returns it. The cash Payment is
+    // materialised in Outgoing Payments when the PV is APPROVED (central
+    // ensure_draft_payment_for_pv), then Treasury posts it.
     const schedulePayment = useMutation({
         mutationFn: async (id: number) => {
             const { data } = await apiClient.post(
@@ -1472,8 +1472,6 @@ export const MobilizationPaymentList = () => {
             return data as {
                 created_pv_id?: number;
                 created_pv_number?: string;
-                created_payment_id?: number;
-                created_payment_number?: string;
                 reference_number?: string;
             };
         },
@@ -1482,12 +1480,11 @@ export const MobilizationPaymentList = () => {
                 queryKey: ['generic-list', '/contracts/mobilization-payments/'],
             });
             const pvLabel = data.created_pv_number ?? `#${data.created_pv_id}`;
-            const payLabel = data.created_payment_number ?? `#${data.created_payment_id}`;
             const refLabel = data.reference_number ?? '';
             showAlert(
-                `Draft PV ${pvLabel} and draft Payment ${payLabel} created `
-                + (refLabel ? `(ref: ${refLabel}). ` : '. ')
-                + 'Open Outgoing Payments to review and post.',
+                `Draft advance PV ${pvLabel} ready`
+                + (refLabel ? ` (ref: ${refLabel}). ` : '. ')
+                + 'Approve the PV to create its draft Payment in Outgoing Payments, then post it.',
                 'success',
             );
         },

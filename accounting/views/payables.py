@@ -1671,6 +1671,58 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             raise ValidationError("Only draft payments can be deleted.")
         super().perform_destroy(instance)
 
+    @action(detail=True, methods=['get'])
+    def proposed_entries(self, request, pk=None):
+        """Proposed (draft) or actual (posted) journal lines for this
+        payment, so the Payment view can render the DR/CR line items
+        before cash moves.
+
+        Draft → computed from the linked PV (gross / deductions / net),
+        the SAME logic ``post_payment`` uses, so the preview equals what
+        will post. Posted → the real booked ``JournalLine`` rows. Both
+        are balanced (Σdebit == Σcredit).
+        """
+        payment = self.get_object()
+        if payment.status == 'Posted' and payment.journal_entry_id:
+            from accounting.models import JournalLine
+            rows = JournalLine.objects.filter(
+                header=payment.journal_entry,
+            ).select_related('account')
+            entries = [
+                {
+                    'account': jl.account.name if jl.account else '',
+                    'account_code': jl.account.code if jl.account else '',
+                    'debit': jl.debit or Decimal('0.00'),
+                    'credit': jl.credit or Decimal('0.00'),
+                    'memo': jl.memo or '',
+                }
+                for jl in rows
+            ]
+            posted = True
+        else:
+            from accounting.services.payment_preview import compute_payment_entries
+            entries = compute_payment_entries(payment)
+            posted = False
+
+        total_debit = sum((e['debit'] or Decimal('0.00')) for e in entries)
+        total_credit = sum((e['credit'] or Decimal('0.00')) for e in entries)
+        return Response({
+            'posted': posted,
+            'entries': [
+                {
+                    'account': e['account'],
+                    'account_code': e['account_code'],
+                    'debit': str(e['debit'] or Decimal('0.00')),
+                    'credit': str(e['credit'] or Decimal('0.00')),
+                    'memo': e['memo'],
+                }
+                for e in entries
+            ],
+            'total_debit': str(total_debit),
+            'total_credit': str(total_credit),
+            'balanced': total_debit == total_credit,
+        })
+
     @action(detail=True, methods=['post'])
     def post_payment(self, request, pk=None):
         """Post payment — creates journal entry + updates GL balances + vendor balance.
@@ -2711,6 +2763,23 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 # disbursed again from another surface.
                 if pv is not None:
                     self._flip_pv_paid(pv)
+
+                    # Mobilisation advances: record the contract-side
+                    # effects so the pro-rata IPC clawback stays correct —
+                    # bump ContractBalance.mobilization_paid and flip the
+                    # MobilizationPayment → PAID. No-op for non-mobilisation
+                    # advances. The disburse above already wrote the cash
+                    # journal + VendorAdvance row; this only records the
+                    # balance. Fail-closed: any error rolls back the whole
+                    # advance post (mobilisation recovery depends on it).
+                    from contracts.services.mobilization_service import (
+                        MobilizationService,
+                    )
+                    MobilizationService.record_disbursement(
+                        pv=pv,
+                        payment_date=payment.payment_date,
+                        actor=request.user,
+                    )
         except TransactionPostingError as exc:
             return Response(
                 {"error": str(exc)},

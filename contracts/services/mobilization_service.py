@@ -61,12 +61,19 @@ class MobilizationService:
         actor: "AbstractUser",
     ) -> MobilizationPayment:
         """
-        Create a PENDING mobilization payment record of the correct amount.
+        Create a PENDING mobilization payment record of the correct
+        amount AND its DRAFT advance Payment Voucher, linked together.
 
-        The actual disbursement journal entry is raised by the
-        PaymentVoucher flow (accounting.PaymentVoucherGov); this service
-        only creates the tracking record and updates the balance's
-        mobilization_paid field once the PV is marked PAID.
+        Central-payment model: issuing the advance immediately mints a
+        DRAFT ``PaymentVoucherGov`` (tagged ADVANCE / special-GL 'A' /
+        vendor) so the mobilisation surfaces in the Payment Vouchers
+        list straight away. Approving that PV then auto-creates the
+        draft Payment in Outgoing Payments (via
+        ``ensure_draft_payment_for_pv``), and posting that Payment is
+        the single disbursement event — which bumps
+        ``ContractBalance.mobilization_paid`` (see
+        ``record_disbursement``). This service no longer disburses
+        directly; there is no second cash door.
         """
         if contract.mobilization_rate <= ZERO:
             raise InvalidTransitionError(
@@ -106,6 +113,17 @@ class MobilizationService:
             created_by=actor,
             updated_by=actor,
         )
+
+        # Auto-create the draft advance PV and link it. From here the
+        # mobilisation follows the normal PV → approve → draft Payment →
+        # post pipeline like every other outgoing payment.
+        from accounting.services.pv_factory import (
+            create_draft_voucher_from_mobilization,
+        )
+        pv = create_draft_voucher_from_mobilization(payment=payment, actor=actor)
+        payment.payment_voucher = pv
+        payment.updated_by = actor
+        payment.save(update_fields=["payment_voucher", "updated_by", "updated_at"])
         return payment
 
     # ── Appropriation guard ────────────────────────────────────────────
@@ -365,25 +383,21 @@ class MobilizationService:
         actor: "AbstractUser",
         notes: str = "",
     ):
-        """Create a DRAFT PaymentVoucher AND a DRAFT Payment for an
-        APPROVED mobilisation advance, linking both. Returns
-        ``(payment, pv, draft_payment)``.
+        """Ensure the DRAFT advance PaymentVoucher exists for this
+        mobilisation and return ``(payment, pv)``.
 
-        Two records get created so the advance surfaces in BOTH the
-        Payment Vouchers list (the document) and the Outgoing Payments
-        page (the cash event). Treasury can then review and post the
-        Payment via the normal AP cascade.
+        Since ``issue_advance`` now auto-creates the PV, this is an
+        idempotent safety net (e.g. legacy mobilisations issued before
+        auto-PV, or a lost link). It does NOT create the cash Payment —
+        that is materialised by ``ensure_draft_payment_for_pv`` when the
+        PV is APPROVED, so mobilisation surfaces in Outgoing Payments via
+        the same central pipeline as every other PV.
 
-        IDEMPOTENCY — defended at multiple layers so duplicate posts
-        from network retries / double-clicks / concurrent calls cannot
-        happen:
+        IDEMPOTENCY:
           1. ``SELECT FOR UPDATE`` on this MobilizationPayment row
-             serialises concurrent schedule_payment calls.
+             serialises concurrent calls.
           2. The PV factory short-circuits on existing
              ``payment.payment_voucher_id`` linkage.
-          3. The Payment lookup uses ``payment.reference_number`` as
-             the deterministic key — a second call finds the existing
-             draft and returns it instead of minting a new one.
 
         Raises:
             InvalidTransitionError — if payment is not APPROVED/PENDING.
@@ -427,112 +441,70 @@ class MobilizationService:
             payment.updated_by = actor
             payment.save(update_fields=["payment_voucher", "updated_by", "updated_at"])
 
-        draft_payment = cls._ensure_draft_payment(payment=payment, pv=pv, actor=actor)
-        return payment, pv, draft_payment
-
-    @classmethod
-    def _ensure_draft_payment(cls, *, payment, pv, actor):
-        """Lookup-or-create the AP cash Payment row that materialises
-        this mobilization in the Outgoing Payments page.
-
-        Idempotent by ``Payment.reference_number == payment.reference_number``.
-        The two-step (lookup → create) is safe under the
-        ``select_for_update`` lock acquired in ``schedule_payment``
-        — two concurrent calls would block at the lock, then the
-        second one sees the existing row and returns it.
-        """
-        from accounting.models.receivables import Payment
-        from accounting.models.gl import TransactionSequence
-        from datetime import date as _date
-
-        ref = payment.reference_number
-
-        # Lookup includes soft-deleted via ``all_objects`` so a
-        # previously-cancelled draft can't be re-created on top of
-        # itself (operator would need to undelete first).
-        existing = Payment.all_objects.filter(reference_number=ref).first()
-        if existing is not None:
-            return existing
-
-        payment_number = TransactionSequence.get_next("payment", "PAY-")
-        vendor = payment.contract.vendor if payment.contract else None
-        return Payment.objects.create(
-            payment_number=payment_number,
-            payment_date=_date.today(),
-            payment_method="Wire",
-            # Canonical reference — this is the IDEMPOTENCY KEY. Any
-            # future schedule_payment call for this MobilizationPayment
-            # finds this row via filter(reference_number=ref) and
-            # returns it unchanged.
-            reference_number=ref,
-            total_amount=payment.amount,
-            status="Draft",
-            payment_voucher=pv,
-            vendor=vendor,
-            is_advance=True,
-            advance_type="Supplier Advance",
-            advance_remaining=payment.amount,
-            document_number=payment_number,
-            created_by=actor,
-            updated_by=actor,
-        )
+        # Central pipeline: the draft Payment is materialised by
+        # ``ensure_draft_payment_for_pv`` when the PV is APPROVED — not
+        # here — so mobilisation rides the exact same path as every other
+        # PV (no bespoke bypass). This method only guarantees the advance
+        # PV exists and is linked; approving that PV drops the draft
+        # Payment into Outgoing Payments.
+        return payment, pv
 
     @classmethod
     @transaction.atomic
-    def mark_paid(
+    def record_disbursement(
         cls,
         *,
-        payment: MobilizationPayment,
-        payment_voucher_id: int,
+        pv,
         payment_date,
         actor: "AbstractUser",
-    ) -> MobilizationPayment:
-        """
-        Mark the advance as paid and bump ContractBalance.mobilization_paid.
+    ) -> "MobilizationPayment | None":
+        """Record the contract-side effects of a disbursed mobilisation.
 
-        Phase 1 (SAP Special-GL pattern): also creates a ``VendorAdvance``
-        ledger row in the central advance ledger so the popup
-        ("uncleared advance exists") can gate every downstream
-        AP / PV / IPC posting against this vendor. The advance
-        disbursement journal (DR Vendor-Advance recon / CR Cash) is
-        posted by ``VendorAdvanceService.disburse`` — replaces the
-        old "DR Mobilization Advance Receivable / CR Cash" pattern.
+        Central-payment model: cash actually leaves when the linked
+        ``Payment`` is POSTED — ``PaymentViewSet._post_advance_payment``
+        already credits the operator's chosen bank, debits the
+        Vendor-Advance recon Special-GL, and writes the ``VendorAdvance``
+        ledger row (source ``AP_DOWNPAYMENT``). It then calls THIS method
+        so the mobilisation recovery machinery stays correct:
 
-        Called by the payment-voucher / treasury workflow when the PV
-        actually disburses. Wrapped in SELECT FOR UPDATE on the balance.
+          * bump ``ContractBalance.mobilization_paid`` — the pro-rata IPC
+            clawback (:meth:`compute_recovery`) is measured against it, and
+          * flip the ``MobilizationPayment`` → PAID.
+
+        This method does **not** disburse — there is exactly one cash
+        door now (the Payment post), so the old fail-closed
+        ``VendorAdvanceService.disburse`` here is gone.
+
+        Safe to call for ANY advance payment: returns ``None`` when the
+        PV is not a mobilisation. Idempotent: a mobilisation already
+        PAID / recovered is left untouched, so re-posting cannot
+        double-count ``mobilization_paid``.
         """
-        # Accept PENDING for backward-compat with mobilization rows
-        # created before the APPROVED status was introduced (legacy
-        # records sit at PENDING but the cash event genuinely
-        # happened). New advances should go via APPROVED — the
-        # frontend gates the Approve button on PENDING and the PV
-        # creation pathway encourages the approval step, but we
-        # don't hard-block the cash transition here.
-        valid_pre_states = (
-            MobilizationPaymentStatus.PENDING,
-            MobilizationPaymentStatus.APPROVED,
+        mob = (
+            MobilizationPayment.objects
+            .select_for_update()
+            .filter(payment_voucher=pv)
+            .first()
         )
-        if payment.status not in valid_pre_states:
-            raise InvalidTransitionError(
-                f"Mobilization payment must be PENDING or APPROVED to "
-                f"mark paid (currently {payment.status}).",
-                context={
-                    "payment_id":   payment.pk,
-                    "current_status": payment.status,
-                    "valid_states": [s.value for s in valid_pre_states],
-                },
-            )
+        if mob is None:
+            return None  # not a mobilisation — nothing to record
 
-        # Update the balance under row lock
+        already_disbursed = (
+            MobilizationPaymentStatus.PAID,
+            MobilizationPaymentStatus.PARTIALLY_RECOVERED,
+            MobilizationPaymentStatus.FULLY_RECOVERED,
+        )
+        if mob.status in already_disbursed:
+            return mob  # idempotent — balance already reflects the advance
+
+        # Bump the balance under row lock. H6 pattern: F('version')+1
+        # server-side increment — race-safe even against a stale snapshot.
         balance = (
             ContractBalance.objects
             .select_for_update()
-            .get(pk=payment.contract_id)
+            .get(pk=mob.contract_id)
         )
-        # H6 fix: F('version')+1 server-side increment — race-safe even
-        # if a future caller passes a stale ``balance`` from outside the
-        # SELECT FOR UPDATE.
-        new_paid = quantize_currency(balance.mobilization_paid + payment.amount)
+        new_paid = quantize_currency(balance.mobilization_paid + mob.amount)
         try:
             ContractBalance.objects.filter(pk=balance.pk).update(
                 mobilization_paid=new_paid,
@@ -544,56 +516,12 @@ class MobilizationService:
                 "ContractBalance update rejected by DB trigger; retry.",
                 context={"contract_id": balance.pk},
             ) from exc
-        balance.refresh_from_db()
 
-        payment.status          = MobilizationPaymentStatus.PAID
-        payment.payment_voucher_id = payment_voucher_id
-        payment.payment_date    = payment_date
-        payment.updated_by      = actor
-        payment.save(update_fields=["status", "payment_voucher", "payment_date", "updated_at"])
-
-        # ── Special-GL ledger row + disbursement journal ─────────────
-        # FAIL-CLOSED. The previous try/except let
-        # ``ContractBalance.mobilization_paid`` commit while
-        # ``VendorAdvanceService.disburse`` silently failed — leaving
-        # the balance flagged as paid without a journal posting and
-        # without a Special-GL ledger row. Downstream IPC ceiling
-        # checks then computed mobilization recovery against an
-        # advance that was never journalized, creating a phantom
-        # offset in the books.
-        #
-        # Now any disburse error bubbles, the surrounding
-        # @transaction.atomic on this method rolls back the
-        # mobilization_paid increment, and the operator must fix the
-        # CoA gap before retrying. The error message identifies the
-        # blocking configuration item directly.
-        from accounting.services.vendor_advance import VendorAdvanceService
-        contract = payment.contract
-        VendorAdvanceService.disburse(
-            vendor=contract.vendor,
-            amount=payment.amount,
-            source_type="MOBILIZATION",
-            source_id=payment.pk,
-            # ``payment.reference_number`` is the canonical idempotency
-            # key (e.g. MOB-DSG/WORKS/2026/003) — same reference is
-            # used by the PV (source_document), the AP Payment
-            # (reference_number), and now the GL disbursement journal.
-            # JournalHeader.reference_number is uniquely indexed, so a
-            # retry of mark_paid against the same advance trips the
-            # IntegrityError instead of silently creating a duplicate
-            # DR/CR pair. (VendorAdvanceService.disburse also has its
-            # own (source_type, source_id) idempotency guard above
-            # this — defence in depth.)
-            reference=payment.reference_number,
-            posting_date=payment_date,
-            actor=actor,
-            notes=(
-                f"Mobilisation advance per contract "
-                f"{contract.contract_number or contract.pk}."
-            ),
-        )
-
-        return payment
+        mob.status = MobilizationPaymentStatus.PAID
+        mob.payment_date = payment_date
+        mob.updated_by = actor
+        mob.save(update_fields=["status", "payment_date", "updated_by", "updated_at"])
+        return mob
 
     # ── Recovery computation (pure function, no side-effects) ──────────
 
