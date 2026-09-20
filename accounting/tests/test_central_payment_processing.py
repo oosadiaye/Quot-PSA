@@ -493,6 +493,33 @@ class TestPostPaymentDeductions:
         assert resp.status_code == 400
         assert 'already' in str(getattr(resp, 'data', resp)).lower()
 
+    def test_advance_post_blocked_when_bank_has_no_gl(
+        self, superuser, open_fiscal_period,
+    ):
+        """An advance credits the SELECTED bank's cash GL — posting must fail
+        loudly when that bank has no GL configured, instead of silently using
+        the tenant's default consolidated cash account (which would make every
+        bank post to the same line and defeat per-bank reconciliation)."""
+        from accounting.models import BankAccount
+        vendor = _vendor()
+        _accounts()
+        pv = _make_pv(payment_type='ADVANCE', special_gl='A', vendor=vendor,
+                      gross=Decimal('50000.00'))
+        payment = _provision(pv)
+        no_gl_bank = BankAccount.objects.create(
+            name='Unconfigured Bank', account_number=f'09{uuid.uuid4().hex[:8]}',
+            account_type='Bank', gl_account=None, bank_name='Unconfigured',
+            is_active=True, currency=None,
+        )
+        payment.bank_account = no_gl_bank
+        payment.save()
+
+        resp = _post_payment(payment, superuser)
+        assert resp.status_code == 400, getattr(resp, 'data', resp)
+        assert 'Unconfigured Bank' in str(resp.data)
+        payment.refresh_from_db()
+        assert payment.status == 'Draft'  # no cash moved
+
 
 @pytest.mark.django_db
 class TestOneLivePaymentPerPV:
