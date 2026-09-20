@@ -3,8 +3,7 @@ import { formatDate } from '@/utils/date';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
-    Banknote, TrendingDown, CreditCard,
-    ChevronRight,
+    Banknote, CreditCard,
 } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -14,9 +13,7 @@ import {
 } from '../hooks/useAccountingEnhancements';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
-import {
-    useVendors, useDownPaymentRequests, useProcessDownPayment,
-} from '../../procurement/hooks/useProcurement';
+import { useVendors } from '../../procurement/hooks/useProcurement';
 import { useClearVendorAdvance } from '../hooks/useVendorAdvances';
 import {
     JournalHeaderStrip, JournalLinesTable,
@@ -104,17 +101,6 @@ interface PaymentRow {
     // button visibility (only Posted rows with a journal can be viewed).
     journal_entry?: number | null;
 }
-interface DownPaymentRequestRow {
-    id: number;
-    request_number?: string;
-    po_number?: string;
-    purchase_order?: number | null;
-    vendor_name?: string;
-    amount: string;
-    payment_type?: string;
-    status: 'Approved' | string;
-}
-
 // Axios error shape after the API client transforms backend DRF
 // responses. ``response.data`` carries either ``error`` (custom action
 // endpoints), ``detail`` (default DRF), or ``non_field_errors``.
@@ -150,11 +136,6 @@ type PaymentForm = {
     payment_method: string; bank_account: string; reference_number: string;
     invoice: string; payment_voucher: string;
 };
-type AdvanceForm = {
-    vendor: string; payment_date: string; total_amount: string;
-    payment_method: string; bank_account: string; reference_number: string;
-    advance_type: 'Vendor Advance' | 'Vendor Deposit';
-};
 const BLANK_PAYMENT: Readonly<PaymentForm> = Object.freeze({
     vendor: '', payment_date: new Date().toISOString().slice(0, 10),
     total_amount: '', payment_method: 'Wire', bank_account: '',
@@ -163,11 +144,6 @@ const BLANK_PAYMENT: Readonly<PaymentForm> = Object.freeze({
     // Required when AccountingSettings.require_pv_before_payment is True;
     // optional otherwise. Selecting a PV auto-fills the Vendor field.
     payment_voucher: '',
-});
-const BLANK_ADVANCE: Readonly<AdvanceForm> = Object.freeze({
-    vendor: '', payment_date: new Date().toISOString().slice(0, 10),
-    total_amount: '', payment_method: 'Wire', bank_account: '',
-    reference_number: '', advance_type: 'Vendor Advance',
 });
 
 // ─── inline notification ─────────────────────────────────────────────────────
@@ -620,99 +596,6 @@ function PaymentFormModal({
     );
 }
 
-// ─── advance form modal ───────────────────────────────────────────────────────
-function AdvanceFormModal({ vendors, bankAccounts, onSubmit, onClose, isLoading }: {
-    vendors: Vendor[]; bankAccounts: BankAccount[];
-    onSubmit: (form: typeof BLANK_ADVANCE) => void; onClose: () => void; isLoading: boolean;
-}) {
-    const [form, setForm] = useState({ ...BLANK_ADVANCE });
-    const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
-    const containerRef = useFocusTrap(true, onClose);
-
-    return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div
-                ref={containerRef}
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="advance-modal-title"
-                style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <TrendingDown size={20} color="#fff" />
-                    </div>
-                    <div>
-                        <h3 id="advance-modal-title" style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>New Vendor Advance</h3>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Down payment from purchase order</p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        aria-label="Close advance form"
-                        type="button"
-                        style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}
-                    >
-                        <X size={20} color="#94a3b8" />
-                    </button>
-                </div>
-                <form onSubmit={e => { e.preventDefault(); onSubmit(form); }}>
-                    <div style={{ display: 'grid', gap: '14px' }}>
-                        <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Vendor *</label>
-                            <select style={sel} value={form.vendor} onChange={e => set('vendor', e.target.value)} required>
-                                <option value="">Select vendor…</option>
-                                {vendors?.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Advance Type</label>
-                            <select style={sel} value={form.advance_type} onChange={e => set('advance_type', e.target.value)}>
-                                <option value="Vendor Advance">Vendor Advance</option>
-                                <option value="Vendor Deposit">Vendor Deposit</option>
-                            </select>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Payment Date *</label>
-                                <input style={inp} type="date" value={form.payment_date} onChange={e => set('payment_date', e.target.value)} required />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
-                                <AmountInput style={inp} placeholder="0.00" value={form.total_amount} onChange={v => set('total_amount', v)} required />
-                            </div>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Method *</label>
-                                <select style={sel} value={form.payment_method} onChange={e => set('payment_method', e.target.value)}>
-                                    {['Wire', 'Cheque', 'Cash', 'Bank Transfer', 'EFT'].map(m => <option key={m}>{m}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Bank Account</label>
-                                <select style={sel} value={form.bank_account} onChange={e => set('bank_account', e.target.value)}>
-                                    <option value="">— none —</option>
-                                    {bankAccounts?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                                </select>
-                            </div>
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Reference Number</label>
-                            <input style={inp} type="text" placeholder="PO-2024-001…" value={form.reference_number} onChange={e => set('reference_number', e.target.value)} />
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                        <button type="submit" disabled={isLoading} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
-                            {isLoading ? 'Saving…' : 'Save Advance'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-}
-
 // ─── summary card (module scope so identity stays stable across renders) ───
 interface SummaryCardProps {
     label: string;
@@ -854,7 +737,6 @@ export default function OutgoingPaymentsPage() {
 
     // Payment forms
     const [showPaymentForm, setShowPaymentForm] = useState(false);
-    const [showAdvanceForm, setShowAdvanceForm] = useState(false);
     // Prefill carries vendor + amount + reference + allocated-invoice
     // into the New Outgoing Payment modal when an upstream surface
     // launches the flow (e.g. a downstream "raise payment" button on
@@ -874,7 +756,6 @@ export default function OutgoingPaymentsPage() {
     // Confirm modals
     const [postConfirm, setPostConfirm] = useState<{ id: number; number: string } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; number: string } | null>(null);
-    const [processAdvanceConfirm, setProcessAdvanceConfirm] = useState<{ id: number; ref: string } | null>(null);
 
     // Clear-advance modal. Opens when the operator clicks Clear on a
     // Posted advance row. Carries the linked VendorAdvance id (to call
@@ -918,7 +799,6 @@ export default function OutgoingPaymentsPage() {
         status__in: 'Approved,Posted,Partially Paid',
         page_size: 1000,
     });
-    const { data: downPaymentRequests, isLoading: loadingDPR } = useDownPaymentRequests({ status: 'Approved' });
 
     // Tenant-level setting: whether a PV must back every outgoing payment.
     // Read once and passed down to the PaymentFormModal so it can toggle
@@ -948,7 +828,6 @@ export default function OutgoingPaymentsPage() {
     const createAllocation = useCreatePaymentAllocation();
     const postPayment = usePostPayment();
     const deletePayment = useDeletePayment();
-    const processDownPayment = useProcessDownPayment();
     const clearAdvanceMut = useClearVendorAdvance();
 
     // ─── helpers ──────────────────────────────────────────────────────────────
@@ -1051,25 +930,6 @@ export default function OutgoingPaymentsPage() {
         }
     };
 
-    const handleSubmitAdvance = async (form: typeof BLANK_ADVANCE) => {
-        try {
-            await createPayment.mutateAsync({
-                vendor: Number(form.vendor) || undefined,
-                payment_date: form.payment_date,
-                total_amount: form.total_amount,
-                payment_method: form.payment_method,
-                bank_account: form.bank_account ? Number(form.bank_account) : undefined,
-                reference_number: form.reference_number || undefined,
-                is_advance: true,
-                advance_type: form.advance_type,
-            });
-            setShowAdvanceForm(false);
-            showSuccess('Vendor advance saved successfully.');
-        } catch (err: unknown) {
-            showError(extractApiErrorMessage(err, 'Failed to save advance.'));
-        }
-    };
-
     const handlePost = async () => {
         if (!postConfirm) return;
         try {
@@ -1094,99 +954,11 @@ export default function OutgoingPaymentsPage() {
         }
     };
 
-    const handleProcessAdvance = async () => {
-        if (!processAdvanceConfirm) return;
-        try {
-            await processDownPayment.mutateAsync(processAdvanceConfirm.id);
-            setProcessAdvanceConfirm(null);
-            showSuccess(`Down payment request ${processAdvanceConfirm.ref} processed.`);
-        } catch (err: unknown) {
-            setProcessAdvanceConfirm(null);
-            showError(extractApiErrorMessage(err, 'Failed to process down payment.'));
-        }
-    };
-
     // SummaryCard is now defined at module scope (above) — defining
     // it inside the render function meant React saw a new component
     // identity on every parent re-render, remounted the card, and
     // destroyed any internal state it held. Module-scope keeps the
     // component identity stable across renders.
-
-    // ─── advance origination tools (declared BEFORE paymentsTabJSX so it
-    //     can be embedded below the unified payments table) ──────────────────
-    // Split out of the retired "Vendor Advances" tab. These are the advance
-    // *origination* surfaces only — create a manual advance and process a
-    // procurement-approved down payment request. The posted/draft advance
-    // ROWS themselves now live in the unified payments table above (Type
-    // column), so the old "Manual Vendor Advances" table has been dropped.
-    // Contract mobilization advances also surface in that unified table as
-    // ``Supplier Advance`` rows once their PV is approved, so the standalone
-    // mobilization table that used to live here has been removed too.
-    const dprList: DownPaymentRequestRow[] = Array.isArray(downPaymentRequests)
-        ? (downPaymentRequests as DownPaymentRequestRow[])
-        : ((downPaymentRequests as { results?: DownPaymentRequestRow[] } | undefined)?.results ?? []);
-
-    const advanceToolsJSX = (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px' }}>
-                <button onClick={() => setShowAdvanceForm(true)} style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '9px 18px', border: 'none', borderRadius: '9px',
-                    background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff',
-                    cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-                }}>
-                    <Plus size={15} /> New Advance
-                </button>
-            </div>
-
-            {/* Procurement-approved DPRs */}
-            <div style={{ marginBottom: '28px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#8b5cf6' }} />
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>Procurement Down Payment Requests (Approved)</span>
-                </div>
-                {loadingDPR ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Loading…</div>
-                ) : !dprList.length ? (
-                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>No approved down payment requests from procurement.</p>
-                    </div>
-                ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                            <thead>
-                                <tr style={{ background: '#faf5ff' }}>
-                                    {['Request #', 'PO', 'Vendor', 'Amount', 'Type', 'Status', 'Actions'].map(h => (
-                                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#7c3aed', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #ede9fe', whiteSpace: 'nowrap' }}>{h}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {dprList.map((dpr) => (
-                                    <tr key={dpr.id} style={{ borderBottom: '1px solid #f5f3ff' }}>
-                                        <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{dpr.request_number || `DPR-${dpr.id}`}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{dpr.po_number || dpr.purchase_order || '—'}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{dpr.vendor_name || '—'}</td>
-                                        <td style={{ padding: '11px 14px', fontWeight: 700, color: '#6d28d9' }}>{formatCurrency(dpr.amount)}</td>
-                                        <td style={{ padding: '11px 14px', color: '#374151' }}>{dpr.payment_type || 'Advance'}</td>
-                                        <td style={{ padding: '11px 14px' }}><StatusBadge status={dpr.status} /></td>
-                                        <td style={{ padding: '11px 14px' }}>
-                                            {dpr.status === 'Approved' && (
-                                                <button onClick={() => setProcessAdvanceConfirm({ id: dpr.id, ref: dpr.request_number || `DPR-${dpr.id}` })}
-                                                    style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#ede9fe', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
-                                                    <ChevronRight size={12} /> Process
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
 
     // ─── type filter + working set ─────────────────────────────────────────────
     // ``typeOf`` collapses a row to its display type: a regular Payment or a
@@ -1364,20 +1136,6 @@ export default function OutgoingPaymentsPage() {
                     </table>
                 </div>
             )}
-
-            {/* ── Advance origination & requests ────────────────────────────
-                The retired "Vendor Advances" tab's origination tools now live
-                directly beneath the unified payments table: record a manual
-                vendor advance and process a procurement-approved down payment
-                request. The advance ROWS themselves appear in the table above
-                (Type column), so there is no separate advances table here. */}
-            <div style={{ borderTop: '2px solid #e2e8f0', margin: '32px 0 0', paddingTop: '24px' }}>
-                <div style={{ marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Advance origination &amp; requests</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Record vendor advances and process procurement-approved down payment requests</p>
-                </div>
-                {advanceToolsJSX}
-            </div>
         </div>
     );
 
@@ -1565,15 +1323,6 @@ export default function OutgoingPaymentsPage() {
                     isLoading={createPayment.isPending || createAllocation.isPending || updatePayment.isPending || postPayment.isPending}
                 />
             )}
-            {showAdvanceForm && (
-                <AdvanceFormModal
-                    vendors={vendors || []}
-                    bankAccounts={bankAccounts || []}
-                    onSubmit={handleSubmitAdvance}
-                    onClose={() => setShowAdvanceForm(false)}
-                    isLoading={createPayment.isPending}
-                />
-            )}
             {postConfirm && (
                 <ConfirmModal
                     title="Post Payment"
@@ -1592,16 +1341,6 @@ export default function OutgoingPaymentsPage() {
                     confirmColor="#dc2626"
                     onConfirm={handleDelete}
                     onCancel={() => setDeleteConfirm(null)}
-                />
-            )}
-            {processAdvanceConfirm && (
-                <ConfirmModal
-                    title="Process Down Payment"
-                    message={`Process down payment request ${processAdvanceConfirm.ref}? This will create an outgoing payment record.`}
-                    confirmLabel="Process"
-                    confirmColor="#6d28d9"
-                    onConfirm={handleProcessAdvance}
-                    onCancel={() => setProcessAdvanceConfirm(null)}
                 />
             )}
             {clearAdvance && (
