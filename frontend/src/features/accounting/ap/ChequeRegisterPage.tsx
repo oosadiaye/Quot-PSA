@@ -19,6 +19,7 @@ interface PostedPaymentRow {
     id: number;
     payment_number: string;
     vendor_name?: string;
+    vendor_code?: string;
     is_advance?: boolean;
     advance_type?: string;
     payment_date: string;
@@ -59,7 +60,7 @@ export default function ChequeRegisterPage() {
         const needle = query.trim().toLowerCase();
         if (!needle) return rows;
         return rows.filter((p) =>
-            [p.payment_number, p.vendor_name, p.cheque_number]
+            [p.payment_number, p.vendor_code, p.vendor_name, p.cheque_number]
                 .some((v) => (v || '').toLowerCase().includes(needle)),
         );
     }, [rows, query]);
@@ -173,7 +174,7 @@ export default function ChequeRegisterPage() {
                                         <input type="checkbox" checked={allSelected} onChange={toggleAll}
                                             disabled={selectableIds.length === 0} aria-label="Select all unassigned payments" />
                                     </th>
-                                    {['Payment #', 'Vendor', 'Amount', 'Date', 'Cheque #'].map((h) => (
+                                    {['Payment #', 'Vendor No.', 'Vendor', 'Amount', 'Date', 'Cheque #'].map((h) => (
                                         <th key={h} style={th}>{h}</th>
                                     ))}
                                 </tr>
@@ -191,6 +192,7 @@ export default function ChequeRegisterPage() {
                                             />
                                         </td>
                                         <td style={{ ...td, fontWeight: 600, color: '#1e293b' }}>{p.payment_number}</td>
+                                        <td style={{ ...td, fontFamily: 'monospace', fontSize: '12px', color: '#64748b' }}>{p.vendor_code || '—'}</td>
                                         <td style={td}>{p.vendor_name || '—'}</td>
                                         <td style={{ ...td, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>{formatCurrency(p.total_amount)}</td>
                                         <td style={td}>{formatDate(p.payment_date)}</td>
@@ -205,7 +207,7 @@ export default function ChequeRegisterPage() {
                             <tfoot>
                                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
                                     <td style={td} />
-                                    <td style={{ ...td, fontWeight: 700 }} colSpan={2}>Total ({filtered.length})</td>
+                                    <td style={{ ...td, fontWeight: 700 }} colSpan={3}>Total ({filtered.length})</td>
                                     <td style={{ ...td, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' }}>{formatCurrency(String(total))}</td>
                                     <td style={td} colSpan={2} />
                                 </tr>

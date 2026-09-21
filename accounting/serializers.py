@@ -675,6 +675,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     bank_account_name = serializers.CharField(source='bank_account.name', read_only=True)
     vendor_name = serializers.CharField(source='vendor.name', read_only=True)
+    vendor_code = serializers.CharField(source='vendor.code', read_only=True, default='')
     currency_code = serializers.CharField(source='currency.code', read_only=True)
     # Read-only denormalisations that help the Outgoing Payment list show
     # "Payment #123 (PV-2026-0004)" without an extra lookup.
@@ -695,14 +696,14 @@ class PaymentSerializer(serializers.ModelSerializer):
             'id', 'payment_number', 'payment_date', 'payment_method',
             'reference_number', 'total_amount', 'currency', 'currency_code',
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
-            'vendor', 'vendor_name', 'is_advance', 'advance_type', 'advance_remaining',
+            'vendor', 'vendor_name', 'vendor_code', 'is_advance', 'advance_type', 'advance_remaining',
             'payment_voucher', 'payment_voucher_number',
             'cheque', 'cheque_number',
             'linked_vendor_advance_id',
             'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number', 'vendor_code']
 
     def get_linked_vendor_advance_id(self, obj):
         if not obj.is_advance:
