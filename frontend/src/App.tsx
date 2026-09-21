@@ -27,9 +27,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
-const PaymentBatchListPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchListPage'));
-const PaymentBatchDetailPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchDetailPage'));
-const BankLetterPrintPreview = lazy(() => import('./features/accounting/payments/batches/BankLetterPrintPreview'));
+const ChequeLetterPrintPreview = lazy(() => import('./features/accounting/ap/ChequeLetterPrintPreview'));
 const BankLetterSettingsPage = lazy(() => import('./features/settings/BankLetterSettings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
@@ -49,6 +47,7 @@ const APInvoicesRegister = lazy(() => import('./features/accounting/ap/APInvoice
 const ARManagement = lazy(() => import('./features/accounting/ar/ARManagement'));
 const IncomingPaymentsPage = lazy(() => import('./features/accounting/ar/IncomingPaymentsPage'));
 const OutgoingPaymentsPage = lazy(() => import('./features/accounting/ap/OutgoingPaymentsPage'));
+const ChequeRegisterPage = lazy(() => import('./features/accounting/ap/ChequeRegisterPage'));
 const PaymentReconciliationQueue = lazy(() => import('./features/accounting/ap/PaymentReconciliationQueue'));
 const FixedAssets = lazy(() => import('./features/accounting/assets/FixedAssets'));
 const FixedAssetForm = lazy(() => import('./features/accounting/assets/FixedAssetForm'));
@@ -482,17 +481,14 @@ function App() {
                         <Route path="/accounting/outgoing-payments" element={
                           <ProtectedRoute><OutgoingPaymentsPage /></ProtectedRoute>
                         } />
+                        <Route path="/accounting/cheque-register" element={
+                          <ProtectedRoute><ChequeRegisterPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/cheques/:id/letter" element={
+                          <ProtectedRoute><ChequeLetterPrintPreview /></ProtectedRoute>
+                        } />
                         <Route path="/accounting/payment-reconciliation-queue" element={
                           <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches" element={
-                          <ProtectedRoute><PaymentBatchListPage /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches/:id" element={
-                          <ProtectedRoute><PaymentBatchDetailPage /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches/:id/letter" element={
-                          <ProtectedRoute><BankLetterPrintPreview /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>

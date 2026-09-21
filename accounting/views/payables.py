@@ -1653,7 +1653,7 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     org_filter_field = 'allocations__invoice__mda'
 
     queryset = Payment.objects.all().select_related(
-        'vendor', 'bank_account', 'currency', 'journal_entry'
+        'vendor', 'bank_account', 'currency', 'journal_entry', 'cheque'
     ).prefetch_related('allocations').distinct()
     serializer_class = PaymentSerializer
     filterset_fields = ['status', 'payment_date', 'payment_method', 'is_advance', 'vendor']

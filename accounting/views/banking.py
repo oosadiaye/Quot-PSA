@@ -241,6 +241,107 @@ class CheckViewSet(viewsets.ModelViewSet):
     serializer_class = CheckSerializer
     filterset_fields = ['checkbook', 'status']
 
+    @action(detail=False, methods=['post'], url_path='create-from-payments')
+    def create_from_payments(self, request):
+        """Create ONE cheque covering several POSTED payments (Cheque Register).
+
+        Body: ``{check_number, date_issued, payment_ids: [...]}``. Links the
+        selected posted payments to a new ``Check`` via ``Payment.cheque``. No
+        GL posting — the payments already posted; this records the physical
+        cheque issued against them. Guards: payments must be Posted and not
+        already on a cheque, and the cheque number must be unique.
+        """
+        from decimal import Decimal
+        from django.db import transaction
+        from django.utils.dateparse import parse_date
+        from accounting.models.receivables import Payment, Check
+
+        check_number = (request.data.get('check_number') or '').strip()
+        if not check_number:
+            return Response({'error': 'Cheque number is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        raw_date = request.data.get('date_issued')
+        date_issued = parse_date(raw_date) if raw_date else None
+
+        ids = request.data.get('payment_ids') or []
+        if not ids:
+            return Response({'error': 'Select at least one payment for the cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        payments = list(Payment.objects.select_related('vendor', 'bank_account').filter(pk__in=ids))
+        if len(payments) != len(set(ids)):
+            return Response({'error': 'One or more selected payments were not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        for p in payments:
+            if p.status != 'Posted':
+                return Response({'error': f'Payment {p.payment_number} is not posted — only posted payments can go on a cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+            if p.cheque_id:
+                return Response({'error': f'Payment {p.payment_number} is already on a cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+        if Check.objects.filter(check_number=check_number).exists():
+            return Response({'error': f'Cheque number {check_number} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = sum((p.total_amount or Decimal('0') for p in payments), Decimal('0'))
+        vendor_ids = {p.vendor_id for p in payments}
+        payee = (payments[0].vendor.name if (len(vendor_ids) == 1 and payments[0].vendor) else 'Multiple')
+
+        with transaction.atomic():
+            check = Check.objects.create(
+                check_number=check_number,
+                date_issued=date_issued,
+                amount=amount,
+                payee=payee[:200],
+                status='Issued',
+            )
+            Payment.objects.filter(pk__in=[p.pk for p in payments]).update(cheque=check)
+        return Response(CheckSerializer(check).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def letter(self, request, pk=None):
+        """Cheque payment schedule in the bank-letter format — adopted from
+        Payment Batches (batching is now done in the Cheque Register). Returns
+        ``{batch, settings}`` in the exact shape ``BankLetterLayout`` consumes:
+        one payee line per payment the cheque covers, drawn on the payments'
+        bank account.
+        """
+        from accounting.models import BankLetterSettings
+        from accounting.serializers_payment_batch import BankLetterSettingsSerializer
+
+        check = self.get_object()
+        payments = list(check.payments.select_related('vendor', 'bank_account').all())
+        bank = next((p.bank_account for p in payments if p.bank_account_id), None)
+
+        lines = []
+        for i, p in enumerate(payments, start=1):
+            v = p.vendor
+            lines.append({
+                'id': p.id,
+                'sequence': i,
+                'payment': p.id,
+                'payment_number': p.payment_number,
+                'payee_name': (getattr(v, 'name', '') or p.reference_number or ''),
+                'payee_bank': getattr(v, 'bank_name', '') or '',
+                'payee_account': getattr(v, 'bank_account_number', '') or '',
+                'purpose': p.reference_number or '',
+                'amount': str(p.total_amount or 0),
+                'is_active_membership': True,
+            })
+        batch = {
+            'id': check.id,
+            'batch_number': check.check_number,
+            'batch_date': check.date_issued,
+            'addressee_bank_name': getattr(bank, 'name', '') or '',
+            'addressee_account_no': getattr(bank, 'account_number', '') or '',
+            'source_bank_account_name': getattr(bank, 'name', '') or '',
+            'status': check.status,
+            'total_amount': str(check.amount or 0),
+            'line_count': len(lines),
+            'lines': lines,
+            'notes': '',
+        }
+        return Response({
+            'batch': batch,
+            'settings': BankLetterSettingsSerializer(
+                BankLetterSettings.get_singleton(), context={'request': request},
+            ).data,
+        })
+
 
 def _post_bank_charges_journal(recon, amount, actor):
     """Post the bank-charges JV during recon completion.

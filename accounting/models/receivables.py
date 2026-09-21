@@ -172,6 +172,13 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
         help_text='PV that authorises this payment. Required when '
                   'require_pv_before_payment setting is True.',
     )
+    # The cheque covering this posted payment (Cheque Register). One cheque
+    # may cover several posted payments (bulk). SET_NULL so voiding/deleting a
+    # cheque just unlinks its payments rather than cascading.
+    cheque = models.ForeignKey(
+        'accounting.Check', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='payments',
+    )
     is_advance = models.BooleanField(default=False)
     advance_type = models.CharField(max_length=20, choices=ADVANCE_TYPE_CHOICES, blank=True, default='')
     advance_remaining = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -388,6 +395,8 @@ class Check(models.Model):
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     payee = models.CharField(max_length=200, blank=True, default='')
     date_issued = models.DateField(null=True, blank=True)
+    # When the payee physically collected the cheque (Cheque Register).
+    date_collected = models.DateField(null=True, blank=True)
     date_cleared = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, default='Issued')
 
