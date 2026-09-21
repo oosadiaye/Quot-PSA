@@ -1663,6 +1663,11 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         from accounting.permissions import RequiresMFA
         if self.action == 'post_payment':
             return [IsApprover('post'), RequiresMFA()]
+        # Clearing settles open items and posts a contra journal for the
+        # advance leg — gate it with the same posting authority as disbursement
+        # (no MFA: it moves no cash out of the TSA).
+        if self.action == 'clear_open_items':
+            return [IsApprover('post')]
         return super().get_permissions()
 
     def perform_destroy(self, instance):
@@ -1670,6 +1675,46 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
             raise ValidationError("Only draft payments can be deleted.")
         super().perform_destroy(instance)
+
+    @action(detail=False, methods=['get'], url_path='vendor-open-items')
+    def vendor_open_items(self, request):
+        """Read model for the Supplier History "Open Items" tab: the vendor's
+        open invoices plus the credit available to clear them (outstanding
+        advances + unapplied posted payments)."""
+        from procurement.models import Vendor
+        from accounting.services.vendor_open_items import open_items_for_vendor
+        vendor_id = request.query_params.get('vendor')
+        if not vendor_id:
+            return Response({'error': 'vendor query param is required.'}, status=400)
+        vendor = Vendor.objects.filter(pk=vendor_id).first()
+        if vendor is None:
+            return Response({'error': f'Vendor id={vendor_id} not found.'}, status=404)
+        return Response(open_items_for_vendor(vendor))
+
+    @action(detail=False, methods=['post'], url_path='clear-open-items')
+    def clear_open_items(self, request):
+        """SAP F-44 style open-item clearing: apply the vendor's outstanding
+        advances and unapplied payments against its open invoices (FIFO,
+        oldest-first). Pass ``invoice_ids`` to clear only those (manual mode);
+        omit them to auto-clear every open invoice."""
+        from procurement.models import Vendor
+        from accounting.services.vendor_open_items import (
+            clear_open_items as _clear_open_items,
+        )
+        vendor_id = request.data.get('vendor')
+        if not vendor_id:
+            return Response({'error': 'vendor is required.'}, status=400)
+        vendor = Vendor.objects.filter(pk=vendor_id).first()
+        if vendor is None:
+            return Response({'error': f'Vendor id={vendor_id} not found.'}, status=404)
+        invoice_ids = request.data.get('invoice_ids') or None
+        try:
+            result = _clear_open_items(
+                vendor, invoice_ids=invoice_ids, actor=request.user,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return Response({'error': str(exc)}, status=400)
+        return Response(result)
 
     @action(detail=True, methods=['get'])
     def proposed_entries(self, request, pk=None):
