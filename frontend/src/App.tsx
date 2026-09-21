@@ -27,9 +27,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
-const PaymentBatchListPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchListPage'));
-const PaymentBatchDetailPage = lazy(() => import('./features/accounting/payments/batches/PaymentBatchDetailPage'));
-const BankLetterPrintPreview = lazy(() => import('./features/accounting/payments/batches/BankLetterPrintPreview'));
+const ChequeLetterPrintPreview = lazy(() => import('./features/accounting/ap/ChequeLetterPrintPreview'));
 const BankLetterSettingsPage = lazy(() => import('./features/settings/BankLetterSettings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 // ``ImpersonationBanner`` and ``ImpersonationHandler`` stay eager —
@@ -486,17 +484,11 @@ function App() {
                         <Route path="/accounting/cheque-register" element={
                           <ProtectedRoute><ChequeRegisterPage /></ProtectedRoute>
                         } />
+                        <Route path="/accounting/cheques/:id/letter" element={
+                          <ProtectedRoute><ChequeLetterPrintPreview /></ProtectedRoute>
+                        } />
                         <Route path="/accounting/payment-reconciliation-queue" element={
                           <ProtectedRoute><PaymentReconciliationQueue /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches" element={
-                          <ProtectedRoute><PaymentBatchListPage /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches/:id" element={
-                          <ProtectedRoute><PaymentBatchDetailPage /></ProtectedRoute>
-                        } />
-                        <Route path="/accounting/payment-batches/:id/letter" element={
-                          <ProtectedRoute><BankLetterPrintPreview /></ProtectedRoute>
                         } />
                         <Route path="/accounting/fixed-assets" element={
                           <ProtectedRoute><FixedAssets /></ProtectedRoute>

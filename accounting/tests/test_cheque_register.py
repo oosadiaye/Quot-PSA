@@ -31,6 +31,15 @@ def _create_from_payments(user, **body):
     return CheckViewSet.as_view({'post': 'create_from_payments'})(req)
 
 
+def _letter(user, check_id):
+    from rest_framework.test import APIRequestFactory, force_authenticate
+    from accounting.views.banking import CheckViewSet
+    factory = APIRequestFactory()
+    req = factory.get(f'/accounting/checks/{check_id}/letter/')
+    force_authenticate(req, user=user)
+    return CheckViewSet.as_view({'get': 'letter'})(req, pk=check_id)
+
+
 @pytest.mark.django_db
 class TestChequeRegister:
 
@@ -85,3 +94,39 @@ class TestChequeRegister:
         )
         assert r2.status_code == 400
         assert 'already exists' in str(r2.data).lower()
+
+    def test_letter_returns_bank_letter_envelope(self, superuser):
+        """The ``letter`` action returns ``{batch, settings}`` in the shape the
+        frontend ``BankLetterLayout`` consumes — one payee line per covered
+        payment — so the Cheque Register can print a bank instruction letter
+        (adopted from the retired Payment Batches surface)."""
+        from decimal import Decimal
+        from accounting.models.receivables import Check, Payment
+
+        p1 = Payment.objects.create(
+            payment_number=f'PAY-{uuid.uuid4().hex[:8]}', payment_method='Wire',
+            total_amount=Decimal('1000.00'), status='Posted', reference_number='INV-A',
+        )
+        p2 = Payment.objects.create(
+            payment_number=f'PAY-{uuid.uuid4().hex[:8]}', payment_method='Wire',
+            total_amount=Decimal('2500.00'), status='Posted', reference_number='INV-B',
+        )
+        created = _create_from_payments(
+            superuser, check_number='CHQ-LTR', date_issued='2026-03-01',
+            payment_ids=[p1.id, p2.id],
+        )
+        assert created.status_code == 201, getattr(created, 'data', created)
+        chk = Check.objects.get(check_number='CHQ-LTR')
+
+        resp = _letter(superuser, chk.id)
+        assert resp.status_code == 200, getattr(resp, 'data', resp)
+        assert 'batch' in resp.data and 'settings' in resp.data
+        batch = resp.data['batch']
+        assert batch['batch_number'] == 'CHQ-LTR'
+        assert batch['total_amount'] == '3500.00'      # sum of the two payments
+        assert batch['line_count'] == 2
+        assert len(batch['lines']) == 2
+        # Each covered payment becomes one payee line; payee_name falls back to
+        # the payment reference when the payment carries no vendor.
+        payee_names = {line['payee_name'] for line in batch['lines']}
+        assert payee_names == {'INV-A', 'INV-B'}

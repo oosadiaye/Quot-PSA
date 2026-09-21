@@ -148,7 +148,6 @@ const menuItems: MenuItem[] = [
             // Posted payments + the cheques issued against them; select posted
             // payment lines and create a cheque (number + date) covering them.
             { name: 'Cheque Register', path: '/accounting/cheque-register', icon: BookOpen },
-            { name: 'Payment Batches', path: '/accounting/payment-batches', icon: Layers },
             // H2 follow-up (WS6) — operator surface for cascade failures.
             // Sits next to Outgoing Payments because the failures come
             // from posted-payment cascades; this is the same operator

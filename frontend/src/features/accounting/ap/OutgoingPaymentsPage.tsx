@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatDate } from '@/utils/date';
-import { useNavigate } from 'react-router-dom';
 import {
     ArrowUpRight, Play, Trash2, Plus, CheckCircle2, X, AlertTriangle, Eye, BookOpen,
     Banknote, CreditCard,
@@ -723,17 +722,12 @@ function ProposedEntries({ paymentId }: { paymentId: number }) {
 // ─── main page ────────────────────────────────────────────────────────────────
 export default function OutgoingPaymentsPage() {
     const { formatCurrency } = useCurrency();
-    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<ActiveTab>('payments');
     // Type filter for the main Payments (working) table. 'all' shows every
     // non-posted row; otherwise narrows to a single display type (see
     // ``typeOf`` below).
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-    // Payments selected for a bank payment batch. Only ``Posted`` rows are
-    // selectable (see the checkbox column) — the batch service rejects
-    // anything that hasn't posted to GL yet.
-    const [selectedPaymentIds, setSelectedPaymentIds] = useState<number[]>([]);
 
     // Payment forms
     const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -1150,24 +1144,8 @@ export default function OutgoingPaymentsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Select rows to add to a bank batch, or open a row to view its journal entry.</p>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry. Cheques are issued from the Cheque Register.</p>
                 </div>
-                {/* Batching lives here now: every posted payment is eligible for
-                    a bank payment batch, so the selection checkboxes + this
-                    button moved off the working Payments tab onto this register. */}
-                <button
-                    disabled={selectedPaymentIds.length === 0}
-                    onClick={() => navigate('/accounting/payment-batches', {
-                        state: { presetPaymentIds: selectedPaymentIds },
-                    })}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '6px',
-                        padding: '9px 18px', border: 'none', borderRadius: '9px',
-                        background: selectedPaymentIds.length === 0 ? '#e2e8f0' : '#1e293b', color: '#fff',
-                        cursor: selectedPaymentIds.length === 0 ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600,
-                    }}>
-                    Add to Batch ({selectedPaymentIds.length})
-                </button>
             </div>
             {loadingPayments ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
@@ -1181,7 +1159,6 @@ export default function OutgoingPaymentsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                             <tr style={{ background: '#f8fafc' }}>
-                                <th style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', width: '32px' }} />
                                 {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
                                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
@@ -1190,20 +1167,6 @@ export default function OutgoingPaymentsPage() {
                         <tbody>
                             {postedPayments.map((pay) => (
                                 <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px' }}>
-                                        {/* Every posted payment is batchable — the batch
-                                            service only rejects non-posted rows, and this
-                                            register shows posted rows exclusively, so the
-                                            checkbox is enabled for all of them. */}
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedPaymentIds.includes(pay.id)}
-                                            onChange={(e) => setSelectedPaymentIds(prev => (
-                                                e.target.checked ? [...prev, pay.id] : prev.filter(id => id !== pay.id)
-                                            ))}
-                                            aria-label={`Select payment ${pay.payment_number} for batch`}
-                                        />
-                                    </td>
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
@@ -1232,7 +1195,7 @@ export default function OutgoingPaymentsPage() {
                         </tbody>
                         <tfoot>
                             <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                <td colSpan={4} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
+                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
                                 <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
                                 <td colSpan={4} />
                             </tr>

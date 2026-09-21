@@ -292,6 +292,56 @@ class CheckViewSet(viewsets.ModelViewSet):
             Payment.objects.filter(pk__in=[p.pk for p in payments]).update(cheque=check)
         return Response(CheckSerializer(check).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['get'])
+    def letter(self, request, pk=None):
+        """Cheque payment schedule in the bank-letter format — adopted from
+        Payment Batches (batching is now done in the Cheque Register). Returns
+        ``{batch, settings}`` in the exact shape ``BankLetterLayout`` consumes:
+        one payee line per payment the cheque covers, drawn on the payments'
+        bank account.
+        """
+        from accounting.models import BankLetterSettings
+        from accounting.serializers_payment_batch import BankLetterSettingsSerializer
+
+        check = self.get_object()
+        payments = list(check.payments.select_related('vendor', 'bank_account').all())
+        bank = next((p.bank_account for p in payments if p.bank_account_id), None)
+
+        lines = []
+        for i, p in enumerate(payments, start=1):
+            v = p.vendor
+            lines.append({
+                'id': p.id,
+                'sequence': i,
+                'payment': p.id,
+                'payment_number': p.payment_number,
+                'payee_name': (getattr(v, 'name', '') or p.reference_number or ''),
+                'payee_bank': getattr(v, 'bank_name', '') or '',
+                'payee_account': getattr(v, 'bank_account_number', '') or '',
+                'purpose': p.reference_number or '',
+                'amount': str(p.total_amount or 0),
+                'is_active_membership': True,
+            })
+        batch = {
+            'id': check.id,
+            'batch_number': check.check_number,
+            'batch_date': check.date_issued,
+            'addressee_bank_name': getattr(bank, 'name', '') or '',
+            'addressee_account_no': getattr(bank, 'account_number', '') or '',
+            'source_bank_account_name': getattr(bank, 'name', '') or '',
+            'status': check.status,
+            'total_amount': str(check.amount or 0),
+            'line_count': len(lines),
+            'lines': lines,
+            'notes': '',
+        }
+        return Response({
+            'batch': batch,
+            'settings': BankLetterSettingsSerializer(
+                BankLetterSettings.get_singleton(), context={'request': request},
+            ).data,
+        })
+
 
 def _post_bank_charges_journal(recon, amount, actor):
     """Post the bank-charges JV during recon completion.

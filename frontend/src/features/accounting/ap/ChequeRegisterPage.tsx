@@ -6,7 +6,7 @@
  * captures the payment detail (vendor, amount, reference).
  */
 import { useMemo, useState } from 'react';
-import { BookOpen, Search, Plus } from 'lucide-react';
+import { BookOpen, Search, Plus, Printer } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDate } from '@/utils/date';
 import { usePayments } from '../hooks/useAccountingEnhancements';
@@ -213,9 +213,24 @@ export default function ChequeRegisterPage() {
                                         <td style={td}>{p.vendor_name || '—'}</td>
                                         <td style={{ ...td, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>{formatCurrency(p.total_amount)}</td>
                                         <td style={td}>
-                                            {p.cheque_number
-                                                ? <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{p.cheque_number}</span>
-                                                : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                            {p.cheque_number ? (
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{p.cheque_number}</span>
+                                                    <button
+                                                        type="button"
+                                                        title="Print bank letter for this cheque"
+                                                        aria-label={`Print bank letter for cheque ${p.cheque_number}`}
+                                                        onClick={() => window.open(`/accounting/cheques/${p.cheque}/letter`, '_blank', 'noopener')}
+                                                        style={{
+                                                            display: 'inline-flex', alignItems: 'center', padding: '3px', border: 'none',
+                                                            background: 'transparent', color: '#0f766e', cursor: 'pointer',
+                                                        }}>
+                                                        <Printer size={14} />
+                                                    </button>
+                                                </span>
+                                            ) : (
+                                                <span style={{ color: '#cbd5e1' }}>—</span>
+                                            )}
                                         </td>
                                         <td style={td}>
                                             {!p.cheque ? (

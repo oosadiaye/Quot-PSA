@@ -98,6 +98,24 @@ export function useBatchLetter(id: number | undefined) {
   });
 }
 
+/**
+ * Bank instruction letter for a single cheque in the Cheque Register.
+ *
+ * The `checks/{id}/letter/` endpoint adapts the Check (and its covered
+ * payments) into the same `{ batch, settings }` envelope the batch letter
+ * used, so the one `BankLetterLayout` template renders both without change.
+ */
+export function useChequeLetter(id: number | undefined) {
+  return useQuery({
+    queryKey: ['cheque-letter', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data } = await apiClient.get(`/accounting/checks/${id}/letter/`);
+      return data as { batch: PaymentBatch; settings: BankLetterSettings };
+    },
+  });
+}
+
 function useBatchMutation<TVars>(fn: (vars: TVars) => Promise<PaymentBatch>) {
   const qc = useQueryClient();
   return useMutation({
