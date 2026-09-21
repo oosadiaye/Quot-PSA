@@ -15,6 +15,7 @@ import {
     FileText,
     Receipt,
     Building,
+    Building2,
     List,
     CreditCard,
     ArrowRightLeft,
@@ -106,6 +107,9 @@ const menuItems: MenuItem[] = [
             { name: 'Journal Entries', path: '/accounting', icon: FileText },
             { name: 'Revenue Entries (IGR)', path: '/accounting/revenue-collections', icon: Banknote },
             { name: 'Chart of Accounts', path: '/accounting/coa', icon: List },
+            // Same vendor master as Procurement → Suppliers/Vendor; surfaced here
+            // so suppliers can be created from Accounting as well as Procurement.
+            { name: 'Suppliers/Vendor', path: '/procurement/vendors', icon: Building2 },
             { name: 'AP Invoice', path: '/accounting/ap', icon: Receipt },
             { name: 'Vendor Down Payment', path: '/accounting/advance-requests/new', icon: HandCoins },
             { name: 'AP Invoices Register', path: '/accounting/ap-invoices', icon: Layers },
@@ -184,7 +188,7 @@ const menuItems: MenuItem[] = [
             { name: 'Purchase Orders', path: '/procurement/orders', icon: ShoppingCart },
             { name: 'Goods Received Notes', path: '/procurement/grn', icon: Package },
             { name: 'Invoice Verification', path: '/procurement/matching', icon: CheckCircle },
-            { name: 'Add Suppliers', path: '/procurement/vendors', icon: Building },
+            { name: 'Suppliers/Vendor', path: '/procurement/vendors', icon: Building },
             { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
             { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
             // Advisory: orders that clear a ceiling individually but not
