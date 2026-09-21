@@ -683,6 +683,7 @@ class PaymentSerializer(serializers.ModelSerializer):
     # Cheque Register: the cheque covering this posted payment (one cheque may
     # cover several payments). Blank until a cheque is created for it.
     cheque_number = serializers.CharField(source='cheque.check_number', read_only=True, default='')
+    cheque_collected_date = serializers.DateField(source='cheque.date_collected', read_only=True, default=None)
     # When ``is_advance=True`` and the Payment has been posted, this is
     # the id of the linked VendorAdvance Special-GL ledger row. The
     # frontend uses it to call the F-54 ``/clear/`` endpoint without a
@@ -698,12 +699,12 @@ class PaymentSerializer(serializers.ModelSerializer):
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
             'vendor', 'vendor_name', 'vendor_code', 'is_advance', 'advance_type', 'advance_remaining',
             'payment_voucher', 'payment_voucher_number',
-            'cheque', 'cheque_number',
+            'cheque', 'cheque_number', 'cheque_collected_date',
             'linked_vendor_advance_id',
             'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number', 'vendor_code']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number', 'cheque_collected_date', 'vendor_code']
 
     def get_linked_vendor_advance_id(self, obj):
         if not obj.is_advance:
@@ -1127,7 +1128,7 @@ class CheckSerializer(serializers.ModelSerializer):
         model = Check
         fields = [
             'id', 'checkbook', 'check_number', 'payment', 'amount',
-            'payee', 'date_issued', 'date_cleared', 'status', 'payment_count',
+            'payee', 'date_issued', 'date_collected', 'date_cleared', 'status', 'payment_count',
         ]
         read_only_fields = ['id', 'payment_count']
 

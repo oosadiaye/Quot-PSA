@@ -24,7 +24,9 @@ interface PostedPaymentRow {
     advance_type?: string;
     payment_date: string;
     total_amount: string;
+    cheque?: number | null;
     cheque_number?: string;
+    cheque_collected_date?: string | null;
     status: string;
 }
 
@@ -47,6 +49,8 @@ export default function ChequeRegisterPage() {
     const [chequeNumber, setChequeNumber] = useState('');
     const [chequeDate, setChequeDate] = useState(todayISO());
     const [note, setNote] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+    // Draft collection dates keyed by cheque id, for the inline "Date Collected" editor.
+    const [collectDraft, setCollectDraft] = useState<Record<number, string>>({});
 
     const flash = (msg: string, type: 'success' | 'error') => {
         setNote({ msg, type });
@@ -98,6 +102,18 @@ export default function ChequeRegisterPage() {
             const e = err as { response?: { data?: { error?: string } } };
             flash(e?.response?.data?.error || 'Failed to create cheque.', 'error');
         },
+    });
+
+    const markCollected = useMutation({
+        mutationFn: async ({ chequeId, date }: { chequeId: number; date: string }) => {
+            const { data: res } = await apiClient.patch(`/accounting/checks/${chequeId}/`, { date_collected: date });
+            return res;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+            flash('Cheque collection date saved.', 'success');
+        },
+        onError: () => flash('Failed to save collection date.', 'error'),
     });
 
     return (
@@ -174,7 +190,7 @@ export default function ChequeRegisterPage() {
                                         <input type="checkbox" checked={allSelected} onChange={toggleAll}
                                             disabled={selectableIds.length === 0} aria-label="Select all unassigned payments" />
                                     </th>
-                                    {['Payment #', 'Vendor No.', 'Vendor', 'Amount', 'Date', 'Cheque #'].map((h) => (
+                                    {['Date', 'Payment #', 'Vendor No.', 'Vendor', 'Amount', 'Cheque #', 'Date Collected'].map((h) => (
                                         <th key={h} style={th}>{h}</th>
                                     ))}
                                 </tr>
@@ -191,15 +207,43 @@ export default function ChequeRegisterPage() {
                                                 aria-label={`Select ${p.payment_number} for a cheque`}
                                             />
                                         </td>
+                                        <td style={td}>{formatDate(p.payment_date)}</td>
                                         <td style={{ ...td, fontWeight: 600, color: '#1e293b' }}>{p.payment_number}</td>
                                         <td style={{ ...td, fontFamily: 'monospace', fontSize: '12px', color: '#64748b' }}>{p.vendor_code || '—'}</td>
                                         <td style={td}>{p.vendor_name || '—'}</td>
                                         <td style={{ ...td, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>{formatCurrency(p.total_amount)}</td>
-                                        <td style={td}>{formatDate(p.payment_date)}</td>
                                         <td style={td}>
                                             {p.cheque_number
                                                 ? <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{p.cheque_number}</span>
                                                 : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                        </td>
+                                        <td style={td}>
+                                            {!p.cheque ? (
+                                                <span style={{ color: '#cbd5e1' }}>—</span>
+                                            ) : p.cheque_collected_date ? (
+                                                formatDate(p.cheque_collected_date)
+                                            ) : (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <input
+                                                        type="date"
+                                                        value={collectDraft[p.cheque as number] || ''}
+                                                        onChange={(e) => setCollectDraft((d) => ({ ...d, [p.cheque as number]: e.target.value }))}
+                                                        aria-label={`Collection date for cheque ${p.cheque_number || ''}`}
+                                                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '12px' }}
+                                                    />
+                                                    <button
+                                                        disabled={!collectDraft[p.cheque as number] || markCollected.isPending}
+                                                        onClick={() => markCollected.mutate({ chequeId: p.cheque as number, date: collectDraft[p.cheque as number] })}
+                                                        style={{
+                                                            padding: '4px 8px', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                                                            background: (!collectDraft[p.cheque as number] || markCollected.isPending) ? '#e2e8f0' : '#0f766e',
+                                                            color: (!collectDraft[p.cheque as number] || markCollected.isPending) ? '#94a3b8' : '#fff',
+                                                            cursor: (!collectDraft[p.cheque as number] || markCollected.isPending) ? 'not-allowed' : 'pointer',
+                                                        }}>
+                                                        Save
+                                                    </button>
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -207,7 +251,7 @@ export default function ChequeRegisterPage() {
                             <tfoot>
                                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
                                     <td style={td} />
-                                    <td style={{ ...td, fontWeight: 700 }} colSpan={3}>Total ({filtered.length})</td>
+                                    <td style={{ ...td, fontWeight: 700 }} colSpan={4}>Total ({filtered.length})</td>
                                     <td style={{ ...td, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' }}>{formatCurrency(String(total))}</td>
                                     <td style={td} colSpan={2} />
                                 </tr>
