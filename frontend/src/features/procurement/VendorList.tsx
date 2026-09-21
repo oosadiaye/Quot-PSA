@@ -704,7 +704,7 @@ const VendorList = () => {
                                                 {vendor.name}
                                                 {(!vendor.bank_name || !vendor.bank_account_number) && (
                                                     <span
-                                                        title="Add bank name and 10-digit NUBAN before this vendor can be paid in a bank payment batch."
+                                                        title="Add bank name and 10-digit NUBAN before this vendor can be paid by cheque."
                                                         style={{
                                                             marginLeft: 8, padding: '1px 6px', borderRadius: 4,
                                                             background: '#fef3c7', color: '#92400e',
