@@ -241,6 +241,57 @@ class CheckViewSet(viewsets.ModelViewSet):
     serializer_class = CheckSerializer
     filterset_fields = ['checkbook', 'status']
 
+    @action(detail=False, methods=['post'], url_path='create-from-payments')
+    def create_from_payments(self, request):
+        """Create ONE cheque covering several POSTED payments (Cheque Register).
+
+        Body: ``{check_number, date_issued, payment_ids: [...]}``. Links the
+        selected posted payments to a new ``Check`` via ``Payment.cheque``. No
+        GL posting — the payments already posted; this records the physical
+        cheque issued against them. Guards: payments must be Posted and not
+        already on a cheque, and the cheque number must be unique.
+        """
+        from decimal import Decimal
+        from django.db import transaction
+        from django.utils.dateparse import parse_date
+        from accounting.models.receivables import Payment, Check
+
+        check_number = (request.data.get('check_number') or '').strip()
+        if not check_number:
+            return Response({'error': 'Cheque number is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        raw_date = request.data.get('date_issued')
+        date_issued = parse_date(raw_date) if raw_date else None
+
+        ids = request.data.get('payment_ids') or []
+        if not ids:
+            return Response({'error': 'Select at least one payment for the cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        payments = list(Payment.objects.select_related('vendor', 'bank_account').filter(pk__in=ids))
+        if len(payments) != len(set(ids)):
+            return Response({'error': 'One or more selected payments were not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        for p in payments:
+            if p.status != 'Posted':
+                return Response({'error': f'Payment {p.payment_number} is not posted — only posted payments can go on a cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+            if p.cheque_id:
+                return Response({'error': f'Payment {p.payment_number} is already on a cheque.'}, status=status.HTTP_400_BAD_REQUEST)
+        if Check.objects.filter(check_number=check_number).exists():
+            return Response({'error': f'Cheque number {check_number} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = sum((p.total_amount or Decimal('0') for p in payments), Decimal('0'))
+        vendor_ids = {p.vendor_id for p in payments}
+        payee = (payments[0].vendor.name if (len(vendor_ids) == 1 and payments[0].vendor) else 'Multiple')
+
+        with transaction.atomic():
+            check = Check.objects.create(
+                check_number=check_number,
+                date_issued=date_issued,
+                amount=amount,
+                payee=payee[:200],
+                status='Issued',
+            )
+            Payment.objects.filter(pk__in=[p.pk for p in payments]).update(cheque=check)
+        return Response(CheckSerializer(check).data, status=status.HTTP_201_CREATED)
+
 
 def _post_bank_charges_journal(recon, amount, actor):
     """Post the bank-charges JV during recon completion.

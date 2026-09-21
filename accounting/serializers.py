@@ -679,6 +679,9 @@ class PaymentSerializer(serializers.ModelSerializer):
     # Read-only denormalisations that help the Outgoing Payment list show
     # "Payment #123 (PV-2026-0004)" without an extra lookup.
     payment_voucher_number = serializers.CharField(source='payment_voucher.voucher_number', read_only=True, default='')
+    # Cheque Register: the cheque covering this posted payment (one cheque may
+    # cover several payments). Blank until a cheque is created for it.
+    cheque_number = serializers.CharField(source='cheque.check_number', read_only=True, default='')
     # When ``is_advance=True`` and the Payment has been posted, this is
     # the id of the linked VendorAdvance Special-GL ledger row. The
     # frontend uses it to call the F-54 ``/clear/`` endpoint without a
@@ -694,11 +697,12 @@ class PaymentSerializer(serializers.ModelSerializer):
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
             'vendor', 'vendor_name', 'is_advance', 'advance_type', 'advance_remaining',
             'payment_voucher', 'payment_voucher_number',
+            'cheque', 'cheque_number',
             'linked_vendor_advance_id',
             'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number']
 
     def get_linked_vendor_advance_id(self, obj):
         if not obj.is_advance:
@@ -1114,13 +1118,20 @@ class CheckbookSerializer(serializers.ModelSerializer):
 
 
 class CheckSerializer(serializers.ModelSerializer):
+    # Number of posted payments this cheque covers (Cheque Register — one
+    # cheque may cover several payments via Payment.cheque).
+    payment_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Check
         fields = [
             'id', 'checkbook', 'check_number', 'payment', 'amount',
-            'payee', 'date_issued', 'date_cleared', 'status',
+            'payee', 'date_issued', 'date_cleared', 'status', 'payment_count',
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'payment_count']
+
+    def get_payment_count(self, obj):
+        return obj.payments.count()
 
 
 class BankReconciliationSerializer(serializers.ModelSerializer):
