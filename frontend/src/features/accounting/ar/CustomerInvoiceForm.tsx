@@ -13,6 +13,8 @@ import { useToast } from '../../../context/ToastContext';
 import { parsePostingError } from '../utils/parsePostingError';
 import AccountingLayout from '../AccountingLayout';
 import PageHeader from '../../../components/PageHeader';
+import { useGlCodingGuard } from '../../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../../components/GlCodingWarningModal';
 import '../styles/glassmorphism.css';
 
 type TabType = 'invoice' | 'credit_memo';
@@ -70,6 +72,17 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
         () => (dims?.accounts as RefAccount[] | undefined)?.filter((a: RefAccount) => a.account_type === 'Income') ?? [],
         [dims?.accounts]
     );
+
+    // account id → {code, name} for the GL coding check (account vs description).
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        ((dims?.accounts as RefAccount[] | undefined) ?? []).forEach((a) => m.set(String(a.id), {
+            code: String(a.code ?? a.account_code ?? ''),
+            name: String(a.name ?? a.account_name ?? ''),
+        }));
+        return m;
+    }, [dims?.accounts]);
+    const gl = useGlCodingGuard();
 
     // Totals — safe integer-cent arithmetic
     const { subtotal, taxTotal, whtTotal, grandTotal } = useMemo(() => {
@@ -148,6 +161,16 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
             payload = fd;
         }
 
+        // Advisory GL-coding check: account vs line description. Skips
+        // description-less lines.
+        const glCheckLines = lines.map((l) => {
+            const meta = accountMeta.get(l.account);
+            return { name: meta?.name || '', code: meta?.code || '', description: l.description || '' };
+        });
+        gl.guard(glCheckLines, () => doSubmit(payload));
+    };
+
+    const doSubmit = async (payload: any) => {
         try {
             await createInvoice.mutateAsync(payload);
             onSuccess();
@@ -195,6 +218,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
 
     return (
         <form onSubmit={handleSubmit} style={{ height: '100%' }}>
+            <GlCodingWarningModal {...gl.modalProps} />
 
             {/* ── PAGE HEADER ──────────────────────────────────────── */}
             <PageHeader
@@ -209,7 +233,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                             <X size={18} /> Cancel
                         </button>
                         <button type="submit" className="btn btn-primary"
-                            disabled={createInvoice.isPending || !isBalanced}
+                            disabled={createInvoice.isPending || !isBalanced || gl.checking}
                             title={!isBalanced ? 'Add line amounts before saving' : undefined}
                             style={{
                                 padding: '0.45rem 1.25rem', fontSize: 'var(--text-sm)', fontWeight: 600,

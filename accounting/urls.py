@@ -332,6 +332,12 @@ urlpatterns += [
     path('treasury/mark-reconciled/', mark_reconciled, name='mark-reconciled'),
 ]
 
+# ── GL coding check — advisory description-vs-account warning ─────────
+from .views.gl_coding_check_view import GlCodingCheckView
+urlpatterns += [
+    path('gl-coding-check/', GlCodingCheckView.as_view(), name='gl-coding-check'),
+]
+
 # ── S7 — Statutory exporters (FIRS WHT, PAYE) ────────────────────────
 # ── S8 — PENCOM, NSITF, NHIA monthly + ITF annual ────────────────────
 # ── S9 — OAGF Monthly Financial Report + FIRS VAT + index ────────────

@@ -12,6 +12,8 @@ import SearchableSelect from '../../components/SearchableSelect';
 import { safeAdd, safeMultiply } from '../accounting/utils/currency';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
+import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../components/GlCodingWarningModal';
 import '../accounting/styles/glassmorphism.css';
 
 type LineType = 'expense' | 'asset' | 'item';
@@ -56,6 +58,17 @@ const PurchaseRequisitionForm = () => {
     const { data: mdas } = useMDAs({ is_active: true });
     const { data: expenseAccounts } = useAccounts({ account_type: 'Expense' });
     const { isEnabled: dimensionsEnabled } = useIsDimensionsEnabled();
+
+    // account id → {code, name} for the GL coding check (account vs item description).
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        ((expenseAccounts as any[]) ?? []).forEach((a) => m.set(String(a.id), {
+            code: String(a.code ?? a.account_code ?? ''),
+            name: String(a.name ?? a.account_name ?? ''),
+        }));
+        return m;
+    }, [expenseAccounts]);
+    const gl = useGlCodingGuard();
     const { formatCurrency, currencySymbol } = useCurrency();
     const createPR = useCreatePR();
     const updatePR = useUpdatePR();
@@ -167,6 +180,16 @@ const PurchaseRequisitionForm = () => {
             } : {}),
         };
 
+        // Advisory GL-coding check: each expense line's account vs its item
+        // description. Item/asset lines (no GL account) are skipped.
+        const glCheckLines = lines.map((l) => {
+            const meta = accountMeta.get(l.account);
+            return { name: meta?.name || '', code: meta?.code || '', description: l.item_description || '' };
+        });
+        gl.guard(glCheckLines, () => doSubmit(payload));
+    };
+
+    const doSubmit = async (payload: any) => {
         try {
             if (isEditMode && editId) {
                 const result = await updatePR.mutateAsync({ id: Number(editId), data: payload });
@@ -220,6 +243,7 @@ const PurchaseRequisitionForm = () => {
     return (
         <AccountingLayout>
             <form onSubmit={handleSubmit}>
+                <GlCodingWarningModal {...gl.modalProps} />
                 <PageHeader
                     title={isEditMode ? 'Edit Purchase Requisition' : 'New Purchase Requisition'}
                     subtitle={isEditMode ? 'Update the requisition details below.' : 'Create a purchase requisition with MDA and dimension tagging.'}
@@ -231,7 +255,7 @@ const PurchaseRequisitionForm = () => {
                                 style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', color: 'white', border: '1.5px solid rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.12)' }}>
                                 Cancel
                             </button>
-                            <button type="submit" className="btn btn-primary" disabled={(isEditMode ? updatePR.isPending : createPR.isPending) || lines.length === 0}
+                            <button type="submit" className="btn btn-primary" disabled={(isEditMode ? updatePR.isPending : createPR.isPending) || lines.length === 0 || gl.checking}
                                 style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', background: 'rgba(255,255,255,0.22)', color: 'white', border: '1.5px solid rgba(255,255,255,0.5)' }}>
                                 {isEditMode ? 'Save Changes' : 'Save Requisition'}
                             </button>

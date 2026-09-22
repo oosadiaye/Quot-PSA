@@ -20,6 +20,8 @@ import PageHeader from '../../../components/PageHeader';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
 import apiClient from '../../../api/client';
+import { useGlCodingGuard } from '../../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../../components/GlCodingWarningModal';
 import '../styles/glassmorphism.css';
 
 type TabType = 'invoice' | 'credit_memo';
@@ -284,6 +286,16 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
     const geoOptions      = useMemo(() => toCodeOptions((dims?.geos ?? []) as Coded[]),      [dims?.geos]);
 
     const allAccountOptions = useMemo(() => toCodeOptions(allAccounts as Coded[]), [allAccounts]);
+    // account id → {code, name} for the GL coding check (account vs line description).
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        (allAccounts as any[]).forEach((a) => m.set(String(a.id), {
+            code: a.code ?? a.account_code ?? '',
+            name: a.name ?? a.account_name ?? '',
+        }));
+        return m;
+    }, [allAccounts]);
+    const gl = useGlCodingGuard();
 
     // Account options are uniform across line types now — line_type is
     // a cosmetic tag (backend ignores it), so any active GL is valid.
@@ -497,6 +509,16 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
             payload = fd;
         }
 
+        // Advisory GL-coding check: compare each line's account against its
+        // description before saving. Empty-description lines are skipped.
+        const glCheckLines = lines.map((l) => {
+            const meta = accountMeta.get(l.account);
+            return { name: meta?.name || '', code: meta?.code || '', description: l.description || '' };
+        });
+        gl.guard(glCheckLines, () => doSubmit(payload));
+    };
+
+    const doSubmit = async (payload: any) => {
         try {
             // Step 1 — Save (create or update). Backend creates a
             // Draft invoice (or leaves the existing Draft alone).
@@ -721,6 +743,7 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
 
     return (
         <form onSubmit={handleSubmit} style={{ height: '100%' }}>
+            <GlCodingWarningModal {...gl.modalProps} />
 
             {/* ── Gradient page header + tabs + actions ───────────── */}
             <PageHeader
@@ -778,7 +801,7 @@ const VendorInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess, editingInvoic
                             <Eye size={18} /> Preview Entry
                         </button>
                         <button type="submit" className="btn btn-primary"
-                            disabled={createInvoice.isPending || updateInvoice.isPending || !isBalanced || anyLineBlocked}
+                            disabled={createInvoice.isPending || updateInvoice.isPending || !isBalanced || anyLineBlocked || gl.checking}
                             title={
                                 anyLineBlocked ? 'One or more lines are blocked by a strict budget rule — fix the line(s) flagged in red below.' :
                                 !isBalanced ? 'Debit and credit must be equal before saving' : undefined
