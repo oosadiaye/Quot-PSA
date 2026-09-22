@@ -13,6 +13,8 @@ import { useToast } from '../../context/ToastContext';
 import { safeAdd, safeMultiply } from '../accounting/utils/currency';
 import { parsePostingError } from '../accounting/utils/parsePostingError';
 import AccountingLayout from '../accounting/AccountingLayout';
+import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../components/GlCodingWarningModal';
 import PageHeader from '../../components/PageHeader';
 import '../accounting/styles/glassmorphism.css';
 
@@ -239,6 +241,17 @@ const POForm = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [header.tax_code, taxCodesList]);
 
+    // account id → {code, name} for the GL coding check (account vs item description).
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        ((dims?.accounts as any[]) ?? []).forEach((a) => m.set(String(a.id), {
+            code: String(a.code ?? a.account_code ?? ''),
+            name: String(a.name ?? a.account_name ?? ''),
+        }));
+        return m;
+    }, [dims?.accounts]);
+    const gl = useGlCodingGuard();
+
     const addLine = () => setLines([...lines, { id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '', product_type: '', product_category: '' }]);
     const removeLine = (index: number) => setLines(lines.filter((_, i) => i !== index));
 
@@ -296,6 +309,15 @@ const POForm = () => {
             } : {}),
         };
 
+        // Advisory GL-coding check: each line's account vs its item description.
+        const glCheckLines = lines.map((l) => {
+            const meta = accountMeta.get(l.account);
+            return { name: meta?.name || '', code: meta?.code || '', description: l.item_description || '' };
+        });
+        gl.guard(glCheckLines, () => doSubmit(payload));
+    };
+
+    const doSubmit = async (payload: any) => {
         try {
             const result = await createPO.mutateAsync(payload);
             setCreatedPO({ po_number: result.po_number, id: result.id });
@@ -347,6 +369,7 @@ const POForm = () => {
     return (
         <AccountingLayout>
             <form onSubmit={handleSubmit}>
+                <GlCodingWarningModal {...gl.modalProps} />
                 <PageHeader
                     title={
                         existingPO
@@ -384,7 +407,7 @@ const POForm = () => {
                                 Cancel
                             </button>
                             {!existingPO && (
-                                <button type="submit" className="btn btn-primary" disabled={createPO.isPending || lines.length === 0}
+                                <button type="submit" className="btn btn-primary" disabled={createPO.isPending || lines.length === 0 || gl.checking}
                                     style={{ padding: '0.6rem 1.5rem', fontWeight: 600, borderRadius: '8px', background: 'rgba(255,255,255,0.18)', color: 'white', border: '1px solid rgba(255,255,255,0.25)' }}>
                                     {createPO.isPending ? 'Creating...' : sourcePR ? 'Create PO from PR' : 'Create Purchase Order'}
                                 </button>

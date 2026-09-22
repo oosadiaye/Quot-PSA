@@ -18,6 +18,8 @@ import PageHeader from '../../components/PageHeader';
 import { Save, X, Plus, Trash2, AlertCircle, Download, Upload, FileUp, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import AmountInput from '../../components/AmountInput';
+import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../components/GlCodingWarningModal';
 
 /**
  * Fixed-asset dropdown source for journal lines. Used for depreciation
@@ -134,6 +136,15 @@ const JournalForm = () => {
             }));
 
     const accountOptions  = useMemo(() => toCodeOptions((dims?.accounts ?? []) as Coded[]),  [dims?.accounts]);
+    // account id → {code, name}, for the GL coding check (compares the account
+    // name against each line's memo before posting).
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        ((dims?.accounts ?? []) as Coded[]).forEach((a) =>
+            m.set(String(a.id), { code: a.code ?? '', name: a.name ?? '' }));
+        return m;
+    }, [dims?.accounts]);
+    const gl = useGlCodingGuard();
     const fundOptions     = useMemo(() => toCodeOptions((dims?.funds ?? []) as Coded[]),     [dims?.funds]);
     const functionOptions = useMemo(() => toCodeOptions((dims?.functions ?? []) as Coded[]), [dims?.functions]);
     const programOptions  = useMemo(() => toCodeOptions((dims?.programs ?? []) as Coded[]),  [dims?.programs]);
@@ -229,6 +240,18 @@ const JournalForm = () => {
             } : {}),
         };
 
+        // Advisory GL-coding check: compare each line's memo against its GL
+        // account before saving. Lines without a memo are skipped.
+        gl.guard(
+            lines.map((l) => {
+                const meta = accountMeta.get(l.account);
+                return { name: meta?.name || '', code: meta?.code || '', description: l.memo || '' };
+            }),
+            () => doSubmit(payload),
+        );
+    };
+
+    const doSubmit = async (payload: JournalPayload) => {
         try {
             setFormError('');
             if (isEditMode && editingId !== null) {
@@ -313,7 +336,7 @@ const JournalForm = () => {
                             <button type="button" className="btn btn-outline" onClick={() => navigate('/accounting')}>
                                 <X size={18} /> Cancel
                             </button>
-                            <button type="submit" className="btn btn-primary" disabled={!isBalanced || createJournal.isPending || updateJournal.isPending}>
+                            <button type="submit" className="btn btn-primary" disabled={!isBalanced || createJournal.isPending || updateJournal.isPending || gl.checking}>
                                 <Save size={18} /> {isEditMode ? 'Save Changes' : 'Save Draft'}
                             </button>
                         </div>
@@ -562,6 +585,7 @@ const JournalForm = () => {
                     color: var(--text-muted);
                 }
             `}</style>
+            <GlCodingWarningModal {...gl.modalProps} />
         </AccountingLayout>
     );
 };
