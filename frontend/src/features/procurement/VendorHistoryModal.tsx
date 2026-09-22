@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
 import { formatDate } from '@/utils/date';
-import { X, Link2, CheckCircle2, ArrowDownRight, ArrowUpRight, Download } from 'lucide-react';
+import { X, CheckCircle2, ArrowDownRight, ArrowUpRight, Download, Sparkles, CheckCheck } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVendorTransactionHistory } from './hooks/useProcurement';
+import apiClient from '../../api/client';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { exportToCSV } from '../accounting/utils/exportReport';
@@ -33,6 +35,9 @@ interface TransactionRow {
     clearKey: ClearKey;
     paidAmount: number;
     balanceDue: number;
+    // Numeric VendorInvoice id on invoice rows (undefined elsewhere) — the
+    // key the open-item clearing API selects on.
+    invoiceId?: number;
 }
 
 const CLEAR_BADGE: Record<ClearKey, { label: string; bg: string; color: string }> = {
@@ -52,8 +57,53 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
     const dialogRef = useFocusTrap(true, onClose);
     const { data, isLoading } = useVendorTransactionHistory(vendor.id);
     const { formatCurrency } = useCurrency();
+    const queryClient = useQueryClient();
     const [selected, setSelected] = useState<Set<string>>(new Set());
-    const [matched, setMatched] = useState<Set<string>>(new Set());
+    const [activeTab, setActiveTab] = useState<'open' | 'cleared' | 'all'>('all');
+    const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+    const flash = (msg: string, ok = true) => {
+        setToast({ msg, ok });
+        setTimeout(() => setToast(null), 4500);
+    };
+
+    // Credit available to clear this vendor's open invoices (outstanding
+    // advances + unapplied payments) — from the clearing read model.
+    const { data: openItems } = useQuery({
+        queryKey: ['vendor-open-items', vendor.id],
+        queryFn: async () => {
+            const { data } = await apiClient.get('/accounting/payments/vendor-open-items/', {
+                params: { vendor: vendor.id },
+            });
+            return data as {
+                open_total: string; available_credit: string;
+                advance_credit: string; payment_credit: string;
+            };
+        },
+    });
+    const availableCredit = Number(openItems?.available_credit ?? 0);
+
+    // SAP F-44 style clearing. No ids → auto-clear every open invoice (FIFO);
+    // ids → clear only the selected ones (manual).
+    const clearMutation = useMutation({
+        mutationFn: async (invoiceIds?: number[]) => {
+            const { data } = await apiClient.post('/accounting/payments/clear-open-items/', {
+                vendor: vendor.id,
+                ...(invoiceIds && invoiceIds.length ? { invoice_ids: invoiceIds } : {}),
+            });
+            return data as { total_cleared: string; invoices_touched: number };
+        },
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ['vendor-history', vendor.id] });
+            queryClient.invalidateQueries({ queryKey: ['vendor-open-items', vendor.id] });
+            setSelected(new Set());
+            flash(`Cleared ${formatCurrency(res.total_cleared)} across ${res.invoices_touched} invoice(s).`, true);
+        },
+        onError: (err: unknown) => {
+            const e = err as { response?: { data?: { error?: string } } };
+            flash(e?.response?.data?.error || 'Clearing failed.', false);
+        },
+    });
 
     // A vendor's transaction history is a *subledger view* — it should
     // only show transactions that have actually hit the GL. Drafts and
@@ -114,6 +164,7 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                 clearKey,
                 paidAmount,
                 balanceDue,
+                invoiceId: inv.id,
             });
         });
 
@@ -179,9 +230,18 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
         return { invoices, payments, returns, total: invoices + payments + returns };
     }, [data]);
 
-    // Separate matched and unmatched
-    const unmatchedRows = transactions.filter(t => !matched.has(t.id));
-    const matchedRows = transactions.filter(t => matched.has(t.id));
+    // Tab buckets. Open = unpaid / part-paid invoices (the items to clear);
+    // Cleared = settled invoices plus applied payments/returns.
+    const isOpen = (t: TransactionRow) => t.clearKey === 'open' || t.clearKey === 'partial';
+    const openRows = transactions.filter(isOpen);
+    const clearedRows = transactions.filter(t => !isOpen(t));
+    const visibleRows = activeTab === 'open' ? openRows
+        : activeTab === 'cleared' ? clearedRows
+        : transactions;
+    // Open invoices the operator can pick to clear (only these are selectable).
+    const selectableOpenIds = openRows
+        .filter(t => t.sourceType === 'invoice' && t.invoiceId != null)
+        .map(t => t.id);
 
     const totalDebit = transactions.reduce((s, t) => s + t.debit, 0);
     const totalCredit = transactions.reduce((s, t) => s + t.credit, 0);
@@ -196,15 +256,6 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
     const totalOpen = invoiceRows.reduce((s, t) => s + t.balanceDue, 0);
     const fullyPaidCount = invoiceRows.filter(t => t.clearKey === 'paid').length;
 
-    const selectedDebit = [...selected].reduce((s, id) => {
-        const t = transactions.find(r => r.id === id);
-        return s + (t?.debit || 0);
-    }, 0);
-    const selectedCredit = [...selected].reduce((s, id) => {
-        const t = transactions.find(r => r.id === id);
-        return s + (t?.credit || 0);
-    }, 0);
-
     const toggleSelect = (id: string) => {
         const next = new Set(selected);
         if (next.has(id)) next.delete(id);
@@ -212,12 +263,18 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
         setSelected(next);
     };
 
-    const handleMatch = () => {
-        if (selected.size < 2) return;
-        const next = new Set(matched);
-        selected.forEach(id => next.add(id));
-        setMatched(next);
-        setSelected(new Set());
+    // Map selected row ids → numeric VendorInvoice ids for the clearing API.
+    const selectedInvoiceIds = [...selected]
+        .map(id => transactions.find(t => t.id === id)?.invoiceId)
+        .filter((v): v is number => v != null);
+
+    const clearSelected = () => {
+        if (selectedInvoiceIds.length === 0 || clearMutation.isPending) return;
+        clearMutation.mutate(selectedInvoiceIds);
+    };
+    const autoClearAll = () => {
+        if (clearMutation.isPending) return;
+        clearMutation.mutate(undefined);   // no ids → clear all open (FIFO)
     };
 
     const buildExportOptions = (): ExportOptions => {
@@ -295,21 +352,24 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
         color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)',
     };
 
-    const renderRow = (t: TransactionRow, isMatched: boolean) => {
+    const renderRow = (t: TransactionRow) => {
         const tc = typeColors[t.type] || { bg: 'rgba(156,163,175,0.1)', color: '#6b7280' };
+        // Only open invoices are selectable, and only on the Open Items tab.
+        const selectable = activeTab === 'open' && selectableOpenIds.includes(t.id);
+        const isSettled = t.clearKey === 'paid' || t.clearKey === 'cleared' || t.clearKey === 'applied';
         return (
             <tr key={t.id} style={{
-                opacity: isMatched ? 0.45 : 1,
-                textDecoration: isMatched ? 'line-through' : 'none',
                 background: selected.has(t.id) ? 'rgba(79, 70, 229, 0.06)' : undefined,
             }}>
                 <td style={{ ...tdStyle, width: '36px', textAlign: 'center' }}>
-                    {!isMatched && (
+                    {selectable ? (
                         <input type="checkbox" checked={selected.has(t.id)}
                             onChange={() => toggleSelect(t.id)}
+                            aria-label={`Select ${t.reference} to clear`}
                             style={{ cursor: 'pointer', accentColor: '#4f46e5' }} />
-                    )}
-                    {isMatched && <CheckCircle2 size={14} color="#22c55e" />}
+                    ) : isSettled ? (
+                        <CheckCircle2 size={14} color="#22c55e" />
+                    ) : null}
                 </td>
                 <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                     {formatDate(t.date)}
@@ -534,34 +594,88 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                     </div>
                 )}
 
-                {/* Matching toolbar */}
-                {selected.size > 0 && (
+                {/* Clearing result toast */}
+                {toast && (
                     <div style={{
-                        margin: '0 1.75rem', padding: '0.75rem 1rem', borderRadius: '8px',
-                        background: 'rgba(79, 70, 229, 0.08)', border: '1px solid rgba(79, 70, 229, 0.2)',
+                        margin: '0 1.75rem 0.5rem', padding: '0.6rem 1rem', borderRadius: 8,
+                        fontSize: 'var(--text-sm)', fontWeight: 600,
+                        background: toast.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                        color: toast.ok ? '#16a34a' : '#b91c1c',
+                        border: `1px solid ${toast.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                    }}>{toast.msg}</div>
+                )}
+
+                {/* Tabs — Open Items / Cleared Items / All */}
+                <div style={{
+                    margin: '0 1.75rem', display: 'flex', gap: '0.25rem',
+                    borderBottom: '1px solid var(--color-border)',
+                }}>
+                    {([
+                        ['open', `Open Items (${openRows.length})`],
+                        ['cleared', `Cleared Items (${clearedRows.length})`],
+                        ['all', `All (${transactions.length})`],
+                    ] as const).map(([key, label]) => (
+                        <button
+                            key={key}
+                            onClick={() => { setActiveTab(key); setSelected(new Set()); }}
+                            style={{
+                                padding: '0.6rem 0.9rem', border: 'none', background: 'none',
+                                cursor: 'pointer', fontSize: 'var(--text-sm)',
+                                fontWeight: activeTab === key ? 700 : 500,
+                                color: activeTab === key ? '#4f46e5' : 'var(--color-text-muted)',
+                                borderBottom: `2px solid ${activeTab === key ? '#4f46e5' : 'transparent'}`,
+                                marginBottom: '-1px',
+                            }}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Clearing toolbar — Open Items tab only */}
+                {activeTab === 'open' && (
+                    <div style={{
+                        margin: '0.75rem 1.75rem 0', padding: '0.75rem 1rem', borderRadius: '8px',
+                        background: 'rgba(79, 70, 229, 0.06)', border: '1px solid rgba(79, 70, 229, 0.18)',
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        gap: '1rem', flexWrap: 'wrap',
                     }}>
                         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text)' }}>
-                            <strong>{selected.size}</strong> items selected
-                            {selectedDebit > 0 && selectedCredit > 0 && (
-                                <span style={{ marginLeft: '1rem', color: 'var(--color-text-muted)' }}>
-                                    Dr: {formatCurrency(selectedDebit)} | Cr: {formatCurrency(selectedCredit)}
-                                    {Math.abs(selectedDebit - selectedCredit) < 0.01 && (
-                                        <span style={{ color: '#22c55e', fontWeight: 600, marginLeft: '0.5rem' }}>Balanced</span>
-                                    )}
-                                </span>
-                            )}
+                            {selected.size > 0
+                                ? <><strong>{selected.size}</strong> invoice{selected.size === 1 ? '' : 's'} selected</>
+                                : 'Select open invoices to clear, or auto-clear all.'}
+                            <span style={{ marginLeft: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                {formatCurrency(availableCredit)} credit available
+                            </span>
                         </span>
-                        <button onClick={handleMatch} disabled={selected.size < 2}
-                            style={{
-                                padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
-                                background: '#4f46e5', color: '#fff', cursor: 'pointer',
-                                fontWeight: 600, fontSize: 'var(--text-sm)',
-                                display: 'flex', alignItems: 'center', gap: '0.35rem',
-                                opacity: selected.size < 2 ? 0.5 : 1,
-                            }}>
-                            <Link2 size={14} /> Match Selected
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                                onClick={clearSelected}
+                                disabled={selected.size === 0 || availableCredit <= 0 || clearMutation.isPending}
+                                style={{
+                                    padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid #4f46e5',
+                                    background: '#fff', color: '#4f46e5',
+                                    cursor: (selected.size === 0 || availableCredit <= 0 || clearMutation.isPending) ? 'not-allowed' : 'pointer',
+                                    fontWeight: 600, fontSize: 'var(--text-sm)',
+                                    display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                    opacity: (selected.size === 0 || availableCredit <= 0) ? 0.5 : 1,
+                                }}>
+                                <CheckCheck size={14} /> Clear Selected
+                            </button>
+                            <button
+                                onClick={autoClearAll}
+                                disabled={openRows.length === 0 || availableCredit <= 0 || clearMutation.isPending}
+                                title="Apply all available credit to open invoices, oldest-first (FIFO)"
+                                style={{
+                                    padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
+                                    background: '#4f46e5', color: '#fff',
+                                    cursor: (openRows.length === 0 || availableCredit <= 0 || clearMutation.isPending) ? 'not-allowed' : 'pointer',
+                                    fontWeight: 600, fontSize: 'var(--text-sm)',
+                                    display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                    opacity: (openRows.length === 0 || availableCredit <= 0) ? 0.5 : 1,
+                                }}>
+                                <Sparkles size={14} /> {clearMutation.isPending ? 'Clearing…' : 'Auto-Clear All'}
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -591,21 +705,15 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {unmatchedRows.map(t => renderRow(t, false))}
-                                {matchedRows.length > 0 && (
+                                {visibleRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={9} style={{
-                                            padding: '0.5rem 0.75rem', fontSize: 'var(--text-xs)', fontWeight: 700,
-                                            textTransform: 'uppercase', letterSpacing: '0.05em',
-                                            color: '#22c55e', background: 'rgba(34, 197, 94, 0.05)',
-                                            borderBottom: '1px solid var(--color-border)',
-                                        }}>
-                                            <CheckCircle2 size={12} style={{ marginRight: '0.35rem', verticalAlign: 'middle' }} />
-                                            Matched / Cleared ({matchedRows.length})
+                                        <td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-muted)', padding: '2rem' }}>
+                                            {activeTab === 'open' ? 'No open items — everything is cleared.' : 'No cleared items yet.'}
                                         </td>
                                     </tr>
+                                ) : (
+                                    visibleRows.map(t => renderRow(t))
                                 )}
-                                {matchedRows.map(t => renderRow(t, true))}
                             </tbody>
                             <tfoot>
                                 <tr style={{ borderTop: '2px solid var(--color-border)' }}>
