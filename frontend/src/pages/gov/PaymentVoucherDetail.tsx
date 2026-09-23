@@ -220,32 +220,28 @@ export default function PaymentVoucherDetail() {
                         if (!pv.id) return;
                         setActionError('');
                         try {
-                            // Schedule materialises the bank instruction and a
-                            // draft Payment row in Outgoing Payments. Idempotent:
-                            // re-clicking on an already-SCHEDULED PV that's
-                            // missing only the Payment row (legacy data) backfills
-                            // it without re-flipping the PV status. Backend
-                            // response shape: {instruction, payment}.
-                            const result: any = await pvAction.mutateAsync({
+                            // Approval already created the draft Payment in Outgoing
+                            // Payments (ensure_draft_payment_for_pv), so there is no
+                            // separate "schedule" step for the operator. This button
+                            // just hands off to Outgoing Payments; it still calls
+                            // schedule_payment because that is idempotent and also
+                            // materialises the bank PaymentInstruction the E-payment
+                            // surface reads. Backend response shape: {instruction, payment}.
+                            await pvAction.mutateAsync({
                                 id: pv.id, action: 'schedule_payment',
                             });
-                            const paymentNumber = result?.payment?.payment_number;
-                            if (paymentNumber) {
-                                // Hand off to Outgoing Payments — operator finalises
-                                // method/bank account and posts.
-                                navigate('/accounting/outgoing-payments');
-                            }
+                            // Hand off to Outgoing Payments — operator finalises the
+                            // bank account and posts the payment there.
+                            navigate('/accounting/outgoing-payments');
                         } catch (err: any) {
                             setActionError(formatApiError(err));
                         }
                     }}
                     disabled={pvAction.isPending || actionInFlight}
                     style={{ ...btnBase, background: GOV.blue, color: '#fff' }}
-                    title={pv.status === 'APPROVED'
-                        ? 'Schedule for payment — creates a draft Payment in Outgoing Payments for Treasury to finalise'
-                        : 'Open this PV in Outgoing Payments (creates the draft Payment row if missing)'}
+                    title="Open this PV in Outgoing Payments — the draft Payment was created on approval; finalise the bank account and post it there"
                 >
-                    <Send size={16} /> {pv.status === 'APPROVED' ? 'Schedule Payment' : 'Open in Outgoing Payments'}
+                    <Send size={16} /> Open in Outgoing Payments
                 </button>
             )}
             {/* Disbursement is centralised: a SCHEDULED (or APPROVED) PV is

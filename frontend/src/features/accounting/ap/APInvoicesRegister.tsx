@@ -347,7 +347,14 @@ export default function APInvoicesRegister() {
                                                     // needsPost → not yet in the GL; canPay → journal exists.
                                                     const inv = row.invoiceRaw;
                                                     const needsPost = inv.status === 'Draft' || (inv.status === 'Approved' && !inv.journal_entry);
-                                                    const canPay = inv.status === 'Posted' || (inv.status === 'Approved' && !!inv.journal_entry);
+                                                    // An open payable is Posted or Partially Paid (or Approved
+                                                    // once its journal exists). Only offer Create PV when there
+                                                    // is something left to disburse after the retention lien —
+                                                    // payable_now = balance_due − retention (falls back to
+                                                    // balance_due on older payloads with no lien).
+                                                    const isOpen = inv.status === 'Posted' || inv.status === 'Partially Paid' || (inv.status === 'Approved' && !!inv.journal_entry);
+                                                    const payableNow = Number(inv.payable_now ?? inv.balance_due ?? 0);
+                                                    const canPay = isOpen && payableNow > 0;
                                                     return (
                                                         <>
                                                             {needsPost && (
@@ -460,10 +467,16 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
                         { label: 'Total', value: inv.total_amount, accent: true },
                         { label: 'Paid', value: inv.paid_amount },
                         { label: 'Balance Due', value: inv.balance_due },
-                    ].map(({ label, value, accent }) => (
-                        <div key={label} style={{ padding: '0.6rem 0.75rem', borderRadius: 6, background: accent ? 'rgba(79,70,229,0.08)' : 'rgba(148,163,184,0.06)', border: `1px solid ${accent ? 'rgba(79,70,229,0.25)' : 'var(--color-border)'}` }}>
+                        // Retention lien (contract milestones/IPCs) — surface it so
+                        // operators see why Payable Now < Balance Due. Hidden when 0.
+                        ...(Number(inv.retention_withheld || 0) > 0 ? [
+                            { label: 'Retention Held', value: inv.retention_withheld, warn: true },
+                            { label: 'Payable Now', value: inv.payable_now, accent: true },
+                        ] : []),
+                    ].map(({ label, value, accent, warn }) => (
+                        <div key={label} style={{ padding: '0.6rem 0.75rem', borderRadius: 6, background: warn ? 'rgba(217,119,6,0.08)' : accent ? 'rgba(79,70,229,0.08)' : 'rgba(148,163,184,0.06)', border: `1px solid ${warn ? 'rgba(217,119,6,0.3)' : accent ? 'rgba(79,70,229,0.25)' : 'var(--color-border)'}` }}>
                             <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.2rem' }}>{label}</div>
-                            <div style={{ fontFamily: 'monospace', fontWeight: accent ? 800 : 600, color: accent ? '#4f46e5' : 'var(--color-text)' }}>{formatCurrency(parseFloat(value || '0'))}</div>
+                            <div style={{ fontFamily: 'monospace', fontWeight: accent ? 800 : 600, color: warn ? '#b45309' : accent ? '#4f46e5' : 'var(--color-text)' }}>{formatCurrency(parseFloat(value || '0'))}</div>
                         </div>
                     ))}
                 </div>

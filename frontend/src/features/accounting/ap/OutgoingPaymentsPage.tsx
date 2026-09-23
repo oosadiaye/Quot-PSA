@@ -99,6 +99,20 @@ interface PaymentRow {
     // once the disbursement journal posts. Drives the View Journal
     // button visibility (only Posted rows with a journal can be viewed).
     journal_entry?: number | null;
+    // PV-carried deduction breakdown (read-only from PaymentSerializer).
+    // ``total_amount`` is the NET cash out; pv_gross_amount − Σ deductions = net.
+    // Empty/absent for a plain direct settlement with no PV.
+    payment_voucher_number?: string;
+    pv_gross_amount?: string | null;
+    pv_net_amount?: string | null;
+    pv_deductions?: {
+        deduction_type: string;
+        description?: string;
+        rate?: string | null;
+        amount: string;
+        gl_account_code?: string | null;
+        gl_account_name?: string | null;
+    }[];
 }
 // Axios error shape after the API client transforms backend DRF
 // responses. ``response.data`` carries either ``error`` (custom action
@@ -1033,7 +1047,23 @@ export default function OutgoingPaymentsPage() {
                                         )}
                                     </td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>
+                                        {formatCurrency(pay.total_amount)}
+                                        {/* Deduction breakdown carried by the linked PV: gross → each
+                                            deduction → net cash. total_amount is the NET. Shown only when
+                                            the PV has deductions (WHT/VAT/retention/handling…). */}
+                                        {pay.pv_deductions && pay.pv_deductions.length > 0 && (
+                                            <div style={{ marginTop: 3, fontWeight: 500, fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>
+                                                <div>Gross {formatCurrency(pay.pv_gross_amount || pay.total_amount)}</div>
+                                                {pay.pv_deductions.map((d, i) => (
+                                                    <div key={i} style={{ color: '#b45309' }}>
+                                                        − {d.deduction_type}{d.rate ? ` @${d.rate}%` : ''} {formatCurrency(d.amount)}
+                                                    </div>
+                                                ))}
+                                                <div style={{ color: '#dc2626', fontWeight: 700 }}>Net {formatCurrency(pay.total_amount)}</div>
+                                            </div>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
                                     <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
@@ -1170,7 +1200,23 @@ export default function OutgoingPaymentsPage() {
                                     <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>
+                                        {formatCurrency(pay.total_amount)}
+                                        {/* Deduction breakdown carried by the linked PV: gross → each
+                                            deduction → net cash. total_amount is the NET. Shown only when
+                                            the PV has deductions (WHT/VAT/retention/handling…). */}
+                                        {pay.pv_deductions && pay.pv_deductions.length > 0 && (
+                                            <div style={{ marginTop: 3, fontWeight: 500, fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>
+                                                <div>Gross {formatCurrency(pay.pv_gross_amount || pay.total_amount)}</div>
+                                                {pay.pv_deductions.map((d, i) => (
+                                                    <div key={i} style={{ color: '#b45309' }}>
+                                                        − {d.deduction_type}{d.rate ? ` @${d.rate}%` : ''} {formatCurrency(d.amount)}
+                                                    </div>
+                                                ))}
+                                                <div style={{ color: '#dc2626', fontWeight: 700 }}>Net {formatCurrency(pay.total_amount)}</div>
+                                            </div>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
                                     <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
