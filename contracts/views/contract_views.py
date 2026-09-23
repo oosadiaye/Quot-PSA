@@ -21,6 +21,7 @@ from contracts.models import (
     ContractBalance,
     ContractYearPlan,
     MilestoneSchedule,
+    MilestoneInvoiceLine,
 )
 from contracts.permissions import (
     CanActivateContract,
@@ -37,6 +38,7 @@ from contracts.serializers import (
     ContractSerializer,
     ContractYearPlanSerializer,
     MilestoneScheduleSerializer,
+    MilestoneInvoiceLineSerializer,
 )
 from contracts.services import (
     ContractActivationService,
@@ -275,6 +277,48 @@ class ContractViewSet(viewsets.ModelViewSet):
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+
+class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
+    """CRUD for a milestone's budget-appropriation coding lines.
+
+    Each line becomes a DR Expense journal line when the milestone is posted as
+    an invoice (``MilestoneScheduleViewSet.post_invoice``). Filter by
+    ``?milestone=<id>``.
+    """
+
+    queryset = MilestoneInvoiceLine.objects.select_related(
+        "account", "milestone",
+    ).order_by("milestone_id", "id")
+    serializer_class = MilestoneInvoiceLineSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["milestone"]
+
+    def _assert_editable(self, milestone):
+        """Coding lines are immutable once the milestone is INVOICED — the
+        accrual journal was posted FROM these lines, so editing them
+        afterwards would desync the GL from the milestone. Reject the mutation
+        rather than silently drift."""
+        from rest_framework.exceptions import PermissionDenied
+        from contracts.models import MilestoneStatus
+        if milestone.status == MilestoneStatus.INVOICED:
+            raise PermissionDenied(
+                "This milestone has been invoiced — its coding lines are locked. "
+                "Reverse the invoice to change them."
+            )
+
+    def perform_create(self, serializer):
+        self._assert_editable(serializer.validated_data["milestone"])
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._assert_editable(serializer.instance.milestone)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._assert_editable(instance.milestone)
+        instance.delete()
 
 
 class MilestoneScheduleViewSet(viewsets.ModelViewSet):

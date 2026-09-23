@@ -26,6 +26,7 @@ from contracts.models import (
     InterimPaymentCertificate,
     MeasurementBook,
     MilestoneSchedule,
+    MilestoneInvoiceLine,
     MobilizationPayment,
     RetentionRelease,
 )
@@ -124,6 +125,20 @@ class ContractYearPlanSerializer(serializers.ModelSerializer):
 
 # ── Milestones ────────────────────────────────────────────────────────
 
+class MilestoneInvoiceLineSerializer(serializers.ModelSerializer):
+    """Budget-appropriation coding line on a milestone (centralised-AP)."""
+    account_code = serializers.CharField(source="account.code", read_only=True)
+    account_name = serializers.CharField(source="account.name", read_only=True)
+
+    class Meta:
+        model = MilestoneInvoiceLine
+        fields = [
+            "id", "milestone", "account", "account_code", "account_name",
+            "appropriation", "description", "amount",
+        ]
+        read_only_fields = ["id"]
+
+
 class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # ── IPC linkage (read-only) ───────────────────────────────────────
     # ``InterimPaymentCertificate.milestone`` is a OneToOneField with
@@ -140,6 +155,9 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # as the human-readable audit pointer next to the row.
     ipc = serializers.SerializerMethodField()
     ipc_number = serializers.SerializerMethodField()
+    # Budget-appropriation coding lines (centralised-AP). Read-only here;
+    # created/edited via the dedicated milestone-lines endpoint.
+    lines = MilestoneInvoiceLineSerializer(many=True, read_only=True)
 
     class Meta:
         model = MilestoneSchedule
@@ -148,7 +166,7 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "scheduled_value", "percentage_weight",
             "target_date", "actual_completion_date",
             "status", "notes",
-            "ipc", "ipc_number",
+            "ipc", "ipc_number", "lines",
         ]
         read_only_fields = ["id"]
 

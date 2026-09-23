@@ -8,6 +8,7 @@ from contracts.views.contract_views import (  # noqa: F401
     ContractViewSet,
     ContractYearPlanViewSet,
     MilestoneScheduleViewSet,
+    MilestoneInvoiceLineViewSet,
 )
 from contracts.views.payment_views import (  # noqa: F401
     IPCViewSet,
@@ -25,6 +26,7 @@ __all__ = [
     "ContractBalanceViewSet",
     "ContractYearPlanViewSet",
     "MilestoneScheduleViewSet",
+    "MilestoneInvoiceLineViewSet",
     "IPCViewSet",
     "MeasurementBookViewSet",
     "MobilizationPaymentViewSet",
