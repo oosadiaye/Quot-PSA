@@ -122,14 +122,21 @@ class MilestoneInvoiceService:
             journal_entry=journal,
         )
 
-        # ── ContractBalance: certified += gross, retention_held += retention ──
+        # ── ContractBalance: certified += gross ──
         # Race-safe F() update; the DB trigger enforces
         # certified + pending_voucher ≤ ceiling and released ≤ held.
+        #
+        # NB: retention_held is NOT touched here. ``ContractActivationService``
+        # seeds it lump-sum with the contract's full retention reserve
+        # (original_sum × retention_rate) at activation, so accruing per
+        # milestone would double-count. The actual per-invoice lien lives on
+        # ``VendorInvoice.retention_withheld`` (set above); the contract-level
+        # retention_held stays the reserve ceiling that Release-Retention draws
+        # down. See memory: retention_held-double-count.
         balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
         try:
             ContractBalance.objects.filter(pk=balance.pk).update(
                 cumulative_gross_certified=F("cumulative_gross_certified") + gross,
-                retention_held=F("retention_held") + retention,
                 version=F("version") + 1,
                 updated_at=timezone.now(),
             )

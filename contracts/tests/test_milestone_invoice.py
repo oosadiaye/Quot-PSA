@@ -57,13 +57,22 @@ class TestMilestoneInvoice:
             "retention must NOT be journalled — it is a lien"
         assert any(l.account_id == _legacy_accounts.expense.id and l.debit == Decimal("20000000.00")
                    for l in lines)
-        assert any(l.account_id == _legacy_accounts.ap.id and l.credit == Decimal("20000000.00")
+        # AP is the vendor's *resolved* reconciliation account. When the vendor
+        # has no category recon account the resolver falls back to the global
+        # 'accounts_payable' recon, so assert against what the service actually
+        # resolves rather than assuming the fixture's ap account.
+        from accounting.services.procurement_posting import get_vendor_ap_account
+        ap_acct, _ = get_vendor_ap_account(activated_contract.vendor)
+        assert any(l.account_id == ap_acct.id and l.credit == Decimal("20000000.00")
                    for l in lines)
 
-        # ContractBalance: certified += gross, retention_held += retention.
+        # ContractBalance: certified += gross. retention_held is NOT touched by
+        # the milestone — it stays the lump-sum reserve seeded at activation
+        # (original_sum × retention_rate). The per-invoice lien is on
+        # VendorInvoice.retention_withheld (asserted above).
         bal = ContractBalance.objects.get(pk=activated_contract.pk)
         assert bal.cumulative_gross_certified == Decimal("20000000.00")
-        assert bal.retention_held == Decimal("1000000.00")
+        assert bal.retention_held == activated_contract.retention_reserve
 
         ms.refresh_from_db()
         assert ms.status == MilestoneStatus.INVOICED
