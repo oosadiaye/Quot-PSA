@@ -113,3 +113,27 @@ class TestMilestoneInvoice:
         assert bal.retention_released == Decimal("1000000.00")
         # Release posts NOTHING — retention is a lien, never journalled.
         assert JournalHeader.objects.count() == journals_before
+
+    def test_sync_contract_paid_derives_from_invoice_paid_amount(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        from contracts.models import ContractBalance
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        ms = _milestone_with_lines(activated_contract, _legacy_accounts.expense, number=6, amount="20000000.00")
+        invoice = MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
+
+        # Pay the payable-now (19M; 1M retention still frozen).
+        invoice.paid_amount = Decimal("19000000.00")
+        invoice.save(_allow_status_change=True)
+        bal = MilestoneInvoiceService.sync_contract_paid(contract=activated_contract)
+        assert bal.cumulative_gross_paid == Decimal("19000000.00")
+        # Not yet certified — retention unpaid, so the contract can't close.
+        assert bal.cumulative_gross_paid < bal.cumulative_gross_certified
+
+        # After retention release + payment, paid reaches certified.
+        invoice.paid_amount = Decimal("20000000.00")
+        invoice.save(_allow_status_change=True)
+        bal = MilestoneInvoiceService.sync_contract_paid(contract=activated_contract)
+        assert bal.cumulative_gross_paid == Decimal("20000000.00")
+        assert bal.cumulative_gross_paid == bal.cumulative_gross_certified

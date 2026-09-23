@@ -147,6 +147,41 @@ class MilestoneInvoiceService:
 
     @classmethod
     @transaction.atomic
+    def sync_contract_paid(cls, *, contract):
+        """Recompute ``ContractBalance.cumulative_gross_paid`` from the paid
+        amounts of the contract's milestone invoices.
+
+        This REPLACES the fragile IPC ``mark_paid`` post-commit cascade: the
+        contract's paid figure is *derived* from the AP subledger (the milestone
+        invoices' ``paid_amount``), so it can never drift from the GL. Idempotent
+        — safe to call after any payment. Retention held reduces ``paid_amount``,
+        so a contract can't reach ``paid == certified`` (and therefore can't
+        close) until its retention is released and paid.
+        """
+        from django.db.models import Sum
+        from accounting.models import VendorInvoice
+        from contracts.models import ContractBalance
+
+        paid = _q(
+            VendorInvoice.objects
+            .filter(reference=contract.contract_number)
+            .aggregate(s=Sum("paid_amount"))["s"] or ZERO
+        )
+        balance = ContractBalance.objects.select_for_update().get(pk=contract.pk)
+        # The DB trigger enforces paid ≤ certified; clamp defensively so a
+        # rounding overshoot can't trip it.
+        new_paid = min(paid, _q(balance.cumulative_gross_certified))
+        if _q(balance.cumulative_gross_paid) != new_paid:
+            ContractBalance.objects.filter(pk=balance.pk).update(
+                cumulative_gross_paid=new_paid,
+                version=F("version") + 1,
+                updated_at=timezone.now(),
+            )
+            balance.refresh_from_db()
+        return balance
+
+    @classmethod
+    @transaction.atomic
     def release_retention(cls, *, contract, actor):
         """Release the contract's held retention lien.
 
