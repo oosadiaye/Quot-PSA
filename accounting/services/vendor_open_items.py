@@ -43,7 +43,10 @@ def open_invoices_for_vendor(vendor) -> list:
         .filter(vendor=vendor, status__in=["Posted", "Partially Paid"])
         .order_by("invoice_date", "id")
     )
-    return [inv for inv in rows if _q(inv.balance_due) > ZERO]
+    # ``payable_now`` (not ``balance_due``) so a milestone invoice whose only
+    # remaining balance is a retention LIEN isn't offered for clearing — that
+    # slice is frozen until the retention is released.
+    return [inv for inv in rows if _q(inv.payable_now) > ZERO]
 
 
 def unapplied_payments_for_vendor(vendor) -> list[tuple]:
@@ -86,7 +89,7 @@ def open_items_for_vendor(vendor) -> dict:
 
     advance_credit = sum((_q(a.amount_outstanding) for a in advances), ZERO)
     payment_credit = sum((rem for _p, rem in payments), ZERO)
-    open_total = sum((_q(inv.balance_due) for inv in invoices), ZERO)
+    open_total = sum((_q(inv.payable_now) for inv in invoices), ZERO)
 
     return {
         "open_invoices": [
@@ -96,6 +99,8 @@ def open_items_for_vendor(vendor) -> dict:
                 "invoice_date": inv.invoice_date,
                 "total_amount": str(_q(inv.total_amount)),
                 "balance_due": str(_q(inv.balance_due)),
+                "retention_withheld": str(_q(inv.retention_withheld)),
+                "payable_now": str(_q(inv.payable_now)),
             }
             for inv in invoices
         ],
@@ -136,7 +141,8 @@ def clear_open_items(vendor, *, invoice_ids=None, actor=None, posting_date=None)
     total = ZERO
 
     for inv in invoices:
-        need = _q(inv.balance_due)
+        # Cap at ``payable_now`` — never clear the frozen retention slice.
+        need = _q(inv.payable_now)
         if need <= ZERO:
             continue
         applied = ZERO   # how much credit this invoice actually received

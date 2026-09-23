@@ -528,6 +528,9 @@ class MilestoneStatus(models.TextChoices):
     PENDING     = "PENDING",     "Pending"
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     COMPLETED   = "COMPLETED",   "Completed"
+    # Centralised-AP model: an approved milestone is invoiced directly (posts
+    # the accrual + a VendorInvoice, real-time). Terminal, one-way.
+    INVOICED    = "INVOICED",    "Invoiced"
     WAIVED      = "WAIVED",      "Waived"
 
 
@@ -674,3 +677,44 @@ class MilestoneSchedule(AuditBaseModel):
         # already enforced by DB CheckConstraints (defence in depth).
         self.full_clean(exclude=None, validate_constraints=False)
         super().save(*args, **kwargs)
+
+
+class MilestoneInvoiceLine(models.Model):
+    """Budget-appropriation coding line on a milestone.
+
+    Centralised-AP model: a milestone is invoiced directly (no IPC). Each line
+    is one GL expense coding — when the milestone is approved, every line
+    becomes a ``DR Expense`` journal line and the sum of the lines is the
+    milestone's gross invoice (credited to Vendor-AP). See
+    docs/superpowers/specs/2026-09-23-centralize-ap-ipc-as-invoice-design.md.
+    """
+
+    milestone = models.ForeignKey(
+        MilestoneSchedule, on_delete=models.CASCADE, related_name="lines",
+    )
+    account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT,
+        help_text="Expense GL account debited for this line.",
+    )
+    appropriation = models.ForeignKey(
+        "budget.Appropriation", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="milestone_lines",
+        help_text="Budget appropriation this spend draws against (optional).",
+    )
+    description = models.CharField(max_length=300, blank=True, default="")
+    amount = models.DecimalField(
+        max_digits=20, decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+
+    class Meta:
+        ordering = ["milestone", "id"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="contracts_milestoneline_amount_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.milestone} · acct {self.account_id} · {self.amount}"

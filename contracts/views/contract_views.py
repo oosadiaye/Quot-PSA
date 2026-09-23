@@ -225,6 +225,27 @@ class ContractViewSet(viewsets.ModelViewSet):
             )
         return Response(ContractSerializer(contract).data)
 
+    @action(detail=True, methods=["post"], url_path="release-retention")
+    def release_retention(self, request, pk=None):
+        """Release the contract's held retention lien.
+
+        Unfreezes ``retention_withheld`` on every milestone invoice of the
+        contract (so the slice becomes payable via the normal AP flow) and
+        records it in ``retention_released``. Posts nothing — retention was
+        never journalled; this only lifts the lien.
+        """
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        contract = self.get_object()
+        try:
+            result = MilestoneInvoiceService.release_retention(
+                contract=contract, actor=request.user,
+            )
+        except TransactionPostingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
     # ── Read-only projections ─────────────────────────────────────────
 
     @action(detail=True, methods=["get"])
@@ -286,7 +307,7 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         # Custom transition actions need the certification permission.
         # Tenant admins and superusers always pass via ``_BaseContractsPermission``.
-        if self.action in {"approve", "start", "reopen"}:
+        if self.action in {"approve", "start", "reopen", "post_invoice"}:
             return [CanApproveMilestone()]
         if self.action == "convert_to_ipc":
             # Conversion creates an IPC — same permission tier as
@@ -364,6 +385,37 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
             "updated_by", "updated_at",
         ])
         return Response(MilestoneScheduleSerializer(milestone).data)
+
+    @action(detail=True, methods=["post"], url_path="post-invoice")
+    def post_invoice(self, request, pk=None):
+        """Approve the milestone and post it as an AP invoice (centralised AP).
+
+        Requires appropriation lines. Posts DR Expense (per line) / CR Vendor-AP
+        (gross), materialises the ``VendorInvoice`` booked GROSS with the
+        retention lien, bumps the contract balance, and flips the milestone to
+        INVOICED — all atomic, real-time. Replaces the IPC path.
+        """
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        milestone = self.get_object()
+        try:
+            invoice = MilestoneInvoiceService.approve_and_invoice(
+                milestone=milestone, actor=request.user,
+            )
+        except TransactionPostingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "milestone_id": milestone.pk,
+                "invoice_id": invoice.pk,
+                "invoice_number": invoice.invoice_number,
+                "total_amount": str(invoice.total_amount),
+                "retention_withheld": str(invoice.retention_withheld),
+                "payable_now": str(invoice.payable_now),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"], url_path="convert-to-ipc")
     def convert_to_ipc(self, request, pk=None):
