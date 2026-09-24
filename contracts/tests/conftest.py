@@ -210,6 +210,26 @@ def _route_to_pytest_schema(request):
         return
 
     from django.db import connection
+    # Re-assert the tenant + its resolvable domain on the PUBLIC schema before
+    # every DB test. A preceding ``transaction=True`` (TransactionTestCase)
+    # test flushes the public schema on teardown, which on CI wipes the
+    # ``tenants_client`` / ``tenants_domain`` rows that ``core.middleware``
+    # resolves ``X-Tenant-Domain`` against — so a later API-driven test (e.g.
+    # the ``/activity/`` endpoint) 400s "Unknown tenant domain". Locally the
+    # same flush errors on FK constraints, so the rows survive and the failure
+    # never surfaces — which is why this only bit CI. ``get_or_create`` is
+    # idempotent, so this is a no-op once the rows are present.
+    try:
+        connection.set_schema_to_public()
+        from tenants.models import Client, Domain
+        _client, _ = Client.objects.get_or_create(
+            schema_name=PYTEST_SCHEMA_NAME, defaults={"name": "PyTest Tenant"},
+        )
+        Domain.objects.get_or_create(
+            domain="pytest.localhost", tenant=_client, defaults={"is_primary": True},
+        )
+    except Exception:
+        pass
     try:
         connection.set_schema(PYTEST_SCHEMA_NAME)
     except Exception:
