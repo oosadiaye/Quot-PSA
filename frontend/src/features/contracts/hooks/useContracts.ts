@@ -445,3 +445,30 @@ export const useCreateRetentionRelease = () => {
     },
   });
 };
+
+/**
+ * POST /contracts/{id}/release-retention/
+ *
+ * Centralised-AP lien release (path B). Unfreezes every milestone
+ * invoice's ``retention_withheld`` for the contract — the frozen slice
+ * becomes payable through the normal AP flow — and bumps
+ * ``ContractBalance.retention_released``. Posts NOTHING (retention was
+ * never journalled; this only lifts the lien). No 50%/remainder split
+ * and no completion-status gate: it releases whatever liens are open.
+ * Backend returns ``{ released, invoices_unfrozen }`` or ``{ error }``.
+ */
+export const useReleaseRetentionLien = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ contractId }: { contractId: number }) => {
+      const { data } = await apiClient.post(
+        `${CONTRACTS_BASE}${contractId}/release-retention/`,
+      );
+      return { data, contractId };
+    },
+    onSuccess: ({ contractId }) => {
+      qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
+      qc.invalidateQueries({ queryKey: ['contract', contractId] });
+    },
+  });
+};

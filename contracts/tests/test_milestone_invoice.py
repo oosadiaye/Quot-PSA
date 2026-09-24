@@ -146,3 +146,30 @@ class TestMilestoneInvoice:
         bal = MilestoneInvoiceService.sync_contract_paid(contract=activated_contract)
         assert bal.cumulative_gross_paid == Decimal("20000000.00")
         assert bal.cumulative_gross_paid == bal.cumulative_gross_certified
+
+    def test_retention_withheld_open_sums_open_liens(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        """ContractBalanceSerializer.retention_withheld_open = Σ open invoice
+        liens — the operative 'release now' figure the detail page gates on."""
+        from contracts.models import ContractBalance
+        from contracts.serializers import ContractBalanceSerializer
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        bal = ContractBalance.objects.get(pk=activated_contract.pk)
+        # No milestone invoiced yet → no open liens.
+        assert ContractBalanceSerializer(bal).data["retention_withheld_open"] == "0.00"
+
+        ms = _milestone_with_lines(
+            activated_contract, _legacy_accounts.expense, number=7, amount="20000000.00",
+        )
+        MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
+
+        bal = ContractBalance.objects.get(pk=activated_contract.pk)
+        # 5% of 20M = 1M withheld on the milestone invoice.
+        assert ContractBalanceSerializer(bal).data["retention_withheld_open"] == "1000000.00"
+
+        # Releasing lifts the lien → open falls back to 0.
+        MilestoneInvoiceService.release_retention(contract=activated_contract, actor=approver)
+        bal = ContractBalance.objects.get(pk=activated_contract.pk)
+        assert ContractBalanceSerializer(bal).data["retention_withheld_open"] == "0.00"

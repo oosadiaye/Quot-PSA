@@ -44,6 +44,13 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
     retention_balance = serializers.DecimalField(
         max_digits=20, decimal_places=2, read_only=True,
     )
+    # Live sum of the contract's OPEN per-invoice retention liens
+    # (VendorInvoice.retention_withheld > 0). This is the operative
+    # "release now" figure for the centralised-AP lien-release path —
+    # distinct from the lump-sum ``retention_held`` reserve seeded at
+    # activation. The detail page gates the Release button and shows the
+    # "withheld" amount from this.
+    retention_withheld_open = serializers.SerializerMethodField()
 
     class Meta:
         model = ContractBalance
@@ -57,6 +64,7 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
             "mobilization_recovered",
             "retention_held",
             "retention_released",
+            "retention_withheld_open",
             "version",
             "updated_at",
             "available_for_certification",
@@ -64,6 +72,23 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
             "retention_balance",
         ]
         read_only_fields = fields
+
+    def get_retention_withheld_open(self, obj) -> str:
+        from decimal import Decimal
+        from django.db.models import Sum
+        from accounting.models import VendorInvoice
+
+        contract = getattr(obj, "contract", None)
+        contract_number = getattr(contract, "contract_number", None)
+        if not contract_number:
+            return "0.00"
+        total = (
+            VendorInvoice.objects
+            .filter(reference=contract_number, retention_withheld__gt=0)
+            .aggregate(s=Sum("retention_withheld"))["s"]
+            or Decimal("0.00")
+        )
+        return str(Decimal(total).quantize(Decimal("0.01")))
 
 
 # ── ContractYearPlan ───────────────────────────────────────────────────

@@ -38,7 +38,7 @@ import {
   useCreateMilestone, useStartMilestone, useApproveMilestone,
   useConvertMilestoneToIPC,
   useContractMobilization, useIssueMobilization,
-  useContractRetentionReleases, useCreateRetentionRelease,
+  useReleaseRetentionLien,
 } from './hooks/useContracts';
 import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
@@ -229,40 +229,27 @@ const ContractDetail = () => {
   // (releases 50%) or FINAL_COMPLETION (releases remaining 50%) qualify.
   // The button below maps to whichever release_type is currently
   // available; the gate is checked again server-side.
-  const { data: retentionReleases } = useContractRetentionReleases(cid);
-  const createReleaseMut = useCreateRetentionRelease();
-  const releasedTypes = new Set(
-    ((retentionReleases ?? []) as any[]).map((r) => r.release_type),
-  );
+  const releaseLienMut = useReleaseRetentionLien();
   const retentionHeld = Number(balance?.retention_held ?? 0);
   const retentionReleased = Number(balance?.retention_released ?? 0);
-  const retentionRemaining = Math.max(0, retentionHeld - retentionReleased);
-  // Decide which release type the button should attempt next.
-  const nextReleaseType: 'PRACTICAL_COMPLETION' | 'FINAL_COMPLETION' | null = (() => {
-    if (status === 'PRACTICAL_COMPLETION' && !releasedTypes.has('PRACTICAL_COMPLETION')) {
-      return 'PRACTICAL_COMPLETION';
-    }
-    if (status === 'FINAL_COMPLETION' && !releasedTypes.has('FINAL_COMPLETION')) {
-      return 'FINAL_COMPLETION';
-    }
-    return null;
-  })();
-  const canReleaseRetention = !!nextReleaseType && retentionRemaining > 0;
+  // Open per-invoice liens (the operative "release now" figure for the
+  // centralised-AP path). Distinct from the lump-sum retention_held reserve.
+  const retentionWithheldOpen = Number(balance?.retention_withheld_open ?? 0);
+  // Centralised-AP lien release (path B): release whatever liens are open —
+  // no 50%/remainder split and no completion-status gate.
+  const canReleaseRetention = retentionWithheldOpen > 0;
 
   const handleReleaseRetention = async () => {
-    if (!nextReleaseType) return;
+    if (retentionWithheldOpen <= 0) return;
     try {
-      const result = await createReleaseMut.mutateAsync({
-        contractId: cid, release_type: nextReleaseType,
-      });
-      const release = result.data;
-      const releasedAmount = parseFloat(String(release.amount || 0)) || 0;
+      const result = await releaseLienMut.mutateAsync({ contractId: cid });
+      const releasedAmount = parseFloat(String(result.data?.released || 0)) || 0;
       message.success(
-        `Retention release of ${formatCurrency(releasedAmount)} created. `
-        + `Now raise a Payment Voucher in Treasury to disburse to the contractor.`,
+        `Released ${formatCurrency(releasedAmount)} of held retention — `
+        + `now payable through the normal AP flow. No journal was posted.`,
       );
     } catch (e) {
-      message.error(formatServiceError(e, 'Failed to create retention release'));
+      message.error(formatServiceError(e, 'Failed to release retention'));
     }
   };
   const handleConvertToIPC = async (milestoneId: number) => {
@@ -532,31 +519,16 @@ const ContractDetail = () => {
                   )}
                   {canReleaseRetention && (
                     <Popconfirm
-                      title={
-                        nextReleaseType === 'PRACTICAL_COMPLETION'
-                          ? `Release 50% retention (${formatCurrency(retentionHeld * 0.5)})?`
-                          : `Release remaining retention (${formatCurrency(retentionRemaining)})?`
-                      }
+                      title={`Release held retention (${formatCurrency(retentionWithheldOpen)})?`}
                       description={
                         <span>
-                          {nextReleaseType === 'PRACTICAL_COMPLETION' ? (
-                            <>
-                              At <strong>Practical Completion</strong>, half of the
-                              held retention is returned to the contractor. The
-                              remainder is released at Final Completion (after
-                              the defects-liability period).
-                            </>
-                          ) : (
-                            <>
-                              At <strong>Final Completion</strong>, the remaining
-                              retention is returned to the contractor.
-                            </>
-                          )}
+                          Lifts the retention lien on this contract's milestone
+                          invoices, making{' '}
+                          <strong>{formatCurrency(retentionWithheldOpen)}</strong>{' '}
+                          payable through the normal AP flow.
                           <br /><br />
-                          A PENDING RetentionRelease record will be created.
-                          Treasury then raises a Payment Voucher to disburse
-                          the cash. The retention liability GL is debited
-                          automatically when the PV posts.
+                          <strong>Posts no journal</strong> — retention was held as
+                          a lien, never booked; this only unfreezes it.
                         </span>
                       }
                       okText="Yes, release"
@@ -565,9 +537,9 @@ const ContractDetail = () => {
                     >
                       <button
                         style={releaseRetentionBtn}
-                        disabled={createReleaseMut.isPending}
+                        disabled={releaseLienMut.isPending}
                       >
-                        {createReleaseMut.isPending ? 'Releasing…' : '↩ Release Retention'}
+                        {releaseLienMut.isPending ? 'Releasing…' : '↩ Release Retention'}
                       </button>
                     </Popconfirm>
                   )}
@@ -708,7 +680,13 @@ const ContractDetail = () => {
             <StatCard
               label="Retention"
               value={`${retentionPct.toFixed(2)}%`}
-              footer={<span style={statSubtle}>Standard retention policy</span>}
+              footer={
+                <span style={statSubtle}>
+                  Reserve {formatCurrency(retentionHeld)}
+                  {' · '}Withheld {formatCurrency(retentionWithheldOpen)}
+                  {' · '}Released {formatCurrency(retentionReleased)}
+                </span>
+              }
             />
             <StatCard
               label="Mobilization"
