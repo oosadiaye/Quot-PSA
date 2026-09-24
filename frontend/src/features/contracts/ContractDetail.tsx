@@ -24,6 +24,7 @@ import {
     JournalHeaderStrip, JournalLinesTable,
     type JournalDetail,
 } from '../accounting/components/shared/JournalViewer';
+import JournalDetailModal from '../accounting/components/JournalDetailModal';
 import dayjs from 'dayjs';
 import apiClient from '../../api/client';
 import {
@@ -272,6 +273,10 @@ const ContractDetail = () => {
   // line" pattern where child rows are added via a slide-over panel
   // rather than a separate page.
   const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
+  // "Acct Doc" — the GL journal (accounting document) to show in a modal,
+  // opened from a milestone row (its invoice's accrual journal) or a payment
+  // sub-line (its disbursement journal).
+  const [viewJournalId, setViewJournalId] = useState<number | null>(null);
   const [milestoneForm] = Form.useForm();
 
   // ── Derived values (safe with undefined contract during loading) ──
@@ -795,6 +800,7 @@ const ContractDetail = () => {
                 onApprove={handleApproveMilestone}
                 onConvertToIPC={handleConvertToIPC}
                 onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
+                onViewJournal={(id) => setViewJournalId(id)}
                 actionLoading={
                   startMilestoneMut.isPending
                   || approveMilestoneMut.isPending
@@ -930,6 +936,12 @@ const ContractDetail = () => {
             ledger, and unlock IPC + write-up submission.
           </div>
         </div>
+      )}
+
+      {/* Acct Doc — GL journal viewer, opened from a milestone row or a
+          payment sub-line. Self-fetches the journal by id. */}
+      {viewJournalId != null && (
+        <JournalDetailModal id={viewJournalId} onClose={() => setViewJournalId(null)} />
       )}
 
       {/* New Milestone modal — defined inline so the form state lives
@@ -1158,6 +1170,7 @@ interface MilestonePaymentRow {
   amount: string;         // amount applied to this milestone invoice
   status: string;         // always 'Posted' (backend filters to settled)
   is_advance: boolean;
+  journal_entry_id?: number | null;  // disbursement journal (Acct Doc)
 }
 
 interface MilestoneRow {
@@ -1184,6 +1197,7 @@ interface MilestoneRow {
     total_amount: string;
     paid_amount: string;
     payable_now: string;
+    journal_entry_id?: number | null;  // accrual journal (Acct Doc)
   } | null;
   payments?: MilestonePaymentRow[];
 }
@@ -1196,11 +1210,12 @@ interface MilestonesTabProps {
   onApprove: (id: number) => void;
   onConvertToIPC: (id: number) => void;
   onOpenIPC: (ipcId: number) => void;
+  onViewJournal: (journalId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
   milestones, contractCeiling, formatCurrency,
-  onStart, onApprove, onConvertToIPC, onOpenIPC, actionLoading,
+  onStart, onApprove, onConvertToIPC, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
@@ -1352,8 +1367,18 @@ function MilestonesTab({
               <tr style={{ background: '#f8fafc' }}>
                 <td colSpan={8} style={{ padding: '2px 14px 10px 40px', borderBottom: '1px solid var(--color-border)' }}>
                   {m.invoice && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>
-                      Invoice {m.invoice.invoice_number} · {formatCurrency(Number(m.invoice.paid_amount || 0))} paid of {formatCurrency(Number(m.invoice.total_amount || 0))}
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span>Invoice {m.invoice.invoice_number} · {formatCurrency(Number(m.invoice.paid_amount || 0))} paid of {formatCurrency(Number(m.invoice.total_amount || 0))}</span>
+                      {m.invoice.journal_entry_id != null && (
+                        <button
+                          type="button"
+                          onClick={() => onViewJournal(m.invoice?.journal_entry_id as number)}
+                          style={acctDocLink}
+                          title="View the accrual journal (DR expense / CR AP) posted for this milestone invoice"
+                        >
+                          Acct Doc
+                        </button>
+                      )}
                     </div>
                   )}
                   {(m.payments && m.payments.length > 0) ? (
@@ -1365,6 +1390,16 @@ function MilestonesTab({
                         <span style={{ fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>{formatCurrency(Number(p.amount || 0))}</span>
                         <span style={statusBadge(p.status)}>{p.status}</span>
                         {p.is_advance && <span style={{ fontSize: 10, color: '#b45309' }}>advance</span>}
+                        {p.journal_entry_id != null && (
+                          <button
+                            type="button"
+                            onClick={() => onViewJournal(p.journal_entry_id as number)}
+                            style={acctDocLink}
+                            title="View the disbursement journal (DR AP / CR deductions / CR bank) posted for this payment"
+                          >
+                            Acct Doc
+                          </button>
+                        )}
                       </div>
                     ))
                   ) : (
@@ -1428,6 +1463,13 @@ const milestoneFootRow: React.CSSProperties = {
 
 const milestoneActionsCell: React.CSSProperties = {
   display: 'inline-flex', gap: 6, justifyContent: 'flex-end',
+};
+// Small "Acct Doc" link that opens the GL journal modal from a milestone
+// invoice line or a payment sub-line.
+const acctDocLink: React.CSSProperties = {
+  background: 'none', border: '1px solid #c7d2fe', borderRadius: 4,
+  color: '#4f46e5', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+  padding: '1px 6px', letterSpacing: '0.02em',
 };
 const milestoneStartBtn: React.CSSProperties = {
   padding: '4px 10px',

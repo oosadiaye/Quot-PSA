@@ -241,6 +241,9 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "total_amount": str(inv.total_amount),
             "paid_amount": str(inv.paid_amount),
             "payable_now": str(inv.payable_now),
+            # The accrual journal (DR expense / CR vendor-AP) posted for this
+            # milestone invoice — the contract page's "Acct Doc" link opens it.
+            "journal_entry_id": inv.journal_entry_id,
         }
 
     def get_payments(self, obj):
@@ -264,6 +267,9 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
                 "amount": str(alloc.amount),
                 "status": pay.status,
                 "is_advance": bool(pay.is_advance),
+                # The disbursement journal (DR AP / CR deductions / CR bank)
+                # posted for this payment — opened via the "Acct Doc" link.
+                "journal_entry_id": pay.journal_entry_id,
             })
         rows.sort(key=lambda r: r["payment_date"] or _date.min)
         return rows

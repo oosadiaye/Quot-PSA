@@ -215,11 +215,15 @@ class TestMilestoneInvoice:
         data = MilestoneScheduleSerializer(ms, context=ctx).data
 
         assert data["invoice"]["invoice_number"] == invoice.invoice_number
+        # Acct Doc linkage: the invoice carries its accrual journal id.
+        assert data["invoice"]["journal_entry_id"] == invoice.journal_entry_id
+        assert data["invoice"]["journal_entry_id"] is not None
         pays = data["payments"]
         assert len(pays) == 1                       # posted only, draft excluded
         assert pays[0]["payment_number"] == "PAY-SUB-1"
         assert pays[0]["amount"] == "19000000.00"   # allocation amount
         assert pays[0]["status"] == "Posted"
+        assert "journal_entry_id" in pays[0]        # payment's journal id surfaced
 
         # No context map (list view) → no per-milestone resolution.
         bare = MilestoneScheduleSerializer(ms).data
