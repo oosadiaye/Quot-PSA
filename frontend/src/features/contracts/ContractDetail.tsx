@@ -1362,52 +1362,74 @@ function MilestonesTab({
                 </div>
               </td>
             </tr>
-            {m.status === 'INVOICED' && (
-              <tr style={{ background: '#f8fafc' }}>
-                <td colSpan={8} style={{ padding: '2px 14px 10px 40px', borderBottom: '1px solid var(--color-border)' }}>
-                  {m.invoice && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span>Invoice {m.invoice.invoice_number} · {formatCurrency(Number(m.invoice.paid_amount || 0))} paid of {formatCurrency(Number(m.invoice.total_amount || 0))}</span>
-                      {m.invoice.journal_entry_id != null && (
+            {m.status === 'INVOICED' && m.invoice && (
+              <>
+                {/* Invoice accrual row — cells aligned to the milestone columns
+                    (amount under Scheduled Value, badge under Status), and the
+                    Acct Doc link in the Actions column like every other row. */}
+                <tr style={subRowStyle}>
+                  <td style={subIndentTd}>↳</td>
+                  <td style={subTd}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{m.invoice.invoice_number}</span>
+                    {(!m.payments || m.payments.length === 0) && (
+                      <span style={{ marginLeft: 8, color: '#94a3b8', fontStyle: 'italic' }}>— awaiting payment</span>
+                    )}
+                  </td>
+                  <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatCurrency(Number(m.invoice.paid_amount || 0))} / {formatCurrency(Number(m.invoice.total_amount || 0))}
+                  </td>
+                  <td style={subTd} />
+                  <td style={subTd} />
+                  <td style={subTd} />
+                  <td style={{ ...subTd, textAlign: 'center' }}>
+                    <span style={statusBadge(m.invoice.status)}>{m.invoice.status}</span>
+                  </td>
+                  <td style={{ ...subTd, textAlign: 'right' }}>
+                    {m.invoice.journal_entry_id != null && (
+                      <button
+                        type="button"
+                        onClick={() => onViewJournal(m.invoice?.journal_entry_id as number)}
+                        style={acctDocLink}
+                        title="View the accrual journal (DR expense / CR AP) posted for this milestone invoice"
+                      >
+                        Acct Doc
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {/* One aligned row per posted payment. */}
+                {m.payments?.map((p) => (
+                  <tr key={p.payment_id} style={subRowStyle}>
+                    <td style={subIndentTd}>↳</td>
+                    <td style={subTd}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{p.payment_number}</span>
+                      <span style={{ marginLeft: 8, color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
+                      {p.is_advance && <span style={{ marginLeft: 8, fontSize: 10, color: '#b45309' }}>advance</span>}
+                    </td>
+                    <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>
+                      {formatCurrency(Number(p.amount || 0))}
+                    </td>
+                    <td style={subTd} />
+                    <td style={subTd} />
+                    <td style={subTd} />
+                    <td style={{ ...subTd, textAlign: 'center' }}>
+                      <span style={statusBadge(p.status)}>{p.status}</span>
+                    </td>
+                    <td style={{ ...subTd, textAlign: 'right' }}>
+                      {p.journal_entry_id != null && (
                         <button
                           type="button"
-                          onClick={() => onViewJournal(m.invoice?.journal_entry_id as number)}
+                          onClick={() => onViewJournal(p.journal_entry_id as number)}
                           style={acctDocLink}
-                          title="View the accrual journal (DR expense / CR AP) posted for this milestone invoice"
+                          title="View the disbursement journal (DR AP / CR deductions / CR bank) posted for this payment"
                         >
                           Acct Doc
                         </button>
                       )}
-                    </div>
-                  )}
-                  {(m.payments && m.payments.length > 0) ? (
-                    m.payments.map((p) => (
-                      <div key={p.payment_id} style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: '#94a3b8' }}>↳</span>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{p.payment_number}</span>
-                        <span style={{ color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
-                        <span style={{ fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>{formatCurrency(Number(p.amount || 0))}</span>
-                        <span style={statusBadge(p.status)}>{p.status}</span>
-                        {p.is_advance && <span style={{ fontSize: 10, color: '#b45309' }}>advance</span>}
-                        {p.journal_entry_id != null && (
-                          <button
-                            type="button"
-                            onClick={() => onViewJournal(p.journal_entry_id as number)}
-                            style={acctDocLink}
-                            title="View the disbursement journal (DR AP / CR deductions / CR bank) posted for this payment"
-                          >
-                            Acct Doc
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>
-                      Invoice posted — awaiting payment
-                    </div>
-                  )}
-                </td>
-              </tr>
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
             </Fragment>
           ))}
@@ -1469,6 +1491,16 @@ const acctDocLink: React.CSSProperties = {
   background: 'none', border: '1px solid #c7d2fe', borderRadius: 4,
   color: '#4f46e5', fontSize: 10, fontWeight: 700, cursor: 'pointer',
   padding: '1px 6px', letterSpacing: '0.02em',
+};
+// Nested invoice/payment rows under an INVOICED milestone — cells align to the
+// milestone table columns so amounts/status/actions line up with the row above.
+const subTd: React.CSSProperties = {
+  padding: '5px 14px', fontSize: 12, color: '#64748b',
+  borderBottom: '1px solid var(--color-border)',
+};
+const subRowStyle: React.CSSProperties = { background: '#f8fafc' };
+const subIndentTd: React.CSSProperties = {
+  ...subTd, textAlign: 'center', color: '#94a3b8',
 };
 const milestoneStartBtn: React.CSSProperties = {
   padding: '4px 10px',
