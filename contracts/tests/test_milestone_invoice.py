@@ -173,3 +173,55 @@ class TestMilestoneInvoice:
         MilestoneInvoiceService.release_retention(contract=activated_contract, actor=approver)
         bal = ContractBalance.objects.get(pk=activated_contract.pk)
         assert ContractBalanceSerializer(bal).data["retention_withheld_open"] == "0.00"
+
+    def test_milestone_serializer_nests_posted_payments(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        """MilestoneScheduleSerializer.payments lists POSTED settling payments
+        (amount = PaymentAllocation.amount); drafts excluded; and the fields
+        are empty without the contract-detail context map (list view)."""
+        from datetime import date as _date
+        from accounting.models import Payment, PaymentAllocation
+        from contracts.serializers import MilestoneScheduleSerializer
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        ms = _milestone_with_lines(
+            activated_contract, _legacy_accounts.expense, number=8, amount="20000000.00",
+        )
+        invoice = MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
+
+        posted = Payment.objects.create(
+            payment_number="PAY-SUB-1", payment_method="Wire",
+            total_amount=Decimal("19000000.00"), status="Posted",
+            payment_date=_date(2026, 3, 2),
+        )
+        PaymentAllocation.objects.create(
+            payment=posted, invoice=invoice, amount=Decimal("19000000.00"),
+        )
+        draft = Payment.objects.create(
+            payment_number="PAY-SUB-2", payment_method="Wire",
+            total_amount=Decimal("1000000.00"), status="Draft",
+            payment_date=_date(2026, 3, 3),
+        )
+        PaymentAllocation.objects.create(
+            payment=draft, invoice=invoice, amount=Decimal("1000000.00"),
+        )
+
+        ms.refresh_from_db()
+        ctx = {
+            "contract_number": activated_contract.contract_number,
+            "milestone_invoice_map": {invoice.invoice_number: invoice},
+        }
+        data = MilestoneScheduleSerializer(ms, context=ctx).data
+
+        assert data["invoice"]["invoice_number"] == invoice.invoice_number
+        pays = data["payments"]
+        assert len(pays) == 1                       # posted only, draft excluded
+        assert pays[0]["payment_number"] == "PAY-SUB-1"
+        assert pays[0]["amount"] == "19000000.00"   # allocation amount
+        assert pays[0]["status"] == "Posted"
+
+        # No context map (list view) → no per-milestone resolution.
+        bare = MilestoneScheduleSerializer(ms).data
+        assert bare["invoice"] is None
+        assert bare["payments"] == []

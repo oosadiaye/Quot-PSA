@@ -118,6 +118,31 @@ class ContractViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
 
+    def retrieve(self, request, *args, **kwargs):
+        """Detail view: pre-load this contract's milestone invoices + their
+        posted payments ONCE, so ``MilestoneScheduleSerializer.invoice`` /
+        ``payments`` resolve from a context map rather than a per-milestone
+        query. The milestone↔invoice link is a string convention
+        (``invoice_number = {contract_number}/M{n}``), not an FK, so it can't
+        be prefetched through a normal relation."""
+        from accounting.models import VendorInvoice
+
+        instance = self.get_object()
+        context = self.get_serializer_context()
+        contract_number = instance.contract_number
+        if contract_number:
+            invoices = (
+                VendorInvoice.objects
+                .filter(reference=contract_number)
+                .prefetch_related("payment_allocations__payment")
+            )
+            context["contract_number"] = contract_number
+            context["milestone_invoice_map"] = {
+                inv.invoice_number: inv for inv in invoices
+            }
+        serializer = self.serializer_class(instance, context=context)
+        return Response(serializer.data)
+
     # ── Duplicate warning ─────────────────────────────────────────────
 
     @action(detail=False, methods=["post"], url_path="check-duplicate")

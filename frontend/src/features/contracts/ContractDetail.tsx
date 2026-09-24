@@ -46,7 +46,7 @@ import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
 // ── Status mapping ──────────────────────────────────────────────────
 // 7 backend statuses → 5 visual phases for the compact stepper.
@@ -1177,6 +1177,15 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
 }
 
 
+interface MilestonePaymentRow {
+  payment_id: number;
+  payment_number: string;
+  payment_date: string | null;
+  amount: string;         // amount applied to this milestone invoice
+  status: string;         // always 'Posted' (backend filters to settled)
+  is_advance: boolean;
+}
+
 interface MilestoneRow {
   id: number;
   milestone_number: number;
@@ -1191,6 +1200,18 @@ interface MilestoneRow {
   // MilestoneScheduleSerializer.get_ipc / get_ipc_number).
   ipc: number | null;
   ipc_number: string | null;
+  // Milestone-as-invoice → payment history. Populated on the contract
+  // DETAIL payload only (MilestoneScheduleSerializer.invoice / payments);
+  // null/empty on list views. Drives the nested payment sub-lines.
+  invoice?: {
+    id: number;
+    invoice_number: string;
+    status: string;
+    total_amount: string;
+    paid_amount: string;
+    payable_now: string;
+  } | null;
+  payments?: MilestonePaymentRow[];
 }
 
 interface MilestonesTabProps {
@@ -1251,7 +1272,8 @@ function MilestonesTab({
         </thead>
         <tbody>
           {milestones.map((m) => (
-            <tr key={m.id} style={tableRow}>
+            <Fragment key={m.id}>
+            <tr style={tableRow}>
               <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>
                 {m.milestone_number}
               </td>
@@ -1352,6 +1374,34 @@ function MilestonesTab({
                 </div>
               </td>
             </tr>
+            {m.status === 'INVOICED' && (
+              <tr style={{ background: '#f8fafc' }}>
+                <td colSpan={8} style={{ padding: '2px 14px 10px 40px', borderBottom: '1px solid var(--color-border)' }}>
+                  {m.invoice && (
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+                      Invoice {m.invoice.invoice_number} · {formatCurrency(Number(m.invoice.paid_amount || 0))} paid of {formatCurrency(Number(m.invoice.total_amount || 0))}
+                    </div>
+                  )}
+                  {(m.payments && m.payments.length > 0) ? (
+                    m.payments.map((p) => (
+                      <div key={p.payment_id} style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, padding: '2px 0' }}>
+                        <span style={{ color: '#94a3b8' }}>↳</span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{p.payment_number}</span>
+                        <span style={{ color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
+                        <span style={{ fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>{formatCurrency(Number(p.amount || 0))}</span>
+                        <span style={statusBadge(p.status)}>{p.status}</span>
+                        {p.is_advance && <span style={{ fontSize: 10, color: '#b45309' }}>advance</span>}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>
+                      Invoice posted — awaiting payment
+                    </div>
+                  )}
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
         </tbody>
         <tfoot>

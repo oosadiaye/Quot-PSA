@@ -183,6 +183,17 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # Budget-appropriation coding lines (centralised-AP). Read-only here;
     # created/edited via the dedicated milestone-lines endpoint.
     lines = MilestoneInvoiceLineSerializer(many=True, read_only=True)
+    # ── Milestone-as-invoice → payment history (read-only) ────────────
+    # An approved milestone becomes a VendorInvoice (invoice_number =
+    # "{contract_number}/M{milestone_number}"). These surface that invoice
+    # and the POSTED payments that settled it, so the contract detail page
+    # nests payment sub-lines under each milestone. Resolved ONLY from the
+    # ``milestone_invoice_map`` context the detail view builds once (see
+    # ContractViewSet.retrieve); on the list view (no map) they are
+    # null/empty — which keeps the list free of the per-milestone query the
+    # string (non-FK) link would otherwise cost.
+    invoice = serializers.SerializerMethodField()
+    payments = serializers.SerializerMethodField()
 
     class Meta:
         model = MilestoneSchedule
@@ -192,8 +203,9 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "target_date", "actual_completion_date",
             "status", "notes",
             "ipc", "ipc_number", "lines",
+            "invoice", "payments",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "invoice", "payments"]
 
     def get_ipc(self, obj):
         # ``hasattr`` returns False for an unset reverse OneToOne in
@@ -205,6 +217,56 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     def get_ipc_number(self, obj):
         ipc = getattr(obj, "ipc", None) if hasattr(obj, "ipc") else None
         return ipc.ipc_number if ipc else None
+
+    def _milestone_invoice(self, obj):
+        """The milestone's VendorInvoice, from the prefetched context map
+        (contract detail only). None when the map is absent — the list view
+        never pays a per-milestone query for the string-convention link."""
+        inv_map = self.context.get("milestone_invoice_map")
+        if inv_map is None:
+            return None
+        contract_number = self.context.get("contract_number")
+        if not contract_number:
+            return None
+        return inv_map.get(f"{contract_number}/M{obj.milestone_number}")
+
+    def get_invoice(self, obj):
+        inv = self._milestone_invoice(obj)
+        if inv is None:
+            return None
+        return {
+            "id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "status": inv.status,
+            "total_amount": str(inv.total_amount),
+            "paid_amount": str(inv.paid_amount),
+            "payable_now": str(inv.payable_now),
+        }
+
+    def get_payments(self, obj):
+        """POSTED payments that settled this milestone's invoice, each with
+        the amount actually applied to it (PaymentAllocation.amount)."""
+        from datetime import date as _date
+        inv = self._milestone_invoice(obj)
+        if inv is None:
+            return []
+        rows = []
+        for alloc in inv.payment_allocations.all():
+            pay = alloc.payment
+            if pay is None or getattr(pay, "is_deleted", False):
+                continue
+            if pay.status != "Posted":  # posted (settled) payments only
+                continue
+            rows.append({
+                "payment_id": pay.id,
+                "payment_number": pay.payment_number,
+                "payment_date": pay.payment_date,
+                "amount": str(alloc.amount),
+                "status": pay.status,
+                "is_advance": bool(pay.is_advance),
+            })
+        rows.sort(key=lambda r: r["payment_date"] or _date.min)
+        return rows
 
 
 # ── Contracts ─────────────────────────────────────────────────────────
