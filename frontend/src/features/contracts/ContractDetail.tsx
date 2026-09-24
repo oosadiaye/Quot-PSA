@@ -5,8 +5,8 @@
  * right sidebar layout with budget pulse / stakeholders / activity log.
  *
  * Preserves existing data wiring (useContract, useContractBalance,
- * useIPCs, useVariations) and existing business actions (activate /
- * close / edit / new IPC / new variation). Status mapping compresses
+ * useVariations) and existing business actions (activate / close /
+ * edit / new variation). Status mapping compresses
  * the 7-state backend lifecycle into a 5-step visual stepper:
  *   Draft → Activated → In Progress → Completion → Closed
  * where Completion encompasses PRACTICAL_COMPLETION / DEFECTS_LIABILITY
@@ -40,7 +40,6 @@ import {
   useContractMobilization, useIssueMobilization,
   useReleaseRetentionLien,
 } from './hooks/useContracts';
-import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
 import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
@@ -108,7 +107,7 @@ function currentPhaseIndex(status: ContractStatus): number {
 // ── Tab type ─────────────────────────────────────────────────────────
 // 'year-plans' is the multi-year contract tab — visible on every contract,
 // shows even single-year contracts (which auto-create one year_plan row).
-type TabKey = 'milestones' | 'ipcs' | 'variations' | 'year-plans' | 'mobilization';
+type TabKey = 'milestones' | 'variations' | 'year-plans' | 'mobilization';
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -129,14 +128,13 @@ const ContractDetail = () => {
   // else changes.
   const initialTab = ((): TabKey => {
     const raw = searchParams.get('tab');
-    const allowed: TabKey[] = ['milestones', 'ipcs', 'variations', 'year-plans', 'mobilization'];
+    const allowed: TabKey[] = ['milestones', 'variations', 'year-plans', 'mobilization'];
     return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'milestones';
   })();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
   const { data: contract, isLoading: loadingC } = useContract(cid);
   const { data: balance } = useContractBalance(cid);
-  const { data: ipcs } = useIPCs({ contract: cid });
   const { data: variations } = useVariations({ contract: cid });
   // Year plans drive the multi-year IPC posting boundary (Control 8).
   // Even single-year contracts have one row, so the tab is always
@@ -743,11 +741,6 @@ const ContractDetail = () => {
                   label={`Milestones (${contract.milestones?.length ?? 0})`}
                 />
                 <TabButton
-                  active={activeTab === 'ipcs'}
-                  onClick={() => setActiveTab('ipcs')}
-                  label={`IPCs (${ipcs?.count ?? 0})`}
-                />
-                <TabButton
                   active={activeTab === 'variations'}
                   onClick={() => setActiveTab('variations')}
                   label={`Write-ups (${variations?.count ?? 0})`}
@@ -775,18 +768,6 @@ const ContractDetail = () => {
                   >
                     <Plus size={14} /> NEW MILESTONE
                   </button>
-                )}
-                {activeTab === 'ipcs' && (
-                  // IPCs are now exclusively raised from approved
-                  // milestones — see ``MilestoneScheduleViewSet.convert_to_ipc``.
-                  // The button below stays as a label so the user
-                  // understands the new workflow at a glance.
-                  <span
-                    style={ipcOriginNote}
-                    title="IPCs are created from the Milestones tab — approve a milestone, then click Convert to IPC."
-                  >
-                    IPCs are raised from approved milestones
-                  </span>
                 )}
                 {activeTab === 'variations' && (
                   <button
@@ -819,13 +800,6 @@ const ContractDetail = () => {
                   || approveMilestoneMut.isPending
                   || convertMilestoneMut.isPending
                 }
-              />
-            )}
-            {activeTab === 'ipcs' && (
-              <IPCsTab
-                ipcs={ipcs?.results ?? []}
-                onOpen={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
-                formatCurrency={formatCurrency}
               />
             )}
             {activeTab === 'variations' && (
@@ -1749,54 +1723,6 @@ function MobilizationTab({
 }
 
 
-interface IPCsTabProps {
-  ipcs: any[];
-  onOpen: (id: number) => void;
-  formatCurrency: (n: number) => string;
-}
-function IPCsTab({ ipcs, onOpen, formatCurrency }: IPCsTabProps) {
-  if (!ipcs.length) {
-    return (
-      <EmptyState
-        title="No IPCs Raised Yet"
-        description="Interim Payment Certificates capture each progress payment. Raise the first one once site work begins."
-        iconKey="receipt"
-      />
-    );
-  }
-  return (
-    <div style={card({ pad: 0 })}>
-      <table style={dataTable}>
-        <thead>
-          <tr style={tableHeadRow}>
-            <th style={th}>IPC #</th>
-            <th style={{ ...th, textAlign: 'right' }}>Gross</th>
-            <th style={{ ...th, textAlign: 'center' }}>Status</th>
-            <th style={{ ...th, textAlign: 'right' }}>Open</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ipcs.map((i: any) => (
-            <tr key={i.id} style={{ ...tableRow, cursor: 'pointer' }} onClick={() => onOpen(i.id)}>
-              <td style={{ ...td, fontFamily: 'monospace', color: '#4f46e5', fontWeight: 700 }}>
-                {i.ipc_number}
-              </td>
-              <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCurrency(Number(i.this_certificate_gross))}
-              </td>
-              <td style={{ ...td, textAlign: 'center' }}>
-                <span style={statusBadge(i.status)}>{i.status}</span>
-              </td>
-              <td style={{ ...td, textAlign: 'right', color: '#4f46e5' }}>›</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-
 interface VariationsTabProps {
   variations: any[];
   onOpen: (id: number) => void;
@@ -2274,13 +2200,6 @@ const primaryDarkBtnDisabled: React.CSSProperties = {
   ...primaryDarkBtn,
   background: '#cbd5e1', cursor: 'not-allowed', boxShadow: 'none',
 };
-const ipcOriginNote: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600,
-  color: '#475569', fontStyle: 'italic',
-  padding: '0.4rem 0.8rem',
-  background: '#f1f5f9', borderRadius: 6,
-};
-
 // Tables
 const dataTable: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem',
