@@ -147,6 +147,27 @@ jobs:
             --cov-report=xml \
             --cov-report=term
 
+      # ── Database tier (AP centralisation). These live in TENANT_APPS
+      # (accounting, contracts), so their conftests build pytest_schema and
+      # migrate the tenant apps before running. They cover the milestone-as-
+      # invoice accrual + retention lien, central payment processing
+      # (deduction-aware PV → draft Payment → post), and the AP-register
+      # Create-PV factory (payable_now, retention never disbursed). These were
+      # invisible to CI before — the fast tier is genuinely no-DB and the file
+      # allowlist never listed them, so the whole AP/PV/milestone surface went
+      # ungated. transaction=True posted-journal tests need a real DB.
+      - name: Pytest — database tier (AP / payments / contracts)
+        run: |
+          pytest \
+            accounting/tests/test_pv_factory_invoice.py \
+            accounting/tests/test_central_payment_processing.py \
+            contracts/tests/test_milestone_invoice.py \
+            -v \
+            --cov=accounting --cov=contracts \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
