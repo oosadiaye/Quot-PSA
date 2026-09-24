@@ -37,10 +37,11 @@ import {
   useContract, useContractBalance, useContractActivity,
   useActivateContract, useCloseContract,
   useCreateMilestone, useStartMilestone, useApproveMilestone,
-  useConvertMilestoneToIPC,
   useContractMobilization, useIssueMobilization,
   useReleaseRetentionLien,
+  type MilestoneLine,
 } from './hooks/useContracts';
+import MilestoneInvoiceModal from './milestones/MilestoneInvoiceModal';
 import { useVariations } from './hooks/useVariations';
 import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
@@ -206,7 +207,6 @@ const ContractDetail = () => {
     }
   };
 
-  const convertMilestoneMut = useConvertMilestoneToIPC();
   const { data: mobilizationPayment } = useContractMobilization(cid);
   const issueMobilizationMut = useIssueMobilization();
 
@@ -252,22 +252,10 @@ const ContractDetail = () => {
       message.error(formatServiceError(e, 'Failed to release retention'));
     }
   };
-  const handleConvertToIPC = async (milestoneId: number) => {
-    try {
-      const result = await convertMilestoneMut.mutateAsync({
-        milestoneId, contractId: cid,
-      });
-      const ipc = result.data;
-      message.success(
-        `IPC ${ipc.ipc_number} created — opening it now.`,
-      );
-      // Move the user straight to the IPC detail so they can progress
-      // it through certification → approval → voucher.
-      navigate(`/contracts/ipcs/${ipc.id}`);
-    } catch (e) {
-      message.error(formatServiceError(e, 'Failed to convert milestone to IPC'));
-    }
-  };
+  // Milestone-as-invoice: the "Post Invoice" action opens a coding-line editor
+  // (see MilestoneInvoiceModal), which posts the accrual and flips the
+  // milestone to INVOICED. This replaced the old "Convert to IPC" flow.
+  const [invoiceMilestone, setInvoiceMilestone] = useState<MilestoneRow | null>(null);
 
   // Inline "New Milestone" modal — keeps the user in the contract
   // detail context (no navigation away). Matches SAP's "schedule
@@ -799,13 +787,12 @@ const ContractDetail = () => {
                 formatCurrency={formatCurrency}
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
-                onConvertToIPC={handleConvertToIPC}
+                onPostInvoice={(m) => setInvoiceMilestone(m)}
                 onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
                 onViewJournal={(id) => setViewJournalId(id)}
                 actionLoading={
                   startMilestoneMut.isPending
                   || approveMilestoneMut.isPending
-                  || convertMilestoneMut.isPending
                 }
               />
             )}
@@ -941,6 +928,26 @@ const ContractDetail = () => {
           payment sub-line. Self-fetches the journal by id. */}
       {viewJournalId != null && (
         <JournalDetailModal id={viewJournalId} onClose={() => setViewJournalId(null)} />
+      )}
+
+      {/* Milestone-as-invoice — coding-line editor + Post Invoice. Opened from
+          a COMPLETED milestone's "Post Invoice" action. */}
+      {invoiceMilestone && (
+        <MilestoneInvoiceModal
+          milestone={invoiceMilestone}
+          contractId={cid}
+          defaultAppropriation={contract.appropriation ?? null}
+          defaultAppropriationLabel={contract.appropriation_label ?? null}
+          formatCurrency={formatCurrency}
+          onClose={() => setInvoiceMilestone(null)}
+          onPosted={(res) => {
+            message.success(
+              res.invoice_number
+                ? `Invoice ${res.invoice_number} posted — milestone is now INVOICED.`
+                : 'Milestone invoiced.',
+            );
+          }}
+        />
       )}
 
       {/* New Milestone modal — defined inline so the form state lives
@@ -1199,6 +1206,10 @@ interface MilestoneRow {
     journal_entry_id?: number | null;  // accrual journal (Acct Doc)
   } | null;
   payments?: MilestonePaymentRow[];
+  // Budget-appropriation coding lines (centralised-AP). Present on the detail
+  // payload (MilestoneScheduleSerializer.lines); the Post Invoice modal
+  // manages them via the milestone-lines CRUD.
+  lines?: MilestoneLine[];
 }
 
 interface MilestonesTabProps {
@@ -1207,14 +1218,14 @@ interface MilestonesTabProps {
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
-  onConvertToIPC: (id: number) => void;
+  onPostInvoice: (milestone: MilestoneRow) => void;
   onOpenIPC: (ipcId: number) => void;
   onViewJournal: (journalId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
   milestones, contractCeiling, formatCurrency,
-  onStart, onApprove, onConvertToIPC, onOpenIPC, onViewJournal, actionLoading,
+  onStart, onApprove, onPostInvoice, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
@@ -1319,28 +1330,15 @@ function MilestonesTab({
                     </Popconfirm>
                   )}
                   {m.status === 'COMPLETED' && !m.ipc && (
-                    <Popconfirm
-                      title="Convert this milestone to an IPC?"
-                      description={
-                        <span>
-                          An Interim Payment Certificate (IPC) of
-                          <strong> {formatCurrency(Number(m.scheduled_value || 0))}</strong>
-                          {' '}will be raised against this milestone. The IPC follows
-                          the standard certification → approval → payment-voucher
-                          flow. Tax + Withholding Tax default from the vendor master.
-                          <br /><br />
-                          <strong>IPCs cannot be created manually — they always
-                          originate from an approved milestone.</strong>
-                        </span>
-                      }
-                      okText="Yes, create IPC"
-                      cancelText="Cancel"
-                      onConfirm={() => onConvertToIPC(m.id)}
+                    <button
+                      type="button"
+                      style={milestoneConvertBtn}
+                      disabled={actionLoading}
+                      onClick={() => onPostInvoice(m)}
+                      title="Add coding lines and post this milestone as a vendor invoice"
                     >
-                      <button style={milestoneConvertBtn} disabled={actionLoading}>
-                        Convert to IPC
-                      </button>
-                    </Popconfirm>
+                      Post Invoice
+                    </button>
                   )}
                   {m.status === 'COMPLETED' && m.ipc && (
                     <button

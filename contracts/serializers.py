@@ -154,14 +154,28 @@ class MilestoneInvoiceLineSerializer(serializers.ModelSerializer):
     """Budget-appropriation coding line on a milestone (centralised-AP)."""
     account_code = serializers.CharField(source="account.code", read_only=True)
     account_name = serializers.CharField(source="account.name", read_only=True)
+    # Appropriation is keyed by its economic (GL) segment — surface that code +
+    # name so the coding-lines editor can label the selected budget line.
+    # Null-safe (appropriation is optional).
+    appropriation_code = serializers.SerializerMethodField()
+    appropriation_name = serializers.SerializerMethodField()
 
     class Meta:
         model = MilestoneInvoiceLine
         fields = [
             "id", "milestone", "account", "account_code", "account_name",
-            "appropriation", "description", "amount",
+            "appropriation", "appropriation_code", "appropriation_name",
+            "description", "amount",
         ]
         read_only_fields = ["id"]
+
+    def get_appropriation_code(self, obj):
+        appr = obj.appropriation
+        return getattr(getattr(appr, "economic", None), "code", None) if appr else None
+
+    def get_appropriation_name(self, obj):
+        appr = obj.appropriation
+        return getattr(getattr(appr, "economic", None), "name", None) if appr else None
 
 
 class MilestoneScheduleSerializer(serializers.ModelSerializer):
@@ -370,6 +384,23 @@ class ContractSerializer(serializers.ModelSerializer):
         source='vendor.tax_code.input_tax_account.code',
         read_only=True, default='',
     )
+    # Human-readable label for the contract's default budget appropriation.
+    # The milestone-invoice coding-line editor seeds each new line's
+    # Appropriation picker with the contract default; the picker only holds
+    # the FK id, so without a label the defaulted field looks empty even
+    # though it carries a value. Null when the contract has no appropriation.
+    appropriation_label = serializers.SerializerMethodField()
+
+    def get_appropriation_label(self, obj):
+        appr = getattr(obj, "appropriation", None)
+        if not appr:
+            return None
+        econ = getattr(appr, "economic", None)
+        code = getattr(econ, "code", None) if econ is not None else None
+        name = getattr(econ, "name", None) if econ is not None else None
+        if code and name:
+            return f"{code} — {name}"
+        return code or name or str(appr)
 
     def get_vendor_ap_code(self, obj):
         """Walk vendor → category → reconciliation_account → code.
@@ -411,7 +442,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "duplicate_ack_ids", "duplicate_ack_reason",
             "contract_type", "procurement_method", "status",
             "vendor", "vendor_name", "vendor_code",
-            "mda", "ncoa_code", "appropriation", "fiscal_year",
+            "mda", "ncoa_code", "appropriation", "appropriation_label", "fiscal_year",
             # Per-segment ids (read-only) for form prefill on edit.
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",

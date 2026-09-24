@@ -221,6 +221,52 @@ class TestMilestoneInvoice:
         stamps = [r["timestamp"] for r in results]
         assert stamps == sorted(stamps, reverse=True)
 
+    def test_milestone_line_serializer_exposes_appropriation_display(
+        self, activated_contract, _legacy_accounts, appropriation,
+    ):
+        """MilestoneInvoiceLineSerializer surfaces the appropriation's economic
+        code/name (for the coding-lines editor), null-safe when unset."""
+        from contracts.models import MilestoneSchedule, MilestoneInvoiceLine, MilestoneStatus
+        from contracts.serializers import MilestoneInvoiceLineSerializer
+
+        ms = MilestoneSchedule.objects.create(
+            contract=activated_contract, milestone_number=10, description="coding",
+            scheduled_value=Decimal("1000.00"), percentage_weight=Decimal("1.000"),
+            status=MilestoneStatus.COMPLETED,
+        )
+        line = MilestoneInvoiceLine.objects.create(
+            milestone=ms, account=_legacy_accounts.expense, appropriation=appropriation,
+            description="works", amount=Decimal("1000.00"),
+        )
+        data = MilestoneInvoiceLineSerializer(line).data
+        assert data["appropriation"] == appropriation.id
+        assert data["appropriation_code"] == appropriation.economic.code
+        assert data["account_code"] == _legacy_accounts.expense.code
+
+        # Null-safe when the line has no appropriation.
+        line2 = MilestoneInvoiceLine.objects.create(
+            milestone=ms, account=_legacy_accounts.expense, description="y", amount=Decimal("1.00"),
+        )
+        assert MilestoneInvoiceLineSerializer(line2).data["appropriation_code"] is None
+
+    def test_contract_serializer_exposes_appropriation_label(
+        self, activated_contract, appropriation,
+    ):
+        """ContractSerializer.appropriation_label gives the coding-line editor a
+        ready label ('<code> — <name>') to seed the per-line default; null when
+        the contract has no appropriation."""
+        from contracts.serializers import ContractSerializer
+
+        activated_contract.appropriation = appropriation
+        activated_contract.save(update_fields=["appropriation"])
+        label = ContractSerializer(activated_contract).data["appropriation_label"]
+        assert label == f"{appropriation.economic.code} — {appropriation.economic.name}"
+
+        # Null when unset.
+        activated_contract.appropriation = None
+        activated_contract.save(update_fields=["appropriation"])
+        assert ContractSerializer(activated_contract).data["appropriation_label"] is None
+
     def test_milestone_serializer_nests_posted_payments(
         self, activated_contract, _legacy_accounts, approver,
     ):
