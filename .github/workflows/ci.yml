@@ -217,6 +217,14 @@ jobs:
       - name: TypeScript check (e2e suite)
         run: npm run typecheck:e2e
 
+      # ── Unit tests (vitest). The frontend job used to only type-check and
+      # build, so the vitest suite (utils, hooks, the retention ₦↔% helper,
+      # AmountInput, tableTools, api client) never ran in CI — a green frontend
+      # job proved the code compiled, not that the units behaved. Run once
+      # (no watch). 73 tests across 6 files at time of writing.
+      - name: Unit tests (vitest)
+        run: npm run test:run
+
       - name: Build (production bundle)
         run: npm run build
 
