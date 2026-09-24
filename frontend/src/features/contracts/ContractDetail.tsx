@@ -34,7 +34,7 @@ import {
 import { ListPageShell } from '../../components/layout';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import {
-  useContract, useContractBalance,
+  useContract, useContractBalance, useContractActivity,
   useActivateContract, useCloseContract,
   useCreateMilestone, useStartMilestone, useApproveMilestone,
   useConvertMilestoneToIPC,
@@ -136,6 +136,7 @@ const ContractDetail = () => {
 
   const { data: contract, isLoading: loadingC } = useContract(cid);
   const { data: balance } = useContractBalance(cid);
+  const { data: activity } = useContractActivity(cid, 6);
   const { data: variations } = useVariations({ contract: cid });
   // Year plans drive the multi-year IPC posting boundary (Control 8).
   // Even single-year contracts have one row, so the tab is always
@@ -896,22 +897,20 @@ const ContractDetail = () => {
           <section>
             <h4 style={sidebarSectionTitle}>Recent Activity</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingLeft: '0.5rem' }}>
-              <ActivityItem
-                accent
-                title={status === 'DRAFT' ? 'Contract Drafted' : 'Contract Activated'}
-                meta={`Status: ${status.replace(/_/g, ' ')}`}
-              />
-              {contract.signed_date && (
-                <ActivityItem
-                  title="Contract Signed"
-                  meta={formatDate(contract.signed_date)}
-                />
-              )}
-              {contract.created_at && (
-                <ActivityItem
-                  title="Initial Setup"
-                  meta={formatDate(contract.created_at)}
-                />
+              {activity && activity.length > 0 ? (
+                activity.map((a, i) => (
+                  <ActivityItem
+                    key={a.id}
+                    accent={i === 0}
+                    title={`${actionLabel(a.action)} · ${prettyModel(a.model_name)}`}
+                    meta={a.new_status ? `Status: ${a.new_status}` : (a.object_repr || '')}
+                    actor={`${a.username || 'System'} · ${formatDate(a.timestamp)}`}
+                  />
+                ))
+              ) : (
+                <p style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>
+                  No activity recorded yet
+                </p>
               )}
             </div>
             <button
@@ -1986,16 +1985,31 @@ function StakeholderRow({ initials, name, role, online, muted, rightSlot }: Stak
 }
 
 
-interface ActivityItemProps { title: string; meta: string; accent?: boolean; }
-function ActivityItem({ title, meta, accent }: ActivityItemProps) {
+interface ActivityItemProps { title: string; meta: string; actor?: string; accent?: boolean; }
+function ActivityItem({ title, meta, actor, accent }: ActivityItemProps) {
   return (
     <div style={activityItem}>
       <div style={accent ? activityDotActive : activityDot} />
       <p style={accent ? activityTitleActive : activityTitle}>{title}</p>
-      <p style={activityMeta}>{meta}</p>
+      {meta && <p style={activityMeta}>{meta}</p>}
+      {actor && <p style={activityActor}>{actor}</p>}
     </div>
   );
 }
+
+// Friendly labels for core.AuditLog action codes shown in Recent Activity.
+const ACTION_LABELS: Record<string, string> = {
+  CREATE: 'Created', UPDATE: 'Updated', DELETE: 'Deleted',
+  POST: 'Posted', UNPOST: 'Unposted', APPROVE: 'Approved', REJECT: 'Rejected',
+  CANCEL: 'Cancelled', VOID: 'Voided', CLOSE: 'Closed', OPEN: 'Opened',
+  LOCK: 'Locked', UNLOCK: 'Unlocked', EXPORT: 'Exported', IMPORT: 'Imported',
+};
+const actionLabel = (a: string) => ACTION_LABELS[a] ?? a;
+const prettyModel = (m: string) =>
+  ({ contract: 'Contract', milestoneschedule: 'Milestone',
+     interimpaymentcertificate: 'IPC', contractvariation: 'Variation',
+     mobilizationpayment: 'Mobilization', retentionrelease: 'Retention Release',
+     contractyearplan: 'Year Plan' } as Record<string, string>)[m] || (m || 'Record');
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -2420,6 +2434,10 @@ const activityTitleActive: React.CSSProperties = {
 };
 const activityMeta: React.CSSProperties = {
   fontSize: 10, color: '#94a3b8', fontWeight: 500, margin: 0,
+};
+// "who · when" line under an activity item.
+const activityActor: React.CSSProperties = {
+  fontSize: 10, color: '#4f46e5', fontWeight: 600, margin: '2px 0 0',
 };
 
 const viewAuditBtn: React.CSSProperties = {

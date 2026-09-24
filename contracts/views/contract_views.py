@@ -303,6 +303,60 @@ class ContractViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["get"], url_path="activity")
+    def activity(self, request, pk=None):
+        """Full audit trail for this contract — every ``core.AuditLog`` entry on
+        the contract AND its sub-objects (milestones, IPCs, variations,
+        mobilization, retention releases, year plans), newest first, with the
+        actor (``username``). AuditLog links generically (content_type +
+        object_id) with no contract FK, so we compose one OR-query from the
+        contract's object ids, leaning on the (content_type, object_id,
+        -timestamp) index."""
+        from django.contrib.contenttypes.models import ContentType
+        from django.db.models import Q
+        from core.models import AuditLog
+        from core.views.audit import AuditLogSerializer
+        from contracts.models.contract import MilestoneSchedule
+        from contracts.models.payment import (
+            InterimPaymentCertificate, MobilizationPayment, RetentionRelease,
+        )
+        from contracts.models.variation import ContractVariation
+        from contracts.models.year_plan import ContractYearPlan
+
+        contract = self.get_object()
+
+        def _ids(model):
+            return list(
+                model.objects.filter(contract=contract).values_list("id", flat=True)
+            )
+
+        sources = [
+            (Contract, [contract.id]),
+            (MilestoneSchedule, _ids(MilestoneSchedule)),
+            (InterimPaymentCertificate, _ids(InterimPaymentCertificate)),
+            (ContractVariation, _ids(ContractVariation)),
+            (MobilizationPayment, _ids(MobilizationPayment)),
+            (RetentionRelease, _ids(RetentionRelease)),
+            (ContractYearPlan, _ids(ContractYearPlan)),
+        ]
+        q = Q()
+        matched = False
+        for model, ids in sources:
+            if not ids:
+                continue
+            ct = ContentType.objects.get_for_model(model)
+            q |= Q(content_type=ct, object_id__in=ids)
+            matched = True
+
+        logs = (
+            AuditLog.objects.filter(q).select_related("user").order_by("-timestamp")
+            if matched else AuditLog.objects.none()
+        )
+        page = self.paginate_queryset(logs)
+        if page is not None:
+            return self.get_paginated_response(AuditLogSerializer(page, many=True).data)
+        return Response(AuditLogSerializer(logs, many=True).data)
+
 
 class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
     """CRUD for a milestone's budget-appropriation coding lines.

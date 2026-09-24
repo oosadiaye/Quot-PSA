@@ -262,6 +262,7 @@ const TenantSnapshotsPage = lazy(() => import('./features/admin/snapshots').then
 const ContractsDashboard  = lazy(() => import('./features/contracts/ContractsDashboard'));
 const ContractsList       = lazy(() => import('./features/contracts/ContractsList'));
 const ContractDetail      = lazy(() => import('./features/contracts/ContractDetail'));
+const ContractAuditPage   = lazy(() => import('./features/contracts/ContractAuditPage'));
 const ContractForm        = lazy(() => import('./features/contracts/ContractForm'));
 const IPCList             = lazy(() => import('./features/contracts/ipcs/IPCList'));
 const IPCSubmitForm       = lazy(() => import('./features/contracts/ipcs/IPCSubmitForm'));
@@ -894,6 +895,9 @@ function App() {
                         } />
                         <Route path="/contracts/:id" element={
                           <ProtectedRoute><ContractDetail /></ProtectedRoute>
+                        } />
+                        <Route path="/contracts/:id/audit" element={
+                          <ProtectedRoute><ContractAuditPage /></ProtectedRoute>
                         } />
                         <Route path="/contracts/:id/ipcs/new" element={
                           <ProtectedRoute><IPCSubmitForm /></ProtectedRoute>

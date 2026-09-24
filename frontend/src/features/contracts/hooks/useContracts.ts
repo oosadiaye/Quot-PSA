@@ -69,6 +69,43 @@ export const useContractBalance = (id: number | null | undefined) => {
   });
 };
 
+/** One audit-log entry from GET /contracts/contracts/{id}/activity/. */
+export interface ContractActivityEntry {
+  id: number;
+  timestamp: string;
+  action: string;
+  username: string;
+  model_name: string;
+  object_repr: string;
+  object_id: number | null;
+  old_status?: string;
+  new_status?: string;
+  description?: string;
+}
+
+/**
+ * GET /contracts/contracts/{id}/activity/
+ * — full audit trail for the contract AND its sub-objects (milestones, IPCs,
+ * variations, mobilization, retention releases, year plans), newest-first,
+ * each with the actor (username). Aggregated server-side from core.AuditLog.
+ */
+export const useContractActivity = (
+  id: number | null | undefined,
+  pageSize = 6,
+) => {
+  return useQuery<ContractActivityEntry[]>({
+    queryKey: ['contract-activity', id, pageSize],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${CONTRACTS_BASE}${id}/activity/`, {
+        params: { page_size: pageSize },
+      });
+      return Array.isArray(data) ? data : (data?.results ?? []);
+    },
+    enabled: !!id,
+    staleTime: 30 * 1000,
+  });
+};
+
 export const useCreateContract = () => {
   const qc = useQueryClient();
   return useMutation({

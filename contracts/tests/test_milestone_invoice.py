@@ -174,6 +174,53 @@ class TestMilestoneInvoice:
         bal = ContractBalance.objects.get(pk=activated_contract.pk)
         assert ContractBalanceSerializer(bal).data["retention_withheld_open"] == "0.00"
 
+    def test_activity_endpoint_aggregates_contract_and_subobject_logs(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        """GET /contracts/contracts/{id}/activity/ returns AuditLog entries for
+        the contract AND its sub-objects (a milestone), with the actor username,
+        newest-first, and excludes unrelated objects."""
+        from django.contrib.auth import get_user_model
+        from django.contrib.contenttypes.models import ContentType
+        from rest_framework.test import APIClient
+        from core.models import AuditLog
+        from contracts.models import Contract, MilestoneSchedule
+
+        ms = _milestone_with_lines(
+            activated_contract, _legacy_accounts.expense, number=9, amount="1000000.00",
+        )
+        ct_c = ContentType.objects.get_for_model(Contract)
+        ct_m = ContentType.objects.get_for_model(MilestoneSchedule)
+        AuditLog.objects.create(user=approver, action="CREATE", content_type=ct_c,
+                                object_id=activated_contract.id, object_repr="the contract")
+        AuditLog.objects.create(user=approver, action="APPROVE", content_type=ct_m,
+                                object_id=ms.id, object_repr="the milestone")
+        # Unrelated entry (another contract's id) — must be excluded.
+        AuditLog.objects.create(user=approver, action="CREATE", content_type=ct_c,
+                                object_id=987654, object_repr="other contract")
+
+        su = get_user_model().objects.create(
+            username="activity_su", is_superuser=True, is_staff=True,
+        )
+        client = APIClient(HTTP_X_TENANT_DOMAIN="pytest.localhost")
+        client.force_authenticate(su)
+        resp = client.get(f"/api/contracts/contracts/{activated_contract.id}/activity/")
+        assert resp.status_code == 200, resp.content
+
+        body = resp.json()
+        results = body["results"] if isinstance(body, dict) and "results" in body else body
+        pairs = {(r["model_name"], r["object_id"]) for r in results}
+        assert ("contract", activated_contract.id) in pairs
+        assert ("milestoneschedule", ms.id) in pairs
+        assert ("contract", 987654) not in pairs      # unrelated excluded
+        # Actor is surfaced by username — the approver-authored entries appear.
+        # (The feed also carries signal-generated rows whose actor is 'System'
+        # in tests, which is the comprehensive audit working as intended.)
+        assert approver.username in {r["username"] for r in results}
+        # Newest-first ordering.
+        stamps = [r["timestamp"] for r in results]
+        assert stamps == sorted(stamps, reverse=True)
+
     def test_milestone_serializer_nests_posted_payments(
         self, activated_contract, _legacy_accounts, approver,
     ):
