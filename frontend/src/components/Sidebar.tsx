@@ -104,7 +104,7 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
     { name: 'Dashboard', icon: BarChart3, path: '/dashboard', requiredPerm: null, module: null },
     {
-        name: 'General Ledger', icon: Wallet, path: '/accounting',
+        name: 'Accounting', icon: Wallet, path: '/accounting',
         requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
             { name: 'Journal Entries', path: '/accounting', icon: FileText },
