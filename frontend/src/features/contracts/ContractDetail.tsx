@@ -560,11 +560,11 @@ const ContractDetail = () => {
                 // sees both figures; otherwise show the share of the budget.
                 retentionHeld > 0
                   ? <span style={statSubtle}>
-                      Processable: <strong style={{ color: '#0f172a' }}>{formatCurrency(ceiling)}</strong>
+                      Processable: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(ceiling)}</strong>
                     </span>
                   : matchedAppropriation && apprApproved > 0
                   ? <span style={statSubtle}>
-                      <strong style={{ color: '#0f172a' }}>
+                      <strong style={{ color: 'var(--color-text)' }}>
                         {((fullSum / apprApproved) * 100).toFixed(1)}%
                       </strong>
                       {' '}of original budget
@@ -939,8 +939,8 @@ function StatCard({ label, value, footer, accent }: StatCardProps) {
 }
 
 const statCardIndigo: React.CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(238, 242, 255, 0.55) 0%, rgba(255, 255, 255, 1) 60%)',
-  borderColor: '#c7d2fe',
+  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.14) 0%, var(--color-surface) 65%)',
+  borderColor: 'rgba(99, 102, 241, 0.5)',
 };
 
 
@@ -998,14 +998,14 @@ function ContractFinancials({
     opts?: { deduct?: boolean; strong?: boolean; note?: string; sub?: boolean },
   ) => (
     <tr style={opts?.sub ? cfSubRow : undefined}>
-      <td style={{ ...cfCell, fontWeight: opts?.strong ? 700 : 400, color: opts?.strong ? '#0f172a' : '#334155' }}>
+      <td style={{ ...cfCell, fontWeight: opts?.strong ? 700 : 400, color: opts?.strong ? 'var(--color-text)' : 'var(--color-text-secondary)' }}>
         {label}
         {opts?.note && <span style={cfNote}>{opts.note}</span>}
       </td>
       <td style={{
         ...cfCell, textAlign: 'right', fontFamily: 'monospace',
         fontWeight: opts?.strong ? 800 : 600,
-        color: opts?.deduct ? '#b91c1c' : (opts?.strong ? '#0f172a' : '#334155'),
+        color: opts?.deduct ? '#dc2626' : (opts?.strong ? 'var(--color-text)' : 'var(--color-text-secondary)'),
       }}>
         {opts?.deduct ? '− ' : ''}{formatCurrency(amount)}
       </td>
@@ -1015,7 +1015,7 @@ function ContractFinancials({
   return (
     <div style={card({ pad: 0 })}>
       <div style={cfHeader}>
-        <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Contract Financials</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>Contract Financials</span>
         <span style={{ fontSize: 11, color: '#94a3b8' }}>Full sum less deductions</span>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1030,7 +1030,7 @@ function ContractFinancials({
         </tbody>
         <tfoot>
           <tr style={cfFootRow}>
-            <td style={{ ...cfCell, fontWeight: 800, color: '#0f172a' }}>
+            <td style={{ ...cfCell, fontWeight: 800, color: 'var(--color-text)' }}>
               Net to contractor <span style={cfNote}>estimate</span>
             </td>
             <td style={{ ...cfCell, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#047857' }}>
@@ -1056,15 +1056,15 @@ const cfHeader: React.CSSProperties = {
   padding: '0.85rem 1rem', borderBottom: '1px solid var(--color-border, #e2e8f0)',
 };
 const cfCell: React.CSSProperties = {
-  padding: '0.5rem 1rem', fontSize: 13, borderBottom: '1px solid #f1f5f9',
+  padding: '0.5rem 1rem', fontSize: 13, borderBottom: '1px solid var(--color-border-light)',
 };
-const cfSubRow: React.CSSProperties = { background: 'rgba(248,250,252,0.6)' };
+const cfSubRow: React.CSSProperties = { background: 'rgba(148,163,184,0.08)' };
 const cfNote: React.CSSProperties = {
-  marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: '#94a3b8',
+  marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-subtle)',
   fontStyle: 'italic',
 };
 const cfFootRow: React.CSSProperties = {
-  borderTop: '2px solid #e2e8f0', background: 'rgba(236,253,245,0.5)',
+  borderTop: '2px solid var(--color-border)', background: 'rgba(16,185,129,0.08)',
 };
 
 
@@ -1187,7 +1187,7 @@ function FinancialsTab({
 
       <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
         <div style={cfHeader}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Movements</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>Movements</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>
             Invoices credit · payments debit · balance = outstanding to contractor
           </span>
@@ -1241,7 +1241,7 @@ function FinancialsTab({
             </tbody>
             <tfoot>
               <tr style={milestoneFootRow}>
-                <td style={{ ...td, fontWeight: 800, color: '#0f172a' }} colSpan={3}>
+                <td style={{ ...td, fontWeight: 800, color: 'var(--color-text)' }} colSpan={3}>
                   Totals ({movements.length} movement{movements.length === 1 ? '' : 's'})
                 </td>
                 <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#b91c1c' }}>
@@ -1485,7 +1485,7 @@ function MilestonesTab({
                 <tr style={subRowStyle}>
                   <td style={subIndentTd}>↳</td>
                   <td style={{ ...subTd, maxWidth: 200 }}>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{m.invoice.invoice_number}</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)' }}>{m.invoice.invoice_number}</span>
                     {(!m.payments || m.payments.length === 0) && (
                       <span style={{ marginLeft: 8, color: '#94a3b8', fontStyle: 'italic' }}>— awaiting payment</span>
                     )}
@@ -1516,7 +1516,7 @@ function MilestonesTab({
                   <tr key={p.payment_id} style={subRowStyle}>
                     <td style={subIndentTd}>↳</td>
                     <td style={{ ...subTd, maxWidth: 200 }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{p.payment_number}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)' }}>{p.payment_number}</span>
                       <span style={{ marginLeft: 8, color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
                       {p.is_advance && <span style={{ marginLeft: 8, fontSize: 10, color: '#b45309' }}>advance</span>}
                     </td>
@@ -1549,7 +1549,7 @@ function MilestonesTab({
         </tbody>
         <tfoot>
           <tr style={milestoneFootRow}>
-            <td style={{ ...td, fontWeight: 800, color: '#0f172a' }} colSpan={2}>
+            <td style={{ ...td, fontWeight: 800, color: 'var(--color-text)' }} colSpan={2}>
               Total ({milestones.length} milestone{milestones.length === 1 ? '' : 's'})
             </td>
             <td style={{
@@ -1576,9 +1576,9 @@ function MilestonesTab({
                 </span>
               ) : (
                 <span>
-                  Remaining value: <strong style={{ color: '#0f172a' }}>{formatCurrency(remainingValue)}</strong>
+                  Remaining value: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(remainingValue)}</strong>
                   {' · '}
-                  Remaining weight: <strong style={{ color: '#0f172a' }}>{remainingWeight.toFixed(1)}%</strong>
+                  Remaining weight: <strong style={{ color: 'var(--color-text)' }}>{remainingWeight.toFixed(1)}%</strong>
                 </span>
               )}
             </td>
@@ -2093,7 +2093,7 @@ function EmptyState({ title, description, action }: EmptyStateProps) {
       <div style={emptyIconBox}>
         <Plus size={28} color="#a5b4fc" />
       </div>
-      <h3 style={{ color: '#0f172a', fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.95rem' }}>
+      <h3 style={{ color: 'var(--color-text)', fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.95rem' }}>
         {title}
       </h3>
       <p style={{ color: '#94a3b8', fontSize: '0.75rem', maxWidth: 320, lineHeight: 1.6, margin: 0 }}>
@@ -2480,7 +2480,7 @@ const emptyIconBox: React.CSSProperties = {
 // Right sidebar
 const rightSidebar: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: '2rem',
-  background: '#fff', border: '1px solid #e2e8f0',
+  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
   borderRadius: 16, padding: '1.5rem',
   position: 'sticky', top: 16,
 };
@@ -2493,8 +2493,8 @@ const sidebarSectionRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 };
 const pulseCard: React.CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #f1f5f9',
+  background: 'var(--color-surface-hover)',
+  border: '1px solid var(--color-border-light)',
   borderRadius: 16,
   padding: '1rem',
   display: 'flex', flexDirection: 'column', gap: '1rem',
@@ -2507,7 +2507,7 @@ const pulseHeaderRow: React.CSSProperties = {
 };
 const pulseBar: React.CSSProperties = {
   height: 8, width: '100%',
-  background: '#e2e8f0', borderRadius: 999,
+  background: 'var(--color-border)', borderRadius: 999,
   overflow: 'hidden',
 };
 const pulseBarFill: React.CSSProperties = {
@@ -2517,7 +2517,7 @@ const pulseBarFill: React.CSSProperties = {
 };
 const pulseSplit: React.CSSProperties = {
   paddingTop: '1rem',
-  borderTop: '1px solid #e2e8f0',
+  borderTop: '1px solid var(--color-border)',
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
   gap: '1rem',
@@ -2527,15 +2527,15 @@ const pulseSplitLabel: React.CSSProperties = {
   textTransform: 'uppercase', margin: '0 0 2px',
 };
 const pulseSplitValue: React.CSSProperties = {
-  fontSize: 13, fontWeight: 700, color: '#0f172a', margin: 0,
+  fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0,
 };
 
 // Stakeholders
 const stakeholderRow: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '0.75rem',
   padding: '0.75rem',
-  background: '#fff',
-  border: '1px solid #f1f5f9',
+  background: 'var(--color-surface)',
+  border: '1px solid var(--color-border-light)',
   borderRadius: 12,
   boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
 };
@@ -2551,7 +2551,7 @@ const stakeholderAvatarMuted: React.CSSProperties = {
   background: '#f1f5f9', color: '#475569',
 };
 const stakeholderName: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: '#0f172a',
+  fontSize: 11, fontWeight: 700, color: 'var(--color-text)',
   textTransform: 'uppercase', margin: 0,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
@@ -2580,7 +2580,7 @@ const activityTitle: React.CSSProperties = {
   margin: '0 0 2px', lineHeight: 1.3,
 };
 const activityTitleActive: React.CSSProperties = {
-  ...activityTitle, color: '#0f172a',
+  ...activityTitle, color: 'var(--color-text)',
 };
 const activityMeta: React.CSSProperties = {
   fontSize: 10, color: '#94a3b8', fontWeight: 500, margin: 0,
