@@ -1151,10 +1151,9 @@ function MilestonesTab({
           <tr style={tableHeadRow}>
             <th style={th}>#</th>
             <th style={th}>Description</th>
-            <th style={{ ...th, textAlign: 'right' }}>Scheduled Value</th>
-            <th style={{ ...th, textAlign: 'right' }}>Weight</th>
-            <th style={th}>Target</th>
-            <th style={th}>Completed</th>
+            <th style={{ ...th, textAlign: 'right' }}>Amount</th>
+            <th style={{ ...th, textAlign: 'right' }}>Percentage</th>
+            <th style={th}>Date</th>
             <th style={{ ...th, textAlign: 'center' }}>Status</th>
             <th style={{ ...th, textAlign: 'right' }}>Actions</th>
           </tr>
@@ -1174,11 +1173,6 @@ function MilestonesTab({
               <td style={td}>
                 {m.target_date
                   ? formatDate(m.target_date)
-                  : '—'}
-              </td>
-              <td style={{ ...td, color: m.actual_completion_date ? '#0f172a' : '#94a3b8' }}>
-                {m.actual_completion_date
-                  ? formatDate(m.actual_completion_date)
                   : '—'}
               </td>
               <td style={{ ...td, textAlign: 'center' }}>
@@ -1254,7 +1248,7 @@ function MilestonesTab({
             {m.status === 'INVOICED' && m.invoice && (
               <>
                 {/* Invoice accrual row — cells aligned to the milestone columns
-                    (amount under Scheduled Value, badge under Status), and the
+                    (amount under Amount, badge under Status), and the
                     Acct Doc link in the Actions column like every other row. */}
                 <tr style={subRowStyle}>
                   <td style={subIndentTd}>↳</td>
@@ -1267,7 +1261,6 @@ function MilestonesTab({
                   <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace' }}>
                     {formatCurrency(Number(m.invoice.paid_amount || 0))} / {formatCurrency(Number(m.invoice.total_amount || 0))}
                   </td>
-                  <td style={subTd} />
                   <td style={subTd} />
                   <td style={subTd} />
                   <td style={{ ...subTd, textAlign: 'center' }}>
@@ -1298,7 +1291,6 @@ function MilestonesTab({
                     <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>
                       {formatCurrency(Number(p.amount || 0))}
                     </td>
-                    <td style={subTd} />
                     <td style={subTd} />
                     <td style={subTd} />
                     <td style={{ ...subTd, textAlign: 'center' }}>
@@ -1341,7 +1333,7 @@ function MilestonesTab({
             }}>
               {totalWeight.toFixed(1)}%
             </td>
-            <td style={{ ...td, fontSize: 10, color: '#64748b' }} colSpan={4}>
+            <td style={{ ...td, fontSize: 10, color: '#64748b' }} colSpan={3}>
               {overValue ? (
                 <span style={{ color: '#b91c1c', fontWeight: 700 }}>
                   ⚠ Exceeds contract sum by {formatCurrency(totalScheduled - contractCeiling)}
