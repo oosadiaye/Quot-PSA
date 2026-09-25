@@ -850,12 +850,12 @@ const ContractForm = () => {
               <Row gutter={24}>
                 <Col xs={24} md={12}>
                   <Form.Item label="Signed Date" name="signed_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item label="Commencement Date" name="commencement_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -863,12 +863,12 @@ const ContractForm = () => {
               <Row gutter={24}>
                 <Col xs={24} md={12}>
                   <Form.Item label="Contract Start Date" name="contract_start_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item label="Contract End Date" name="contract_end_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
               </Row>
