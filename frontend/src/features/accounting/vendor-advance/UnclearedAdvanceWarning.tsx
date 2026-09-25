@@ -181,18 +181,27 @@ export default function UnclearedAdvanceWarning({
                             <Popconfirm
                                 title="Clear this advance?"
                                 description={
-                                    <span>
-                                        Posts the F-54 contra journal:
-                                        <br />
-                                        <strong>DR Accounts Payable</strong>{' '}
-                                        {formatCurrency(outstanding)}
-                                        <br />
-                                        <strong>CR Vendor Advance (AD)</strong>{' '}
-                                        {formatCurrency(outstanding)}
-                                        <br /><br />
-                                        Cannot be undone — the contra journal stays on
-                                        the books for the audit trail.
-                                    </span>
+                                    <div style={clearDescStyle}>
+                                        <div style={clearIntroStyle}>
+                                            Posts the F-54 contra journal
+                                        </div>
+                                        <div style={jrnlCardStyle}>
+                                            <div style={jrnlRowStyle}>
+                                                <span style={jrnlDrCrStyle}>DR</span>
+                                                <span style={jrnlAcctStyle}>Accounts Payable</span>
+                                                <span style={jrnlAmtStyle}>{formatCurrency(outstanding)}</span>
+                                            </div>
+                                            <div style={{ ...jrnlRowStyle, borderTop: '1px dashed #e2e8f0' }}>
+                                                <span style={jrnlDrCrStyle}>CR</span>
+                                                <span style={{ ...jrnlAcctStyle, paddingLeft: 12 }}>Vendor Advance (AD)</span>
+                                                <span style={jrnlAmtStyle}>{formatCurrency(outstanding)}</span>
+                                            </div>
+                                        </div>
+                                        <div style={clearWarnStyle}>
+                                            <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                                            <span>Cannot be undone — the contra journal stays on the books for the audit trail.</span>
+                                        </div>
+                                    </div>
                                 }
                                 okText="Yes, clear advance"
                                 cancelText="Cancel"
@@ -360,4 +369,32 @@ const dismissBtnStyle: React.CSSProperties = {
     borderRadius: 6,
     fontSize: 12, fontWeight: 600,
     cursor: 'pointer',
+};
+
+// ── "Clear this advance?" confirmation content ─────────────────────────
+const clearDescStyle: React.CSSProperties = { maxWidth: 300 };
+const clearIntroStyle: React.CSSProperties = {
+    fontSize: 12, color: '#64748b', marginBottom: 8,
+};
+const jrnlCardStyle: React.CSSProperties = {
+    border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
+    background: '#f8fafc',
+};
+const jrnlRowStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '7px 10px', fontSize: 12.5,
+};
+const jrnlDrCrStyle: React.CSSProperties = {
+    fontFamily: 'monospace', fontWeight: 700, fontSize: 10.5,
+    color: '#4338ca', background: '#eef2ff',
+    borderRadius: 5, padding: '1px 6px', minWidth: 24, textAlign: 'center',
+};
+const jrnlAcctStyle: React.CSSProperties = { color: '#334155', flex: 1, minWidth: 0 };
+const jrnlAmtStyle: React.CSSProperties = {
+    fontFamily: 'monospace', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap',
+};
+const clearWarnStyle: React.CSSProperties = {
+    marginTop: 10, display: 'flex', gap: 6, alignItems: 'flex-start',
+    background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8,
+    padding: '7px 10px', fontSize: 11.5, color: '#92400e', lineHeight: 1.45,
 };
