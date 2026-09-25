@@ -90,6 +90,27 @@ class TestMilestoneInvoice:
         with pytest.raises(TransactionPostingError):
             MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
 
+    def test_draft_contract_rejects_approve_with_clear_error(
+        self, draft_contract, _legacy_accounts, approver,
+    ):
+        """A milestone on a DRAFT (not-yet-activated) contract has no balance
+        ledger. Approve must fail with a clear ``TransactionPostingError`` that
+        the view maps to a 400 — never an unhandled ``ContractBalance.DoesNotExist``
+        (which surfaced as a 500). Regression for that crash."""
+        from contracts.models import ContractBalance, MilestoneStatus
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        assert not ContractBalance.objects.filter(pk=draft_contract.pk).exists()
+        ms = _milestone_with_lines(draft_contract, _legacy_accounts.expense, amount="1000000.00")
+
+        with pytest.raises(TransactionPostingError, match=r"[Aa]ctivate"):
+            MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
+
+        # Nothing posted; the milestone is untouched (the guard fails fast).
+        ms.refresh_from_db()
+        assert ms.status == MilestoneStatus.COMPLETED
+
     def test_reapprove_is_rejected(self, activated_contract, _legacy_accounts, approver):
         from accounting.services.base_posting import TransactionPostingError
         from contracts.services.milestone_invoice_service import MilestoneInvoiceService

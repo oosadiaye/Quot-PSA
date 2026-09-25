@@ -50,6 +50,18 @@ class MilestoneInvoiceService:
         if milestone.status == MilestoneStatus.INVOICED:
             raise TransactionPostingError("Milestone is already invoiced.")
 
+        # A milestone posts into the AP register against the contract's balance
+        # ledger, which ``ContractActivationService`` materialises on activation.
+        # On a DRAFT contract that row does not exist yet, so gate here with a
+        # clear error instead of letting the ``ContractBalance`` fetch below
+        # raise DoesNotExist (an unhandled 500).
+        if not ContractBalance.objects.filter(pk=contract.pk).exists():
+            raise TransactionPostingError(
+                "Activate the contract before approving milestones — the balance "
+                "ledger is created on activation, and the milestone posts its "
+                "invoice into the AP register against it."
+            )
+
         lines = list(milestone.lines.select_related("account").all())
         if not lines:
             raise TransactionPostingError(

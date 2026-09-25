@@ -709,6 +709,7 @@ const ContractDetail = () => {
               <MilestonesTab
                 milestones={contract.milestones ?? []}
                 contractCeiling={ceiling}
+                contractStatus={status}
                 formatCurrency={formatCurrency}
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
@@ -1105,6 +1106,9 @@ interface MilestoneRow {
 interface MilestonesTabProps {
   milestones: MilestoneRow[];
   contractCeiling: number;
+  /** Contract lifecycle status — Approve posts to AP and needs the balance
+   *  ledger, which only exists once the contract is ACTIVATED. */
+  contractStatus: string;
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
@@ -1114,9 +1118,13 @@ interface MilestonesTabProps {
   actionLoading: boolean;
 }
 function MilestonesTab({
-  milestones, contractCeiling, formatCurrency,
+  milestones, contractCeiling, contractStatus, formatCurrency,
   onStart, onApprove, onEdit, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
+  // Milestones post their invoice into the AP register against the contract's
+  // balance ledger, which is materialised on activation. Before that (DRAFT)
+  // Approve cannot succeed, so it is disabled with a hint rather than failing.
+  const isDraft = contractStatus === 'DRAFT';
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
   // they've allocated. The same numbers drive the model-level
@@ -1204,26 +1212,37 @@ function MilestonesTab({
                     </Popconfirm>
                   )}
                   {(m.status === 'PENDING' || m.status === 'IN_PROGRESS' || m.status === 'COMPLETED') && !m.ipc && (
-                    <Popconfirm
-                      title="Approve & post this milestone to AP?"
-                      description={
-                        <span>
-                          This certifies the work and posts the milestone's coding as a
-                          vendor invoice (DR expense / CR vendor-AP) into the AP register —
-                          payable right away. Today's date is recorded as the completion date.
-                          <br /><br />
-                          <strong>Requires the coding lines added when the milestone was
-                          created.</strong>
-                        </span>
-                      }
-                      okText="Approve & post"
-                      cancelText="Cancel"
-                      onConfirm={() => onApprove(m.id)}
-                    >
-                      <button style={milestoneApproveBtn} disabled={actionLoading}>
+                    isDraft ? (
+                      <button
+                        type="button"
+                        disabled
+                        style={{ ...milestoneApproveBtn, background: '#cbd5e1', boxShadow: 'none', cursor: 'not-allowed' }}
+                        title="Activate the contract first — approving posts the milestone into the AP register against the contract's balance ledger, which is created on activation."
+                      >
                         ✓ Approve
                       </button>
-                    </Popconfirm>
+                    ) : (
+                      <Popconfirm
+                        title="Approve & post this milestone to AP?"
+                        description={
+                          <span>
+                            This certifies the work and posts the milestone's coding as a
+                            vendor invoice (DR expense / CR vendor-AP) into the AP register —
+                            payable right away. Today's date is recorded as the completion date.
+                            <br /><br />
+                            <strong>Requires the coding lines added when the milestone was
+                            created.</strong>
+                          </span>
+                        }
+                        okText="Approve & post"
+                        cancelText="Cancel"
+                        onConfirm={() => onApprove(m.id)}
+                      >
+                        <button style={milestoneApproveBtn} disabled={actionLoading}>
+                          ✓ Approve
+                        </button>
+                      </Popconfirm>
+                    )
                   )}
                   {m.status === 'COMPLETED' && m.ipc && (
                     <button
