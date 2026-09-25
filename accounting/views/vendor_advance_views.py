@@ -162,8 +162,61 @@ class VendorAdvanceViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        outstanding = VendorAdvanceService.outstanding_for_vendor(vendor)
-        open_rows = VendorAdvanceService.list_outstanding(vendor)
+        open_rows = list(VendorAdvanceService.list_outstanding(vendor))
+
+        # Optional contract scope (the contract detail page): keep only advances
+        # that RELATE to this contract. Only mobilization advances carry a
+        # contract (source MOBILIZATION → MobilizationPayment.contract); AP/PO
+        # down payments and OTHER are vendor-level, not contract-specific, so
+        # they are excluded here. Those still surface on the vendor / AP / PV
+        # surfaces, which stay vendor-wide.
+        contract_param = request.query_params.get("contract")
+        if contract_param:
+            from decimal import Decimal as _D
+            from accounting.models.vendor_advance import VendorAdvanceSource
+            from accounting.models import Payment
+            from contracts.models import MobilizationPayment
+            try:
+                contract_id = int(contract_param)
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "contract must be an integer FK id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Resolve each advance's contract. Only mobilization advances relate
+            # to a contract; they are recorded as AP_DOWNPAYMENT with
+            # ``source_id = Payment.pk`` (the central cash door), so the link is
+            # Payment → its PaymentVoucher → the MobilizationPayment that PV
+            # funds → its contract. (A legacy MOBILIZATION source, if any, points
+            # straight at a MobilizationPayment.) Non-mobilization down payments
+            # resolve to None and are excluded from the contract view.
+            source_ids = [r.source_id for r in open_rows if r.source_id]
+            pay_to_pv = dict(
+                Payment.objects.filter(pk__in=source_ids)
+                .values_list("pk", "payment_voucher_id")
+            )
+            pv_ids = [v for v in pay_to_pv.values() if v]
+            pv_to_contract = dict(
+                MobilizationPayment.objects.filter(payment_voucher_id__in=pv_ids)
+                .values_list("payment_voucher_id", "contract_id")
+            ) if pv_ids else {}
+            mob_pk_to_contract = dict(
+                MobilizationPayment.objects.filter(pk__in=source_ids)
+                .values_list("pk", "contract_id")
+            )
+
+            def _contract_of(adv):
+                if adv.source_type == VendorAdvanceSource.MOBILIZATION:
+                    return mob_pk_to_contract.get(adv.source_id)
+                pv_id = pay_to_pv.get(adv.source_id)
+                return pv_to_contract.get(pv_id) if pv_id else None
+
+            open_rows = [r for r in open_rows if _contract_of(r) == contract_id]
+            outstanding = sum((r.amount_outstanding for r in open_rows), _D("0.00"))
+        else:
+            outstanding = VendorAdvanceService.outstanding_for_vendor(vendor)
+
         ser = self.get_serializer(open_rows, many=True)
         return Response({
             "vendor_id": vendor.pk,

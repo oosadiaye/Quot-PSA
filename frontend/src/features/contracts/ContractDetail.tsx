@@ -608,6 +608,7 @@ const ContractDetail = () => {
           {contract.vendor && (
             <UnclearedAdvanceWarning
               vendorId={contract.vendor}
+              contractId={cid}
               context={{
                 type: 'CONTRACT',
                 id: cid,
