@@ -463,6 +463,17 @@ class ContractSerializer(serializers.ModelSerializer):
         source='vendor.tax_code.input_tax_account.code',
         read_only=True, default='',
     )
+    # Vendor tax RATES (percent) — used by the contract-financials line items to
+    # show an estimated WHT/VAT withholding on the contract sum. Null-safe: 0
+    # when the vendor has no code set.
+    withholding_tax_rate = serializers.DecimalField(
+        source='vendor.withholding_tax_code.rate',
+        max_digits=5, decimal_places=2, read_only=True, default=None,
+    )
+    vat_rate = serializers.DecimalField(
+        source='vendor.tax_code.rate',
+        max_digits=8, decimal_places=4, read_only=True, default=None,
+    )
     # Human-readable label for the contract's default budget appropriation.
     # The milestone-invoice coding-line editor seeds each new line's
     # Appropriation picker with the contract default; the picker only holds
@@ -530,6 +541,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_economic_code", "ncoa_economic_name",
             "vendor_ap_code", "vendor_ap_name",
             "withholding_account_code", "input_tax_account_code",
+            "withholding_tax_rate", "vat_rate",
             "original_sum", "mobilization_rate", "retention_rate",
             "bpp_no_objection_ref", "due_process_certificate",
             "signed_date", "commencement_date",
@@ -557,6 +569,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_economic_code", "ncoa_economic_name",
             "vendor_ap_code", "vendor_ap_name",
             "withholding_account_code", "input_tax_account_code",
+            "withholding_tax_rate", "vat_rate",
         ]
         # ``retention_rate`` is a contract clause that is contractually
         # optional. Many consultancy / supply / service contracts

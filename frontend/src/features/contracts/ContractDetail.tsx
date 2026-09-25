@@ -285,6 +285,10 @@ const ContractDetail = () => {
   const committed = Number(balance?.pending_voucher_amount ?? 0);
   const retentionPct = Number(contract.retention_rate ?? contract.retention_pct ?? 0);
   const mobilizationPct = Number(contract.mobilization_rate ?? contract.mobilization_pct ?? 0);
+  // Full contract sum (original award) — distinct from the retention-reduced
+  // ``ceiling`` (= original_sum − retention_reserve). The Contract Sum card and
+  // the financials breakdown show the FULL sum.
+  const fullSum = Number(contract.original_sum ?? ceiling);
   const phaseIdx = currentPhaseIndex(status);
   const tagColor = STATUS_TAG_COLOR[status] ?? STATUS_TAG_COLOR.DRAFT;
 
@@ -537,17 +541,19 @@ const ContractDetail = () => {
             />
             <StatCard
               label="Contract Sum"
-              value={formatCurrency(ceiling)}
+              value={formatCurrency(fullSum)}
               footer={
-                // Show what fraction of the original budget this
-                // contract committed — gives the reader instant
-                // context ("75 % of the line") instead of just a
-                // big number. Falls back to the contract type when
-                // the appropriation lookup hasn't resolved yet.
-                matchedAppropriation && apprApproved > 0
+                // The full award. When retention applies, show the
+                // processable ceiling (sum − retention reserve) so the reader
+                // sees both figures; otherwise show the share of the budget.
+                retentionHeld > 0
+                  ? <span style={statSubtle}>
+                      Processable: <strong style={{ color: '#0f172a' }}>{formatCurrency(ceiling)}</strong>
+                    </span>
+                  : matchedAppropriation && apprApproved > 0
                   ? <span style={statSubtle}>
                       <strong style={{ color: '#0f172a' }}>
-                        {((ceiling / apprApproved) * 100).toFixed(1)}%
+                        {((fullSum / apprApproved) * 100).toFixed(1)}%
                       </strong>
                       {' '}of original budget
                     </span>
@@ -617,6 +623,21 @@ const ContractDetail = () => {
               variant="inline"
             />
           )}
+
+          {/* Contract financials — full contract sum + deductions as line
+              items, before the milestone tabs. */}
+          <ContractFinancials
+            fullSum={fullSum}
+            variations={Number(contract.approved_variations_total ?? 0)}
+            retentionReserve={Number(contract.retention_reserve ?? retentionHeld ?? 0)}
+            retentionPct={retentionPct}
+            mobilizationAmount={Number(contract.mobilization_amount ?? 0)}
+            mobilizationPct={mobilizationPct}
+            whtRate={Number(contract.withholding_tax_rate ?? 0)}
+            vatRate={Number(contract.vat_rate ?? 0)}
+            ceiling={ceiling}
+            formatCurrency={formatCurrency}
+          />
 
           {/* Tabs */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -922,6 +943,107 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
     </button>
   );
 }
+
+
+// ── Contract financials breakdown ─────────────────────────────────────
+// The full contract sum and every deduction as line items (like an invoice),
+// shown before the milestone tabs. Retention is HELD (released at completion);
+// mobilization is an ADVANCE (recovered from IPCs); WHT/VAT are estimates
+// (withheld & remitted per payment at the vendor's rates).
+interface ContractFinancialsProps {
+  fullSum: number;
+  variations: number;
+  retentionReserve: number;
+  retentionPct: number;
+  mobilizationAmount: number;
+  mobilizationPct: number;
+  whtRate: number;
+  vatRate: number;
+  ceiling: number;
+  formatCurrency: (n: number) => string;
+}
+function ContractFinancials({
+  fullSum, variations, retentionReserve, retentionPct,
+  mobilizationAmount, mobilizationPct, whtRate, vatRate, ceiling, formatCurrency,
+}: ContractFinancialsProps) {
+  const adjusted = fullSum + variations;                    // gross entitlement
+  const whtEst = adjusted * (whtRate || 0) / 100;
+  const vatEst = adjusted * (vatRate || 0) / 100;
+  const netToContractor = adjusted - retentionReserve - mobilizationAmount - whtEst - vatEst;
+
+  const row = (
+    label: React.ReactNode, amount: number,
+    opts?: { deduct?: boolean; strong?: boolean; note?: string; sub?: boolean },
+  ) => (
+    <tr style={opts?.sub ? cfSubRow : undefined}>
+      <td style={{ ...cfCell, fontWeight: opts?.strong ? 700 : 400, color: opts?.strong ? '#0f172a' : '#334155' }}>
+        {label}
+        {opts?.note && <span style={cfNote}>{opts.note}</span>}
+      </td>
+      <td style={{
+        ...cfCell, textAlign: 'right', fontFamily: 'monospace',
+        fontWeight: opts?.strong ? 800 : 600,
+        color: opts?.deduct ? '#b91c1c' : (opts?.strong ? '#0f172a' : '#334155'),
+      }}>
+        {opts?.deduct ? '− ' : ''}{formatCurrency(amount)}
+      </td>
+    </tr>
+  );
+
+  return (
+    <div style={card({ pad: 0 })}>
+      <div style={cfHeader}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Contract Financials</span>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>Full sum less deductions</span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <tbody>
+          {row('Contract Sum', fullSum, { strong: variations === 0 })}
+          {variations > 0 && row('+ Approved variations', variations, { sub: true })}
+          {variations > 0 && row('Adjusted contract value', adjusted, { strong: true })}
+          {retentionReserve > 0 && row(`Retention held (${retentionPct.toFixed(2)}%)`, retentionReserve, { deduct: true, note: 'released at completion' })}
+          {mobilizationAmount > 0 && row(`Mobilization advance (${mobilizationPct.toFixed(2)}%)`, mobilizationAmount, { deduct: true, note: 'advance — recovered from IPCs' })}
+          {whtEst > 0 && row(`WHT (${Number(whtRate).toFixed(2)}% est.)`, whtEst, { deduct: true, note: 'withheld & remitted (estimate)' })}
+          {vatEst > 0 && row(`VAT (${Number(vatRate).toFixed(2)}% est.)`, vatEst, { deduct: true, note: 'withheld & remitted (estimate)' })}
+        </tbody>
+        <tfoot>
+          <tr style={cfFootRow}>
+            <td style={{ ...cfCell, fontWeight: 800, color: '#0f172a' }}>
+              Net to contractor <span style={cfNote}>estimate</span>
+            </td>
+            <td style={{ ...cfCell, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#047857' }}>
+              {formatCurrency(netToContractor)}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ ...cfCell, fontSize: 11, color: '#64748b' }}>
+              Processable / certifiable (sum − retention)
+            </td>
+            <td style={{ ...cfCell, textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
+              {formatCurrency(ceiling)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+const cfHeader: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+  padding: '0.85rem 1rem', borderBottom: '1px solid var(--color-border, #e2e8f0)',
+};
+const cfCell: React.CSSProperties = {
+  padding: '0.5rem 1rem', fontSize: 13, borderBottom: '1px solid #f1f5f9',
+};
+const cfSubRow: React.CSSProperties = { background: 'rgba(248,250,252,0.6)' };
+const cfNote: React.CSSProperties = {
+  marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: '#94a3b8',
+  fontStyle: 'italic',
+};
+const cfFootRow: React.CSSProperties = {
+  borderTop: '2px solid #e2e8f0', background: 'rgba(236,253,245,0.5)',
+};
 
 
 interface MilestonePaymentRow {
