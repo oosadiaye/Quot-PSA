@@ -206,7 +206,6 @@ const menuItems: MenuItem[] = [
             { name: 'Contracts Dashboard', path: '/contracts/dashboard', icon: BarChart3 },
             { name: 'All Contracts', path: '/contracts', icon: FileText },
             { name: 'New Contract', path: '/contracts/new', icon: FilePlus },
-            { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale },
             // "Write-up" is the product label for upward contract-amount revaluations.
             // Route path stays /contracts/variations so existing bookmarks and the
             // ContractVariation API contract continue to work — only the user-facing

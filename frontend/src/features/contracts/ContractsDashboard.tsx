@@ -94,10 +94,9 @@ const ContractsDashboard = () => {
             ],
         },
         {
-            title: 'Payments & Write-ups',
-            description: 'Certify milestone payments and approve upward contract revaluations.',
+            title: 'Write-ups',
+            description: 'Approve upward contract-amount revaluations by tier.',
             links: [
-                { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale, desc: 'IPC workflow queue' },
                 { name: 'Write-ups', path: '/contracts/variations', icon: TrendingUp, desc: 'Upward contract revaluation by tier' },
             ],
         },
