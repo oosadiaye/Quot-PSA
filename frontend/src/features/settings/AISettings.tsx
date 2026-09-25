@@ -13,17 +13,19 @@
  * documents and amounts, whether that party retains them, and whether it
  * brokers them onward — before it needs any button.
  *
- * The one control is **off**. There is no enable here: turning a
- * capability on picks a model, commits spend and sends content across a
- * jurisdictional boundary, which is the platform's decision to make with
- * the customer. Turning it off is the organisation's alone, and needing a
- * support ticket to stop something is not a control.
+ * The controls are **on and off**, per capability. The platform still
+ * provisions each capability — it picks the provider and model and commits
+ * spend when it sets one up. After that the organisation decides whether an
+ * already-provisioned capability is running: it can switch one back on here
+ * (with a confirmation, since running it sends content to that provider) or
+ * switch everything off. A capability the platform has not provisioned
+ * cannot be turned on from this page.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ShieldCheck, ShieldAlert, AlertCircle, ArrowLeft, Ban, ExternalLink,
-    Activity, FileText, Coins, Info,
+    Activity, FileText, Coins, Info, Power,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from '../../components/Sidebar';
@@ -87,6 +89,24 @@ const pill = (bg: string, fg: string): React.CSSProperties => ({
     fontWeight: 600, background: bg, color: fg, whiteSpace: 'nowrap',
 });
 
+const enableBtn: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+    cursor: 'pointer', background: 'var(--color-surface-hover)',
+    color: 'var(--color-primary)', border: '1px solid var(--color-border)',
+};
+const enableConfirmBtn: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+    cursor: 'pointer', background: '#16a34a', color: '#fff',
+    border: '1px solid #15803d',
+};
+const enableCancelBtn: React.CSSProperties = {
+    padding: '6px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+    cursor: 'pointer', background: 'transparent',
+    color: 'var(--color-text-muted)', border: '1px solid var(--color-border)',
+};
+
 /** Spend arrives as a float that can be ~1e-06. Two decimals reads $0.00. */
 const money = (v: number | string) => {
     const n = Number(v ?? 0);
@@ -106,6 +126,8 @@ export default function AISettings() {
     const [showLog, setShowLog] = useState(false);
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
+    // Capability awaiting a switch-on confirmation, keyed by its code.
+    const [confirmEnable, setConfirmEnable] = useState<string | null>(null);
 
     const status = useQuery<AIStatus>({
         queryKey: ['tenant-ai-status'],
@@ -130,6 +152,25 @@ export default function AISettings() {
             qc.invalidateQueries({ queryKey: ['tenant-ai-status'] });
         },
         onError: (e) => setError(formatApiError(e, 'Could not switch AI off.')),
+    });
+
+    const enableCap = useMutation({
+        mutationFn: async (capability: string) =>
+            (await apiClient.post('/core/ai/enable/', { capability })).data,
+        onSuccess: (d: { capability_display: string; is_active: boolean; is_usable: boolean }) => {
+            setError('');
+            setConfirmEnable(null);
+            setNotice(
+                d.is_usable
+                    ? `${d.capability_display} switched on.`
+                    : `${d.capability_display} switched on, but it is blocked upstream — ask your platform administrator.`,
+            );
+            qc.invalidateQueries({ queryKey: ['tenant-ai-status'] });
+        },
+        onError: (e) => {
+            setConfirmEnable(null);
+            setError(formatApiError(e, 'Could not switch the capability on.'));
+        },
     });
 
     if (status.isLoading) {
@@ -266,6 +307,38 @@ export default function AISettings() {
                                             : c.is_active
                                                 ? <span style={pill('#ffedd5', '#9a3412')}><ShieldAlert size={12} />Blocked upstream</span>
                                                 : <span style={pill('#f1f5f9', '#475569')}>Off</span>}
+                                        {!c.is_active && (
+                                            confirmEnable === c.capability ? (
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => enableCap.mutate(c.capability)}
+                                                        disabled={enableCap.isPending}
+                                                        title={`Runs ${c.capability_display}: sends this organisation's data to ${c.provider_name} and commits spend against the monthly cap.`}
+                                                        style={enableConfirmBtn}
+                                                    >
+                                                        <Power size={13} />
+                                                        {enableCap.isPending ? 'Switching on…' : 'Confirm — commits spend'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setConfirmEnable(null)}
+                                                        disabled={enableCap.isPending}
+                                                        style={enableCancelBtn}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setError(''); setNotice(''); setConfirmEnable(c.capability); }}
+                                                    style={enableBtn}
+                                                >
+                                                    <Power size={13} /> Enable
+                                                </button>
+                                            )
+                                        )}
                                     </div>
                                 </div>
 
@@ -331,7 +404,8 @@ export default function AISettings() {
                                 </div>
                                 <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.6, marginTop: 4 }}>
                                     Stops every capability immediately. Nothing is deleted and past
-                                    results are untouched. Switching back on is done by your platform
+                                    results are untouched. You can switch a provisioned capability
+                                    back on above; adding a new one is done by your platform
                                     administrator, because it selects a model and commits spend.
                                 </div>
                             </div>
