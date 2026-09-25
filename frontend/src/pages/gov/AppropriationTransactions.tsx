@@ -328,8 +328,8 @@ export default function AppropriationTransactions() {
                         style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                             padding: '0.45rem 0.9rem',
-                            background: filtered.length === 0 ? '#e2e8f0' : '#39cd9a',
-                            color:      filtered.length === 0 ? '#94a3b8' : '#0b3a2c',
+                            background: filtered.length === 0 ? 'var(--color-border)' : '#39cd9a',
+                            color:      filtered.length === 0 ? 'var(--color-text-subtle)' : '#0b3a2c',
                             border: 'none', borderRadius: 8,
                             fontSize: 'var(--text-xs)', fontWeight: 700,
                             cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',

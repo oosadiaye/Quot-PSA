@@ -493,7 +493,7 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
                     <div style={{ padding: '0.65rem 0.9rem', background: 'rgba(34,197,94,0.08)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--text-xs)', fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                         <BookOpen size={13} /> GL Journal
                         {journal?.reference_number && (
-                            <span style={{ fontFamily: 'monospace', background: 'white', padding: '2px 8px', borderRadius: 4, marginLeft: '0.3rem' }}>{journal.reference_number}</span>
+                            <span style={{ fontFamily: 'monospace', background: 'var(--color-surface)', padding: '2px 8px', borderRadius: 4, marginLeft: '0.3rem' }}>{journal.reference_number}</span>
                         )}
                     </div>
                     {!row.journalId && (

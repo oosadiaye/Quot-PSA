@@ -72,7 +72,7 @@ export default function ChangesInNetAssetsReport() {
 
     const renderCell = (value: number | string, style?: 'opening' | 'total' | 'movement') => {
         const n = parseFloat(String(value));
-        const color = n < 0 ? '#dc2626' : '#1e293b';
+        const color = n < 0 ? '#dc2626' : 'var(--color-text)';
         return (
             <td style={{
                 padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace',
@@ -86,7 +86,7 @@ export default function ChangesInNetAssetsReport() {
     };
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
@@ -94,10 +94,10 @@ export default function ChangesInNetAssetsReport() {
                     marginBottom: '24px',
                 }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Statement of Changes in Net Assets / Equity
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             IPSAS 1 — Movement in Net Assets / Accumulated Fund
                         </p>
                     </div>
@@ -107,7 +107,7 @@ export default function ChangesInNetAssetsReport() {
                             onChange={e => setFy(parseInt(e.target.value))}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             {[2024, 2025, 2026, 2027].map(y => (
@@ -119,7 +119,7 @@ export default function ChangesInNetAssetsReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -134,7 +134,7 @@ export default function ChangesInNetAssetsReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                         Loading...
                     </div>
                 ) : error ? (
@@ -142,29 +142,29 @@ export default function ChangesInNetAssetsReport() {
                 ) : data ? (
                     <div style={{ maxWidth: '900px' }}>
                         <div style={{
-                            background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1',
+                            background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
                             overflow: 'hidden', marginBottom: '20px',
                         }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
-                                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                         <th style={{
                                             padding: '12px 14px', textAlign: 'left',
-                                            fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>
                                             Component
                                         </th>
                                         <th style={{
                                             padding: '12px 14px', textAlign: 'right',
-                                            fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>
                                             FY {fy}
                                         </th>
                                         <th style={{
                                             padding: '12px 14px', textAlign: 'right',
-                                            fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>
                                             FY {fy - 1} (Comparative)
@@ -180,15 +180,15 @@ export default function ChangesInNetAssetsReport() {
                                                 key={row.key}
                                                 style={{
                                                     borderTop: isTotal ? '2px solid #1e293b' : undefined,
-                                                    borderBottom: '1px solid #f1f5f9',
-                                                    background: isTotal ? '#f0f4f8' :
-                                                                isOpening ? '#fafbfc' : undefined,
+                                                    borderBottom: '1px solid var(--color-border-light)',
+                                                    background: isTotal ? 'var(--color-surface-hover)' :
+                                                                isOpening ? 'var(--color-surface)' : undefined,
                                                 }}
                                             >
                                                 <td style={{
                                                     padding: '10px 14px', fontSize: '14px',
                                                     fontWeight: isTotal || isOpening ? 800 : 500,
-                                                    color: '#1e293b',
+                                                    color: 'var(--color-text)',
                                                 }}>
                                                     {row.label}
                                                 </td>
@@ -217,7 +217,7 @@ export default function ChangesInNetAssetsReport() {
                             }}>
                                 {data.reconciliation?.reconciles ? 'RECONCILED' : 'NOT RECONCILED'}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '6px' }}>
                                 Computed: {fmtNGN(data.reconciliation?.computed)} ·
                                 Reported: {fmtNGN(data.reconciliation?.reported)} ·
                                 Tolerance: {data.reconciliation?.tolerance}
@@ -228,7 +228,7 @@ export default function ChangesInNetAssetsReport() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: '11px',
+                    color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
                     Quot PSE IFMIS — IPSAS 1 Compliant
                 </div>

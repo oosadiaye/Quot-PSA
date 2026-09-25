@@ -369,51 +369,51 @@ const VendorList = () => {
                                 {actionsOpen && (
                                     <div style={{
                                         position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: '230px',
-                                        background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0',
+                                        background: 'var(--color-surface)', borderRadius: '10px', border: '1px solid var(--color-border)',
                                         boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50, overflow: 'hidden',
                                     }}>
                                         <button onClick={handleDownloadTemplate} style={{
                                             width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                             padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                            fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                            fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                         }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                             <FileSpreadsheet size={15} color="#4f46e5" />
                                             <div style={{ textAlign: 'left' }}>
                                                 <span style={{ fontWeight: 600, display: 'block' }}>Download Template</span>
-                                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>CSV for bulk supplier import</span>
+                                                <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>CSV for bulk supplier import</span>
                                             </div>
                                         </button>
-                                        <div style={{ height: '1px', background: '#e2e8f0' }} />
+                                        <div style={{ height: '1px', background: 'var(--color-border)' }} />
                                         <button onClick={() => { setActionsOpen(false); fileInputRef.current?.click(); }} disabled={importing} style={{
                                             width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                             padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                            fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                            fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                             opacity: importing ? 0.5 : 1,
                                         }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                             <Upload size={15} color="#4f46e5" />
                                             <div style={{ textAlign: 'left' }}>
                                                 <span style={{ fontWeight: 600, display: 'block' }}>{importing ? 'Importing…' : 'Import Suppliers'}</span>
-                                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Bulk create from CSV file</span>
+                                                <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>Bulk create from CSV file</span>
                                             </div>
                                         </button>
-                                        <div style={{ height: '1px', background: '#e2e8f0' }} />
+                                        <div style={{ height: '1px', background: 'var(--color-border)' }} />
                                         <button onClick={handleExportVendors} style={{
                                             width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                             padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                            fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                            fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                             opacity: vendors?.length ? 1 : 0.5,
                                             pointerEvents: vendors?.length ? 'auto' : 'none',
                                         }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                             <Download size={15} color="#4f46e5" />
                                             <div style={{ textAlign: 'left' }}>
                                                 <span style={{ fontWeight: 600, display: 'block' }}>Export Suppliers</span>
-                                                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Download as CSV</span>
+                                                <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>Download as CSV</span>
                                             </div>
                                         </button>
                                     </div>

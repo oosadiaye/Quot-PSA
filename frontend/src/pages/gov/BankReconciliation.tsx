@@ -464,7 +464,7 @@ function ReconciliationSessionCard({
                 gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
                 gap: '0.5rem', marginBottom: '0.75rem',
             }}>
-                <Stat label="Book Balance" value={fmtNGN(reconciliation.book_balance)} color="#64748b" />
+                <Stat label="Book Balance" value={fmtNGN(reconciliation.book_balance)} color="var(--color-text-muted)" />
                 <Stat label="Statement Balance" value={fmtNGN(reconciliation.statement_balance)} color="#2563eb" />
                 <Stat label="Unmatched Debits" value={fmtNGN(reconciliation.unmatched_debits)} color="#dc2626" />
                 <Stat label="Unmatched Credits" value={fmtNGN(reconciliation.unmatched_credits)} color="#16a34a" />
@@ -532,7 +532,7 @@ const primaryBtnStyle: React.CSSProperties = {
 const secondaryBtnStyle: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
     padding: '0.5rem 0.875rem',
-    background: '#fff', color: 'var(--color-text, #1e293b)',
+    background: 'var(--color-surface)', color: 'var(--color-text, #1e293b)',
     border: '1px solid var(--color-border, #e2e8f0)',
     borderRadius: '6px',
     fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer',
@@ -601,7 +601,7 @@ function ManualMatchModal({
             <div
                 className="glass-card"
                 style={{
-                    background: '#fff', padding: '1.5rem',
+                    background: 'var(--color-surface)', padding: '1.5rem',
                     width: '90%', maxWidth: '800px', maxHeight: '85vh',
                     overflow: 'auto',
                 }}
@@ -617,7 +617,7 @@ function ManualMatchModal({
                 </div>
 
                 <div style={{
-                    padding: '0.75rem', background: '#f8fafc', borderRadius: '6px',
+                    padding: '0.75rem', background: 'var(--color-surface-hover)', borderRadius: '6px',
                     marginBottom: '1rem', fontSize: '0.85rem',
                 }}>
                     <div><strong>Date:</strong> {formatDate(line.transaction_date)}</div>
@@ -651,7 +651,7 @@ function ManualMatchModal({
                 ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                         <thead>
-                            <tr style={{ background: '#f1f5f9' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 <th style={{ padding: '0.5rem', textAlign: 'left' }}>Reference</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left' }}>Date</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left' }}>
@@ -665,7 +665,7 @@ function ManualMatchModal({
                             {pool.map(c => {
                                 const amtMatch = Math.abs(Number(c.amount) - lineAmount) < 0.01;
                                 return (
-                                    <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={c.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                         <td style={{ padding: '0.5rem', fontFamily: 'monospace' }}>
                                             {c.reference || '—'}
                                         </td>
@@ -835,7 +835,7 @@ function StatementDetail({
                                 rel="noreferrer"
                                 style={{
                                     padding: '0.375rem 0.625rem',
-                                    background: '#fff', border: '1px solid #e2e8f0',
+                                    background: 'var(--color-surface)', border: '1px solid var(--color-border)',
                                     borderRadius: '6px', cursor: 'pointer',
                                     display: 'flex', alignItems: 'center', gap: '0.25rem',
                                     fontSize: '0.75rem', color: '#0f766e', textDecoration: 'none',
@@ -845,7 +845,7 @@ function StatementDetail({
                             </a>
                         )}
                         <button onClick={onClose} style={{
-                            padding: '0.375rem', background: 'none', border: '1px solid #e2e8f0',
+                            padding: '0.375rem', background: 'none', border: '1px solid var(--color-border)',
                             borderRadius: '6px', cursor: 'pointer',
                         }}>
                             <X size={16} />
@@ -895,7 +895,7 @@ function StatementDetail({
                     gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
                     gap: '0.5rem', marginBottom: '1rem',
                 }}>
-                    <Stat label="Opening" value={fmtNGN(stmt.opening_balance)} color="#64748b" />
+                    <Stat label="Opening" value={fmtNGN(stmt.opening_balance)} color="var(--color-text-muted)" />
                     <Stat label="Credits" value={fmtNGN(stmt.total_credits)} color="#16a34a" />
                     <Stat label="Debits" value={fmtNGN(stmt.total_debits)} color="#dc2626" />
                     <Stat label="Closing" value={fmtNGN(stmt.closing_balance)} color="#0f766e" />
@@ -943,8 +943,8 @@ function StatementDetail({
                                 onClick={() => setFilter(f)}
                                 style={{
                                     padding: '0.25rem 0.625rem',
-                                    background: filter === f ? '#0f766e' : '#fff',
-                                    color: filter === f ? '#fff' : '#64748b',
+                                    background: filter === f ? '#0f766e' : 'var(--color-surface)',
+                                    color: filter === f ? '#fff' : 'var(--color-text-muted)',
                                     border: '1px solid var(--color-border, #e2e8f0)',
                                     borderRadius: '4px',
                                     fontSize: '0.75rem', fontWeight: 600,
@@ -963,7 +963,7 @@ function StatementDetail({
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 <th style={thStyle}>Date</th>
                                 <th style={thStyle}>Reference</th>
                                 <th style={thStyle}>Description</th>
@@ -976,7 +976,7 @@ function StatementDetail({
                         <tbody>
                             {filteredLines.map(l => (
                                 <tr key={l.id} style={{
-                                    borderBottom: '1px solid #f1f5f9',
+                                    borderBottom: '1px solid var(--color-border-light)',
                                     background: l.match_status === 'UNMATCHED' ? '#fffbeb'
                                         : l.match_status === 'IGNORED' ? '#f3f4f6'
                                         : 'transparent',
@@ -997,7 +997,7 @@ function StatementDetail({
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                                         {isLocked ? (
-                                            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Locked</span>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-subtle)' }}>Locked</span>
                                         ) : l.match_status === 'UNMATCHED' ? (
                                             <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
                                                 <button
@@ -1053,14 +1053,14 @@ const linkBtnStyle: React.CSSProperties = {
 };
 
 const ignoreBtnStyle: React.CSSProperties = {
-    padding: '0.25rem 0.5rem', background: '#fff',
+    padding: '0.25rem 0.5rem', background: 'var(--color-surface)',
     color: '#6b7280', border: '1px solid #d1d5db',
     borderRadius: '4px', fontSize: '0.7rem',
     fontWeight: 600, cursor: 'pointer',
 };
 
 const unlinkBtnStyle: React.CSSProperties = {
-    padding: '0.25rem 0.5rem', background: '#fff',
+    padding: '0.25rem 0.5rem', background: 'var(--color-surface)',
     color: '#dc2626', border: '1px solid #fecaca',
     borderRadius: '4px', fontSize: '0.7rem',
     fontWeight: 600, cursor: 'pointer',
@@ -1200,7 +1200,7 @@ export default function BankReconciliation() {
                             onClick={() => refetchStatements()}
                             style={{
                                 padding: '0.375rem 0.625rem', background: 'none',
-                                border: '1px solid #e2e8f0', borderRadius: '6px',
+                                border: '1px solid var(--color-border)', borderRadius: '6px',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem',
                                 fontSize: '0.75rem', color: 'var(--color-text-muted)',
                             }}
@@ -1216,7 +1216,7 @@ export default function BankReconciliation() {
                         <>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                 <thead>
-                                    <tr style={{ background: '#f8fafc' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)' }}>
                                         <th style={thStyle}>TSA</th>
                                         <th style={thStyle}>File</th>
                                         <th style={thStyle}>Period</th>
@@ -1232,7 +1232,7 @@ export default function BankReconciliation() {
                                         <tr
                                             key={s.id}
                                             style={{
-                                                borderBottom: '1px solid #f1f5f9',
+                                                borderBottom: '1px solid var(--color-border-light)',
                                                 background: s.id === selectedStatementId ? '#f0fdfa' : 'transparent',
                                                 cursor: 'pointer',
                                             }}

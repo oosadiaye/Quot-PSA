@@ -193,7 +193,7 @@ export default function PaymentVoucherDetail() {
 
     const statusColor = STATUS_COLOR[pv.status] || '#64748b';
     const btnBase: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 1rem', borderRadius: 8, fontSize: 'var(--text-sm)', fontWeight: 600, cursor: 'pointer', border: 'none' };
-    const btnLight: React.CSSProperties = { ...btnBase, background: '#fff', color: '#1e293b', border: '1px solid rgba(255,255,255,0.6)' };
+    const btnLight: React.CSSProperties = { ...btnBase, background: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid rgba(255,255,255,0.6)' };
 
     const actions = (
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>

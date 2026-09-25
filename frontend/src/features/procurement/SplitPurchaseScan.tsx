@@ -63,11 +63,11 @@ interface ScanResult {
 }
 
 const card: React.CSSProperties = {
-    background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
     padding: 20, marginBottom: 16,
 };
 const lbl: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, color: '#64748b',
+    fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)',
     textTransform: 'uppercase', letterSpacing: '0.4px',
 };
 const pill = (bg: string, fg: string): React.CSSProperties => ({
@@ -128,11 +128,11 @@ export default function SplitPurchaseScan() {
 
     const input: React.CSSProperties = {
         padding: '8px 10px', fontSize: 13, borderRadius: 6,
-        border: '1.5px solid #e2e8f0', background: '#fff',
+        border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
     };
 
     return (
-        <div style={{ display: 'flex', background: '#f5f7fb', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', background: 'var(--color-background)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: 260, padding: 32 }}>
                 <PageHeader
@@ -196,7 +196,7 @@ export default function SplitPurchaseScan() {
                         <Search size={15} />{scan.isPending ? 'Scanning…' : 'Run scan'}
                     </button>
                     {result && (
-                        <div style={{ fontSize: 12.5, color: '#64748b' }}>
+                        <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>
                             {result.orders_examined} order{result.orders_examined === 1 ? '' : 's'} examined
                             {' · '}
                             {result.ai_judging
@@ -219,17 +219,17 @@ export default function SplitPurchaseScan() {
                         <div style={card}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                 <AlertTriangle size={17} style={{ color: '#b45309' }} />
-                                <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                                     Possible split purchases
                                 </span>
                             </div>
-                            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.6, marginBottom: 14 }}>
+                            <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: 14 }}>
                                 Ordered by how far over the ceiling each group went, not by date —
                                 the largest gap is where a reviewer should start.
                             </div>
 
                             {result.split_clusters.length === 0 ? (
-                                <div style={{ color: '#64748b', fontSize: 13 }} data-testid="no-clusters">
+                                <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }} data-testid="no-clusters">
                                     No groups crossed an approval ceiling in this period.
                                 </div>
                             ) : (
@@ -237,7 +237,7 @@ export default function SplitPurchaseScan() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 860 }}
                                         data-testid="cluster-table">
                                         <thead>
-                                            <tr style={{ textAlign: 'left', color: '#475569', background: '#f8fafc' }}>
+                                            <tr style={{ textAlign: 'left', color: 'var(--color-text-secondary)', background: 'var(--color-surface-hover)' }}>
                                                 {['Vendor', 'Orders', 'Window', 'Combined', 'Ceiling', 'Over by',
                                                     'Would have needed', 'Assessment'].map((h) => (
                                                     <th key={h} style={{ padding: '8px 10px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{h}</th>
@@ -249,18 +249,18 @@ export default function SplitPurchaseScan() {
                                                 const v = VERDICT_STYLE[c.verdict] ?? VERDICT_STYLE.UNCLEAR;
                                                 return (
                                                     <tr key={`${c.vendor_id}-${c.purchase_ids.join('-')}`}
-                                                        style={{ borderTop: '1px solid #f1f5f9' }}>
+                                                        style={{ borderTop: '1px solid var(--color-border-light)' }}>
                                                         <td style={{ padding: '8px 10px', fontWeight: 600 }}>{c.vendor_name}</td>
                                                         <td style={{ padding: '8px 10px' }}>
                                                             {c.purchase_ids.length}
-                                                            <span style={{ color: '#94a3b8' }}> (#{c.purchase_ids.join(', #')})</span>
+                                                            <span style={{ color: 'var(--color-text-subtle)' }}> (#{c.purchase_ids.join(', #')})</span>
                                                         </td>
                                                         <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                                                             {ddmmyyyy(c.first_date)} – {ddmmyyyy(c.last_date)}
-                                                            <span style={{ color: '#94a3b8' }}> ({c.span_days}d)</span>
+                                                            <span style={{ color: 'var(--color-text-subtle)' }}> ({c.span_days}d)</span>
                                                         </td>
                                                         <td style={{ padding: '8px 10px', fontWeight: 700 }}>{naira(c.total)}</td>
-                                                        <td style={{ padding: '8px 10px', color: '#64748b' }}>{naira(c.ceiling)}</td>
+                                                        <td style={{ padding: '8px 10px', color: 'var(--color-text-muted)' }}>{naira(c.ceiling)}</td>
                                                         <td style={{ padding: '8px 10px', color: '#b91c1c', fontWeight: 600 }}>{naira(c.excess)}</td>
                                                         <td style={{ padding: '8px 10px' }}>{c.escalates_to}</td>
                                                         <td style={{ padding: '8px 10px' }}>
@@ -273,7 +273,7 @@ export default function SplitPurchaseScan() {
                                                                 )}
                                                             </span>
                                                             {c.reason && (
-                                                                <div style={{ color: '#64748b', marginTop: 4, maxWidth: 320, lineHeight: 1.5 }}>
+                                                                <div style={{ color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 320, lineHeight: 1.5 }}>
                                                                     {c.reason}
                                                                 </div>
                                                             )}
@@ -291,18 +291,18 @@ export default function SplitPurchaseScan() {
                         <div style={card}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                 <Copy size={17} style={{ color: '#0369a1' }} />
-                                <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                                     Possible duplicate payments
                                 </span>
                             </div>
-                            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.6, marginBottom: 14 }}>
+                            <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: 14 }}>
                                 Same vendor, near-identical amount, close together, different
                                 references. Orders sharing a reference are one document seen
                                 twice and are not listed.
                             </div>
 
                             {result.duplicate_candidates.length === 0 ? (
-                                <div style={{ color: '#64748b', fontSize: 13 }} data-testid="no-duplicates">
+                                <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }} data-testid="no-duplicates">
                                     No near-identical repeat orders in this period.
                                 </div>
                             ) : (
@@ -310,7 +310,7 @@ export default function SplitPurchaseScan() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 620 }}
                                         data-testid="duplicate-table">
                                         <thead>
-                                            <tr style={{ textAlign: 'left', color: '#475569', background: '#f8fafc' }}>
+                                            <tr style={{ textAlign: 'left', color: 'var(--color-text-secondary)', background: 'var(--color-surface-hover)' }}>
                                                 {['Vendor', 'Orders', 'Amount', 'Difference', 'Days apart'].map((h) => (
                                                     <th key={h} style={{ padding: '8px 10px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{h}</th>
                                                 ))}
@@ -318,7 +318,7 @@ export default function SplitPurchaseScan() {
                                         </thead>
                                         <tbody>
                                             {result.duplicate_candidates.map((d) => (
-                                                <tr key={d.purchase_ids.join('-')} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                                <tr key={d.purchase_ids.join('-')} style={{ borderTop: '1px solid var(--color-border-light)' }}>
                                                     <td style={{ padding: '8px 10px', fontWeight: 600 }}>{d.vendor_name}</td>
                                                     <td style={{ padding: '8px 10px' }}>#{d.purchase_ids.join(', #')}</td>
                                                     <td style={{ padding: '8px 10px', fontWeight: 700 }}>{naira(d.amount)}</td>

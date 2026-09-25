@@ -22,9 +22,9 @@ import '../styles/glassmorphism.css';
 
 // ─── styles ────────────────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', border: '2.5px solid #d1d5db',
+    width: '100%', padding: '8px 12px', border: '2.5px solid var(--color-border)',
     borderRadius: '8px', fontSize: '14px', outline: 'none',
-    background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box',
+    background: 'var(--color-surface)', color: 'var(--color-text)', boxSizing: 'border-box',
 };
 
 type ActiveTab = 'invoices' | 'settings';
@@ -188,7 +188,7 @@ export default function ARManagement() {
                 </div>
 
                 {/* Tab Nav */}
-                <div style={{ display: 'flex', gap: '4px', background: '#fff', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
+                <div style={{ display: 'flex', gap: '4px', background: 'var(--color-surface)', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
                     {tabs.map(t => (
                         <button key={t.key} onClick={() => handleTabChange(t.key)} style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
@@ -323,7 +323,7 @@ export default function ARManagement() {
                                     disabled={updateSettings.isPending}
                                     style={{
                                         width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
-                                        background: accountingSettings?.enable_sales_downpayment ? '#191e6a' : '#e2e8f0',
+                                        background: accountingSettings?.enable_sales_downpayment ? '#191e6a' : 'var(--color-border)',
                                         position: 'relative', transition: 'background 0.2s', flexShrink: 0,
                                     }}
                                 >
@@ -377,8 +377,8 @@ function DownpaymentDefaults({ settings, onSave, onSuccess, onError }: { setting
                         {(['percentage', 'amount'] as const).map(t => (
                             <button key={t} onClick={() => setType(t)} type="button" style={{
                                 flex: 1, padding: '8px', borderRadius: '8px', border: '2px solid', cursor: 'pointer',
-                                borderColor: type === t ? '#191e6a' : '#e2e8f0',
-                                background: type === t ? '#eff6ff' : '#fff',
+                                borderColor: type === t ? '#191e6a' : 'var(--color-border)',
+                                background: type === t ? '#eff6ff' : 'var(--color-surface)',
                                 color: type === t ? '#191e6a' : '#64748b',
                                 fontWeight: type === t ? 700 : 400, fontSize: '13px',
                             }}>
@@ -391,7 +391,7 @@ function DownpaymentDefaults({ settings, onSave, onSuccess, onError }: { setting
                     <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>
                         Default Value {type === 'percentage' ? '(%)' : '(Amount)'}
                     </label>
-                    <input style={{ width: '100%', padding: '8px 12px', border: '2.5px solid #d1d5db', borderRadius: '8px', fontSize: '14px', outline: 'none', background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box' as const }}
+                    <input style={{ width: '100%', padding: '8px 12px', border: '2.5px solid var(--color-border)', borderRadius: '8px', fontSize: '14px', outline: 'none', background: 'var(--color-surface)', color: 'var(--color-text)', boxSizing: 'border-box' as const }}
                         type="number" step={type === 'percentage' ? '1' : '0.01'} min="0" max={type === 'percentage' ? '100' : undefined}
                         value={value} onChange={e => setValue(e.target.value)} />
                 </div>

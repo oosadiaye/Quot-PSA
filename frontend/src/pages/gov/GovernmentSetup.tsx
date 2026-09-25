@@ -102,27 +102,27 @@ export default function GovernmentSetup() {
 
     const inputStyle: React.CSSProperties = {
         width: '100%', padding: '12px 14px', borderRadius: '10px',
-        border: '1.5px solid #e2e8f0', background: '#fff',
-        color: '#1e293b', fontSize: '15px', outline: 'none',
+        border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
+        color: 'var(--color-text)', fontSize: '15px', outline: 'none',
     };
     const selectStyle: React.CSSProperties = { ...inputStyle, appearance: 'auto' as never };
     const labelStyle: React.CSSProperties = {
         display: 'block', marginBottom: '8px', fontSize: '13px',
-        fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+        fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
     };
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ maxWidth: '700px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                         <Building2 size={28} style={{ color: GOV_GREEN }} />
-                        <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Government Configuration
                         </h1>
                     </div>
-                    <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '28px' }}>
+                    <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', marginBottom: '28px' }}>
                         Configure your government tier and state. This will seed the NCoA Chart of Accounts,
                         MDAs, LGAs, and revenue heads for your selected state.
                     </p>
@@ -167,15 +167,15 @@ export default function GovernmentSetup() {
                     )}
 
                     {isLoading ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading configuration...</div>
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading configuration...</div>
                     ) : (
                         <form onSubmit={handleSubmit}>
                             {/* Step 1: Government Tier */}
                             <div style={{
-                                background: '#fff', borderRadius: '14px', border: '1px solid #e8ecf1',
+                                background: 'var(--color-surface)', borderRadius: '14px', border: '1px solid var(--color-border)',
                                 padding: '28px', marginBottom: '20px',
                             }}>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                                     Step 1: Government Tier
                                 </div>
                                 <label style={labelStyle}>Select your government level *</label>
@@ -189,15 +189,15 @@ export default function GovernmentSetup() {
                                             onClick={() => setTier(opt.value)}
                                             style={{
                                                 padding: '16px', borderRadius: '10px', cursor: 'pointer',
-                                                border: `2px solid ${tier === opt.value ? GOV_GREEN : '#e2e8f0'}`,
-                                                background: tier === opt.value ? `${GOV_GREEN}08` : '#fff',
+                                                border: `2px solid ${tier === opt.value ? GOV_GREEN : 'var(--color-border)'}`,
+                                                background: tier === opt.value ? `${GOV_GREEN}08` : 'var(--color-surface)',
                                                 transition: 'all 0.15s',
                                             }}
                                         >
-                                            <div style={{ fontSize: '15px', fontWeight: 700, color: tier === opt.value ? GOV_GREEN : '#1e293b' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: 700, color: tier === opt.value ? GOV_GREEN : 'var(--color-text)' }}>
                                                 {opt.label}
                                             </div>
-                                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
                                                 {opt.desc}
                                             </div>
                                         </div>
@@ -207,10 +207,10 @@ export default function GovernmentSetup() {
 
                             {/* Step 2: State Selection */}
                             <div style={{
-                                background: '#fff', borderRadius: '14px', border: '1px solid #e8ecf1',
+                                background: 'var(--color-surface)', borderRadius: '14px', border: '1px solid var(--color-border)',
                                 padding: '28px', marginBottom: '20px',
                             }}>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                                     Step 2: Select State
                                 </div>
                                 <label style={labelStyle}>Nigerian State *</label>
@@ -232,7 +232,7 @@ export default function GovernmentSetup() {
                                     ))}
                                 </select>
                                 {selectedState && (
-                                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>
+                                    <div style={{ marginTop: '8px', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                                         Zone: {ZONE_NAMES[selectedState.zone]} | NBS Code: {selectedState.code}
                                     </div>
                                 )}
@@ -241,10 +241,10 @@ export default function GovernmentSetup() {
                             {/* Step 3: LGA (only for LGA tier) */}
                             {tier === 'LGA' && (
                                 <div style={{
-                                    background: '#fff', borderRadius: '14px', border: '1px solid #e8ecf1',
+                                    background: 'var(--color-surface)', borderRadius: '14px', border: '1px solid var(--color-border)',
                                     padding: '28px', marginBottom: '20px',
                                 }}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                                         Step 3: LGA Details
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>

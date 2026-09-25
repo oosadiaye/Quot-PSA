@@ -110,19 +110,19 @@ export default function OrganizationManagement() {
     const mdaOrgs = orgs.filter(o => !o.is_oversight);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
-                <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+                <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--color-text)', marginBottom: 4 }}>
                     Organization Management (MDAs)
                 </h1>
-                <p style={{ color: '#64748b', fontSize: 14, marginBottom: 28 }}>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginBottom: 28 }}>
                     Manage ministries, departments, and agencies. Control who sees what data.
                 </p>
 
                 {/* Isolation Mode Toggle */}
                 <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
                     padding: '20px 24px', marginBottom: 24,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
@@ -130,12 +130,12 @@ export default function OrganizationManagement() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                             {isSeparated
                                 ? <Shield size={18} color="#166534" />
-                                : <LayoutGrid size={18} color="#64748b" />}
-                            <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                : <LayoutGrid size={18} color="var(--color-text-muted)" />}
+                            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text)' }}>
                                 MDA Isolation Mode: {isSeparated ? 'SEPARATED' : 'UNIFIED'}
                             </span>
                         </div>
-                        <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 13, margin: 0 }}>
                             {isSeparated
                                 ? 'Each MDA only sees their own data. Oversight offices (AG, Budget) see all MDAs.'
                                 : 'All users see all MDAs data. Organizations exist for reporting and identification only.'}
@@ -171,10 +171,10 @@ export default function OrganizationManagement() {
                 )}
 
                 {/* Oversight Offices */}
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)', marginBottom: 12 }}>
                     Oversight Offices ({oversightOrgs.length})
                 </h2>
-                <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+                <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 12 }}>
                     These offices have cross-MDA access — they can see data from all ministries.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 28 }}>
@@ -182,7 +182,7 @@ export default function OrganizationManagement() {
                         const rc = ROLE_CONFIG[org.org_role] || ROLE_CONFIG.MDA;
                         return (
                             <div key={org.id} style={{
-                                background: '#fff', borderRadius: 12, border: `2px solid ${rc.bg}`,
+                                background: 'var(--color-surface)', borderRadius: 12, border: `2px solid ${rc.bg}`,
                                 padding: 16, cursor: 'pointer',
                                 outline: expandedOrg === org.id ? `2px solid ${rc.color}` : 'none',
                             }} onClick={() => setExpandedOrg(expandedOrg === org.id ? null : org.id)}>
@@ -195,8 +195,8 @@ export default function OrganizationManagement() {
                                         ? <CheckCircle2 size={14} color="#22c55e" />
                                         : <span style={{ fontSize: 10, color: '#ef4444' }}>Inactive</span>}
                                 </div>
-                                <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>{org.name}</div>
-                                <div style={{ fontSize: 11, color: '#94a3b8' }}>{rc.desc}</div>
+                                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text)', marginBottom: 4 }}>{org.name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>{rc.desc}</div>
                             </div>
                         );
                     })}
@@ -210,7 +210,7 @@ export default function OrganizationManagement() {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     marginBottom: 12, gap: 16, flexWrap: 'wrap',
                 }}>
-                    <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                    <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
                         Ministries, Departments & Agencies ({mdaOrgs.length})
                     </h2>
                     <button
@@ -238,25 +238,25 @@ export default function OrganizationManagement() {
                         {syncFromNcoa.isPending ? 'Syncing…' : 'Sync from NCoA'}
                     </button>
                 </div>
-                <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+                <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 12 }}>
                     {isSeparated
                         ? 'Each MDA below operates as an independent branch — users only see their own data.'
                         : 'In UNIFIED mode, all users can see all MDA data. Click an MDA to see assigned users.'}
                 </p>
 
                 <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1', overflow: 'hidden',
+                    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)', overflow: 'hidden',
                 }}>
                     {isLoading ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Loading...</div>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading...</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ borderBottom: '2px solid #e8ecf1' }}>
-                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Code</th>
-                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Organization Name</th>
-                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Role</th>
-                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                                <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Code</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Organization Name</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Role</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -273,14 +273,14 @@ export default function OrganizationManagement() {
                                             <tr
                                                 onClick={() => setExpandedOrg(isExpanded ? null : org.id)}
                                                 style={{
-                                                    borderBottom: '1px solid #f1f5f9', cursor: 'pointer',
-                                                    background: isExpanded ? '#f8fafc' : '',
+                                                    borderBottom: '1px solid var(--color-border-light)', cursor: 'pointer',
+                                                    background: isExpanded ? 'var(--color-surface-hover)' : '',
                                                 }}
-                                                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = '#fafbfc'; }}
+                                                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'var(--color-surface)'; }}
                                                 onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = ''; }}
                                             >
-                                                <td style={{ padding: '10px 16px', fontSize: 13, fontFamily: 'monospace', color: '#64748b' }}>{org.code}</td>
-                                                <td style={{ padding: '10px 16px', fontSize: 14, fontWeight: 500, color: '#1e293b' }}>{org.name}</td>
+                                                <td style={{ padding: '10px 16px', fontSize: 13, fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>{org.code}</td>
+                                                <td style={{ padding: '10px 16px', fontSize: 14, fontWeight: 500, color: 'var(--color-text)' }}>{org.name}</td>
                                                 <td style={{ padding: '10px 16px' }}>
                                                     <span style={{
                                                         padding: '2px 8px', borderRadius: 4, fontSize: 10,
@@ -295,30 +295,30 @@ export default function OrganizationManagement() {
                                             </tr>
                                             {isExpanded && (
                                                 <tr>
-                                                    <td colSpan={4} style={{ padding: '0 16px 16px', background: '#f8fafc' }}>
+                                                    <td colSpan={4} style={{ padding: '0 16px 16px', background: 'var(--color-surface-hover)' }}>
                                                         <div style={{
-                                                            background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0',
+                                                            background: 'var(--color-surface)', borderRadius: 8, border: '1px solid var(--color-border)',
                                                             padding: 16, marginTop: 8,
                                                         }}>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                                                                <Users size={14} color="#64748b" />
-                                                                <span style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
+                                                                <Users size={14} color="var(--color-text-muted)" />
+                                                                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text)' }}>
                                                                     Assigned Users ({orgUsers.length})
                                                                 </span>
                                                             </div>
                                                             {orgUsers.length === 0 ? (
-                                                                <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+                                                                <p style={{ color: 'var(--color-text-subtle)', fontSize: 13, margin: 0 }}>
                                                                     No users assigned. Use User Management to assign staff to this MDA.
                                                                 </p>
                                                             ) : (
                                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                                                     {orgUsers.map((ua: any) => (
                                                                         <div key={ua.id} style={{
-                                                                            background: '#f1f5f9', borderRadius: 6, padding: '6px 12px',
-                                                                            fontSize: 12, color: '#1e293b',
+                                                                            background: 'var(--color-surface-hover)', borderRadius: 6, padding: '6px 12px',
+                                                                            fontSize: 12, color: 'var(--color-text)',
                                                                         }}>
                                                                             <strong>{ua.username}</strong>
-                                                                            <span style={{ color: '#94a3b8', marginLeft: 6 }}>[{ua.per_org_role}]</span>
+                                                                            <span style={{ color: 'var(--color-text-subtle)', marginLeft: 6 }}>[{ua.per_org_role}]</span>
                                                                         </div>
                                                                     ))}
                                                                 </div>
@@ -335,7 +335,7 @@ export default function OrganizationManagement() {
                     )}
                 </div>
 
-                <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: 11 }}>
+                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-subtle)', fontSize: 11 }}>
                     Quot PSE IFMIS — Organization Management
                 </div>
             </main>

@@ -589,7 +589,7 @@ const POForm = () => {
                                         </label>
                                         <select style={{
                                             ...selectStyle,
-                                            borderColor: sourcePR && !header.vendor ? '#4f46e5' : (selectStyle.borderColor || '#e2e8f0'),
+                                            borderColor: sourcePR && !header.vendor ? '#4f46e5' : (selectStyle.borderColor || 'var(--color-border)'),
                                             boxShadow: sourcePR && !header.vendor ? '0 0 0 3px rgba(79, 70, 229, 0.15)' : 'none',
                                         }} value={header.vendor}
                                             onChange={e => setHeader({ ...header, vendor: e.target.value })} required>
@@ -617,7 +617,7 @@ const POForm = () => {
                                     </label>
                                     <select style={{
                                         ...selectStyle,
-                                        ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}),
+                                        ...(sourcePR ? { background: 'var(--color-surface-hover)', cursor: 'not-allowed' } : {}),
                                     }} value={header.mda}
                                         disabled={!!sourcePR}
                                         onChange={e => setHeader({ ...header, mda: e.target.value })} required>
@@ -659,7 +659,7 @@ const POForm = () => {
                                         <div>
                                             <label style={labelStyle}>Fund<span className="required-mark"> *</span></label>
                                             <select
-                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: 'var(--color-surface-hover)', cursor: 'not-allowed' } : {}) }}
                                                 value={header.fund}
                                                 disabled={!!sourcePR}
                                                 onChange={e => setHeader({ ...header, fund: e.target.value })}
@@ -672,7 +672,7 @@ const POForm = () => {
                                         <div>
                                             <label style={labelStyle}>Function<span className="required-mark"> *</span></label>
                                             <select
-                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: 'var(--color-surface-hover)', cursor: 'not-allowed' } : {}) }}
                                                 value={header.function}
                                                 disabled={!!sourcePR}
                                                 onChange={e => setHeader({ ...header, function: e.target.value })}
@@ -685,7 +685,7 @@ const POForm = () => {
                                         <div>
                                             <label style={labelStyle}>Program<span className="required-mark"> *</span></label>
                                             <select
-                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: 'var(--color-surface-hover)', cursor: 'not-allowed' } : {}) }}
                                                 value={header.program}
                                                 disabled={!!sourcePR}
                                                 onChange={e => setHeader({ ...header, program: e.target.value })}
@@ -698,7 +698,7 @@ const POForm = () => {
                                         <div>
                                             <label style={labelStyle}>Geo<span className="required-mark"> *</span></label>
                                             <select
-                                                style={{ ...selectStyle, ...(sourcePR ? { background: '#f8fafc', cursor: 'not-allowed' } : {}) }}
+                                                style={{ ...selectStyle, ...(sourcePR ? { background: 'var(--color-surface-hover)', cursor: 'not-allowed' } : {}) }}
                                                 value={header.geo}
                                                 disabled={!!sourcePR}
                                                 onChange={e => setHeader({ ...header, geo: e.target.value })}
@@ -919,7 +919,7 @@ const POForm = () => {
                                                     <td style={{ padding: '0.35rem', textAlign: 'center' }}>
                                                         {lines.length > 1 && (
                                                             <button type="button" onClick={() => removeLine(idx)}
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}>
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-subtle)', padding: '4px' }}>
                                                                 <Trash2 size={16} />
                                                             </button>
                                                         )}

@@ -25,13 +25,13 @@ export default function ChequeLetterPrintPreview() {
   }
 
   return (
-    <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '16px 0' }}>
+    <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh', padding: '16px 0' }}>
       <div className="no-print" style={{ textAlign: 'center', marginBottom: 12 }}>
         <button
           onClick={() => window.print()}
           style={{
-            padding: '8px 20px', borderRadius: 8, border: '1px solid #cbd5e1',
-            background: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+            padding: '8px 20px', borderRadius: 8, border: '1px solid var(--color-border)',
+            background: 'var(--color-surface)', cursor: 'pointer', fontSize: 14, fontWeight: 600,
           }}
         >
           Print letter

@@ -35,7 +35,7 @@ const fmtDate = (v: string | null | undefined): string => {
 };
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string }> = {
-    DRAFT: { color: '#64748b', bg: '#f1f5f9' },
+    DRAFT: { color: 'var(--color-text-muted)', bg: 'var(--color-surface-hover)' },
     SUBMITTED: { color: '#1e40af', bg: '#dbeafe' },
     APPROVED: { color: '#6b21a8', bg: '#f3e8ff' },
     ENACTED: { color: '#166534', bg: '#dcfce7' },
@@ -62,11 +62,11 @@ interface Line {
 const thStyle: React.CSSProperties = {
     padding: '0.6rem 0.75rem', textAlign: 'left', fontSize: '0.68rem',
     fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
-    color: '#64748b', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+    color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const tdStyle: React.CSSProperties = {
-    padding: '0.55rem 0.75rem', borderBottom: '1px solid #f1f5f9',
-    color: '#1e293b', fontSize: '0.82rem',
+    padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--color-border-light)',
+    color: 'var(--color-text)', fontSize: '0.82rem',
 };
 
 const SupplementaryBudgetList = () => {
@@ -92,7 +92,7 @@ const SupplementaryBudgetList = () => {
     );
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-surface-hover)' }}>
             <Sidebar />
             {/* Sidebar is position:fixed at 260px — offset the content so it
                 sits beside the nav, matching every other page. */}
@@ -119,17 +119,17 @@ const SupplementaryBudgetList = () => {
 
                 <div style={{ marginTop: '1.5rem' }}>
                     <div style={{
-                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px',
+                        background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '10px',
                         overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                     }}>
                         <div style={{
-                            padding: '0.9rem 1.1rem', borderBottom: '1px solid #e2e8f0',
+                            padding: '0.9rem 1.1rem', borderBottom: '1px solid var(--color-border)',
                             display: 'flex', alignItems: 'center', gap: '0.5rem',
-                            fontSize: '0.85rem', fontWeight: 600, color: '#0f172a',
+                            fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)',
                         }}>
                             <Layers size={16} style={{ color: '#4f46e5' }} />
                             Supplementary appropriations
-                            <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 400 }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>
                                 {isLoading ? 'loading…' : `${rows.length} ${rows.length === 1 ? 'line' : 'lines'}`}
                             </span>
                         </div>
@@ -139,16 +139,16 @@ const SupplementaryBudgetList = () => {
                                 Could not load supplementary appropriations: {String((error as any)?.message || 'unknown error')}
                             </div>
                         ) : isLoading ? (
-                            <div style={{ color: '#94a3b8', fontSize: '0.82rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
+                            <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.82rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
                         ) : rows.length === 0 ? (
-                            <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '2.5rem 1.5rem', textAlign: 'center', lineHeight: 1.6 }}>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', padding: '2.5rem 1.5rem', textAlign: 'center', lineHeight: 1.6 }}>
                                 <Layers size={22} style={{ color: '#cbd5e1' }} />
                                 <div style={{ marginTop: '0.5rem' }}>No supplementary budgets have been raised yet.</div>
                                 <button
                                     type="button"
                                     onClick={() => navigate('/budget/appropriations/new?type=SUPPLEMENTARY')}
                                     style={{
-                                        marginTop: '0.9rem', padding: '0.45rem 0.9rem', background: '#fff',
+                                        marginTop: '0.9rem', padding: '0.45rem 0.9rem', background: 'var(--color-surface)',
                                         color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '8px',
                                         fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
                                     }}
@@ -189,7 +189,7 @@ const SupplementaryBudgetList = () => {
                                                     </td>
                                                     <td style={tdStyle}>
                                                         <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.economic_code}</span>
-                                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.economic_name}</div>
+                                                        <div style={{ fontSize: '0.68rem', color: 'var(--color-text-subtle)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.economic_name}</div>
                                                     </td>
                                                     <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{r.fund_code}</td>
                                                     <td style={tdStyle}>{r.fiscal_year_label}</td>
@@ -204,7 +204,7 @@ const SupplementaryBudgetList = () => {
                                                             {r.status}
                                                         </span>
                                                     </td>
-                                                    <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#64748b' }} title={r.law_reference || ''}>
+                                                    <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }} title={r.law_reference || ''}>
                                                         {r.law_reference || '—'}
                                                     </td>
                                                     <td style={tdStyle}>{fmtDate(r.enactment_date)}</td>
@@ -213,7 +213,7 @@ const SupplementaryBudgetList = () => {
                                         })}
                                     </tbody>
                                     <tfoot>
-                                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                                        <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
                                             <td colSpan={5} style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>Total supplementary:</td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#4f46e5' }}>{fmtNGN(totalSupplementary)}</td>
                                             <td colSpan={3} style={tdStyle}></td>

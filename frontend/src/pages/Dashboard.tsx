@@ -121,9 +121,9 @@ interface DashboardData {
 /* ── styles ─────────────────────────────────────────────── */
 
 const card = {
-    background: '#fff',
+    background: 'var(--color-surface)',
     borderRadius: '16px',
-    border: '1px solid #e8ecf1',
+    border: '1px solid var(--color-border)',
     padding: '24px',
     transition: 'box-shadow 0.2s',
 } as const;
@@ -131,7 +131,7 @@ const card = {
 const sectionTitle = {
     fontSize: '13px',
     fontWeight: 600 as const,
-    color: '#94a3b8',
+    color: 'var(--color-text-subtle)',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.5px',
     marginBottom: '6px',
@@ -159,7 +159,7 @@ const ChartTooltip = ({ active, payload, label }: any) => {
             background: '#1e293b', borderRadius: '10px', padding: '12px 16px',
             boxShadow: '0 8px 24px rgba(0,0,0,0.2)', border: 'none',
         }}>
-            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>{label}</div>
+            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginBottom: '6px' }}>{label}</div>
             {payload.map((p: any) => (
                 <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color }} />
@@ -187,8 +187,8 @@ const MiniKPI = ({ icon: Icon, label, value, color, onClick }: {
                 <Icon size={22} style={{ color }} />
             </div>
             <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: '24px', fontWeight: 700, color: '#1e293b' }}>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--color-text)' }}>
                     {value ?? '—'}
                 </div>
             </div>
@@ -290,7 +290,7 @@ const Dashboard = () => {
     ];
 
     return (
-        <div style={{ display: 'flex', background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             {/* ── Leave confirmation modal ──────────────────── */}
             {showLeaveConfirm && (
                 <div style={{
@@ -300,7 +300,7 @@ const Dashboard = () => {
                     zIndex: 9999, backdropFilter: 'blur(2px)',
                 }}>
                     <div style={{
-                        background: 'white', borderRadius: '20px',
+                        background: 'var(--color-surface)', borderRadius: '20px',
                         padding: '36px 32px', maxWidth: '400px', width: '90%',
                         boxShadow: '0 24px 64px rgba(0,0,0,0.25)', textAlign: 'center',
                     }}>
@@ -312,18 +312,18 @@ const Dashboard = () => {
                         }}>
                             <LogOut size={30} style={{ color: '#ef4444' }} />
                         </div>
-                        <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                        <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '8px' }}>
                             Leave Dashboard?
                         </h3>
-                        <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.6, marginBottom: '28px' }}>
+                        <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: '28px' }}>
                             Navigating back will sign you out of <strong>{organizationName}</strong>.
                             Any unsaved work will be lost.
                         </p>
                         <div style={{ display: 'flex', gap: '12px' }}>
                             <button onClick={() => setShowLeaveConfirm(false)} style={{
-                                flex: 1, padding: '13px', background: '#f8fafc',
-                                border: '1.5px solid #e2e8f0', borderRadius: '10px',
-                                fontSize: '14px', fontWeight: 600, color: '#475569',
+                                flex: 1, padding: '13px', background: 'var(--color-surface-hover)',
+                                border: '1.5px solid var(--color-border)', borderRadius: '10px',
+                                fontSize: '14px', fontWeight: 600, color: 'var(--color-text-secondary)',
                                 cursor: 'pointer', fontFamily: 'inherit',
                             }}>Stay Here</button>
                             <button onClick={handleConfirmLeave} style={{
@@ -396,7 +396,7 @@ const Dashboard = () => {
                                     <TrendingUp size={18} style={{ color: COLORS.revenue }} />
                                 </div>
                             </div>
-                            <div style={{ fontSize: '26px', fontWeight: 700, color: '#1e293b', margin: '8px 0 4px' }}>
+                            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--color-text)', margin: '8px 0 4px' }}>
                                 {isLoading ? '—' : fmtCurrency(d?.revenue_mtd ?? 0)}
                             </div>
                             {revenueChange && (
@@ -425,7 +425,7 @@ const Dashboard = () => {
                                     <CreditCard size={18} style={{ color: COLORS.expense }} />
                                 </div>
                             </div>
-                            <div style={{ fontSize: '26px', fontWeight: 700, color: '#1e293b', margin: '8px 0 4px' }}>
+                            <div style={{ fontSize: '26px', fontWeight: 700, color: 'var(--color-text)', margin: '8px 0 4px' }}>
                                 {isLoading ? '—' : fmtCurrency(d?.expenses_mtd ?? 0)}
                             </div>
                             {expenseChange && (
@@ -460,7 +460,7 @@ const Dashboard = () => {
                             }}>
                                 {isLoading ? '—' : fmtCurrency(d?.net_income_mtd ?? 0)}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)' }}>
                                 Revenue − Expenses
                             </div>
                         </div>
@@ -483,7 +483,7 @@ const Dashboard = () => {
                             }}>
                                 {isLoading ? '—' : fmtCurrency(d?.net_cash_flow ?? 0)}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', gap: '8px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', display: 'flex', gap: '8px' }}>
                                 <span style={{ color: COLORS.revenue }}>↑ {fmtCurrency(d?.cash_in_mtd ?? 0)}</span>
                                 <span style={{ color: COLORS.expense }}>↓ {fmtCurrency(d?.cash_out_mtd ?? 0)}</span>
                             </div>
@@ -496,17 +496,17 @@ const Dashboard = () => {
                         <div style={card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                                 <div>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Revenue vs Expenses</div>
-                                    <div style={{ fontSize: '13px', color: '#94a3b8' }}>Last 6 months trend</div>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Revenue vs Expenses</div>
+                                    <div style={{ fontSize: '13px', color: 'var(--color-text-subtle)' }}>Last 6 months trend</div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '16px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
                                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS.revenue }} />Revenue
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
                                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS.expense }} />Expenses
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
                                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS.net }} />Net
                                     </div>
                                 </div>
@@ -565,7 +565,7 @@ const Dashboard = () => {
                         if (mod('accounting')) {
                             cards.push(
                                 <div key="ar-ap" style={card}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                                         Receivables & Payables
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -574,7 +574,7 @@ const Dashboard = () => {
                                                 <Receipt size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                                 ACCOUNTS RECEIVABLE
                                             </div>
-                                            <div style={{ fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
+                                            <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text)' }}>
                                                 {fmtCurrency(d?.ar_outstanding ?? 0)}
                                             </div>
                                             {(d?.ar_overdue_count ?? 0) > 0 && (
@@ -588,24 +588,24 @@ const Dashboard = () => {
                                                 <Wallet size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                                 ACCOUNTS PAYABLE
                                             </div>
-                                            <div style={{ fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
+                                            <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text)' }}>
                                                 {fmtCurrency(d?.ap_outstanding ?? 0)}
                                             </div>
-                                            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                                            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '4px' }}>
                                                 {d?.ap_count ?? 0} outstanding invoices
                                             </div>
                                         </div>
                                         {/* Fixed Assets */}
-                                        <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ background: 'var(--color-surface-hover)', borderRadius: '12px', padding: '16px', border: '1px solid var(--color-border)' }}>
                                             <div style={{ fontSize: '12px', fontWeight: 600, color: COLORS.slate, marginBottom: '6px' }}>
                                                 <Landmark size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                                 FIXED ASSETS
                                             </div>
-                                            <div style={{ fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
+                                            <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text)' }}>
                                                 {d?.fixed_assets_count ?? 0}
-                                                <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 400 }}> assets</span>
+                                                <span style={{ fontSize: '13px', color: 'var(--color-text-subtle)', fontWeight: 400 }}> assets</span>
                                             </div>
-                                            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                                            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                                                 NBV: {fmtCurrency(d?.fixed_assets_nbv ?? 0)}
                                             </div>
                                         </div>
@@ -618,7 +618,7 @@ const Dashboard = () => {
                         cards.push(
                             <div key="budget" style={card}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Budget Utilization</div>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Budget Utilization</div>
                                     <div style={{
                                         fontSize: '20px', fontWeight: 700,
                                         color: (d?.budget_utilization ?? 0) > 90 ? COLORS.expense
@@ -628,7 +628,7 @@ const Dashboard = () => {
                                         {d?.budget_utilization ?? 0}%
                                     </div>
                                 </div>
-                                <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '5px', overflow: 'hidden', marginBottom: '16px' }}>
+                                <div style={{ height: '10px', background: 'var(--color-surface-hover)', borderRadius: '5px', overflow: 'hidden', marginBottom: '16px' }}>
                                     <div style={{
                                         height: '100%', borderRadius: '5px',
                                         width: `${Math.min(d?.budget_utilization ?? 0, 100)}%`,
@@ -650,7 +650,7 @@ const Dashboard = () => {
                                                     ))}
                                                 </Pie>
                                                 <Legend formatter={(value: string) => (
-                                                    <span style={{ fontSize: '12px', color: '#64748b' }}>{value}</span>
+                                                    <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>{value}</span>
                                                 )} />
                                                 <Tooltip formatter={(v) => fmtCurrency(Number(v ?? 0))} />
                                             </PieChart>
@@ -659,12 +659,12 @@ const Dashboard = () => {
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         {[
-                                            { label: 'Allocated', val: d?.budget_allocated ?? 0, color: '#1e293b' },
+                                            { label: 'Allocated', val: d?.budget_allocated ?? 0, color: 'var(--color-text)' },
                                             { label: 'Consumed', val: d?.budget_consumed ?? 0, color: COLORS.expense },
                                             { label: 'Available', val: d?.budget_available ?? 0, color: COLORS.revenue },
                                         ].map(r => (
                                             <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                                <span style={{ color: '#64748b' }}>{r.label}</span>
+                                                <span style={{ color: 'var(--color-text-muted)' }}>{r.label}</span>
                                                 <span style={{ fontWeight: 600, color: r.color }}>{fmtCurrency(r.val)}</span>
                                             </div>
                                         ))}
@@ -677,15 +677,15 @@ const Dashboard = () => {
                         if (mod('procurement')) {
                             cards.push(
                                 <div key="procurement" style={card}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>Procurement</div>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>Procurement</div>
                                     <div style={{ background: '#f0fdfa', borderRadius: '12px', padding: '16px', border: '1px solid #ccfbf1' }}>
                                         <div style={{ fontSize: '12px', fontWeight: 600, color: COLORS.teal, marginBottom: '6px' }}>
                                             <ShoppingCart size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} /> SPEND MTD
                                         </div>
-                                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>
+                                        <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--color-text)' }}>
                                             {fmtCurrency(d?.procurement_mtd ?? 0)}
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '4px' }}>
                                             {d?.open_requisitions ?? 0} open requisitions
                                         </div>
                                     </div>
@@ -697,16 +697,16 @@ const Dashboard = () => {
                         if (mod('inventory')) {
                             cards.push(
                                 <div key="inventory" style={card}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>Inventory</div>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>Inventory</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         <div style={{ background: '#faf5ff', borderRadius: '12px', padding: '16px', border: '1px solid #e9d5ff' }}>
                                             <div style={{ fontSize: '12px', fontWeight: 600, color: COLORS.purple, marginBottom: '6px' }}>
                                                 <Package size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} /> STOCK VALUE
                                             </div>
-                                            <div style={{ fontSize: '22px', fontWeight: 700, color: '#1e293b' }}>
+                                            <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text)' }}>
                                                 {fmtCurrency(d?.inventory_value ?? 0)}
                                             </div>
-                                            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                                            <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                                                 {d?.total_items ?? 0} active items
                                             </div>
                                         </div>
@@ -718,7 +718,7 @@ const Dashboard = () => {
                                                 <div style={{ fontSize: '20px', fontWeight: 700, color: COLORS.revenue }}>
                                                     {d?.stock_movements_in ?? 0}
                                                 </div>
-                                                <div style={{ fontSize: '11px', color: '#64748b' }}>Stock In</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Stock In</div>
                                             </div>
                                             <div style={{
                                                 flex: 1, background: '#fef2f2', borderRadius: '10px', padding: '12px',
@@ -727,7 +727,7 @@ const Dashboard = () => {
                                                 <div style={{ fontSize: '20px', fontWeight: 700, color: COLORS.expense }}>
                                                     {d?.stock_movements_out ?? 0}
                                                 </div>
-                                                <div style={{ fontSize: '11px', color: '#64748b' }}>Stock Out</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Stock Out</div>
                                             </div>
                                         </div>
                                     </div>
@@ -739,20 +739,20 @@ const Dashboard = () => {
                         if (mod('hrm')) {
                             cards.push(
                                 <div key="hrm" style={card}>
-                                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>
+                                    <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                                         Human Resources
                                     </div>
                                     <div style={{ background: '#f5f3ff', borderRadius: '12px', padding: '16px', border: '1px solid #ede9fe' }}>
                                         <div style={{ fontSize: '12px', fontWeight: 600, color: COLORS.purple, marginBottom: '6px' }}>
                                             <Users size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} /> HEADCOUNT
                                         </div>
-                                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#1e293b' }}>
+                                        <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--color-text)' }}>
                                             {d?.active_employees ?? 0}
-                                            <span style={{ fontSize: '14px', color: '#94a3b8', fontWeight: 400 }}>
+                                            <span style={{ fontSize: '14px', color: 'var(--color-text-subtle)', fontWeight: 400 }}>
                                                 {' '}/ {d?.total_employees ?? 0}
                                             </span>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                                             Active employees
                                         </div>
                                     </div>
@@ -777,11 +777,11 @@ const Dashboard = () => {
                     {mod('accounting') && <div style={card}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                             <div>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Recent Transactions</div>
-                                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Latest posted journal entries</div>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Recent Transactions</div>
+                                <div style={{ fontSize: '13px', color: 'var(--color-text-subtle)' }}>Latest posted journal entries</div>
                             </div>
                             <button onClick={() => navigate('/accounting/journals')} style={{
-                                background: 'none', border: '1px solid #e2e8f0',
+                                background: 'none', border: '1px solid var(--color-border)',
                                 borderRadius: '8px', padding: '6px 14px',
                                 fontSize: '13px', fontWeight: 600, color: COLORS.primary,
                                 cursor: 'pointer', fontFamily: 'inherit',
@@ -790,11 +790,11 @@ const Dashboard = () => {
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
+                                    <tr style={{ borderBottom: '2px solid var(--color-border-light)' }}>
                                         {['Reference', 'Date', 'Description', 'Source', 'Amount'].map((h) => (
                                             <th key={h} style={{
                                                 padding: '10px 12px', textAlign: h === 'Amount' ? 'right' : 'left',
-                                                fontSize: '11px', fontWeight: 600, color: '#94a3b8',
+                                                fontSize: '11px', fontWeight: 600, color: 'var(--color-text-subtle)',
                                                 textTransform: 'uppercase', letterSpacing: '0.5px',
                                             }}>{h}</th>
                                         ))}
@@ -803,7 +803,7 @@ const Dashboard = () => {
                                 <tbody>
                                     {(d?.recent_transactions ?? []).length === 0 ? (
                                         <tr>
-                                            <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+                                            <td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                                                 <Activity size={24} style={{ marginBottom: '8px', opacity: 0.4 }} /><br />
                                                 No posted transactions yet
                                             </td>
@@ -814,19 +814,19 @@ const Dashboard = () => {
                                                 borderBottom: '1px solid #f8fafc',
                                                 transition: 'background 0.15s',
                                             }}
-                                            onMouseOver={(e) => { e.currentTarget.style.background = '#fafbfc'; }}
+                                            onMouseOver={(e) => { e.currentTarget.style.background = 'var(--color-surface)'; }}
                                             onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
                                             >
                                                 <td style={{ padding: '12px', fontWeight: 600, color: COLORS.primary }}>
                                                     {tx.reference}
                                                 </td>
-                                                <td style={{ padding: '12px', color: '#64748b' }}>
+                                                <td style={{ padding: '12px', color: 'var(--color-text-muted)' }}>
                                                     {tx.date ? new Date(tx.date).toLocaleDateString('en-GB', {
                                                         day: 'numeric', month: 'short', year: 'numeric',
                                                     }) : '—'}
                                                 </td>
                                                 <td style={{
-                                                    padding: '12px', color: '#475569',
+                                                    padding: '12px', color: 'var(--color-text-secondary)',
                                                     maxWidth: '280px', overflow: 'hidden',
                                                     textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                                 }}>
@@ -847,7 +847,7 @@ const Dashboard = () => {
                                                 </td>
                                                 <td style={{
                                                     padding: '12px', textAlign: 'right',
-                                                    fontWeight: 600, color: '#1e293b', fontVariantNumeric: 'tabular-nums',
+                                                    fontWeight: 600, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums',
                                                 }}>
                                                     {fmtFull(tx.amount)}
                                                 </td>

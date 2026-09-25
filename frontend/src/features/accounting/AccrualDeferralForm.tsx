@@ -285,7 +285,7 @@ const AccrualDeferralForm = () => {
                                     <label style={labelStyle}>Amount Per Period</label>
                                     <input className="input" type="number" step="0.01" value={dForm.recognition_amount} onChange={e => setDForm(p => ({ ...p, recognition_amount: e.target.value }))} placeholder="Auto-calculated if blank" />
                                     {dForm.recognition_periods && dForm.original_amount && !dForm.recognition_amount && (
-                                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '3px' }}>
                                             ≈ {fmt(parseFloat(dForm.original_amount || '0') / parseFloat(dForm.recognition_periods || '1'))} / period
                                         </div>
                                     )}

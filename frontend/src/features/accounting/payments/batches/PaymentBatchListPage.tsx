@@ -16,16 +16,16 @@ function formatDate(iso: string): string {
 }
 
 const th: React.CSSProperties = {
-    padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b',
+    padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)',
     fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em',
-    borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
-const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: '#334155' };
+const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: 'var(--color-text-secondary)' };
 
 const ghostBtn: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: '5px',
-    padding: '5px 10px', borderRadius: '7px', border: '1px solid #e2e8f0',
-    background: '#fff', color: '#334155', fontSize: '12px', fontWeight: 600,
+    padding: '5px 10px', borderRadius: '7px', border: '1px solid var(--color-border)',
+    background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '12px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
 };
 
@@ -81,25 +81,25 @@ export default function PaymentBatchListPage() {
             }}>
                 {stats.map((s) => (
                     <div key={s.label} style={{
-                        background: '#fff', borderRadius: '12px', padding: '18px 20px',
+                        background: 'var(--color-surface)', borderRadius: '12px', padding: '18px 20px',
                         borderLeft: `4px solid ${s.accent}`,
                         boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                     }}>
                         <div style={{
-                            fontSize: '11px', fontWeight: 700, color: '#94a3b8',
+                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)',
                             textTransform: 'uppercase', letterSpacing: '0.05em',
                         }}>{s.label}</div>
                         <div style={{
-                            fontSize: '26px', fontWeight: 800, color: '#0f172a',
+                            fontSize: '26px', fontWeight: 800, color: 'var(--color-text)',
                             margin: '6px 0 2px',
                         }}>{s.value}</div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8' }}>{s.hint}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)' }}>{s.hint}</div>
                     </div>
                 ))}
             </div>
 
             <div style={{
-                background: '#fff', borderRadius: '12px',
+                background: 'var(--color-surface)', borderRadius: '12px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', overflow: 'hidden',
             }}>
                 <div style={{
@@ -108,9 +108,9 @@ export default function PaymentBatchListPage() {
                 }}>
                     <div>
                         <h3 style={{
-                            margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a',
+                            margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)',
                         }}>Bank Payment Letters</h3>
-                        <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+                        <p style={{ margin: '3px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                             Select posted payments on Outgoing Payments to start a batch
                         </p>
                     </div>
@@ -131,7 +131,7 @@ export default function PaymentBatchListPage() {
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {['Batch #', 'Date', 'Bank', 'Account', 'Lines', 'Total', 'Status', 'Actions'].map(h => (
                                     <th key={h} style={{
                                         ...th,
@@ -142,7 +142,7 @@ export default function PaymentBatchListPage() {
                         </thead>
                         <tbody>
                             {isLoading && (
-                                <tr><td colSpan={8} style={{ ...td, textAlign: 'center', padding: '36px', color: '#94a3b8' }}>
+                                <tr><td colSpan={8} style={{ ...td, textAlign: 'center', padding: '36px', color: 'var(--color-text-subtle)' }}>
                                     Loading batches…
                                 </td></tr>
                             )}
@@ -150,19 +150,19 @@ export default function PaymentBatchListPage() {
                                 <tr><td colSpan={8} style={{ ...td, textAlign: 'center', padding: '44px 20px' }}>
                                     <FileText size={30} style={{ color: '#cbd5e1' }} />
                                     <div style={{
-                                        marginTop: '10px', fontWeight: 700, color: '#475569', fontSize: '14px',
+                                        marginTop: '10px', fontWeight: 700, color: 'var(--color-text-secondary)', fontSize: '14px',
                                     }}>No payment batches yet</div>
-                                    <div style={{ marginTop: '4px', fontSize: '12px', color: '#94a3b8' }}>
+                                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--color-text-subtle)' }}>
                                         Go to Outgoing Payments, tick posted payments, then choose “Add to Batch”.
                                     </div>
                                 </td></tr>
                             )}
                             {batches.map((row: PaymentBatch) => (
-                                <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                 >
-                                    <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>
+                                    <td style={{ ...td, fontWeight: 700, color: 'var(--color-text)' }}>
                                         {row.batch_number}
                                     </td>
                                     <td style={td}>{formatDate(row.batch_date)}</td>

@@ -174,7 +174,7 @@ export default function TSAAccountForm() {
                             }
                         />
                         {isEditing && existingLoading && (
-                            <div style={{ padding: '1rem', color: '#64748b', fontSize: 'var(--text-sm)' }}>
+                            <div style={{ padding: '1rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
                                 Loading existing TSA account…
                             </div>
                         )}
@@ -221,7 +221,7 @@ export default function TSAAccountForm() {
                         {/* ── Linking ───────────────────────────────── */}
                         <div className="card" style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ marginBottom: '1.5rem' }}>Linking</h3>
-                            {segsLoading ? <div style={{ color: '#94a3b8' }}>Loading segments...</div> : (
+                            {segsLoading ? <div style={{ color: 'var(--color-text-subtle)' }}>Loading segments...</div> : (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                                     <div>
                                         <label style={labelStyle}>Owning MDA (if MDA-held bank account)</label>
@@ -256,13 +256,13 @@ export default function TSAAccountForm() {
                         {/* ── GL Mapping — IPSAS compliance ─────────── */}
                         <div className="card" style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ marginBottom: '0.5rem' }}>
-                                GL Mapping <span style={{ color: '#94a3b8', fontWeight: 400 }}>(IPSAS cash flow)</span>
+                                GL Mapping <span style={{ color: 'var(--color-text-subtle)', fontWeight: 400 }}>(IPSAS cash flow)</span>
                             </h3>
                             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem' }}>
                                 Link this TSA to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
                             </p>
                             {glLoading ? (
-                                <div style={{ color: '#94a3b8' }}>Loading GL accounts…</div>
+                                <div style={{ color: 'var(--color-text-subtle)' }}>Loading GL accounts…</div>
                             ) : (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                                     <div>
@@ -306,7 +306,7 @@ export default function TSAAccountForm() {
                                     onChange={e => setForm(prev => ({ ...prev, is_active: e.target.checked }))}
                                     style={{ width: '18px', height: '18px', accentColor: 'var(--primary, #191e6a)' }}
                                 />
-                                <label htmlFor="is_active" style={{ fontSize: '14px', color: '#1e293b', fontWeight: 500 }}>
+                                <label htmlFor="is_active" style={{ fontSize: '14px', color: 'var(--color-text)', fontWeight: 500 }}>
                                     Account is active
                                 </label>
                             </div>

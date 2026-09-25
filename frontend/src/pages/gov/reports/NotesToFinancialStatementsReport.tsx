@@ -87,12 +87,12 @@ function NoteDataBlock({ data }: NoteDataBlockProps) {
                         return (
                             <div key={key} style={{ marginTop: 10 }}>
                                 <div style={{
-                                    fontSize: 12, fontWeight: 700, color: '#64748b',
+                                    fontSize: 12, fontWeight: 700, color: 'var(--color-text-muted)',
                                     textTransform: 'uppercase', marginBottom: 4,
                                 }}>
                                     {prettify(key)}
                                 </div>
-                                <div style={{ fontSize: 13, color: '#94a3b8' }}>No records.</div>
+                                <div style={{ fontSize: 13, color: 'var(--color-text-subtle)' }}>No records.</div>
                             </div>
                         );
                     }
@@ -102,7 +102,7 @@ function NoteDataBlock({ data }: NoteDataBlockProps) {
                     return (
                         <div key={key} style={{ marginTop: 12 }}>
                             <div style={{
-                                fontSize: 12, fontWeight: 700, color: '#64748b',
+                                fontSize: 12, fontWeight: 700, color: 'var(--color-text-muted)',
                                 textTransform: 'uppercase', marginBottom: 6,
                             }}>
                                 {prettify(key)}
@@ -110,14 +110,14 @@ function NoteDataBlock({ data }: NoteDataBlockProps) {
                             <div style={{ overflowX: 'auto' }}>
                                 <table style={{
                                     width: '100%', borderCollapse: 'collapse',
-                                    background: '#f8fafc', borderRadius: 6,
+                                    background: 'var(--color-surface-hover)', borderRadius: 6,
                                 }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '1px solid #e8ecf1' }}>
+                                        <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                                             {cols.map(c => (
                                                 <th key={c} style={{
                                                     padding: '8px 10px',
-                                                    fontSize: 11, fontWeight: 700, color: '#64748b',
+                                                    fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)',
                                                     textTransform: 'uppercase',
                                                     textAlign: looksLikeMoney(c) ? 'right' : 'left',
                                                 }}>
@@ -151,7 +151,7 @@ function NoteDataBlock({ data }: NoteDataBlockProps) {
                     return (
                         <div key={key} style={{ marginTop: 12 }}>
                             <div style={{
-                                fontSize: 12, fontWeight: 700, color: '#64748b',
+                                fontSize: 12, fontWeight: 700, color: 'var(--color-text-muted)',
                                 textTransform: 'uppercase', marginBottom: 4,
                             }}>
                                 {prettify(key)}
@@ -166,13 +166,13 @@ function NoteDataBlock({ data }: NoteDataBlockProps) {
                 return (
                     <div key={key} style={{
                         display: 'flex', justifyContent: 'space-between',
-                        padding: '6px 0', borderBottom: '1px solid #f1f5f9',
+                        padding: '6px 0', borderBottom: '1px solid var(--color-border-light)',
                     }}>
-                        <span style={{ fontSize: 13, color: '#475569' }}>{prettify(key)}</span>
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{prettify(key)}</span>
                         <span style={{
                             fontSize: 13, fontWeight: 600,
                             fontFamily: looksLikeMoney(key) ? 'monospace' : undefined,
-                            color: '#1e293b',
+                            color: 'var(--color-text)',
                         }}>
                             {renderScalar(key, value)}
                         </span>
@@ -198,7 +198,7 @@ export default function NotesToFinancialStatementsReport() {
     });
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
@@ -207,12 +207,12 @@ export default function NotesToFinancialStatementsReport() {
                 }}>
                     <div>
                         <h1 style={{
-                            fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0,
+                            fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0,
                             display: 'flex', alignItems: 'center', gap: 10,
                         }}>
                             <FileText size={22} /> Notes to the Financial Statements
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             IPSAS 1 — Minimum Disclosure Notes Pack
                         </p>
                     </div>
@@ -222,7 +222,7 @@ export default function NotesToFinancialStatementsReport() {
                             onChange={e => setFy(parseInt(e.target.value))}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             {[2024, 2025, 2026, 2027].map(y => (
@@ -234,7 +234,7 @@ export default function NotesToFinancialStatementsReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -249,7 +249,7 @@ export default function NotesToFinancialStatementsReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                         Loading...
                     </div>
                 ) : error ? (
@@ -260,8 +260,8 @@ export default function NotesToFinancialStatementsReport() {
                             <div
                                 key={note.number}
                                 style={{
-                                    background: '#fff', borderRadius: '12px',
-                                    border: '1px solid #e8ecf1', padding: '24px',
+                                    background: 'var(--color-surface)', borderRadius: '12px',
+                                    border: '1px solid var(--color-border)', padding: '24px',
                                     marginBottom: '16px',
                                 }}
                             >
@@ -279,7 +279,7 @@ export default function NotesToFinancialStatementsReport() {
                                     </span>
                                     <h3 style={{
                                         margin: 0, fontSize: 17, fontWeight: 800,
-                                        color: '#1e293b',
+                                        color: 'var(--color-text)',
                                     }}>
                                         {note.title}
                                     </h3>
@@ -288,7 +288,7 @@ export default function NotesToFinancialStatementsReport() {
                                 {note.body && (
                                     <p style={{
                                         fontSize: 13, lineHeight: 1.65,
-                                        color: '#475569', whiteSpace: 'pre-line',
+                                        color: 'var(--color-text-secondary)', whiteSpace: 'pre-line',
                                         margin: '0 0 6px',
                                     }}>
                                         {note.body}
@@ -299,7 +299,7 @@ export default function NotesToFinancialStatementsReport() {
                             </div>
                         ))}
                         {(!data.notes || data.notes.length === 0) && (
-                            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                                 No disclosure notes available for FY {fy}.
                             </div>
                         )}
@@ -308,7 +308,7 @@ export default function NotesToFinancialStatementsReport() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: '11px',
+                    color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
                     Quot PSE IFMIS — IPSAS 1 Notes Pack
                 </div>

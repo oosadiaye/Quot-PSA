@@ -319,10 +319,10 @@ export default function GRNView() {
                                             <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                                                 <td style={td}>{line.item_description || `PO line #${line.po_line}`}</td>
                                                 <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{line.quantity_received}</td>
-                                                <td style={{ ...td, fontFamily: 'monospace', color: line.batch_number ? 'inherit' : '#94a3b8' }}>
+                                                <td style={{ ...td, fontFamily: 'monospace', color: line.batch_number ? 'inherit' : 'var(--color-text-subtle)' }}>
                                                     {line.batch_number || '—'}
                                                 </td>
-                                                <td style={{ ...td, color: line.expiry_date ? 'inherit' : '#94a3b8' }}>
+                                                <td style={{ ...td, color: line.expiry_date ? 'inherit' : 'var(--color-text-subtle)' }}>
                                                     {line.expiry_date ? formatDate(line.expiry_date) : '—'}
                                                 </td>
                                             </tr>

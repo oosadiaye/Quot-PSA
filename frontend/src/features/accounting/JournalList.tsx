@@ -457,8 +457,8 @@ const JournalList = () => {
                             className="btn"
                             style={{
                                 fontSize: 'var(--text-xs)', padding: '0.4rem 0.8rem',
-                                background: canBulkPost ? '#15803d' : '#e2e8f0',
-                                color: canBulkPost ? '#fff' : '#94a3b8',
+                                background: canBulkPost ? '#15803d' : 'var(--color-border)',
+                                color: canBulkPost ? '#fff' : 'var(--color-text-subtle)',
                                 border: 'none',
                                 cursor: canBulkPost ? 'pointer' : 'not-allowed',
                             }}

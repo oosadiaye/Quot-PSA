@@ -22,7 +22,7 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
 
     return (
         <div style={{
-            background: '#fff', borderRadius: '12px', overflow: 'hidden',
+            background: 'var(--color-surface)', borderRadius: '12px', overflow: 'hidden',
             boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             border: `1.5px solid ${borderColor}`,
         }}>
@@ -40,7 +40,7 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
                 }}>
                     {icon}
                 </div>
-                <span style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
+                <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text)' }}>
                     {title}
                 </span>
                 <div style={{ flex: 1 }} />
@@ -51,29 +51,29 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
 
             {/* Rows */}
             {rows.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: '13px' }}>
                     No accounts found for this period.
                 </div>
             ) : (
                 <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr style={{ borderBottom: '1px solid #e2e8f0', background: '#fafafa' }}>
-                            <th style={{ padding: '8px 20px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Code</th>
-                            <th style={{ padding: '8px 20px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Account</th>
-                            <th style={{ padding: '8px 20px', textAlign: 'right', color: '#94a3b8', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Amount</th>
+                        <tr style={{ borderBottom: '1px solid var(--color-border)', background: '#fafafa' }}>
+                            <th style={{ padding: '8px 20px', textAlign: 'left', color: 'var(--color-text-subtle)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Code</th>
+                            <th style={{ padding: '8px 20px', textAlign: 'left', color: 'var(--color-text-subtle)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Account</th>
+                            <th style={{ padding: '8px 20px', textAlign: 'right', color: 'var(--color-text-subtle)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Amount</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map((r, i) => (
                             <tr key={r.code ?? i}
-                                style={{ borderBottom: '1px solid #f1f5f9' }}
-                                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                style={{ borderBottom: '1px solid var(--color-border-light)' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                             >
                                 <td style={{ padding: '10px 20px', fontFamily: 'monospace', color: '#3b82f6', fontWeight: 600, width: '120px' }}>
                                     {r.code}
                                 </td>
-                                <td style={{ padding: '10px 20px', color: '#334155' }}>
+                                <td style={{ padding: '10px 20px', color: 'var(--color-text-secondary)' }}>
                                     {r.name}
                                 </td>
                                 <td style={{
@@ -86,8 +86,8 @@ function ReportSection({ title, icon, rows, total, accentColor, accentBg, border
                         ))}
                     </tbody>
                     <tfoot>
-                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                            <td style={{ padding: '12px 20px', fontWeight: 700, color: '#1e293b' }} colSpan={2}>
+                        <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
+                            <td style={{ padding: '12px 20px', fontWeight: 700, color: 'var(--color-text)' }} colSpan={2}>
                                 Total {title}
                             </td>
                             <td style={{
@@ -199,17 +199,17 @@ export default function ProfitLoss() {
 
     const inputStyle: React.CSSProperties = {
         padding: '6px 10px',
-        border: '1px solid #e2e8f0',
+        border: '1px solid var(--color-border)',
         borderRadius: '8px',
         fontSize: '13px',
         fontWeight: 600,
-        color: '#1e293b',
+        color: 'var(--color-text)',
     };
 
     const exportBtnStyle: React.CSSProperties = {
         display: 'inline-flex', alignItems: 'center', gap: '5px',
-        padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
-        background: '#f8fafc', fontSize: '13px', fontWeight: 600, color: '#475569',
+        padding: '6px 12px', border: '1px solid var(--color-border)', borderRadius: '8px',
+        background: 'var(--color-surface-hover)', fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)',
         cursor: 'pointer', whiteSpace: 'nowrap',
         opacity: submitted ? 1 : 0.4, pointerEvents: submitted ? 'auto' : 'none',
     };
@@ -225,11 +225,11 @@ export default function ProfitLoss() {
             {/* Filters — horizontal row */}
             <div style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
-                background: '#fff', borderRadius: '12px', padding: '10px 20px',
+                background: 'var(--color-surface)', borderRadius: '12px', padding: '10px 20px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
                 flexWrap: 'wrap',
             }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     Start Date
                 </span>
                 <input
@@ -238,7 +238,7 @@ export default function ProfitLoss() {
                     onChange={e => setStartDate(e.target.value)}
                     style={{ ...inputStyle, width: '150px' }}
                 />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     End Date
                 </span>
                 <input
@@ -269,23 +269,23 @@ export default function ProfitLoss() {
 
             {!submitted ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Select a date range and click Generate.
                 </div>
             ) : isLoading ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Generating Income Statement…
                 </div>
             ) : error ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
                     textAlign: 'center', color: '#ef4444',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
@@ -333,10 +333,10 @@ export default function ProfitLoss() {
                                 <DollarSign size={20} />
                             </div>
                             <div>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                                     {netIncome >= 0 ? 'Net Income (Profit)' : 'Net Loss'}
                                 </div>
-                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                                     Revenue − Expenses
                                 </div>
                             </div>
@@ -356,7 +356,7 @@ export default function ProfitLoss() {
                             border: '1.5px solid #a7f3d0', background: '#ecfdf5',
                             display: 'flex', flexDirection: 'column', gap: '4px',
                         }}>
-                            <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Revenue</span>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Revenue</span>
                             <span style={{ fontSize: '18px', fontWeight: 700, color: '#059669' }}>{formatCurrency(totalRevenue)}</span>
                         </div>
                         <div style={{
@@ -364,7 +364,7 @@ export default function ProfitLoss() {
                             border: '1.5px solid #fecaca', background: '#fef2f2',
                             display: 'flex', flexDirection: 'column', gap: '4px',
                         }}>
-                            <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Expenses</span>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Expenses</span>
                             <span style={{ fontSize: '18px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(totalExpenses)}</span>
                         </div>
                         <div style={{
@@ -373,7 +373,7 @@ export default function ProfitLoss() {
                             background: netIncome >= 0 ? '#ecfdf5' : '#fef2f2',
                             display: 'flex', flexDirection: 'column', gap: '4px',
                         }}>
-                            <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net Income</span>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net Income</span>
                             <span style={{ fontSize: '18px', fontWeight: 700, color: netIncome >= 0 ? '#059669' : '#dc2626' }}>
                                 {netIncome >= 0 ? '+' : '−'}{formatCurrency(Math.abs(netIncome))}
                             </span>

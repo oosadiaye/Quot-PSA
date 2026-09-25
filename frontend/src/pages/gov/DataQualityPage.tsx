@@ -88,7 +88,7 @@ function CheckCard({ check, expanded, onToggle }: CheckCardProps) {
     return (
         <div
             style={{
-                background: '#fff', borderRadius: '12px',
+                background: 'var(--color-surface)', borderRadius: '12px',
                 border: `1px solid ${meta.border}`,
                 marginBottom: 14, overflow: 'hidden',
             }}
@@ -105,7 +105,7 @@ function CheckCard({ check, expanded, onToggle }: CheckCardProps) {
                 <Icon size={22} style={{ color: meta.color, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                             {check.label}
                         </span>
                         <span style={{
@@ -118,35 +118,35 @@ function CheckCard({ check, expanded, onToggle }: CheckCardProps) {
                             {meta.label}
                         </span>
                         <span style={{
-                            fontSize: 12, color: '#64748b', fontFamily: 'monospace',
+                            fontSize: 12, color: 'var(--color-text-muted)', fontFamily: 'monospace',
                         }}>
                             {check.count} finding{check.count === 1 ? '' : 's'}
                         </span>
                     </div>
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
                         {check.description}
                     </div>
                 </div>
                 {hasSamples && (
                     expanded
-                        ? <ChevronDown size={18} style={{ color: '#94a3b8' }} />
-                        : <ChevronRight size={18} style={{ color: '#94a3b8' }} />
+                        ? <ChevronDown size={18} style={{ color: 'var(--color-text-subtle)' }} />
+                        : <ChevronRight size={18} style={{ color: 'var(--color-text-subtle)' }} />
                 )}
             </button>
 
             {expanded && hasSamples && (
                 <div style={{
-                    borderTop: '1px solid #f1f5f9',
-                    background: '#fafbfc',
+                    borderTop: '1px solid var(--color-border-light)',
+                    background: 'var(--color-surface)',
                     overflowX: 'auto',
                 }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                         <thead>
-                            <tr style={{ background: '#f1f5f9' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {columns.map(c => (
                                     <th key={c} style={{
                                         padding: '8px 12px', textAlign: 'left',
-                                        fontSize: 11, fontWeight: 700, color: '#64748b',
+                                        fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)',
                                         textTransform: 'uppercase', letterSpacing: '0.5px',
                                         whiteSpace: 'nowrap',
                                     }}>
@@ -161,7 +161,7 @@ function CheckCard({ check, expanded, onToggle }: CheckCardProps) {
                                     {columns.map(c => (
                                         <td key={c} style={{
                                             padding: '8px 12px', fontSize: 13,
-                                            color: '#1e293b',
+                                            color: 'var(--color-text)',
                                             fontFamily: /amount|debit|credit|balance|delta|breach|committed|expended|approved|date|id|reference/i.test(c)
                                                 ? 'monospace' : undefined,
                                         }}>
@@ -174,8 +174,8 @@ function CheckCard({ check, expanded, onToggle }: CheckCardProps) {
                     </table>
                     {check.count > check.samples.length && (
                         <div style={{
-                            padding: '10px 16px', fontSize: 12, color: '#64748b',
-                            borderTop: '1px solid #eef2f7', background: '#fff',
+                            padding: '10px 16px', fontSize: 12, color: 'var(--color-text-muted)',
+                            borderTop: '1px solid #eef2f7', background: 'var(--color-surface)',
                         }}>
                             Showing first {check.samples.length} of {check.count} findings.
                         </div>
@@ -213,12 +213,12 @@ export default function DataQualityPage() {
                 }}>
                     <div>
                         <h1 style={{
-                            fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0,
+                            fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0,
                             display: 'flex', alignItems: 'center', gap: 10,
                         }}>
                             <ShieldCheck size={22} /> GL Data Quality
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             Five audit checks against the live GL and budget state
                         </p>
                     </div>
@@ -228,7 +228,7 @@ export default function DataQualityPage() {
                         style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
                             padding: '8px 16px', borderRadius: '8px',
-                            border: '1px solid #e2e8f0', background: '#fff',
+                            border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                             cursor: isFetching ? 'wait' : 'pointer', fontSize: '14px',
                             opacity: isFetching ? 0.7 : 1,
                         }}
@@ -244,7 +244,7 @@ export default function DataQualityPage() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-subtle)' }}>
                         Running data-quality checks...
                     </div>
                 ) : error ? (
@@ -270,12 +270,12 @@ export default function DataQualityPage() {
                                     Overall Status
                                 </div>
                                 <div style={{
-                                    fontSize: 24, fontWeight: 800, color: '#1e293b',
+                                    fontSize: 24, fontWeight: 800, color: 'var(--color-text)',
                                     marginTop: 2,
                                 }}>
                                     {overallMeta.label}
                                 </div>
-                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>
                                     Generated {new Date(data.generated_at).toLocaleString('en-NG')}
                                 </div>
                             </div>
@@ -313,7 +313,7 @@ function SummaryPill({ count, status }: SummaryPillProps) {
     const meta = STATUS_META[status];
     return (
         <div style={{
-            background: '#fff', padding: '8px 14px', borderRadius: 10,
+            background: 'var(--color-surface)', padding: '8px 14px', borderRadius: 10,
             border: `1px solid ${meta.border}`,
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             minWidth: 70,
@@ -324,7 +324,7 @@ function SummaryPill({ count, status }: SummaryPillProps) {
                 {count}
             </div>
             <div style={{
-                fontSize: 10, fontWeight: 700, color: '#64748b',
+                fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)',
                 textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4,
             }}>
                 {meta.label}
