@@ -233,13 +233,10 @@ export const useCreateMilestone = () => {
 /**
  * PATCH /contracts/milestones/{id}/ — partial update.
  *
- * Used to transition status (PENDING → IN_PROGRESS → COMPLETED), set
- * the ``actual_completion_date`` when marking a milestone done, or
- * edit the description / scheduled value while still PENDING.
- *
- * Note on lifecycle: this codebase has no separate "approval" step —
- * the engineer's certification IS the approval. Once a milestone is
- * COMPLETED, an IPC can be raised against it for payment.
+ * Used to edit a milestone before it is approved: its description /
+ * scheduled value / target date, and its GL/budget coding ``lines``
+ * (nested — replaces the set server-side, Σ must equal scheduled_value).
+ * Coding is locked (400) once the milestone is INVOICED.
  */
 export const useUpdateMilestone = () => {
   const qc = useQueryClient();
@@ -259,6 +256,12 @@ export const useUpdateMilestone = () => {
         percentage_weight: string | number;
         target_date: string;
         notes: string;
+        lines: Array<{
+          account: number;
+          appropriation?: number | null;
+          description?: string;
+          amount: string;
+        }>;
       }>;
     }) => {
       const { data } = await apiClient.patch(`/contracts/milestones/${id}/`, patch);

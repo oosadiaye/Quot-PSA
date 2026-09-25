@@ -11,14 +11,14 @@
  * row is pre-filled from the contract's GL (NCoA economic) account + budget
  * appropriation; the amount defaults to the Scheduled Value.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, App as AntApp } from 'antd';
 import { Plus, Trash2 } from 'lucide-react';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
 import { makeAccountSearch } from '../../accounting/hooks/useAccountSearch';
 import { makeAppropriationSearch } from '../hooks/useAppropriationSearch';
-import { useCreateMilestone } from '../hooks/useContracts';
+import { useCreateMilestone, useUpdateMilestone, type MilestoneLine } from '../hooks/useContracts';
 import { formatServiceError } from '../utils/errors';
 
 interface CodingLine {
@@ -34,8 +34,21 @@ interface CodingLine {
 }
 
 interface MilestoneLike {
+  id?: number;
   scheduled_value: string | number;
   percentage_weight: string | number;
+}
+
+/** The milestone being edited (subset used to seed the form). */
+interface EditMilestone {
+  id: number;
+  milestone_number: number;
+  description: string;
+  scheduled_value: string | number;
+  percentage_weight: string | number;
+  target_date: string | null;
+  notes?: string;
+  lines?: MilestoneLine[];
 }
 
 interface MilestoneCreateModalProps {
@@ -47,6 +60,8 @@ interface MilestoneCreateModalProps {
   formatCurrency: (n: number) => string;
   onClose: () => void;
   onCreated: (milestoneNumber: number) => void;
+  /** When set, the modal edits this milestone (PATCH) instead of creating. */
+  editMilestone?: EditMilestone;
 }
 
 let _uid = 0;
@@ -54,9 +69,13 @@ const nextUid = () => (_uid += 1);
 
 export default function MilestoneCreateModal({
   contract, contractId, ceiling, milestones, formatCurrency, onClose, onCreated,
+  editMilestone,
 }: MilestoneCreateModalProps) {
   const { message } = AntApp.useApp();
+  const isEdit = !!editMilestone;
   const createMut = useCreateMilestone();
+  const updateMut = useUpdateMilestone();
+  const pending = isEdit ? updateMut.isPending : createMut.isPending;
 
   const accountSearch = useMemo(() => makeAccountSearch({ postableOnly: true }), []);
   const apprSearch = useMemo(() => makeAppropriationSearch(), []);
@@ -78,23 +97,50 @@ export default function MilestoneCreateModal({
     return { value: String(id), label: contract?.appropriation_label || `Appropriation #${id}` };
   }, [contract]);
 
-  const [description, setDescription] = useState('');
-  const [scheduledValue, setScheduledValue] = useState('');
-  const [weight, setWeight] = useState('');
-  const [targetDate, setTargetDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<CodingLine[]>(() => [{
-    uid: nextUid(),
-    account: defaultAccountSeed?.value ?? '',
-    appropriation: defaultApprSeed?.value ?? '',
-    description: '',
-    amount: '',
-    accountSeed: defaultAccountSeed,
-    apprSeed: defaultApprSeed,
-  }]);
+  const [description, setDescription] = useState(editMilestone?.description ?? '');
+  const [scheduledValue, setScheduledValue] = useState(
+    editMilestone ? String(editMilestone.scheduled_value ?? '') : '',
+  );
+  const [weight, setWeight] = useState(
+    editMilestone ? String(editMilestone.percentage_weight ?? '') : '',
+  );
+  const [targetDate, setTargetDate] = useState(editMilestone?.target_date ?? '');
+  const [notes, setNotes] = useState(editMilestone?.notes ?? '');
+  const [lines, setLines] = useState<CodingLine[]>(() => {
+    const existing = editMilestone?.lines ?? [];
+    if (existing.length) {
+      // Edit mode with coding — seed each row (incl. picker labels) from it.
+      return existing.map((l) => ({
+        uid: nextUid(),
+        account: l.account != null ? String(l.account) : '',
+        appropriation: l.appropriation != null ? String(l.appropriation) : '',
+        description: l.description ?? '',
+        amount: String(l.amount ?? ''),
+        accountSeed: l.account != null
+          ? { value: String(l.account), label: l.account_code ? `${l.account_code}${l.account_name ? ' — ' + l.account_name : ''}` : `Account #${l.account}` }
+          : undefined,
+        apprSeed: l.appropriation != null
+          ? { value: String(l.appropriation), label: l.appropriation_code || l.appropriation_name || `Appropriation #${l.appropriation}` }
+          : undefined,
+      }));
+    }
+    // Create, or edit a milestone that has no coding yet → default from contract.
+    return [{
+      uid: nextUid(),
+      account: defaultAccountSeed?.value ?? '',
+      appropriation: defaultApprSeed?.value ?? '',
+      description: '',
+      amount: '',
+      accountSeed: defaultAccountSeed,
+      apprSeed: defaultApprSeed,
+    }];
+  });
 
   // Auto-fill weight from Scheduled Value ÷ Contract Sum (override-able after).
+  // Skip the first run in edit mode so the milestone's stored weight survives.
+  const autoWeightReady = useRef(!isEdit);
   useEffect(() => {
+    if (!autoWeightReady.current) { autoWeightReady.current = true; return; }
     const v = Number(scheduledValue);
     if (ceiling > 0 && v > 0) setWeight(((v / ceiling) * 100).toFixed(3));
   }, [scheduledValue, ceiling]);
@@ -106,16 +152,21 @@ export default function MilestoneCreateModal({
     setLines((prev) => (prev.length === 1 ? [{ ...prev[0], amount: scheduledValue }] : prev));
   }, [scheduledValue]);
 
-  // ── Aggregate preview (mirrors the old modal) ──────────────────────
+  // ── Aggregate preview ──────────────────────────────────────────────
+  // In edit mode exclude the milestone being edited, so "existing" reflects
+  // the OTHER milestones and the overflow check compares against them.
   const totals = useMemo(() => {
-    const totalValue = milestones.reduce((s, m) => s + (parseFloat(String(m.scheduled_value || 0)) || 0), 0);
-    const totalWeight = milestones.reduce((s, m) => s + (parseFloat(String(m.percentage_weight || 0)) || 0), 0);
+    const others = isEdit
+      ? milestones.filter((m) => m.id !== editMilestone!.id)
+      : milestones;
+    const totalValue = others.reduce((s, m) => s + (parseFloat(String(m.scheduled_value || 0)) || 0), 0);
+    const totalWeight = others.reduce((s, m) => s + (parseFloat(String(m.percentage_weight || 0)) || 0), 0);
     return {
       totalValue, totalWeight,
       remainingValue: Math.max(0, ceiling - totalValue),
       remainingWeight: Math.max(0, 100 - totalWeight),
     };
-  }, [milestones, ceiling]);
+  }, [milestones, ceiling, isEdit, editMilestone]);
 
   const liveValue = Number(scheduledValue) || 0;
   const liveWeight = Number(weight) || 0;
@@ -137,7 +188,7 @@ export default function MilestoneCreateModal({
   const removeLine = (uid: number) =>
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.uid !== uid)));
 
-  const nextNumber = milestones.length + 1;
+  const milestoneNumber = isEdit ? editMilestone!.milestone_number : milestones.length + 1;
 
   const canSubmit =
     description.trim() !== '' &&
@@ -152,30 +203,46 @@ export default function MilestoneCreateModal({
       if (!codingReconciles) {
         message.warning('Coding lines must total the Scheduled Value.');
       } else {
-        message.warning('Complete the required fields before adding the milestone.');
+        message.warning('Complete the required fields first.');
       }
       return;
     }
+    const linePayload = lines.map((l) => ({
+      account: Number(l.account),
+      appropriation: l.appropriation ? Number(l.appropriation) : null,
+      description: l.description.trim(),
+      amount: l.amount,
+    }));
     try {
-      await createMut.mutateAsync({
-        contract: contractId,
-        milestone_number: nextNumber,
-        description: description.trim(),
-        scheduled_value: scheduledValue,
-        percentage_weight: weight,
-        target_date: targetDate,
-        notes: notes.trim(),
-        lines: lines.map((l) => ({
-          account: Number(l.account),
-          appropriation: l.appropriation ? Number(l.appropriation) : null,
-          description: l.description.trim(),
-          amount: l.amount,
-        })),
-      });
-      onCreated(nextNumber);
+      if (isEdit) {
+        await updateMut.mutateAsync({
+          id: editMilestone!.id,
+          contractId,
+          patch: {
+            description: description.trim(),
+            scheduled_value: scheduledValue,
+            percentage_weight: weight,
+            target_date: targetDate,
+            notes: notes.trim(),
+            lines: linePayload,
+          },
+        });
+      } else {
+        await createMut.mutateAsync({
+          contract: contractId,
+          milestone_number: milestoneNumber,
+          description: description.trim(),
+          scheduled_value: scheduledValue,
+          percentage_weight: weight,
+          target_date: targetDate,
+          notes: notes.trim(),
+          lines: linePayload,
+        });
+      }
+      onCreated(milestoneNumber);
       onClose();
     } catch (e) {
-      message.error(formatServiceError(e, 'Failed to add milestone'));
+      message.error(formatServiceError(e, isEdit ? 'Failed to save milestone' : 'Failed to add milestone'));
     }
   };
 
@@ -184,11 +251,11 @@ export default function MilestoneCreateModal({
       open
       onCancel={onClose}
       width={860}
-      title={`New Milestone — Contract ${contract?.contract_number ?? `#${contractId}`}`}
-      okText={createMut.isPending ? 'Adding…' : `Add Milestone #${nextNumber}`}
-      okButtonProps={{ disabled: !canSubmit, loading: createMut.isPending }}
+      title={`${isEdit ? 'Edit' : 'New'} Milestone #${milestoneNumber} — Contract ${contract?.contract_number ?? `#${contractId}`}`}
+      okText={pending ? 'Saving…' : (isEdit ? 'Save changes' : `Add Milestone #${milestoneNumber}`)}
+      okButtonProps={{ disabled: !canSubmit, loading: pending }}
       onOk={handleSubmit}
-      cancelButtonProps={{ disabled: createMut.isPending }}
+      cancelButtonProps={{ disabled: pending }}
       destroyOnHidden
     >
       <p style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>

@@ -253,6 +253,9 @@ const ContractDetail = () => {
   // context. See MilestoneCreateModal, which captures the milestone's GL/budget
   // coding (adopted from the contract) so approving it posts to the AP register.
   const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
+  // Edit an existing (not-yet-invoiced) milestone's fields + GL/budget coding —
+  // e.g. to add coding to a milestone created before coding-at-creation.
+  const [editMilestone, setEditMilestone] = useState<MilestoneRow | null>(null);
   // "Acct Doc" — the GL journal (accounting document) to show in a modal,
   // opened from a milestone row (its invoice's accrual journal) or a payment
   // sub-line (its disbursement journal).
@@ -676,6 +679,7 @@ const ContractDetail = () => {
                 formatCurrency={formatCurrency}
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
+                onEdit={(m) => setEditMilestone(m)}
                 onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
                 onViewJournal={(id) => setViewJournalId(id)}
                 actionLoading={
@@ -834,6 +838,18 @@ const ContractDetail = () => {
           }
         />
       )}
+      {editMilestone && (
+        <MilestoneCreateModal
+          contract={contract}
+          contractId={cid}
+          ceiling={ceiling}
+          milestones={contract.milestones ?? []}
+          formatCurrency={formatCurrency}
+          editMilestone={editMilestone}
+          onClose={() => setEditMilestone(null)}
+          onCreated={(n) => message.success(`Milestone #${n} saved.`)}
+        />
+      )}
     </ListPageShell>
   );
 };
@@ -956,13 +972,14 @@ interface MilestonesTabProps {
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
+  onEdit: (milestone: MilestoneRow) => void;
   onOpenIPC: (ipcId: number) => void;
   onViewJournal: (journalId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
   milestones, contractCeiling, formatCurrency,
-  onStart, onApprove, onOpenIPC, onViewJournal, actionLoading,
+  onStart, onApprove, onEdit, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
@@ -1033,10 +1050,21 @@ function MilestonesTab({
               </td>
               <td style={{ ...td, textAlign: 'right' }}>
                 <div style={milestoneActionsCell}>
+                  {m.status !== 'INVOICED' && !m.ipc && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(m)}
+                      disabled={actionLoading}
+                      style={milestoneEditBtn}
+                      title="Edit fields & GL/budget coding"
+                    >
+                      <Edit2 size={12} /> Edit
+                    </button>
+                  )}
                   {m.status === 'PENDING' && (
                     <Popconfirm
                       title="Mark this milestone as in progress?"
-                      description="This signals that site work has begun. The milestone still needs to be approved before an IPC can be raised."
+                      description="This signals that site work has begun. The milestone still needs to be approved before it can be invoiced."
                       okText="Mark in progress"
                       onConfirm={() => onStart(m.id)}
                     >
@@ -1232,6 +1260,13 @@ const milestoneStartBtn: React.CSSProperties = {
   fontSize: 11, fontWeight: 700,
   background: '#fff', color: '#4f46e5',
   border: '1px solid #c7d2fe', borderRadius: 6,
+  cursor: 'pointer',
+};
+const milestoneEditBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '4px 8px', fontSize: 11, fontWeight: 600,
+  background: '#fff', color: '#64748b',
+  border: '1px solid #e2e8f0', borderRadius: 6,
   cursor: 'pointer',
 };
 const milestoneApproveBtn: React.CSSProperties = {

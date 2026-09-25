@@ -452,3 +452,32 @@ class TestMilestoneInvoice:
         assert b"line" in resp.content.lower()
         ms.refresh_from_db()
         assert ms.status != MilestoneStatus.INVOICED
+
+    def test_serializer_update_replaces_coding_lines(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        """Editing a not-yet-invoiced milestone replaces its coding lines
+        (nested PATCH) — the path that lets a legacy, coding-less milestone be
+        coded before approval."""
+        from contracts.serializers import MilestoneScheduleSerializer
+        from contracts.models import MilestoneSchedule, MilestoneStatus
+
+        ms = MilestoneSchedule.objects.create(
+            contract=activated_contract, milestone_number=25, description="edit me",
+            scheduled_value=Decimal("2000000.00"), percentage_weight=Decimal("2.000"),
+            status=MilestoneStatus.IN_PROGRESS,
+        )
+        assert ms.lines.count() == 0
+
+        ser = MilestoneScheduleSerializer(ms, partial=True, data={
+            "lines": [
+                {"account": _legacy_accounts.expense.id, "amount": "1500000.00"},
+                {"account": _legacy_accounts.expense.id, "amount": "500000.00"},
+            ],
+        })
+        assert ser.is_valid(), ser.errors
+        ser.save(updated_by=approver)
+
+        ms.refresh_from_db()
+        assert ms.lines.count() == 2
+        assert sum(l.amount for l in ms.lines.all()) == Decimal("2000000.00")
