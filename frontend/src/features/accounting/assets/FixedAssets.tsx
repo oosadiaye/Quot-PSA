@@ -9,6 +9,7 @@ import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { useDialog } from '../../../hooks/useDialog';
 import logger from '../../../utils/logger';
+import { formatDate } from '@/utils/date';
 import '../styles/glassmorphism.css';
 
 type SortKey = 'asset_number' | 'name' | 'asset_category' | 'acquisition_date' | 'acquisition_cost' | 'accumulated_depreciation' | 'status';
@@ -288,9 +289,9 @@ export default function FixedAssets() {
                         <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.4 }}>
                             {schedule ? (
                                 <>
-                                    Next run: <b>{schedule.next_run_date || '—'}</b>
+                                    Next run: <b>{formatDate(schedule.next_run_date)}</b>
                                     {schedule.last_run_period_date && (
-                                        <> · Last: <b>{schedule.last_run_period_date}</b>
+                                        <> · Last: <b>{formatDate(schedule.last_run_period_date)}</b>
                                         (posted {schedule.last_run_assets_posted}, total ₦
                                         {Number(schedule.last_run_total_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })})</>
                                     )}
@@ -548,7 +549,7 @@ export default function FixedAssets() {
                                                         {asset.asset_category}
                                                     </span>
                                                 </td>
-                                                <td style={tdStyle}>{asset.acquisition_date}</td>
+                                                <td style={tdStyle}>{formatDate(asset.acquisition_date)}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 500 }}>{formatCurrency(parseFloat(asset.acquisition_cost || 0))}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-error)' }}>{formatCurrency(parseFloat(asset.accumulated_depreciation || 0))}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-cta)' }}>{formatCurrency(nbv)}</td>
