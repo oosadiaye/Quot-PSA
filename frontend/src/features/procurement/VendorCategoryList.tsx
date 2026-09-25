@@ -307,7 +307,7 @@ export default function VendorCategoryList() {
                                                         </button>
                                                         <button
                                                             onClick={() => setDeleteConfirm(null)}
-                                                            style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--text-xs)' }}
+                                                            style={{ background: 'var(--color-border)', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--text-xs)' }}
                                                         >
                                                             No
                                                         </button>
@@ -386,7 +386,7 @@ export default function VendorCategoryList() {
                     backdropFilter: 'blur(2px)',
                 }}>
                     <div style={{
-                        background: 'var(--color-card, white)',
+                        background: 'var(--color-surface)',
                         borderRadius: '16px',
                         padding: '2rem',
                         width: '100%',

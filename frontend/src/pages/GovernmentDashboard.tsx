@@ -44,8 +44,8 @@ const GOV = {
     blue:      '#1e4d8c',
     red:       '#c0392b',
     grayDk:    '#1a2332',
-    grayLt:    '#f0f4f8',
-    white:     '#ffffff',
+    grayLt:    'var(--color-surface-hover)',
+    white:     'var(--color-surface)',
 };
 
 const CHART_COLORS = [GOV.green, GOV.gold, GOV.blue, GOV.red, '#8b5cf6', '#0d9488'];
@@ -65,9 +65,9 @@ const fmtFull = (val: number) =>
 
 /* ── Styles ─────────────────────────────────────────────── */
 const cardStyle: React.CSSProperties = {
-    background: '#fff',
+    background: 'var(--color-surface)',
     borderRadius: '16px',
-    border: '1px solid #e8ecf1',
+    border: '1px solid var(--color-border)',
     padding: '24px',
     transition: 'box-shadow 0.2s',
 };
@@ -173,7 +173,7 @@ const GovernmentDashboard = () => {
             <main style={{ marginLeft: '260px', padding: '32px', overflow: 'auto' }}>
                 {/* ── Header ──────────────────────────────────── */}
                 <div style={{ marginBottom: '32px' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 800, color: GOV.grayDk }}>
+                    <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
                         Government Financial Dashboard
                     </div>
                     <div style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>
@@ -197,7 +197,7 @@ const GovernmentDashboard = () => {
                                 TSA Cash Position
                             </div>
                         </div>
-                        <div style={{ fontSize: '28px', fontWeight: 800, color: GOV.grayDk }}>
+                        <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
                             {tsaLoading ? '...' : fmtNGN(tsa?.total_balance ?? 0)}
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
@@ -219,7 +219,7 @@ const GovernmentDashboard = () => {
                                 Revenue Collected (YTD)
                             </div>
                         </div>
-                        <div style={{ fontSize: '28px', fontWeight: 800, color: GOV.grayDk }}>
+                        <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
                             {fmtNGN(revenue?.total_collected ?? 0)}
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
@@ -241,7 +241,7 @@ const GovernmentDashboard = () => {
                                 Budget Execution
                             </div>
                         </div>
-                        <div style={{ fontSize: '28px', fontWeight: 800, color: GOV.grayDk }}>
+                        <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
                             {budgetTotals.pct.toFixed(1)}%
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
@@ -263,7 +263,7 @@ const GovernmentDashboard = () => {
                                 Pending Approvals
                             </div>
                         </div>
-                        <div style={{ fontSize: '28px', fontWeight: 800, color: GOV.grayDk }}>
+                        <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
                             {stats?.pending_approvals ?? 0}
                         </div>
                         <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
@@ -278,7 +278,7 @@ const GovernmentDashboard = () => {
                     <div style={cardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <div>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                                     Budget Execution by MDA
                                 </div>
                                 <div style={{ fontSize: '13px', color: '#94a3b8' }}>
@@ -311,7 +311,7 @@ const GovernmentDashboard = () => {
                     {/* Revenue by Source (Donut) */}
                     <div style={cardStyle}>
                         <div style={{ marginBottom: '20px' }}>
-                            <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk }}>
+                            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                                 Revenue by Source
                             </div>
                             <div style={{ fontSize: '13px', color: '#94a3b8' }}>IGR Collection Breakdown</div>
@@ -343,7 +343,7 @@ const GovernmentDashboard = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: isTabletOrSmaller ? '1fr' : '2fr 1fr', gap: isMobile ? '12px' : '20px', marginBottom: '28px' }}>
                     {/* Financial Performance Summary */}
                     <div style={cardStyle}>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk, marginBottom: '20px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '20px' }}>
                             Financial Performance (IPSAS)
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '10px' : '16px' }}>
@@ -355,7 +355,7 @@ const GovernmentDashboard = () => {
                                     <TrendingUp size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                     TOTAL REVENUE
                                 </div>
-                                <div style={{ fontSize: '24px', fontWeight: 800, color: GOV.grayDk }}>
+                                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)' }}>
                                     {fmtNGN(performance?.revenue?.total ?? 0)}
                                 </div>
                             </div>
@@ -367,7 +367,7 @@ const GovernmentDashboard = () => {
                                     <TrendingDown size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                     TOTAL EXPENDITURE
                                 </div>
-                                <div style={{ fontSize: '24px', fontWeight: 800, color: GOV.grayDk }}>
+                                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)' }}>
                                     {fmtNGN(performance?.expenditure?.total ?? 0)}
                                 </div>
                             </div>
@@ -384,7 +384,7 @@ const GovernmentDashboard = () => {
                                     <Activity size={13} style={{ marginRight: '4px', verticalAlign: '-2px' }} />
                                     SURPLUS / (DEFICIT)
                                 </div>
-                                <div style={{ fontSize: '24px', fontWeight: 800, color: GOV.grayDk }}>
+                                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)' }}>
                                     {fmtNGN(performance?.surplus_deficit ?? 0)}
                                 </div>
                             </div>
@@ -393,7 +393,7 @@ const GovernmentDashboard = () => {
 
                     {/* Quick Actions */}
                     <div style={cardStyle}>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk, marginBottom: '16px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>
                             Quick Actions
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -408,16 +408,16 @@ const GovernmentDashboard = () => {
                                         transition: 'all 0.15s',
                                     }}
                                     onMouseEnter={e => {
-                                        (e.currentTarget as HTMLDivElement).style.background = '#f8fafc';
+                                        (e.currentTarget as HTMLDivElement).style.background = 'var(--color-surface-hover)';
                                         (e.currentTarget as HTMLDivElement).style.borderColor = action.color;
                                     }}
                                     onMouseLeave={e => {
                                         (e.currentTarget as HTMLDivElement).style.background = '';
-                                        (e.currentTarget as HTMLDivElement).style.borderColor = '#e8ecf1';
+                                        (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--color-border)';
                                     }}
                                 >
                                     <action.icon size={18} style={{ color: action.color }} />
-                                    <span style={{ flex: 1, fontSize: '14px', fontWeight: 500, color: GOV.grayDk }}>
+                                    <span style={{ flex: 1, fontSize: '14px', fontWeight: 500, color: 'var(--color-text)' }}>
                                         {action.label}
                                     </span>
                                     <ArrowRight size={14} style={{ color: '#cbd5e1' }} />
@@ -430,20 +430,20 @@ const GovernmentDashboard = () => {
                 {/* ── Row 4: TSA Account Breakdown ──────────── */}
                 {tsa && tsa.by_account_type.length > 0 && (
                     <div style={cardStyle}>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: GOV.grayDk, marginBottom: '16px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>
                             TSA Account Breakdown
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : `repeat(${Math.min(tsa.by_account_type.length, 4)}, 1fr)`, gap: isMobile ? '10px' : '16px' }}>
                             {tsa.by_account_type.map((acct, i) => (
                                 <div key={acct.account_type} style={{
                                     padding: '16px', borderRadius: '10px',
-                                    background: i === 0 ? `${GOV.green}08` : '#f8fafc',
-                                    border: `1px solid ${i === 0 ? `${GOV.green}20` : '#e8ecf1'}`,
+                                    background: i === 0 ? `${GOV.green}08` : 'var(--color-surface-hover)',
+                                    border: `1px solid ${i === 0 ? `${GOV.green}20` : 'var(--color-border)'}`,
                                 }}>
                                     <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>
                                         {acct.account_type.replace(/_/g, ' ')}
                                     </div>
-                                    <div style={{ fontSize: '20px', fontWeight: 700, color: GOV.grayDk }}>
+                                    <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-text)' }}>
                                         {fmtNGN(acct.balance)}
                                     </div>
                                     <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>

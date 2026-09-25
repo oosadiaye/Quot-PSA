@@ -830,8 +830,8 @@ export default function ChartOfAccounts() {
                             style={{
                                 display: 'inline-flex', alignItems: 'center',
                                 padding: '0.55rem 1.1rem',
-                                background: '#ffffff',
-                                color: '#0f172a',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text)',
                                 border: '1px solid rgba(255,255,255,0.6)',
                                 borderRadius: '8px',
                                 fontSize: 'var(--text-sm)',
@@ -841,11 +841,11 @@ export default function ChartOfAccounts() {
                                 transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
                             }}
                             onMouseEnter={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface-hover)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
                             }}
                             onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
                             }}
                         >
@@ -857,8 +857,8 @@ export default function ChartOfAccounts() {
                             style={{
                                 display: 'inline-flex', alignItems: 'center',
                                 padding: '0.55rem 1.1rem',
-                                background: '#ffffff',
-                                color: '#0f172a',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text)',
                                 border: '1px solid rgba(255,255,255,0.6)',
                                 borderRadius: '8px',
                                 fontSize: 'var(--text-sm)',
@@ -870,11 +870,11 @@ export default function ChartOfAccounts() {
                             }}
                             onMouseEnter={(e) => {
                                 if (isImporting) return;
-                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface-hover)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
                             }}
                             onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
                             }}
                         >
@@ -886,8 +886,8 @@ export default function ChartOfAccounts() {
                             style={{
                                 display: 'inline-flex', alignItems: 'center',
                                 padding: '0.55rem 1.1rem',
-                                background: '#ffffff',
-                                color: '#0f172a',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text)',
                                 border: '1px solid rgba(255,255,255,0.6)',
                                 borderRadius: '8px',
                                 fontSize: 'var(--text-sm)',
@@ -897,11 +897,11 @@ export default function ChartOfAccounts() {
                                 transition: 'transform 0.15s, box-shadow 0.15s, background 0.15s',
                             }}
                             onMouseEnter={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface-hover)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 10px rgba(0,0,0,0.18)';
                             }}
                             onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = '#ffffff';
+                                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
                                 (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
                             }}
                         >

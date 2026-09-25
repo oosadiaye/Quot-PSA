@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { AuthProvider } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
@@ -262,6 +262,7 @@ const TenantSnapshotsPage = lazy(() => import('./features/admin/snapshots').then
 const ContractsDashboard  = lazy(() => import('./features/contracts/ContractsDashboard'));
 const ContractsList       = lazy(() => import('./features/contracts/ContractsList'));
 const ContractDetail      = lazy(() => import('./features/contracts/ContractDetail'));
+const ContractAuditPage   = lazy(() => import('./features/contracts/ContractAuditPage'));
 const ContractForm        = lazy(() => import('./features/contracts/ContractForm'));
 const IPCList             = lazy(() => import('./features/contracts/ipcs/IPCList'));
 const IPCSubmitForm       = lazy(() => import('./features/contracts/ipcs/IPCSubmitForm'));
@@ -281,8 +282,29 @@ const queryClient = new QueryClient({
   },
 });
 
-import { App as AntApp } from 'antd';
+import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd';
+import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+
+/**
+ * Bridges our ThemeContext to antd + the app tree: applies antd's dark/light
+ * algorithm from the effective theme, keeps the brand primary, and hosts the
+ * antd `App` (message/modal/notification) context. Must sit INSIDE ThemeProvider
+ * (it reads useTheme) and OUTSIDE the rest of the app (which reads AntApp).
+ */
+function ThemedApp({ children }: { children: ReactNode }) {
+  const { theme } = useTheme();
+  return (
+    <ConfigProvider
+      theme={{
+        algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+        token: { colorPrimary: '#242a88', borderRadius: 8 },
+      }}
+    >
+      <AntApp>{children}</AntApp>
+    </ConfigProvider>
+  );
+}
 
 /**
  * Root route. The app has no public marketing surface — `/` exists only
@@ -304,8 +326,8 @@ function RootRoute() {
 
 function App() {
   return (
-    <AntApp>
-      <ThemeProvider>
+    <ThemeProvider>
+      <ThemedApp>
         <QueryClientProvider client={queryClient}>
           <BrandingProvider>
           <AuthProvider>
@@ -895,6 +917,9 @@ function App() {
                         <Route path="/contracts/:id" element={
                           <ProtectedRoute><ContractDetail /></ProtectedRoute>
                         } />
+                        <Route path="/contracts/:id/audit" element={
+                          <ProtectedRoute><ContractAuditPage /></ProtectedRoute>
+                        } />
                         <Route path="/contracts/:id/ipcs/new" element={
                           <ProtectedRoute><IPCSubmitForm /></ProtectedRoute>
                         } />
@@ -971,8 +996,8 @@ function App() {
           </AuthProvider>
           </BrandingProvider>
         </QueryClientProvider>
-      </ThemeProvider>
-    </AntApp>
+      </ThemedApp>
+    </ThemeProvider>
   );
 }
 

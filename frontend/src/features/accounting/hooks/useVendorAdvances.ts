@@ -62,14 +62,20 @@ export interface OutstandingForVendorResponse {
  * Returns ``null`` when ``vendorId`` is falsy so the popup component
  * can render conditionally without a wrapper guard.
  */
-export const useOutstandingAdvancesForVendor = (vendorId: number | null | undefined) => {
+export const useOutstandingAdvancesForVendor = (
+    vendorId: number | null | undefined,
+    // Optional contract scope: when set, the backend returns only advances that
+    // relate to this contract (mobilization advances for it) — used on the
+    // contract detail page so unrelated vendor advances don't show there.
+    contractId?: number | null,
+) => {
     return useQuery<OutstandingForVendorResponse | null>({
-        queryKey: ['vendor-advances-outstanding', vendorId ?? null],
+        queryKey: ['vendor-advances-outstanding', vendorId ?? null, contractId ?? null],
         queryFn: async () => {
             if (!vendorId) return null;
-            const { data } = await apiClient.get(`${BASE}outstanding-for-vendor/`, {
-                params: { vendor: vendorId },
-            });
+            const params: Record<string, number> = { vendor: vendorId };
+            if (contractId) params.contract = contractId;
+            const { data } = await apiClient.get(`${BASE}outstanding-for-vendor/`, { params });
             return data;
         },
         enabled: !!vendorId,

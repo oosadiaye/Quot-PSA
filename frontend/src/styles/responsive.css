@@ -128,13 +128,13 @@ html, body {
     .ipsas-report table tr > *:first-child {
         position: sticky;
         left: 0;
-        background: #ffffff;
+        background: var(--color-surface);
         z-index: 2;
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.04);
         min-width: 180px;
     }
     .ipsas-report table thead tr > *:first-child {
-        background: #f8fafc;
+        background: var(--color-surface-hover);
     }
 }
 
@@ -144,7 +144,7 @@ html, body {
     left: 0; right: 0; bottom: 0;
     max-height: 80vh;
     border-radius: 16px 16px 0 0;
-    background: #fff;
+    background: var(--color-surface);
     box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
     z-index: 200;
     overflow-y: auto;
@@ -168,7 +168,7 @@ html, body {
 .drawer-fullscreen {
     position: fixed;
     inset: 0;
-    background: #fff;
+    background: var(--color-surface);
     z-index: 150;
     overflow-y: auto;
     padding-bottom: env(safe-area-inset-bottom, 0);
@@ -231,7 +231,7 @@ html, body {
 .sticky-action-bar {
     position: sticky;
     bottom: 0;
-    background: #fff;
+    background: var(--color-surface);
     border-top: 1px solid rgba(26, 35, 126, 0.12);
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0));
     display: flex;

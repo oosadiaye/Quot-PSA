@@ -647,8 +647,8 @@ export default function WarrantForm() {
                                                         style={{
                                                             padding: '6px 12px', borderRadius: 6,
                                                             border: active ? '2px solid #4f46e5' : '1px solid #cbd5e1',
-                                                            background: active ? '#eef2ff' : '#fff',
-                                                            color: active ? '#4338ca' : '#1e293b',
+                                                            background: active ? '#eef2ff' : 'var(--color-surface)',
+                                                            color: active ? '#4338ca' : 'var(--color-text)',
                                                             fontSize: 11, fontWeight: 600,
                                                             cursor: 'pointer',
                                                         }}
@@ -662,7 +662,7 @@ export default function WarrantForm() {
                                     <div style={{ gridColumn: '1 / -1' }}>
                                         <label style={labelStyle}>
                                             Authority Reference Prefix
-                                            <span style={{ fontWeight: 400, textTransform: 'none', color: '#94a3b8' }}>
+                                            <span style={{ fontWeight: 400, textTransform: 'none', color: 'var(--color-text-subtle)' }}>
                                                 {' '}(per-line refs append the economic code)
                                             </span>
                                         </label>
@@ -716,8 +716,8 @@ export default function WarrantForm() {
                                             style={{
                                                 display: 'flex', alignItems: 'center', gap: 6,
                                                 padding: '8px 14px', borderRadius: 8,
-                                                border: '1.5px dashed #cbd5e1', background: '#f8fafc',
-                                                color: '#64748b', fontSize: 12, cursor: 'pointer', width: '100%',
+                                                border: '1.5px dashed #cbd5e1', background: 'var(--color-surface-hover)',
+                                                color: 'var(--color-text-muted)', fontSize: 12, cursor: 'pointer', width: '100%',
                                             }}
                                         >
                                             <Paperclip size={13} /> Attach the signed AIE letter
@@ -754,7 +754,7 @@ export default function WarrantForm() {
                                                 size={14}
                                                 style={{
                                                     position: 'absolute', left: 10, top: '50%',
-                                                    transform: 'translateY(-50%)', color: '#94a3b8',
+                                                    transform: 'translateY(-50%)', color: 'var(--color-text-subtle)',
                                                     pointerEvents: 'none',
                                                 }}
                                             />
@@ -783,7 +783,7 @@ export default function WarrantForm() {
                                             >
                                                 Select all{filterTerm.trim() ? ' (filtered)' : ''}
                                             </button>
-                                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                                                 {(() => {
                                                     const q = filterTerm.trim().toLowerCase();
                                                     if (!q) return `${lines.length} line${lines.length === 1 ? '' : 's'}`;
@@ -804,14 +804,14 @@ export default function WarrantForm() {
                                             </button>
                                         </div>
                                         <div style={{
-                                            border: '1px solid #e2e8f0', borderRadius: 8,
+                                            border: '1px solid var(--color-border)', borderRadius: 8,
                                             overflow: 'hidden', overflowX: 'auto',
                                         }}>
                                             <table style={{
                                                 width: '100%', borderCollapse: 'collapse',
                                                 fontSize: 12,
                                             }}>
-                                                <thead style={{ background: '#f8fafc' }}>
+                                                <thead style={{ background: 'var(--color-surface-hover)' }}>
                                                     <tr>
                                                         <th style={tblTh} />
                                                         <th style={{ ...tblTh, textAlign: 'left' }}>Code</th>
@@ -832,7 +832,7 @@ export default function WarrantForm() {
                                                         if (visible.length === 0) {
                                                             return (
                                                                 <tr>
-                                                                    <td colSpan={5} style={{ ...tblTd, textAlign: 'center', color: '#94a3b8', padding: '14px' }}>
+                                                                    <td colSpan={5} style={{ ...tblTd, textAlign: 'center', color: 'var(--color-text-subtle)', padding: '14px' }}>
                                                                         No economic lines match "{filterTerm}".
                                                                     </td>
                                                                 </tr>
@@ -847,7 +847,7 @@ export default function WarrantForm() {
                                                                 key={l.appropriation_id}
                                                                 style={{
                                                                     background: l.selected ? '#f0fdf4' : 'white',
-                                                                    borderTop: '1px solid #e2e8f0',
+                                                                    borderTop: '1px solid var(--color-border)',
                                                                 }}
                                                             >
                                                                 <td style={tblTd}>
@@ -876,7 +876,7 @@ export default function WarrantForm() {
                                                                             textAlign: 'right',
                                                                             fontFamily: 'monospace',
                                                                             borderColor: exceeds ? '#ef4444' : undefined,
-                                                                            background: l.selected ? 'white' : '#f1f5f9',
+                                                                            background: l.selected ? 'var(--color-surface)' : 'var(--color-surface-hover)',
                                                                             opacity: l.selected ? 1 : 0.6,
                                                                         }}
                                                                     />
@@ -918,8 +918,8 @@ export default function WarrantForm() {
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 6,
                                         padding: '8px 14px', borderRadius: 8,
-                                        background: '#f1f5f9', border: '1px solid #cbd5e1',
-                                        color: '#0f172a', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        background: 'var(--color-surface-hover)', border: '1px solid #cbd5e1',
+                                        color: 'var(--color-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                     }}
                                 >
                                     {previewOpen ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -984,10 +984,10 @@ export default function WarrantForm() {
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                 }}>
                                     <span>Print Preview · matches /print exactly</span>
-                                    {!settings && <span style={{ fontWeight: 400, color: '#94a3b8' }}>loading settings…</span>}
+                                    {!settings && <span style={{ fontWeight: 400, color: 'var(--color-text-subtle)' }}>loading settings…</span>}
                                 </div>
                                 <div style={{
-                                    background: 'white',
+                                    background: 'var(--color-surface)',
                                     borderRadius: '0 0 8px 8px',
                                     boxShadow: '0 8px 32px rgba(15, 23, 42, 0.10)',
                                     overflow: 'hidden',
@@ -1011,7 +1011,7 @@ export default function WarrantForm() {
                                             mode="preview"
                                         />
                                     ) : (
-                                        <div style={{ padding: 30, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                                        <div style={{ padding: 30, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
                                             Loading print settings…
                                         </div>
                                     )}
@@ -1043,25 +1043,25 @@ const cardH3: React.CSSProperties = {
     margin: '0 0 0.75rem 0', display: 'flex', alignItems: 'center', gap: 6,
 };
 const cardHint: React.CSSProperties = {
-    fontSize: 11, color: '#94a3b8', margin: '0 0 12px', lineHeight: 1.5,
+    fontSize: 11, color: 'var(--color-text-subtle)', margin: '0 0 12px', lineHeight: 1.5,
 };
 const emptyHint: React.CSSProperties = {
     padding: '20px 12px', textAlign: 'center',
-    color: '#94a3b8', fontSize: 12,
-    border: '1px dashed #e2e8f0', borderRadius: 8,
+    color: 'var(--color-text-subtle)', fontSize: 12,
+    border: '1px dashed var(--color-border)', borderRadius: 8,
 };
 const miniBtn: React.CSSProperties = {
     padding: '4px 10px', borderRadius: 6,
-    border: '1px solid #cbd5e1', background: '#fff',
-    color: '#1e293b', fontSize: 11, fontWeight: 600,
+    border: '1px solid #cbd5e1', background: 'var(--color-surface)',
+    color: 'var(--color-text)', fontSize: 11, fontWeight: 600,
     cursor: 'pointer',
 };
 const tblTh: React.CSSProperties = {
     padding: '7px 10px', fontSize: 10, fontWeight: 700,
     letterSpacing: 0.5, textTransform: 'uppercase',
-    color: '#475569', borderBottom: '1px solid #e2e8f0',
+    color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border)',
 };
 const tblTd: React.CSSProperties = {
-    padding: '7px 10px', fontSize: 12, color: '#0f172a',
+    padding: '7px 10px', fontSize: 12, color: 'var(--color-text)',
     verticalAlign: 'middle',
 };

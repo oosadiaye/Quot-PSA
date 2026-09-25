@@ -6,7 +6,6 @@ import LoadingScreen from '../../components/common/LoadingScreen';
 import { ListPageShell, SectionCard } from '../../components/layout';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useContracts } from './hooks/useContracts';
-import { useIPCs } from './hooks/useIPCs';
 import { useVariations } from './hooks/useVariations';
 import { useIsMobile } from '../../design';
 
@@ -28,16 +27,12 @@ const ContractsDashboard = () => {
     const isMobile = useIsMobile();
 
     const { data: contracts, isLoading: loadingContracts } = useContracts({ page_size: 500 });
-    const { data: ipcs, isLoading: loadingIPCs } = useIPCs({
-        status__in: 'SUBMITTED,CERTIFIER_REVIEWED,APPROVED,VOUCHER_RAISED',
-        page_size: 500,
-    });
     const { data: variations, isLoading: loadingVars } = useVariations({
         status__in: 'SUBMITTED,REVIEWED',
         page_size: 500,
     });
 
-    if (loadingContracts || loadingIPCs || loadingVars) {
+    if (loadingContracts || loadingVars) {
         return <LoadingScreen message="Loading contract metrics..." />;
     }
 
@@ -59,11 +54,11 @@ const ContractsDashboard = () => {
             desc: 'Currently executing',
         },
         {
-            name: 'Pending IPCs',
-            value: ipcs?.count ?? 0,
+            name: 'Pending Write-ups',
+            value: variations?.count ?? 0,
             icon: AlertTriangle,
             accent: '#f59e0b',
-            desc: 'Awaiting workflow action',
+            desc: 'Awaiting review or approval',
         },
         {
             name: 'Ceiling Utilization',
@@ -94,10 +89,9 @@ const ContractsDashboard = () => {
             ],
         },
         {
-            title: 'Payments & Write-ups',
-            description: 'Certify milestone payments and approve upward contract revaluations.',
+            title: 'Write-ups',
+            description: 'Approve upward contract-amount revaluations by tier.',
             links: [
-                { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale, desc: 'IPC workflow queue' },
                 { name: 'Write-ups', path: '/contracts/variations', icon: TrendingUp, desc: 'Upward contract revaluation by tier' },
             ],
         },
@@ -107,7 +101,7 @@ const ContractsDashboard = () => {
         <ListPageShell>
             <PageHeader
                 title="Contracts & Milestone Payments"
-                subtitle="Ceiling-safe IPC workflow with tiered write-up approval"
+                subtitle="Ceiling-safe milestone certification with tiered write-up approval"
                 icon={<FileText size={22} style={{ color: 'rgba(255,255,255,0.85)' }} />}
                 backButton={false}
             />
@@ -187,7 +181,7 @@ const ContractsDashboard = () => {
                                 style={{
                                     fontSize: 26,
                                     fontWeight: 800,
-                                    color: '#0b1320',
+                                    color: 'var(--color-text)',
                                     fontVariantNumeric: 'tabular-nums',
                                     lineHeight: 1.15,
                                 }}
@@ -268,7 +262,7 @@ const ContractsDashboard = () => {
                                         <div
                                             style={{
                                                 fontWeight: 600,
-                                                color: '#0b1320',
+                                                color: 'var(--color-text)',
                                                 fontSize: 14,
                                             }}
                                         >

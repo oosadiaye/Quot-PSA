@@ -28,9 +28,9 @@ import '../styles/glassmorphism.css';
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', border: '2.5px solid #d1d5db',
+    width: '100%', padding: '8px 12px', border: '2.5px solid var(--color-border)',
     borderRadius: '8px', fontSize: '14px', outline: 'none',
-    background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box',
+    background: 'var(--color-surface-hover)', color: 'var(--color-text)', boxSizing: 'border-box',
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
@@ -99,6 +99,20 @@ interface PaymentRow {
     // once the disbursement journal posts. Drives the View Journal
     // button visibility (only Posted rows with a journal can be viewed).
     journal_entry?: number | null;
+    // PV-carried deduction breakdown (read-only from PaymentSerializer).
+    // ``total_amount`` is the NET cash out; pv_gross_amount − Σ deductions = net.
+    // Empty/absent for a plain direct settlement with no PV.
+    payment_voucher_number?: string;
+    pv_gross_amount?: string | null;
+    pv_net_amount?: string | null;
+    pv_deductions?: {
+        deduction_type: string;
+        description?: string;
+        rate?: string | null;
+        amount: string;
+        gl_account_code?: string | null;
+        gl_account_name?: string | null;
+    }[];
 }
 // Axios error shape after the API client transforms backend DRF
 // responses. ``response.data`` carries either ``error`` (custom action
@@ -185,12 +199,12 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="confirm-modal-title"
-                style={{ background: '#fff', borderRadius: '14px', padding: '28px 32px', width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+                style={{ background: 'var(--color-surface)', borderRadius: '14px', padding: '28px 32px', width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
             >
-                <h3 id="confirm-modal-title" style={{ margin: '0 0 8px', fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>{title}</h3>
-                <p style={{ margin: '0 0 24px', fontSize: '14px', color: '#64748b' }}>{message}</p>
+                <h3 id="confirm-modal-title" style={{ margin: '0 0 8px', fontSize: '17px', fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+                <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--color-text-muted)' }}>{message}</p>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button onClick={onCancel} style={{ padding: '8px 18px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>Cancel</button>
+                    <button onClick={onCancel} style={{ padding: '8px 18px', border: '1.5px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px', color: 'var(--color-text)' }}>Cancel</button>
                     <button onClick={onConfirm} style={{ padding: '8px 18px', border: 'none', borderRadius: '8px', background: confirmColor, color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>{confirmLabel}</button>
                 </div>
             </div>
@@ -206,7 +220,7 @@ function PaymentFormModal({
     paymentVouchers = [],
     pvRequired = false,
     initialValues,
-    footerSlot = null,
+    proposedPaymentId = null,
     onSubmit,
     onClose,
     isLoading,
@@ -224,12 +238,11 @@ function PaymentFormModal({
      */
     initialValues?: Partial<typeof BLANK_PAYMENT>;
     /**
-     * Optional slot rendered just above the modal's submit/confirm
-     * buttons. Used by the edit-and-post (review-before-post) flow to
-     * surface the proposed journal entries so the operator sees what
-     * will hit the GL before committing.
+     * When set (edit-and-post flow), renders the Simulate journal-entries
+     * preview above the submit buttons, wired to the bank account currently
+     * selected in this form so the operator validates the cash GL.
      */
-    footerSlot?: React.ReactNode;
+    proposedPaymentId?: number | null;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     // ``useState({...})`` evaluates the initial state ONCE on mount, so
@@ -439,15 +452,15 @@ function PaymentFormModal({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="payment-modal-title"
-                style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 'min(940px, 94vw)', boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}
+                style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '32px', width: 'min(940px, 94vw)', boxShadow: '0 24px 80px rgba(0,0,0,0.22)', maxHeight: '90vh', overflowY: 'auto' }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Banknote size={20} color="#fff" />
                     </div>
                     <div>
-                        <h3 id="payment-modal-title" style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>New Outgoing Payment</h3>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+                        <h3 id="payment-modal-title" style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: 'var(--color-text)' }}>New Outgoing Payment</h3>
+                        <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-text-muted)' }}>
                             {pvRequired
                                 ? 'Select a Payment Voucher — PV is required by Accounting Settings'
                                 : 'Pick a vendor or a Payment Voucher (either works — selecting one auto-fills the other)'}
@@ -467,7 +480,7 @@ function PaymentFormModal({
                         {/* Vendor + PV in one horizontal row. Either path fills the other. */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>
                                     Vendor {!pvRequired && <span style={{ color: '#ef4444' }}>*</span>}
                                 </label>
                                 <select
@@ -481,9 +494,9 @@ function PaymentFormModal({
                                 </select>
                             </div>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>
                                     Payment Voucher {pvRequired && <span style={{ color: '#ef4444' }}>*</span>}
-                                    {!pvRequired && <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: '11px' }}> (optional)</span>}
+                                    {!pvRequired && <span style={{ fontWeight: 400, color: 'var(--color-text-subtle)', fontSize: '11px' }}> (optional)</span>}
                                 </label>
                                 <select
                                     style={sel}
@@ -513,23 +526,23 @@ function PaymentFormModal({
                         )}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Payment Date *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Payment Date *</label>
                                 <input style={inp} type="date" value={form.payment_date} onChange={e => set('payment_date', e.target.value)} required />
                             </div>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Amount *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Amount *</label>
                                 <AmountInput style={inp} placeholder="0.00" value={form.total_amount} onChange={v => set('total_amount', v)} required />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Method *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Method *</label>
                                 <select style={sel} value={form.payment_method} onChange={e => set('payment_method', e.target.value)}>
                                     {['Wire', 'Cheque', 'Cash', 'Bank Transfer', 'EFT'].map(m => <option key={m}>{m}</option>)}
                                 </select>
                             </div>
                             <div>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Bank Account</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Bank Account</label>
                                 <select style={sel} value={form.bank_account} onChange={e => set('bank_account', e.target.value)}>
                                     <option value="">— none —</option>
                                     {bankAccounts?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -537,11 +550,11 @@ function PaymentFormModal({
                             </div>
                         </div>
                         <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Reference Number</label>
+                            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Reference Number</label>
                             <input style={inp} type="text" placeholder="CHQ-001 / TRF-REF…" value={form.reference_number} onChange={e => set('reference_number', e.target.value)} />
                         </div>
                         <div>
-                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Allocate to Invoice (optional)</label>
+                            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>Allocate to Invoice (optional)</label>
                             <select style={sel} value={form.invoice} onChange={e => set('invoice', e.target.value)} disabled={!form.vendor}>
                                 <option value="">— no allocation —</option>
                                 {selectedVendorInvoices.map((inv) => (
@@ -567,24 +580,24 @@ function PaymentFormModal({
                                     which has no outstanding balance — allocate manually if this is intended.
                                 </p>
                             ) : !form.vendor ? (
-                                <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>Select a vendor to see their open invoices.</p>
+                                <p style={{ fontSize: '11px', color: 'var(--color-text-subtle)', margin: '4px 0 0' }}>Select a vendor to see their open invoices.</p>
                             ) : selectedVendorInvoices.length === 0 ? (
-                                <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>No open (unallocated) invoices for this supplier.</p>
+                                <p style={{ fontSize: '11px', color: 'var(--color-text-subtle)', margin: '4px 0 0' }}>No open (unallocated) invoices for this supplier.</p>
                             ) : (
-                                <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 0' }}>
+                                <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
                                     <strong>{selectedVendorInvoices.length}</strong> open invoice{selectedVendorInvoices.length === 1 ? '' : 's'} ·
                                     total outstanding <strong>{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                 </p>
                             )}
                         </div>
                     </div>
-                    {footerSlot && (
+                    {proposedPaymentId != null && (
                         <div style={{ marginTop: '20px' }}>
-                            {footerSlot}
+                            <ProposedEntries paymentId={proposedPaymentId} bankAccount={form.bank_account} />
                         </div>
                     )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                        <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                         <button type="submit" disabled={isLoading} style={{ padding: '9px 20px', border: 'none', borderRadius: '8px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
                             {isLoading ? 'Saving…' : 'Save Payment'}
                         </button>
@@ -606,13 +619,13 @@ interface SummaryCardProps {
 function SummaryCard({ label, value, sub, accent }: SummaryCardProps) {
     return (
         <div style={{
-            background: '#fff', borderRadius: '14px', padding: '20px 22px',
-            border: '1px solid #f1f5f9', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            background: 'var(--color-surface)', borderRadius: '14px', padding: '20px 22px',
+            border: '1px solid var(--color-border-light)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
             borderLeft: `4px solid ${accent}`,
         }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>{label}</div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#1e293b', letterSpacing: '-0.5px' }}>{value}</div>
-            {sub && <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{sub}</div>}
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>{label}</div>
+            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.5px' }}>{value}</div>
+            {sub && <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{sub}</div>}
         </div>
     );
 }
@@ -632,21 +645,31 @@ interface ProposedEntryLine {
 }
 interface ProposedEntriesResponse {
     posted: boolean;
+    needs_bank_account?: boolean;
     entries: ProposedEntryLine[];
     total_debit: string;
     total_credit: string;
     balanced: boolean;
 }
 
-function ProposedEntries({ paymentId }: { paymentId: number }) {
+// SAP-style "Simulate" preview: no journal is shown until the operator clicks
+// Simulate, and the cash line resolves from the bank account currently selected
+// in the form (not a hardcoded default) — so the operator validates that
+// posting will hit the intended GL. Changing the bank account clears the sim.
+function ProposedEntries({ paymentId, bankAccount }: { paymentId: number; bankAccount: string }) {
     const { formatCurrency } = useCurrency();
-    const { data, isLoading, error } = useQuery<ProposedEntriesResponse>({
-        queryKey: ['payment-proposed-entries', paymentId],
+    const [simulated, setSimulated] = useState(false);
+    // A new bank-account selection invalidates the last simulation.
+    useEffect(() => { setSimulated(false); }, [bankAccount]);
+
+    const { data, isLoading, error, refetch, isFetching } = useQuery<ProposedEntriesResponse>({
+        queryKey: ['payment-proposed-entries', paymentId, bankAccount],
         queryFn: async () => {
-            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`);
+            const params = bankAccount ? { bank_account: bankAccount } : {};
+            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`, { params });
             return data;
         },
-        enabled: !!paymentId,
+        enabled: !!paymentId && simulated,
     });
 
     // A decimal string counts as "present" on a line only when it parses to
@@ -654,36 +677,57 @@ function ProposedEntries({ paymentId }: { paymentId: number }) {
     // line reads as a single DR or CR the way a ledger does.
     const isNonZero = (v: string): boolean => (parseFloat(v) || 0) !== 0;
 
-    const cellStyle: React.CSSProperties = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#334155' };
+    const cellStyle: React.CSSProperties = { padding: '6px 10px', borderBottom: '1px solid var(--color-border-light)', fontSize: 12, color: 'var(--color-text-secondary)' };
     const numCellStyle: React.CSSProperties = { ...cellStyle, textAlign: 'right', fontFamily: 'monospace', whiteSpace: 'nowrap' };
-    const headStyle: React.CSSProperties = { padding: '6px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' };
+    const headStyle: React.CSSProperties = { padding: '6px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--color-border)' };
+    const simBtnStyle: React.CSSProperties = { padding: '5px 14px', fontSize: 12, fontWeight: 700, background: '#191e6a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' };
+
+    const runSimulate = () => { if (!simulated) setSimulated(true); else refetch(); };
 
     return (
-        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
+        <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px', background: 'var(--color-surface-hover)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
-                    {data?.posted ? 'Posted journal entries' : 'Proposed journal entries (will post on confirm)'}
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+                    {data?.posted ? 'Posted journal entries' : 'Simulate journal entries (preview before posting)'}
                 </span>
-                {data && (
-                    data.balanced ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#166534' }}>Balanced ✓</span>
-                    ) : (
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b' }}>Unbalanced</span>
-                    )
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {simulated && data && !data.posted && (
+                        data.balanced ? (
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#166534' }}>Balanced ✓</span>
+                        ) : (
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b' }}>Unbalanced</span>
+                        )
+                    )}
+                    <button type="button" onClick={runSimulate} disabled={isFetching} style={simBtnStyle}>
+                        {isFetching ? 'Simulating…' : (simulated ? 'Re-simulate' : 'Simulate')}
+                    </button>
+                </div>
             </div>
 
-            {isLoading && (
-                <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Loading entries…</div>
-            )}
-            {error && (
-                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
-                    Failed to load proposed entries. {(error as Error)?.message ?? 'Please try again.'}
+            {!simulated && (
+                <div style={{ padding: '10px 12px', color: 'var(--color-text-muted)', fontSize: 12 }}>
+                    Click <strong>Simulate</strong> to preview the journal entries that will post.
+                    The Bank / Cash line uses the GL of the bank account selected above, so you can
+                    confirm the posting hits the right account.
                 </div>
             )}
-            {data && !isLoading && (
+            {simulated && isLoading && (
+                <div style={{ padding: 12, textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: 12 }}>Simulating…</div>
+            )}
+            {simulated && error && (
+                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
+                    Failed to simulate entries. {(error as Error)?.message ?? 'Please try again.'}
+                </div>
+            )}
+            {simulated && data?.needs_bank_account && !isLoading && (
+                <div style={{ marginBottom: 10, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, color: '#92400e', fontSize: 12 }}>
+                    ⚠ No bank account selected — the cash GL is unresolved. Select a bank account above
+                    (required to post) and re-simulate to see the actual GL.
+                </div>
+            )}
+            {simulated && data && !isLoading && (
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 8 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--color-surface)', borderRadius: 8 }}>
                         <thead>
                             <tr>
                                 <th style={headStyle}>Account</th>
@@ -696,7 +740,7 @@ function ProposedEntries({ paymentId }: { paymentId: number }) {
                             {data.entries.map((e, i) => (
                                 <tr key={`${e.account_code}-${i}`}>
                                     <td style={cellStyle}>
-                                        <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{e.account_code}</span> {e.account}
+                                        <span style={{ fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>{e.account_code}</span> {e.account}
                                     </td>
                                     <td style={numCellStyle}>{isNonZero(e.debit) ? formatCurrency(e.debit) : ''}</td>
                                     <td style={numCellStyle}>{isNonZero(e.credit) ? formatCurrency(e.credit) : ''}</td>
@@ -705,10 +749,10 @@ function ProposedEntries({ paymentId }: { paymentId: number }) {
                             ))}
                         </tbody>
                         <tfoot>
-                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                            <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
                                 <td style={{ ...cellStyle, fontWeight: 700 }}>Totals</td>
-                                <td style={{ ...numCellStyle, fontWeight: 800, color: '#1e293b' }}>{formatCurrency(data.total_debit)}</td>
-                                <td style={{ ...numCellStyle, fontWeight: 800, color: '#1e293b' }}>{formatCurrency(data.total_credit)}</td>
+                                <td style={{ ...numCellStyle, fontWeight: 800, color: 'var(--color-text)' }}>{formatCurrency(data.total_debit)}</td>
+                                <td style={{ ...numCellStyle, fontWeight: 800, color: 'var(--color-text)' }}>{formatCurrency(data.total_credit)}</td>
                                 <td style={cellStyle} />
                             </tr>
                         </tfoot>
@@ -973,8 +1017,8 @@ export default function OutgoingPaymentsPage() {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Vendor Payments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Process and post outgoing payments to vendors</p>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Vendor Payments</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>Process and post outgoing payments to vendors</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     <select
@@ -982,8 +1026,8 @@ export default function OutgoingPaymentsPage() {
                         onChange={(e) => setTypeFilter(e.target.value)}
                         aria-label="Filter payments by type"
                         style={{
-                            padding: '8px 12px', border: '1.5px solid #d1d5db', borderRadius: '9px',
-                            background: '#fff', color: '#374151', fontSize: '13px', cursor: 'pointer',
+                            padding: '8px 12px', border: '1.5px solid var(--color-border)', borderRadius: '9px',
+                            background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '13px', cursor: 'pointer',
                         }}>
                         <option value="all">All types</option>
                         {paymentTypes.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -1000,42 +1044,58 @@ export default function OutgoingPaymentsPage() {
             </div>
 
             {loadingPayments ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading payments…</div>
             ) : !workingPayments.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--color-surface-hover)', borderRadius: '12px', border: '2px dashed var(--color-border)' }}>
                     <Banknote size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No payments match this view.</p>
+                    <p style={{ color: 'var(--color-text-subtle)', fontSize: '14px', margin: 0 }}>No payments match this view.</p>
                 </div>
             ) : (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {['Payment #', 'Vendor', 'Type', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Actions'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {workingPayments.map((pay) => (
-                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
+                                <tr key={pay.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: 'var(--color-text)' }}>{pay.payment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{pay.vendor_name || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}>
                                         {pay.is_advance ? (
                                             <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap' }}>
                                                 {pay.advance_type || 'Advance'}
                                             </span>
                                         ) : (
-                                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569' }}>
+                                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: 'var(--color-surface-hover)', color: 'var(--color-text-secondary)' }}>
                                                 Payment
                                             </span>
                                         )}
                                     </td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
-                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{formatDate(pay.payment_date)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>
+                                        {formatCurrency(pay.total_amount)}
+                                        {/* Deduction breakdown carried by the linked PV: gross → each
+                                            deduction → net cash. total_amount is the NET. Shown only when
+                                            the PV has deductions (WHT/VAT/retention/handling…). */}
+                                        {pay.pv_deductions && pay.pv_deductions.length > 0 && (
+                                            <div style={{ marginTop: 3, fontWeight: 500, fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                                                <div>Gross {formatCurrency(pay.pv_gross_amount || pay.total_amount)}</div>
+                                                {pay.pv_deductions.map((d, i) => (
+                                                    <div key={i} style={{ color: '#b45309' }}>
+                                                        − {d.deduction_type}{d.rate ? ` @${d.rate}%` : ''} {formatCurrency(d.amount)}
+                                                    </div>
+                                                ))}
+                                                <div style={{ color: '#dc2626', fontWeight: 700 }}>Net {formatCurrency(pay.total_amount)}</div>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{pay.payment_method}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text-muted)', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
                                     <td style={{ padding: '11px 14px' }}>
                                         <div style={{ display: 'flex', gap: '6px' }}>
@@ -1143,36 +1203,52 @@ export default function OutgoingPaymentsPage() {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Posted Payments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Payments already posted to the general ledger. Open a row to view its journal entry. Cheques are issued from the Cheque Register.</p>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Posted Payments</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>Payments already posted to the general ledger. Open a row to view its journal entry. Cheques are issued from the Cheque Register.</p>
                 </div>
             </div>
             {loadingPayments ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading payments…</div>
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading payments…</div>
             ) : !postedPayments.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--color-surface-hover)', borderRadius: '12px', border: '2px dashed var(--color-border)' }}>
                     <CheckCircle2 size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No posted payments yet.</p>
+                    <p style={{ color: 'var(--color-text-subtle)', fontSize: '14px', margin: 0 }}>No posted payments yet.</p>
                 </div>
             ) : (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {['Payment #', 'Vendor', 'Date', 'Amount', 'Method', 'Reference', 'Status', 'Journal'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {postedPayments.map((pay) => (
-                                <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b' }}>{pay.payment_number}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.vendor_name || '—'}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{formatDate(pay.payment_date)}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>{formatCurrency(pay.total_amount)}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{pay.payment_method}</td>
-                                    <td style={{ padding: '11px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
+                                <tr key={pay.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: 'var(--color-text)' }}>{pay.payment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{pay.vendor_name || '—'}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{formatDate(pay.payment_date)}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 700, color: '#dc2626' }}>
+                                        {formatCurrency(pay.total_amount)}
+                                        {/* Deduction breakdown carried by the linked PV: gross → each
+                                            deduction → net cash. total_amount is the NET. Shown only when
+                                            the PV has deductions (WHT/VAT/retention/handling…). */}
+                                        {pay.pv_deductions && pay.pv_deductions.length > 0 && (
+                                            <div style={{ marginTop: 3, fontWeight: 500, fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                                                <div>Gross {formatCurrency(pay.pv_gross_amount || pay.total_amount)}</div>
+                                                {pay.pv_deductions.map((d, i) => (
+                                                    <div key={i} style={{ color: '#b45309' }}>
+                                                        − {d.deduction_type}{d.rate ? ` @${d.rate}%` : ''} {formatCurrency(d.amount)}
+                                                    </div>
+                                                ))}
+                                                <div style={{ color: '#dc2626', fontWeight: 700 }}>Net {formatCurrency(pay.total_amount)}</div>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{pay.payment_method}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text-muted)', fontFamily: 'monospace', fontSize: '12px' }}>{pay.reference_number || '—'}</td>
                                     <td style={{ padding: '11px 14px' }}><StatusBadge status={pay.status} /></td>
                                     <td style={{ padding: '11px 14px' }}>
                                         {pay.journal_entry ? (
@@ -1188,14 +1264,14 @@ export default function OutgoingPaymentsPage() {
                                                 style={{ padding: '5px 10px', border: 'none', borderRadius: '6px', background: '#e0e7ff', color: '#3730a3', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
                                                 <Eye size={12} /> View JV
                                             </button>
-                                        ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                        ) : <span style={{ color: 'var(--color-text-subtle)' }}>—</span>}
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                         <tfoot>
-                            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: '#334155', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
+                            <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
+                                <td colSpan={3} style={{ padding: '11px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', textAlign: 'right' }}>Total posted ({postedPayments.length}):</td>
                                 <td style={{ padding: '11px 14px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(postedTotal)}</td>
                                 <td colSpan={4} />
                             </tr>
@@ -1240,8 +1316,8 @@ export default function OutgoingPaymentsPage() {
             )}
 
             {/* Tabs */}
-            <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 6px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-                <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', border: '1px solid var(--color-border)', boxShadow: '0 1px 6px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
                     {([
                         { key: 'payments', label: 'Payments',         icon: <CreditCard size={14} /> },
                         { key: 'posted',   label: 'Posted Payments',  icon: <CheckCircle2 size={14} /> },
@@ -1278,7 +1354,7 @@ export default function OutgoingPaymentsPage() {
                     // (editingPaymentId set) show the proposed journal entries
                     // so the operator sees what will hit the GL before
                     // confirming. Omitted for the create-new flow (no id yet).
-                    footerSlot={editingPaymentId ? <ProposedEntries paymentId={editingPaymentId} /> : null}
+                    proposedPaymentId={editingPaymentId}
                     onSubmit={handleSubmitPayment}
                     // Clear prefill alongside closing so the next plain
                     // "+ New Payment" click opens a blank form again.
@@ -1409,10 +1485,10 @@ function JournalViewModal({
             <div style={{ ...modalCardStyle, maxWidth: 880 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--color-text)' }}>
                             Accounting Entry
                         </h3>
-                        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                        <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--color-text-muted)' }}>
                             <strong>{sourceLabel}</strong> · {formatCurrency(amount)}
                             {isAdvance && (
                                 <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#ede9fe', color: '#6d28d9' }}>
@@ -1424,14 +1500,14 @@ function JournalViewModal({
                     <button
                         onClick={onClose}
                         aria-label="Close"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4 }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}
                     >
                         <X size={18} />
                     </button>
                 </div>
 
                 {isLoading && (
-                    <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                    <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: 13 }}>
                         Loading journal…
                     </div>
                 )}
@@ -1467,7 +1543,7 @@ function JournalViewModal({
                             </a>
                             <button
                                 onClick={onClose}
-                                style={{ padding: '8px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#475569', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                                style={{ padding: '8px 16px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
                             >
                                 Close
                             </button>
@@ -1615,10 +1691,10 @@ function ClearAdvanceModal({
     return (
         <div style={modalOverlayStyle}>
             <div style={{ ...modalCardStyle, maxWidth: 760 }}>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--color-text)' }}>
                     Clear Advance (F-54)
                 </h3>
-                <p style={{ margin: '6px 0 16px', fontSize: 13, color: '#64748b' }}>
+                <p style={{ margin: '6px 0 16px', fontSize: 13, color: 'var(--color-text-muted)' }}>
                     Allocate advance <strong>{state.paymentNumber}</strong> for <strong>{state.vendorName}</strong> across one or more outstanding invoices.
                     Each allocation posts its own contra journal: <strong>DR Accounts Payable / CR Vendor Advance Recon</strong>.
                 </p>
@@ -1659,8 +1735,8 @@ function ClearAdvanceModal({
                             <div key={r.rowKey} style={{
                                 display: 'grid', gridTemplateColumns: '1fr 180px 36px', gap: 8,
                                 alignItems: 'start',
-                                padding: '8px 10px', background: '#f8fafc',
-                                border: `1px solid ${problem ? '#fecaca' : '#e2e8f0'}`,
+                                padding: '8px 10px', background: 'var(--color-surface-hover)',
+                                border: `1px solid ${problem ? '#fecaca' : 'var(--color-border)'}`,
                                 borderRadius: 8,
                             }}>
                                 <div>
@@ -1669,7 +1745,7 @@ function ClearAdvanceModal({
                                         onChange={(e) => updateRow(r.rowKey, {
                                             invoiceId: e.target.value === '' ? '' : Number(e.target.value),
                                         })}
-                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: 12, background: '#fff' }}
+                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid var(--color-border)', borderRadius: 6, fontSize: 12, background: 'var(--color-surface)' }}
                                     >
                                         <option value="">— Select invoice —</option>
                                         {vendorInvoices.map((opt) => {
@@ -1682,7 +1758,7 @@ function ClearAdvanceModal({
                                         })}
                                     </select>
                                     {inv && (
-                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
                                             Balance after this allocation: <strong>{formatCurrency(balanceLeftAfter)}</strong>
                                         </div>
                                     )}
@@ -1695,7 +1771,7 @@ function ClearAdvanceModal({
                                         placeholder="Amount"
                                         value={r.amount}
                                         onChange={(e) => updateRow(r.rowKey, { amount: e.target.value })}
-                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid #cbd5e1', borderRadius: 6, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}
+                                        style={{ width: '100%', padding: '7px 10px', border: '1.5px solid var(--color-border)', borderRadius: 6, fontSize: 12, textAlign: 'right', fontFamily: 'monospace' }}
                                     />
                                     {problem === 'over-invoice' && (
                                         <div style={{ fontSize: 10, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>
@@ -1709,7 +1785,7 @@ function ClearAdvanceModal({
                                     title={rows.length === 1 ? 'Need at least one allocation' : 'Remove this allocation'}
                                     style={{
                                         padding: '7px 8px', border: 'none', borderRadius: 6,
-                                        background: rows.length === 1 ? '#f1f5f9' : '#fee2e2',
+                                        background: rows.length === 1 ? 'var(--color-surface-hover)' : '#fee2e2',
                                         color: rows.length === 1 ? '#cbd5e1' : '#dc2626',
                                         cursor: rows.length === 1 ? 'not-allowed' : 'pointer',
                                         height: 'fit-content',
@@ -1727,7 +1803,7 @@ function ClearAdvanceModal({
                     disabled={vendorInvoices.length === 0}
                     style={{
                         padding: '7px 14px', border: '1px dashed #94a3b8', borderRadius: 6,
-                        background: '#fff', color: '#475569', cursor: vendorInvoices.length === 0 ? 'not-allowed' : 'pointer',
+                        background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: vendorInvoices.length === 0 ? 'not-allowed' : 'pointer',
                         fontSize: 12, fontWeight: 600, marginBottom: 16,
                         display: 'inline-flex', alignItems: 'center', gap: 6,
                         opacity: vendorInvoices.length === 0 ? 0.5 : 1,
@@ -1740,7 +1816,7 @@ function ClearAdvanceModal({
                     <button
                         onClick={onCancel}
                         disabled={isLoading}
-                        style={{ padding: '9px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#475569', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                        style={{ padding: '9px 16px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
                     >
                         Cancel
                     </button>
@@ -1764,6 +1840,6 @@ const modalOverlayStyle: React.CSSProperties = {
 };
 
 const modalCardStyle: React.CSSProperties = {
-    background: '#fff', borderRadius: 14, padding: '22px 24px',
+    background: 'var(--color-surface)', borderRadius: 14, padding: '22px 24px',
     width: '100%', boxShadow: '0 20px 50px -12px rgba(0,0,0,0.25)',
 };

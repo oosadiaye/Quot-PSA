@@ -48,6 +48,20 @@
     --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Dark mode: re-assert the shared design tokens this file overrides above.
+   The light `:root` block ties index.css's `[data-theme="dark"]` on
+   specificity (both 0,1,0) and, being loaded later in the accounting bundle,
+   wins the tie — leaking light surfaces/text/borders into dark mode. This
+   `:root[data-theme="dark"]` selector (0,2,0) outranks the tie and restores
+   the app-wide dark palette. Values mirror index.css `[data-theme="dark"]`. */
+:root[data-theme="dark"] {
+    --color-surface: #1e293b;
+    --color-border: #334155;
+    --color-text: #f1f5f9;
+    --color-text-muted: #94a3b8;
+    --color-primary: #4d8fdb;
+}
+
 /* ============================================================================
    CARD COMPONENTS — solid backgrounds, no transparency
    ============================================================================ */
@@ -347,4 +361,71 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* ============================================================================
+   DARK MODE — the glass utility classes above hardcode light surfaces/text.
+   Route them through the shared tokens, which resolve to the dark palette
+   under [data-theme="dark"]. The `:root[data-theme="dark"] .x` selectors
+   (specificity 0,3,0) outrank the base class rules (0,1,0). Semantic status
+   badges (.badge-*) keep their tints on purpose.
+   ============================================================================ */
+:root[data-theme="dark"] .glass-card,
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .glass-table,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .gradient-border {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+}
+
+:root[data-theme="dark"] .glass-surface {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border);
+}
+
+:root[data-theme="dark"] .glass-input,
+:root[data-theme="dark"] .glass-button {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border);
+    color: var(--color-text);
+}
+
+:root[data-theme="dark"] .glass-button:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+}
+
+:root[data-theme="dark"] .glass-button:active {
+    background: var(--color-surface);
+}
+
+:root[data-theme="dark"] .glass-card-hover:hover {
+    border-color: var(--color-border);
+}
+
+:root[data-theme="dark"] .glass-table thead {
+    background: var(--color-surface-hover);
+}
+
+:root[data-theme="dark"] .glass-table th {
+    color: var(--color-text-muted);
+    border-bottom-color: var(--color-border);
+}
+
+:root[data-theme="dark"] .glass-table td {
+    color: var(--color-text);
+    border-bottom-color: var(--color-border-light);
+}
+
+:root[data-theme="dark"] .glass-table tbody tr:hover {
+    background: var(--color-surface-hover);
+}
+
+:root[data-theme="dark"] .metric-value {
+    color: var(--color-text);
+}
+
+:root[data-theme="dark"] .metric-label {
+    color: var(--color-text-muted);
 }

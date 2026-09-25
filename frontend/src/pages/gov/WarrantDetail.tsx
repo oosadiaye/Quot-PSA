@@ -25,7 +25,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string }> = {
     PENDING:   { color: '#f59e0b', bg: '#fffbeb' },
     RELEASED:  { color: '#166534', bg: '#dcfce7' },
     SUSPENDED: { color: '#dc2626', bg: '#fef2f2' },
-    EXHAUSTED: { color: '#64748b', bg: '#f1f5f9' },
+    EXHAUSTED: { color: 'var(--color-text-muted)', bg: 'var(--color-surface-hover)' },
     // Added in migration 0016. Visually distinct from EXHAUSTED
     // (terminal-by-spend) — EXPIRED is terminal-by-time.
     EXPIRED:   { color: '#7c2d12', bg: '#fef3c7' },

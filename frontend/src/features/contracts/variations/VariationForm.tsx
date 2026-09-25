@@ -2,7 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Form, InputNumber, Input, Button, Card, Alert, App as AntApp } from 'antd';
 import { useState } from 'react';
 import PageHeader from '../../../components/PageHeader';
-import { useContract } from '../hooks/useContracts';
+import { useContract, useContractAppropriation } from '../hooks/useContracts';
 import { useCreateVariation } from '../hooks/useVariations';
 import { formatServiceError } from '../utils/errors';
 import { useCurrency } from '../../../context/CurrencyContext';
@@ -34,11 +34,21 @@ const VariationForm = () => {
   const [delta, setDelta] = useState<number>(0);
 
   const { data: contract } = useContract(Number(contractId));
+  const { data: appropriation } = useContractAppropriation(Number(contractId));
   const createMut = useCreateVariation();
 
   const ceiling = Number(contract?.contract_ceiling || 0);
-  const existingCumulative = Number(contract?.cumulative_variation_amount || 0);
+  // ``approved_variations_total`` is what the serializer exposes (the old
+  // ``cumulative_variation_amount`` was never served → always 0).
+  const existingCumulative = Number(contract?.approved_variations_total || 0);
   const tier = computeProjectedTier(ceiling, existingCumulative, delta);
+
+  // Budget cap — a write-up may not exceed the appropriation's available
+  // balance. ``resolved: false`` means no appropriation matched, so the cap is
+  // advisory only (the backend also won't block).
+  const budgetResolved = appropriation?.resolved === true;
+  const available = budgetResolved ? Number(appropriation?.available_balance || 0) : null;
+  const overBudget = available != null && delta > available;
 
   const tierCopy = {
     LOCAL: 'Local-level sign-off (≤15% cumulative).',
@@ -81,25 +91,49 @@ const VariationForm = () => {
               {formatCurrency(existingCumulative)}
             </div>
           )}
+          {budgetResolved && available != null && (
+            <Alert
+              type={overBudget ? 'error' : 'info'}
+              showIcon
+              message={
+                overBudget
+                  ? `Exceeds budget by ${formatCurrency(delta - available)}`
+                  : `Budget available for write-up: ${formatCurrency(available)}`
+              }
+              description={
+                overBudget
+                  ? `A write-up may not exceed the appropriation's available balance of ${formatCurrency(available)}. Reduce the amount or raise a supplementary budget first.`
+                  : "The write-up cannot exceed the contract appropriation's available balance."
+              }
+              style={{ marginBottom: '1rem' }}
+            />
+          )}
           <Form form={form} layout="vertical" onFinish={onFinish}>
             <Form.Item
               label="Write-up Amount"
-              name="delta_amount"
+              name="amount"
               rules={[
                 { required: true, message: 'Amount required' },
                 {
-                  // Write-ups are upward revaluations only — server-side
-                  // validation in ContractVariation.clean() rejects
-                  // amount<=0 with a clear error, but the client guard
-                  // gives faster feedback.
-                  validator: (_, v) =>
-                    v == null || Number(v) > 0
-                      ? Promise.resolve()
-                      : Promise.reject(
-                          new Error(
-                            'Write-up amount must be greater than zero — downward revaluations are not handled here.',
-                          ),
+                  // Write-ups are upward revaluations only, and may not exceed
+                  // the appropriation's available balance. The backend enforces
+                  // both; these client guards give faster feedback.
+                  validator: (_, v) => {
+                    if (v == null) return Promise.resolve();
+                    if (Number(v) <= 0)
+                      return Promise.reject(
+                        new Error(
+                          'Write-up amount must be greater than zero — downward revaluations are not handled here.',
                         ),
+                      );
+                    if (available != null && Number(v) > available)
+                      return Promise.reject(
+                        new Error(
+                          `Exceeds the appropriation's available balance of ${formatCurrency(available)}.`,
+                        ),
+                      );
+                    return Promise.resolve();
+                  },
                 },
               ]}
               extra="Increase to the contract amount. Must be greater than zero — write-ups revalue the contract upward only."
@@ -123,7 +157,13 @@ const VariationForm = () => {
             </Form.Item>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <Button onClick={() => navigate(-1)}>Cancel</Button>
-              <Button type="primary" htmlType="submit" loading={createMut.isPending}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={createMut.isPending}
+                disabled={overBudget}
+                title={overBudget ? 'Reduce the amount to within the available budget' : undefined}
+              >
                 Submit Write-up
               </Button>
             </div>

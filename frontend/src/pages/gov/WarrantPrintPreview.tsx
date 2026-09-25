@@ -99,7 +99,7 @@ export default function WarrantPrintPreview() {
 
     if (warrantLoading || settingsLoading || !warrant || !settings) {
         return (
-            <div style={{ padding: 60, textAlign: 'center', color: '#64748b' }}>
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                 Loading…
             </div>
         );
@@ -204,7 +204,7 @@ export default function WarrantPrintPreview() {
             <div className="print-page" style={{
                 maxWidth: 794,
                 margin: '24px auto',
-                background: 'white',
+                background: 'var(--color-surface)',
                 boxShadow: '0 8px 32px rgba(15, 23, 42, 0.12)',
             }}>
                 <WarrantPrintLayout

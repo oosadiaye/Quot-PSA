@@ -108,7 +108,7 @@ export function ResponsiveTable<Row>({
                                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                         fontSize: i === 0 ? 15 : 13,
                                         fontWeight: i === 0 ? 700 : 500,
-                                        color: i === 0 ? '#0b1320' : '#475569',
+                                        color: i === 0 ? 'var(--color-text)' : '#475569',
                                     }}>
                                         <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
                                             {col.header}
@@ -147,7 +147,7 @@ export function ResponsiveTable<Row>({
                                                     <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
                                                         {col.header}
                                                     </span>
-                                                    <span style={{ textAlign: 'right', color: '#0b1320', fontWeight: 500 }}>
+                                                    <span style={{ textAlign: 'right', color: 'var(--color-text)', fontWeight: 500 }}>
                                                         {cellValue(row, col)}
                                                     </span>
                                                 </div>
@@ -211,7 +211,7 @@ export function ResponsiveTable<Row>({
                                     style={{
                                         padding: '12px 12px',
                                         textAlign: col.align || 'left',
-                                        color: '#0b1320',
+                                        color: 'var(--color-text)',
                                         verticalAlign: 'middle',
                                     }}
                                 >

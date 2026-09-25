@@ -27,9 +27,9 @@ const fmtNGN = (v: number | string) => {
 };
 
 const GOV = { green: '#008751', blue: '#1e4d8c' };
-const card: React.CSSProperties = { background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px' };
-const fieldLabel: React.CSSProperties = { fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' };
-const fieldValue: React.CSSProperties = { fontSize: '14px', fontWeight: 500, color: '#1e293b' };
+const card: React.CSSProperties = { background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px' };
+const fieldLabel: React.CSSProperties = { fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)', textTransform: 'uppercase', marginBottom: '4px' };
+const fieldValue: React.CSSProperties = { fontSize: '14px', fontWeight: 500, color: 'var(--color-text)' };
 
 export default function RevenueCollectionDetail() {
     const { id } = useParams();
@@ -67,24 +67,24 @@ export default function RevenueCollectionDetail() {
         window.open(`/api/v1/accounting/print/revenue-receipt/${id}/`, '_blank');
     };
 
-    if (isLoading) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#94a3b8' }}>Loading...</main></div>;
-    if (error || !col) return <div style={{ background: '#f1f5f9', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#dc2626' }}>Revenue Collection not found.</main></div>;
+    if (isLoading) return <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: 'var(--color-text-subtle)' }}>Loading...</main></div>;
+    if (error || !col) return <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}><Sidebar /><main style={{ marginLeft: '260px', padding: '32px', color: '#dc2626' }}>Revenue Collection not found.</main></div>;
 
     const statusColor = ({ PENDING: '#d97706', CONFIRMED: '#2563eb', POSTED: '#16a34a', REVERSED: '#64748b', CANCELLED: '#dc2626' } as Record<string, string>)[col.status] || '#64748b';
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ maxWidth: '900px' }}>
                     {/* Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <button onClick={() => navigate(-1)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px', color: '#64748b' }}>
+                            <button onClick={() => navigate(-1)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px', color: 'var(--color-text-muted)' }}>
                                 <ArrowLeft size={16} /> Back
                             </button>
                             <div>
-                                <h1 style={{ fontSize: '22px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Receipt {col.receipt_number}</h1>
+                                <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Receipt {col.receipt_number}</h1>
                                 <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, background: `${statusColor}14`, color: statusColor, marginTop: '4px' }}>{col.status}</span>
                             </div>
                         </div>
@@ -99,7 +99,7 @@ export default function RevenueCollectionDetail() {
                                     <BookOpen size={16} /> Post to GL
                                 </button>
                             )}
-                            <button onClick={openPrint} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+                            <button onClick={openPrint} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
                                 <Printer size={16} /> Print Receipt
                             </button>
                         </div>
@@ -119,7 +119,7 @@ export default function RevenueCollectionDetail() {
 
                     {/* Revenue Details */}
                     <div style={card}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Revenue Details</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>Revenue Details</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                             <div><div style={fieldLabel}>Revenue Head</div><div style={fieldValue}>{col.revenue_head_name}</div></div>
                             <div><div style={fieldLabel}>Collection Date</div><div style={fieldValue}>{col.collection_date}</div></div>
@@ -133,7 +133,7 @@ export default function RevenueCollectionDetail() {
 
                     {/* Payer */}
                     <div style={card}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Payer Details</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>Payer Details</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                             <div><div style={fieldLabel}>Name</div><div style={fieldValue}>{col.payer_name}</div></div>
                             <div><div style={fieldLabel}>TIN</div><div style={fieldValue}>{col.payer_tin || '---'}</div></div>
@@ -143,9 +143,9 @@ export default function RevenueCollectionDetail() {
 
                     {/* NCoA */}
                     {col.ncoa_full_code && (
-                        <div style={{ ...card, background: '#f8fafc' }}>
-                            <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>NCoA Classification</div>
-                            <div style={{ fontFamily: 'monospace', fontSize: '13px', color: GOV.blue, fontWeight: 600, background: '#fff', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', wordBreak: 'break-all' }}>
+                        <div style={{ ...card, background: 'var(--color-surface-hover)' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '12px' }}>NCoA Classification</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: '13px', color: GOV.blue, fontWeight: 600, background: 'var(--color-surface)', padding: '10px', borderRadius: '6px', border: '1px solid var(--color-border)', wordBreak: 'break-all' }}>
                                 {col.ncoa_full_code}
                             </div>
                         </div>
@@ -162,7 +162,7 @@ export default function RevenueCollectionDetail() {
                     {col.status === 'POSTED' && col.journal && (
                         <div style={card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text)' }}>
                                     Posted Journal Entry
                                 </div>
                                 <button
@@ -170,7 +170,7 @@ export default function RevenueCollectionDetail() {
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px',
                                         padding: '6px 12px', borderRadius: '6px',
-                                        border: '1px solid #e2e8f0', background: '#fff',
+                                        border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                         color: GOV.blue, fontSize: '12px', fontWeight: 600,
                                         cursor: 'pointer',
                                     }}
@@ -181,7 +181,7 @@ export default function RevenueCollectionDetail() {
                             </div>
 
                             {journalLoading && (
-                                <div style={{ color: '#94a3b8', fontSize: '13px' }}>
+                                <div style={{ color: 'var(--color-text-subtle)', fontSize: '13px' }}>
                                     Loading journal lines...
                                 </div>
                             )}

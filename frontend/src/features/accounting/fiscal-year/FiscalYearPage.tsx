@@ -319,7 +319,7 @@ export default function FiscalYearPage() {
                                 <label style={lbl}>Year <span style={{ color: '#ef4444' }}>*</span></label>
                                 <input
                                     type="number"
-                                    style={{ ...inp, background: '#f1f5f9', fontWeight: 700 }}
+                                    style={{ ...inp, background: 'var(--color-surface-hover)', fontWeight: 700 }}
                                     value={createData.year}
                                     readOnly
                                     title={`Next available year (auto-calculated). ${!canCreate ? `Close ${mustCloseYear} first.` : ''}`}
@@ -385,25 +385,25 @@ export default function FiscalYearPage() {
                                         <div key={p.period_number} style={{
                                             padding: '10px 14px',
                                             background: QUARTER_COLORS[p.period_number],
-                                            borderRight: (idx % 4 !== 3) ? '1px solid #e2e8f0' : 'none',
-                                            borderBottom: idx < 8 ? '1px solid #e2e8f0' : 'none',
+                                            borderRight: (idx % 4 !== 3) ? '1px solid var(--color-border)' : 'none',
+                                            borderBottom: idx < 8 ? '1px solid var(--color-border)' : 'none',
                                             position: 'relative',
                                         }}>
                                             {/* Quarter label on first of each quarter */}
                                             {QUARTER_LABELS[p.period_number] && (
                                                 <span style={{
                                                     position: 'absolute', top: '6px', right: '8px',
-                                                    fontSize: '9px', fontWeight: 800, color: '#94a3b8',
+                                                    fontSize: '9px', fontWeight: 800, color: 'var(--color-text-subtle)',
                                                     textTransform: 'uppercase', letterSpacing: '0.05em',
                                                 }}>
                                                     {QUARTER_LABELS[p.period_number]}
                                                 </span>
                                             )}
                                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '3px' }}>
-                                                <span style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', minWidth: '18px' }}>P{p.period_number}</span>
-                                                <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b' }}>{p.name}</span>
+                                                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-text-muted)', minWidth: '18px' }}>P{p.period_number}</span>
+                                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text)' }}>{p.name}</span>
                                             </div>
-                                            <div style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace' }}>
+                                            <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
                                                 {formatDate(p.start_date)} → {formatDate(p.end_date)}
                                             </div>
                                         </div>
@@ -411,7 +411,7 @@ export default function FiscalYearPage() {
                                 </div>
 
                                 {/* Footer note */}
-                                <div style={{ padding: '7px 14px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '10px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ padding: '7px 14px', background: 'var(--color-surface-hover)', borderTop: '1px solid var(--color-border)', fontSize: '10px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <Check size={11} color="#16a34a" />
                                     Creating this fiscal year will also auto-generate 12 budget periods (Jan–Dec {createData.year}) for use in Budget Management.
                                 </div>
@@ -570,7 +570,7 @@ export default function FiscalYearPage() {
                                                                     : `${period.period_type} ${period.period_number}`;
                                                                 return (
                                                                     <tr key={period.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{period.period_number}</td>
+                                                                        <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>{period.period_number}</td>
                                                                         <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px', fontWeight: 600 }}>{monthName}</td>
                                                                         <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{formatDate(period.start_date)}</td>
                                                                         <td style={{ padding: '0.4rem 0.5rem', fontSize: '12px' }}>{formatDate(period.end_date)}</td>

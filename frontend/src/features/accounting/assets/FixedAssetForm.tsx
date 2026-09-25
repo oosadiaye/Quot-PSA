@@ -222,7 +222,7 @@ export default function FixedAssetForm() {
     };
 
     return (
-        <div style={{ background: '#f5f7fb', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-background)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <form onSubmit={handleSubmit}>
@@ -385,7 +385,7 @@ export default function FixedAssetForm() {
                                 const selectedCat = assetCategories.find(
                                     (c) => (c.code || c.name) === form.asset_category
                                 );
-                                const dmColor = selectedCat ? '#1e40af' : '#94a3b8';
+                                const dmColor = selectedCat ? '#1e40af' : 'var(--color-text-subtle)';
                                 const bg = selectedCat ? 'rgba(59,130,246,0.06)' : 'rgba(148,163,184,0.1)';
                                 const border = selectedCat ? 'rgba(59,130,246,0.25)' : 'rgba(148,163,184,0.25)';
                                 const residualDisplay = selectedCat
@@ -414,29 +414,29 @@ export default function FixedAssetForm() {
                                             gap: 12,
                                         }}>
                                             <div>
-                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>METHOD</div>
-                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600 }}>METHOD</div>
+                                                <div style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
                                                     {selectedCat?.depreciation_method || '—'}
                                                 </div>
                                             </div>
                                             <div>
-                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>USEFUL LIFE</div>
-                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600 }}>USEFUL LIFE</div>
+                                                <div style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
                                                     {selectedCat?.default_life_years
                                                         ? `${selectedCat.default_life_years} year${selectedCat.default_life_years === 1 ? '' : 's'}`
                                                         : '—'}
                                                 </div>
                                             </div>
                                             <div>
-                                                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>RESIDUAL</div>
-                                                <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                                <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600 }}>RESIDUAL</div>
+                                                <div style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
                                                     {residualDisplay}
                                                 </div>
                                             </div>
                                         </div>
                                         {!selectedCat && (
                                             <div style={{
-                                                marginTop: 8, fontSize: 11, color: '#94a3b8',
+                                                marginTop: 8, fontSize: 11, color: 'var(--color-text-subtle)',
                                             }}>
                                                 Select a category above to see the depreciation policy
                                                 that will be applied on posting.
@@ -444,7 +444,7 @@ export default function FixedAssetForm() {
                                         )}
                                         {selectedCat && (
                                             <div style={{
-                                                marginTop: 8, fontSize: 11, color: '#64748b',
+                                                marginTop: 8, fontSize: 11, color: 'var(--color-text-muted)',
                                             }}>
                                                 These values are inherited when the asset saves. To
                                                 change them for this category, edit the Asset Category
@@ -547,7 +547,7 @@ export default function FixedAssetForm() {
                     <div className="card" style={{ marginBottom: '1.5rem' }}>
                         <h3 style={{ marginBottom: '1.5rem' }}>
                             GL Account Display
-                            <span style={{ fontSize: 12, fontWeight: 500, color: '#64748b' }}>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-muted)' }}>
                                 {' '}(inherited from the selected Asset Category)
                             </span>
                         </h3>
@@ -592,12 +592,12 @@ export default function FixedAssetForm() {
                                 <div style={{
                                     padding: '12px 14px',
                                     borderRadius: 8,
-                                    background: acc ? '#f8fafc' : 'rgba(148,163,184,0.08)',
+                                    background: acc ? 'var(--color-surface-hover)' : 'rgba(148,163,184,0.08)',
                                     border: '1px solid var(--color-border, #e2e8f0)',
                                 }}>
                                     <div style={{
                                         fontSize: 10, fontWeight: 700,
-                                        color: '#64748b', textTransform: 'uppercase',
+                                        color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                         letterSpacing: '0.04em', marginBottom: 4,
                                     }}>
                                         {title}
@@ -610,13 +610,13 @@ export default function FixedAssetForm() {
                                             }}>
                                                 {acc.code}
                                             </div>
-                                            <div style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-text)', marginTop: 2 }}>
                                                 {acc.name}
                                             </div>
                                         </>
                                     ) : (
                                         <div style={{
-                                            fontSize: 12, color: '#94a3b8', fontStyle: 'italic',
+                                            fontSize: 12, color: 'var(--color-text-subtle)', fontStyle: 'italic',
                                         }}>
                                             {selectedCat
                                                 ? 'Not configured on this category'
@@ -634,7 +634,7 @@ export default function FixedAssetForm() {
                                         <DisplayCard title="Depreciation Expense" acc={depExpAcc} />
                                     </div>
                                     <div style={{
-                                        marginTop: 10, fontSize: 11, color: '#64748b',
+                                        marginTop: 10, fontSize: 11, color: 'var(--color-text-muted)',
                                     }}>
                                         {selectedCat ? (
                                             <>

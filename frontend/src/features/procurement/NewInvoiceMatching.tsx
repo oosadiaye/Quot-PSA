@@ -1543,7 +1543,7 @@ export default function NewInvoiceMatching() {
                                                     />
                                                     Exempt this transaction from Withholding Tax
                                                     {poDetail?.vendor_wht_exempt && (
-                                                        <span style={{ fontWeight: 500, color: '#64748b', textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: '0.05em' }}>
+                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: '0.05em' }}>
                                                             (vendor is exempt)
                                                         </span>
                                                     )}

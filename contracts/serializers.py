@@ -26,6 +26,7 @@ from contracts.models import (
     InterimPaymentCertificate,
     MeasurementBook,
     MilestoneSchedule,
+    MilestoneInvoiceLine,
     MobilizationPayment,
     RetentionRelease,
 )
@@ -43,6 +44,13 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
     retention_balance = serializers.DecimalField(
         max_digits=20, decimal_places=2, read_only=True,
     )
+    # Live sum of the contract's OPEN per-invoice retention liens
+    # (VendorInvoice.retention_withheld > 0). This is the operative
+    # "release now" figure for the centralised-AP lien-release path —
+    # distinct from the lump-sum ``retention_held`` reserve seeded at
+    # activation. The detail page gates the Release button and shows the
+    # "withheld" amount from this.
+    retention_withheld_open = serializers.SerializerMethodField()
 
     class Meta:
         model = ContractBalance
@@ -56,6 +64,7 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
             "mobilization_recovered",
             "retention_held",
             "retention_released",
+            "retention_withheld_open",
             "version",
             "updated_at",
             "available_for_certification",
@@ -63,6 +72,23 @@ class ContractBalanceSerializer(serializers.ModelSerializer):
             "retention_balance",
         ]
         read_only_fields = fields
+
+    def get_retention_withheld_open(self, obj) -> str:
+        from decimal import Decimal
+        from django.db.models import Sum
+        from accounting.models import VendorInvoice
+
+        contract = getattr(obj, "contract", None)
+        contract_number = getattr(contract, "contract_number", None)
+        if not contract_number:
+            return "0.00"
+        total = (
+            VendorInvoice.objects
+            .filter(reference=contract_number, retention_withheld__gt=0)
+            .aggregate(s=Sum("retention_withheld"))["s"]
+            or Decimal("0.00")
+        )
+        return str(Decimal(total).quantize(Decimal("0.01")))
 
 
 # ── ContractYearPlan ───────────────────────────────────────────────────
@@ -124,6 +150,44 @@ class ContractYearPlanSerializer(serializers.ModelSerializer):
 
 # ── Milestones ────────────────────────────────────────────────────────
 
+class MilestoneInvoiceLineSerializer(serializers.ModelSerializer):
+    """Budget-appropriation coding line on a milestone (centralised-AP)."""
+    account_code = serializers.CharField(source="account.code", read_only=True)
+    account_name = serializers.CharField(source="account.name", read_only=True)
+    # Appropriation is keyed by its economic (GL) segment — surface that code +
+    # name so the coding-lines editor can label the selected budget line.
+    # Null-safe (appropriation is optional).
+    appropriation_code = serializers.SerializerMethodField()
+    appropriation_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MilestoneInvoiceLine
+        fields = [
+            "id", "milestone", "account", "account_code", "account_name",
+            "appropriation", "appropriation_code", "appropriation_name",
+            "description", "amount",
+        ]
+        read_only_fields = ["id"]
+
+    def get_appropriation_code(self, obj):
+        appr = obj.appropriation
+        return getattr(getattr(appr, "economic", None), "code", None) if appr else None
+
+    def get_appropriation_name(self, obj):
+        appr = obj.appropriation
+        return getattr(getattr(appr, "economic", None), "name", None) if appr else None
+
+
+class MilestoneInvoiceLineWriteSerializer(serializers.ModelSerializer):
+    """Write shape for a milestone coding line nested under a milestone create/
+    update. Excludes ``milestone`` — the parent sets it. ``account`` is required
+    (the DR GL); ``appropriation`` is optional; ``amount`` must be > 0."""
+
+    class Meta:
+        model = MilestoneInvoiceLine
+        fields = ["account", "appropriation", "description", "amount"]
+
+
 class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # ── IPC linkage (read-only) ───────────────────────────────────────
     # ``InterimPaymentCertificate.milestone`` is a OneToOneField with
@@ -140,6 +204,22 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # as the human-readable audit pointer next to the row.
     ipc = serializers.SerializerMethodField()
     ipc_number = serializers.SerializerMethodField()
+    # Budget-appropriation coding lines (centralised-AP). This field is the
+    # read/display shape; WRITES come in as a nested ``lines`` list on the
+    # milestone create/update and are handled in validate()/create()/update()
+    # below (materialised into MilestoneInvoiceLine rows, Σ == scheduled_value).
+    lines = MilestoneInvoiceLineSerializer(many=True, read_only=True)
+    # ── Milestone-as-invoice → payment history (read-only) ────────────
+    # An approved milestone becomes a VendorInvoice (invoice_number =
+    # "{contract_number}/M{milestone_number}"). These surface that invoice
+    # and the POSTED payments that settled it, so the contract detail page
+    # nests payment sub-lines under each milestone. Resolved ONLY from the
+    # ``milestone_invoice_map`` context the detail view builds once (see
+    # ContractViewSet.retrieve); on the list view (no map) they are
+    # null/empty — which keeps the list free of the per-milestone query the
+    # string (non-FK) link would otherwise cost.
+    invoice = serializers.SerializerMethodField()
+    payments = serializers.SerializerMethodField()
 
     class Meta:
         model = MilestoneSchedule
@@ -148,9 +228,77 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "scheduled_value", "percentage_weight",
             "target_date", "actual_completion_date",
             "status", "notes",
-            "ipc", "ipc_number",
+            "ipc", "ipc_number", "lines",
+            "invoice", "payments",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "invoice", "payments"]
+
+    # ── Nested coding-line writes ─────────────────────────────────────
+    # A milestone carries its GL/budget coding at CREATION (adopted from the
+    # contract). ``lines`` above is read-only for output; on write we parse the
+    # raw ``lines`` list from the request, validate each row, enforce
+    # Σ amount == scheduled_value (the milestone value IS the invoice total),
+    # and materialise the MilestoneInvoiceLine rows. Coding is locked once the
+    # milestone is INVOICED. Lines are optional (a milestone can be coded later),
+    # but ``approve`` requires at least one.
+    def _extract_line_data(self):
+        raw = getattr(self, "initial_data", None)
+        if not isinstance(raw, dict) or "lines" not in raw:
+            return None
+        payload = raw.get("lines")
+        if payload is None:
+            return None
+        write = MilestoneInvoiceLineWriteSerializer(data=payload, many=True)
+        write.is_valid(raise_exception=True)
+        return list(write.validated_data)
+
+    def validate(self, attrs):
+        from contracts.models import MilestoneStatus
+        attrs = super().validate(attrs)
+        lines = self._extract_line_data()
+        if lines is not None:
+            if self.instance is not None and self.instance.status == MilestoneStatus.INVOICED:
+                raise serializers.ValidationError(
+                    {"lines": "Coding is locked once the milestone is invoiced."}
+                )
+            if not lines:
+                raise serializers.ValidationError({"lines": "Add at least one coding line."})
+            sched = attrs.get(
+                "scheduled_value", getattr(self.instance, "scheduled_value", None),
+            )
+            total = sum(
+                (Decimal(str(row["amount"])) for row in lines), Decimal("0"),
+            ).quantize(Decimal("0.01"))
+            if sched is not None and total != Decimal(str(sched)).quantize(Decimal("0.01")):
+                raise serializers.ValidationError({
+                    "lines": (
+                        f"Coding lines total ₦{total:,.2f} must equal the "
+                        f"scheduled value ₦{Decimal(str(sched)):,.2f}."
+                    )
+                })
+            self._pending_lines = lines
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        lines = getattr(self, "_pending_lines", None)
+        if lines:
+            self._replace_lines(instance, lines)
+        return instance
+
+    def update(self, instance, validated_data):
+        # The INVOICED lock is enforced in validate() (returns 400 via is_valid).
+        lines = getattr(self, "_pending_lines", None)
+        instance = super().update(instance, validated_data)
+        if lines is not None:
+            self._replace_lines(instance, lines)
+        return instance
+
+    @staticmethod
+    def _replace_lines(milestone, lines):
+        milestone.lines.all().delete()
+        for row in lines:
+            MilestoneInvoiceLine.objects.create(milestone=milestone, **row)
 
     def get_ipc(self, obj):
         # ``hasattr`` returns False for an unset reverse OneToOne in
@@ -162,6 +310,64 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     def get_ipc_number(self, obj):
         ipc = getattr(obj, "ipc", None) if hasattr(obj, "ipc") else None
         return ipc.ipc_number if ipc else None
+
+    def _milestone_invoice(self, obj):
+        """The milestone's VendorInvoice, from the prefetched context map
+        (contract detail only). None when the map is absent — the list view
+        never pays a per-milestone query for the string-convention link."""
+        inv_map = self.context.get("milestone_invoice_map")
+        if inv_map is None:
+            return None
+        contract_number = self.context.get("contract_number")
+        if not contract_number:
+            return None
+        return inv_map.get(f"{contract_number}/M{obj.milestone_number}")
+
+    def get_invoice(self, obj):
+        inv = self._milestone_invoice(obj)
+        if inv is None:
+            return None
+        return {
+            "id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "status": inv.status,
+            "total_amount": str(inv.total_amount),
+            "paid_amount": str(inv.paid_amount),
+            "payable_now": str(inv.payable_now),
+            # Posting date of the accrual — drives the contract financials ledger.
+            "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
+            # The accrual journal (DR expense / CR vendor-AP) posted for this
+            # milestone invoice — the contract page's "Acct Doc" link opens it.
+            "journal_entry_id": inv.journal_entry_id,
+        }
+
+    def get_payments(self, obj):
+        """POSTED payments that settled this milestone's invoice, each with
+        the amount actually applied to it (PaymentAllocation.amount)."""
+        from datetime import date as _date
+        inv = self._milestone_invoice(obj)
+        if inv is None:
+            return []
+        rows = []
+        for alloc in inv.payment_allocations.all():
+            pay = alloc.payment
+            if pay is None or getattr(pay, "is_deleted", False):
+                continue
+            if pay.status != "Posted":  # posted (settled) payments only
+                continue
+            rows.append({
+                "payment_id": pay.id,
+                "payment_number": pay.payment_number,
+                "payment_date": pay.payment_date,
+                "amount": str(alloc.amount),
+                "status": pay.status,
+                "is_advance": bool(pay.is_advance),
+                # The disbursement journal (DR AP / CR deductions / CR bank)
+                # posted for this payment — opened via the "Acct Doc" link.
+                "journal_entry_id": pay.journal_entry_id,
+            })
+        rows.sort(key=lambda r: r["payment_date"] or _date.min)
+        return rows
 
 
 # ── Contracts ─────────────────────────────────────────────────────────
@@ -259,6 +465,34 @@ class ContractSerializer(serializers.ModelSerializer):
         source='vendor.tax_code.input_tax_account.code',
         read_only=True, default='',
     )
+    # Vendor tax RATES (percent) — used by the contract-financials line items to
+    # show an estimated WHT/VAT withholding on the contract sum. Null-safe: 0
+    # when the vendor has no code set.
+    withholding_tax_rate = serializers.DecimalField(
+        source='vendor.withholding_tax_code.rate',
+        max_digits=5, decimal_places=2, read_only=True, default=None,
+    )
+    vat_rate = serializers.DecimalField(
+        source='vendor.tax_code.rate',
+        max_digits=8, decimal_places=4, read_only=True, default=None,
+    )
+    # Human-readable label for the contract's default budget appropriation.
+    # The milestone-invoice coding-line editor seeds each new line's
+    # Appropriation picker with the contract default; the picker only holds
+    # the FK id, so without a label the defaulted field looks empty even
+    # though it carries a value. Null when the contract has no appropriation.
+    appropriation_label = serializers.SerializerMethodField()
+
+    def get_appropriation_label(self, obj):
+        appr = getattr(obj, "appropriation", None)
+        if not appr:
+            return None
+        econ = getattr(appr, "economic", None)
+        code = getattr(econ, "code", None) if econ is not None else None
+        name = getattr(econ, "name", None) if econ is not None else None
+        if code and name:
+            return f"{code} — {name}"
+        return code or name or str(appr)
 
     def get_vendor_ap_code(self, obj):
         """Walk vendor → category → reconciliation_account → code.
@@ -300,7 +534,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "duplicate_ack_ids", "duplicate_ack_reason",
             "contract_type", "procurement_method", "status",
             "vendor", "vendor_name", "vendor_code",
-            "mda", "ncoa_code", "appropriation", "fiscal_year",
+            "mda", "ncoa_code", "appropriation", "appropriation_label", "fiscal_year",
             # Per-segment ids (read-only) for form prefill on edit.
             "ncoa_code_economic_id", "ncoa_code_fund_id",
             "ncoa_code_programme_id", "ncoa_code_functional_id",
@@ -309,6 +543,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_economic_code", "ncoa_economic_name",
             "vendor_ap_code", "vendor_ap_name",
             "withholding_account_code", "input_tax_account_code",
+            "withholding_tax_rate", "vat_rate",
             "original_sum", "mobilization_rate", "retention_rate",
             "bpp_no_objection_ref", "due_process_certificate",
             "signed_date", "commencement_date",
@@ -336,6 +571,7 @@ class ContractSerializer(serializers.ModelSerializer):
             "ncoa_economic_code", "ncoa_economic_name",
             "vendor_ap_code", "vendor_ap_name",
             "withholding_account_code", "input_tax_account_code",
+            "withholding_tax_rate", "vat_rate",
         ]
         # ``retention_rate`` is a contract clause that is contractually
         # optional. Many consultancy / supply / service contracts
@@ -421,6 +657,62 @@ class ContractVariationSerializer(serializers.ModelSerializer):
     supporting_reference = serializers.CharField(
         source="bpp_approval_ref", read_only=True
     )
+    # A "write-up" is an ADDITION; the form need only send amount + justification,
+    # so type defaults to ADDITION and description falls back to the justification.
+    variation_type = serializers.ChoiceField(
+        choices=ContractVariation._meta.get_field("variation_type").choices,
+        required=False,
+    )
+    description = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        from decimal import Decimal
+        from contracts.services import VariationService
+        amount = attrs.get("amount")
+        vtype = attrs.get("variation_type") or "ADDITION"
+        contract = attrs.get("contract")
+        # Write-ups (upward revaluations) must be a positive increase and must
+        # not exceed the budget available on the contract's appropriation.
+        if vtype != "OMISSION":
+            if amount is None or Decimal(str(amount)) <= 0:
+                raise serializers.ValidationError(
+                    {"amount": "Write-up amount must be greater than zero."}
+                )
+            if contract is not None:
+                headroom = VariationService.appropriation_headroom(contract)
+                if headroom is not None and Decimal(str(amount)) > headroom:
+                    raise serializers.ValidationError(
+                        {"amount": (
+                            f"Write-up of ₦{Decimal(str(amount)):,.2f} exceeds the "
+                            f"budget available on this contract's appropriation "
+                            f"(₦{headroom:,.2f} remaining). Reduce it or raise a "
+                            f"supplementary budget first."
+                        )}
+                    )
+        return attrs
+
+    def create(self, validated_data):
+        # Route through the service so ``variation_number`` is assigned and the
+        # DRAFT lifecycle/tier are set (the model requires a number, which the
+        # default ModelViewSet.create would not provide).
+        from contracts.services import VariationService
+        actor = validated_data.pop("created_by", None)
+        validated_data.pop("updated_by", None)
+        if actor is None:
+            request = self.context.get("request")
+            actor = getattr(request, "user", None)
+        justification = validated_data.get("justification", "") or ""
+        description = validated_data.get("description") or justification or "Write-up"
+        return VariationService.create_draft(
+            contract=validated_data["contract"],
+            variation_type=validated_data.get("variation_type") or "ADDITION",
+            amount=validated_data["amount"],
+            description=description[:255],
+            justification=justification,
+            actor=actor,
+            time_extension_days=validated_data.get("time_extension_days") or 0,
+            bpp_approval_ref=validated_data.get("bpp_approval_ref") or "",
+        )
 
     class Meta:
         model = ContractVariation
@@ -633,6 +925,30 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
     payment_voucher_journal_id = serializers.IntegerField(
         source="payment_voucher.journal_id", read_only=True, default=None, allow_null=True,
     )
+    # The disbursement's GL journal, resolved wherever it actually posted: the
+    # PV's own journal (legacy direct-post) OR the central Payment that disbursed
+    # the PV (current path — the PV no longer posts; Payment.post_payment does,
+    # so ``payment_voucher.journal_id`` is null for those). Lets every surface
+    # link to "the accounting document" for the advance.
+    disbursement_journal_id = serializers.SerializerMethodField()
+
+    def get_disbursement_journal_id(self, obj):
+        pv = obj.payment_voucher
+        if pv is None:
+            return None
+        if getattr(pv, "journal_id", None):
+            return pv.journal_id
+        # Fallback: the Posted central Payment funding this PV carries the
+        # disbursement journal. (One extra lookup per row — fine for the single
+        # advance on a contract detail; the cross-contract list is paginated.)
+        from accounting.models import Payment
+        pay = (
+            Payment.objects.filter(payment_voucher_id=pv.id, journal_entry__isnull=False)
+            .exclude(status="Void")
+            .order_by("-id")
+            .first()
+        )
+        return pay.journal_entry_id if pay else None
 
     class Meta:
         model = MobilizationPayment
@@ -641,6 +957,7 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
             "amount",
             "payment_voucher", "payment_voucher_number",
             "payment_voucher_status", "payment_voucher_journal_id",
+            "disbursement_journal_id",
             "payment_date",
             "status", "notes",
             "created_at", "updated_at",
@@ -651,6 +968,7 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
             "contract_number", "contract_title", "vendor_name",
             "payment_voucher_number",
             "payment_voucher_status", "payment_voucher_journal_id",
+            "disbursement_journal_id",
         ]
 
 

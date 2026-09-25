@@ -184,7 +184,7 @@ export default function GoodsReceivedNotes() {
                                 <button onClick={handleBulkCancel}
                                     style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>Yes</button>
                                 <button onClick={() => setConfirmBulk(false)}
-                                    style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer' }}>No</button>
+                                    style={{ background: 'var(--color-border)', border: 'none', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer' }}>No</button>
                             </div>
                         )}
                         <button
@@ -357,7 +357,7 @@ export default function GoodsReceivedNotes() {
                                                     <button onClick={() => handleConfirmedAction(grn.id, confirmAction!.action)}
                                                         style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>Yes</button>
                                                     <button onClick={() => setConfirmAction(null)}
-                                                        style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
+                                                        style={{ background: 'var(--color-border)', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
                                                 </div>
                                             )}
                                             {confirmAction?.id !== grn.id && ['Draft', 'Received', 'On Hold'].includes(grn.status) && (

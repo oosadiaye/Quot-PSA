@@ -34,7 +34,7 @@ const fmtDate = (v: string | null | undefined): string => {
 };
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string }> = {
-    DRAFT: { color: '#64748b', bg: '#f1f5f9' },
+    DRAFT: { color: 'var(--color-text-muted)', bg: 'var(--color-surface-hover)' },
     SUBMITTED: { color: '#1e40af', bg: '#dbeafe' },
     APPLIED: { color: '#166534', bg: '#dcfce7' },
     APPROVED: { color: '#166534', bg: '#dcfce7' },
@@ -59,11 +59,11 @@ interface Virement {
 const thStyle: React.CSSProperties = {
     padding: '0.6rem 0.75rem', textAlign: 'left', fontSize: '0.68rem',
     fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
-    color: '#64748b', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+    color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
 const tdStyle: React.CSSProperties = {
-    padding: '0.55rem 0.75rem', borderBottom: '1px solid #f1f5f9',
-    color: '#1e293b', fontSize: '0.82rem',
+    padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--color-border-light)',
+    color: 'var(--color-text)', fontSize: '0.82rem',
 };
 
 const VirementList = () => {
@@ -87,7 +87,7 @@ const VirementList = () => {
     );
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-surface-hover)' }}>
             <Sidebar />
             {/* The sidebar is position:fixed at 260px, so content is offset
                 by the same amount — matching VirementForm and every other
@@ -116,17 +116,17 @@ const VirementList = () => {
 
                 <div style={{ marginTop: '1.5rem' }}>
                     <div style={{
-                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px',
+                        background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '10px',
                         overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                     }}>
                         <div style={{
-                            padding: '0.9rem 1.1rem', borderBottom: '1px solid #e2e8f0',
+                            padding: '0.9rem 1.1rem', borderBottom: '1px solid var(--color-border)',
                             display: 'flex', alignItems: 'center', gap: '0.5rem',
-                            fontSize: '0.85rem', fontWeight: 600, color: '#0f172a',
+                            fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)',
                         }}>
                             <ArrowLeftRight size={16} style={{ color: '#4f46e5' }} />
                             Virements done
-                            <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 400 }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>
                                 {isLoading ? 'loading…' : `${rows.length} ${rows.length === 1 ? 'record' : 'records'}`}
                             </span>
                         </div>
@@ -136,16 +136,16 @@ const VirementList = () => {
                                 Could not load virements: {String((error as any)?.message || 'unknown error')}
                             </div>
                         ) : isLoading ? (
-                            <div style={{ color: '#94a3b8', fontSize: '0.82rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
+                            <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.82rem', padding: '1.5rem', textAlign: 'center' }}>Loading…</div>
                         ) : rows.length === 0 ? (
-                            <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '2.5rem 1.5rem', textAlign: 'center', lineHeight: 1.6 }}>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', padding: '2.5rem 1.5rem', textAlign: 'center', lineHeight: 1.6 }}>
                                 <ArrowLeftRight size={22} style={{ color: '#cbd5e1' }} />
                                 <div style={{ marginTop: '0.5rem' }}>No virements have been done yet.</div>
                                 <button
                                     type="button"
                                     onClick={() => navigate('/budget/virements/new')}
                                     style={{
-                                        marginTop: '0.9rem', padding: '0.45rem 0.9rem', background: '#fff',
+                                        marginTop: '0.9rem', padding: '0.45rem 0.9rem', background: 'var(--color-surface)',
                                         color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '8px',
                                         fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
                                     }}
@@ -178,7 +178,7 @@ const VirementList = () => {
                                                     </td>
                                                     <td style={tdStyle}>
                                                         <span style={{ fontFamily: 'monospace' }}>{r.from_label}</span>
-                                                        <ArrowRight size={12} style={{ margin: '0 0.35rem', color: '#94a3b8', verticalAlign: 'middle' }} />
+                                                        <ArrowRight size={12} style={{ margin: '0 0.35rem', color: 'var(--color-text-subtle)', verticalAlign: 'middle' }} />
                                                         <span style={{ fontFamily: 'monospace' }}>{r.to_label}</span>
                                                     </td>
                                                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
@@ -195,7 +195,7 @@ const VirementList = () => {
                                                     </td>
                                                     <td style={tdStyle}>{fmtDate(r.submitted_at)}</td>
                                                     <td style={tdStyle}>{fmtDate(r.applied_at)}</td>
-                                                    <td style={{ ...tdStyle, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#64748b' }} title={r.reason || ''}>
+                                                    <td style={{ ...tdStyle, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }} title={r.reason || ''}>
                                                         {r.reason || '—'}
                                                     </td>
                                                 </tr>
@@ -208,7 +208,7 @@ const VirementList = () => {
                     </div>
 
                     {rows.length > 0 && (
-                        <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: '#64748b' }}>
+                        <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
                             Total moved (applied virements): <strong style={{ color: '#166534' }}>{fmtNGN(totalMoved)}</strong>
                         </div>
                     )}

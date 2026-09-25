@@ -78,9 +78,12 @@ import { usePermissions, hasPermission } from '../hooks/usePermissions';
 import { useTenantModules } from '../hooks/useTenantModules';
 import { useBranding } from '../context/BrandingContext';
 import { useAuth } from '../context/AuthContext';
+import ThemeSwitcher from './ThemeSwitcher';
 import { useIsMobile } from '../design';
 import OrganizationSwitcher from './OrganizationSwitcher';
 import NotificationBell from './NotificationBell';
+import { Dropdown } from 'antd';
+import type { MenuProps } from 'antd';
 import BackButton from './BackButton';
 
 interface SubItem {
@@ -101,7 +104,7 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
     { name: 'Dashboard', icon: BarChart3, path: '/dashboard', requiredPerm: null, module: null },
     {
-        name: 'General Ledger', icon: Wallet, path: '/accounting',
+        name: 'Accounting', icon: Wallet, path: '/accounting',
         requiredPerm: 'view_journalheader', module: 'accounting',
         subItems: [
             { name: 'Journal Entries', path: '/accounting', icon: FileText },
@@ -203,7 +206,6 @@ const menuItems: MenuItem[] = [
             { name: 'Contracts Dashboard', path: '/contracts/dashboard', icon: BarChart3 },
             { name: 'All Contracts', path: '/contracts', icon: FileText },
             { name: 'New Contract', path: '/contracts/new', icon: FilePlus },
-            { name: 'Interim Payment Certificates', path: '/contracts/ipcs', icon: Scale },
             // "Write-up" is the product label for upward contract-amount revaluations.
             // Route path stays /contracts/variations so existing bookmarks and the
             // ContractVariation API contract continue to work — only the user-facing
@@ -491,6 +493,22 @@ const Sidebar = () => {
         navigate('/login');
     };
 
+    // Account / sign-out live in a top-right user dropdown (not the sidebar).
+    const userMenuItems: MenuProps['items'] = [
+        { key: 'account', label: 'My Account', icon: <User size={14} />,
+          onClick: () => navigate('/account') },
+        { type: 'divider' },
+        { key: 'logout', label: 'Sign Out', icon: <LogOut size={14} />, danger: true,
+          onClick: () => setShowLogoutConfirm(true) },
+    ];
+    const userMenu = (
+        <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight" arrow>
+            <button type="button" aria-label="Account menu" style={userMenuBtnStyle}>
+                <User size={18} />
+            </button>
+        </Dropdown>
+    );
+
     const handleSwitchTenant = () => {
         localStorage.removeItem('tenantDomain');
         localStorage.removeItem('tenantInfo');
@@ -520,7 +538,7 @@ const Sidebar = () => {
         {isMobile && (
             <div style={{
                 position: 'fixed', top: 0, left: 0, right: 0, height: '56px',
-                background: '#ffffff', borderBottom: '1px solid #e2e8f0',
+                background: 'var(--sidebar-bg)', borderBottom: '1px solid var(--sidebar-border)',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '0 12px', gap: '12px', zIndex: 30,
                 boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
@@ -534,9 +552,11 @@ const Sidebar = () => {
                 >
                     <Menu size={22} />
                 </button>
-                <div style={{ flex: 1, fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: '#0b1320', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ flex: 1, fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {branding.name || 'Quot PSE'}
                 </div>
+                <ThemeSwitcher iconOnly />
+                {userMenu}
                 <NotificationBell />
             </div>
         )}
@@ -545,13 +565,24 @@ const Sidebar = () => {
         {showMdaSwitcher && !isMobile && (
             <div style={{
                 position: 'fixed', top: 0, left: '260px', right: 0, height: '48px',
-                background: '#ffffff', borderBottom: '1px solid #e2e8f0',
+                background: 'var(--sidebar-bg)', borderBottom: '1px solid var(--sidebar-border)',
                 display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                 padding: '0 24px', gap: '16px', zIndex: 15,
                 boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
             }}>
                 <OrganizationSwitcher />
+                <ThemeSwitcher iconOnly />
+                {userMenu}
                 <NotificationBell />
+            </div>
+        )}
+
+        {/* Theme switcher + account — pinned top-right on desktop when no MDA
+            header bar is present, so the controls are always in the same spot. */}
+        {!showMdaSwitcher && !isMobile && (
+            <div style={{ position: 'fixed', top: 12, right: 16, zIndex: 15, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <ThemeSwitcher iconOnly />
+                {userMenu}
             </div>
         )}
 
@@ -569,15 +600,15 @@ const Sidebar = () => {
         <div style={{
             width: '260px',
             height: '100vh',
-            // Light theme to match the SuperAdmin sidebar reference: white
-            // surface, slate text, solid indigo (#2926d9) pill for the
-            // active item. Replaces the previous navy gradient.
-            background: '#ffffff',
-            color: '#475569',
+            // Theme-driven surface: white + slate in light, navy + light text
+            // in dark (via --sidebar-* tokens). Active item is a solid indigo
+            // pill (#2926d9) in both themes.
+            background: 'var(--sidebar-bg)',
+            color: 'var(--sidebar-text)',
             display: 'flex', flexDirection: 'column',
             position: 'fixed', left: 0, top: 0,
             overflowY: 'auto',
-            borderRight: '1px solid #e2e8f0',
+            borderRight: '1px solid var(--sidebar-border)',
             zIndex: isMobile ? 28 : 20,
             transform: isMobile ? (drawerOpen ? 'translateX(0)' : 'translateX(-100%)') : 'none',
             transition: isMobile ? 'transform 240ms cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
@@ -591,8 +622,8 @@ const Sidebar = () => {
                     className="tap-target"
                     style={{
                         position: 'absolute', top: 8, right: 8,
-                        background: '#f1f5f9', border: 'none', cursor: 'pointer',
-                        color: '#475569', borderRadius: 8, zIndex: 2,
+                        background: 'var(--sidebar-hover)', border: 'none', cursor: 'pointer',
+                        color: 'var(--sidebar-text)', borderRadius: 8, zIndex: 2,
                     }}
                 >
                     <X size={20} />
@@ -601,7 +632,7 @@ const Sidebar = () => {
             {/* Header */}
             <div style={{
                 padding: '20px 20px 16px',
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: '1px solid var(--sidebar-border)',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <div style={{
@@ -609,7 +640,7 @@ const Sidebar = () => {
                         // Light tint of the new accent so the placeholder
                         // logo block reads as part of the same palette
                         // when ``branding.logo`` is unset.
-                        background: '#eef0fe',
+                        background: 'var(--sidebar-hover)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0, overflow: 'hidden',
                     }}>
@@ -626,10 +657,10 @@ const Sidebar = () => {
                         )}
                     </div>
                     <div>
-                        <div style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.3px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.3px' }}>
                             {branding.name}
                         </div>
-                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
                             Enterprise Platform
                         </div>
                     </div>
@@ -656,8 +687,8 @@ const Sidebar = () => {
                     // visually stable while users navigate.
                     const ACTIVE_BG  = ACCENT;
                     const ACTIVE_FG  = '#ffffff';
-                    const HOVER_BG   = '#f1f5f9';        // slate-100
-                    const HOVER_FG   = '#0f172a';        // slate-900
+                    const HOVER_BG   = 'var(--sidebar-hover)';
+                    const HOVER_FG   = 'var(--sidebar-text-active)';
                     // Inactive sidebar text was previously slate-600 / slate-400
                     // which read as washed-out grey ("ash") against the white
                     // background. Bumped to near-black (slate-900) for the
@@ -665,12 +696,10 @@ const Sidebar = () => {
                     // visual rhythm of label > icon survives while every label
                     // now meets AAA contrast against the white sidebar.
                     // Active state (white on blue) and hover state untouched.
-                    const INACTIVE_FG       = '#0f172a'; // slate-900 (near-black)
-                    const INACTIVE_ICON     = '#334155'; // slate-700
-                    const INACTIVE_LABEL_FG = '#0f172a'; // slate-900 (unified
-                    //   with row FG — the label IS the affordance, no longer
-                    //   needs a separate "darker than the row" treatment).
-                    const INACTIVE_CHEVRON  = '#334155'; // slate-700
+                    const INACTIVE_FG       = 'var(--sidebar-text)';
+                    const INACTIVE_ICON     = 'var(--sidebar-text)';
+                    const INACTIVE_LABEL_FG = 'var(--sidebar-text)';
+                    const INACTIVE_CHEVRON  = 'var(--sidebar-text)';
 
                     const parentActive = isParentActive(item);
 
@@ -829,46 +858,7 @@ const Sidebar = () => {
                 })}
             </nav>
 
-            {/* Footer */}
-            <div style={{ padding: '12px', borderTop: '1px solid #e2e8f0' }}>
-                {/* Account / Profile link — real <Link> so right-click /
-                    middle-click / Ctrl+click open in a new tab natively.
-                    Active state uses the same solid indigo pill as the
-                    main nav so the footer feels like a continuation of
-                    the navigation, not a separate styling system. */}
-                <Link
-                    to="/account"
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '10px',
-                        padding: '8px 12px', borderRadius: '8px',
-                        cursor: 'pointer', transition: 'all 0.15s',
-                        color: isActive('/account') ? '#ffffff' : '#475569',
-                        background: isActive('/account') ? '#2926d9' : 'transparent',
-                        marginBottom: '2px',
-                        textDecoration: 'none',
-                    }}
-                    onMouseOver={(e) => { if (!isActive('/account')) e.currentTarget.style.background = '#f1f5f9'; }}
-                    onMouseOut={(e) => { if (!isActive('/account')) e.currentTarget.style.background = 'transparent'; }}
-                >
-                    <User size={18} style={{ color: isActive('/account') ? '#ffffff' : '#94a3b8' }} />
-                    <span style={{ fontSize: '13.5px', fontWeight: 500 }}>My Account</span>
-                </Link>
-
-                <div
-                    onClick={() => setShowLogoutConfirm(true)}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '10px',
-                        padding: '8px 12px', borderRadius: '8px',
-                        cursor: 'pointer', transition: 'all 0.15s',
-                        color: '#dc2626',
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.background = '#fef2f2'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                    <LogOut size={18} />
-                    <span style={{ fontSize: '13.5px', fontWeight: 500 }}>Sign Out</span>
-                </div>
-            </div>
+            {/* Account + Sign Out moved to the top-right user dropdown. */}
 
             {/* ── Logout confirmation overlay ─────────────────────── */}
             {showLogoutConfirm && (
@@ -880,9 +870,10 @@ const Sidebar = () => {
                     backdropFilter: 'blur(2px)',
                 }}>
                     <div style={{
-                        background: 'white', borderRadius: '20px',
+                        background: 'var(--color-surface)', borderRadius: '20px',
                         padding: '36px 32px', maxWidth: '380px', width: '90%',
                         boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                        border: '1px solid var(--color-border)',
                         textAlign: 'center',
                     }}>
                         <div style={{
@@ -894,10 +885,10 @@ const Sidebar = () => {
                             <LogOut size={28} style={{ color: '#ef4444' }} />
                         </div>
 
-                        <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>
+                        <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '8px' }}>
                             Sign Out?
                         </h3>
-                        <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.6, marginBottom: '28px' }}>
+                        <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: '28px' }}>
                             You are about to sign out of <strong>{activeTenant}</strong>.
                             Any unsaved changes will be lost.
                         </p>
@@ -907,13 +898,11 @@ const Sidebar = () => {
                                 onClick={() => setShowLogoutConfirm(false)}
                                 style={{
                                     flex: 1, padding: '12px',
-                                    background: '#f8fafc', border: '1.5px solid #e2e8f0',
+                                    background: 'var(--color-surface-hover)', border: '1.5px solid var(--color-border)',
                                     borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                                    color: '#475569', cursor: 'pointer', fontFamily: 'inherit',
+                                    color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit',
                                     transition: 'all 0.15s',
                                 }}
-                                onMouseOver={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                onMouseOut={(e) => e.currentTarget.style.background = '#f8fafc'}
                             >
                                 Stay
                             </button>
@@ -940,6 +929,16 @@ const Sidebar = () => {
         </div>
         </>
     );
+};
+
+const userMenuBtnStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 34, height: 34, borderRadius: '50%',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
+    color: 'var(--color-primary)',
+    cursor: 'pointer',
+    transition: 'background 140ms ease',
 };
 
 export default Sidebar;

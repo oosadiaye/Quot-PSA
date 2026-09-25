@@ -400,7 +400,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                         </span>
                                     </div>
                                     <button type="button" onClick={() => setAttachment(null)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', flexShrink: 0 }}>
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-subtle)', padding: '2px', flexShrink: 0 }}>
                                         <Trash2 size={13} />
                                     </button>
                                 </div>
@@ -568,7 +568,7 @@ const CustomerInvoiceForm: React.FC<Props> = ({ onCancel, onSuccess }) => {
                                             <td style={{ padding: '0.3rem', textAlign: 'center' }}>
                                                 {lines.length > 1 && (
                                                     <button type="button" onClick={() => removeLine(idx)}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', lineHeight: 1 }}>
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-subtle)', padding: '2px', lineHeight: 1 }}>
                                                         <Trash2 size={14} />
                                                     </button>
                                                 )}

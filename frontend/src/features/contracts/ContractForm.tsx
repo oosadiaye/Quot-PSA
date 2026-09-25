@@ -13,6 +13,7 @@ import { useVendors } from '../procurement/hooks/useProcurement';
 import { useFiscalYears } from '../../hooks/useGovForms';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
+import { retentionAmountFromRate, retentionRateFromAmount } from './utils/retention';
 import { ListPageShell } from '../../components/layout';
 
 /** One possible duplicate, as ``contracts/check-duplicate/`` returns it. */
@@ -71,6 +72,23 @@ const ContractForm = () => {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const [form] = Form.useForm();
+
+  // Live retention ₦↔% sync. Watch the amount + rate so the ₦ helper input
+  // and the reserve/ceiling readout stay in step. Only retention_rate (%) is
+  // ever submitted; the ₦ field back-computes it (rate = ₦/amount×100, capped
+  // 0–20 in the input's onChange). Reserve = amount × rate / 100.
+  const watchedOriginalSum = Form.useWatch('original_sum', form);
+  const watchedRetentionRate = Form.useWatch('retention_rate', form);
+  const retentionAmount = useMemo(
+    () => retentionAmountFromRate(Number(watchedOriginalSum), Number(watchedRetentionRate)),
+    [watchedOriginalSum, watchedRetentionRate],
+  );
+  const contractCeiling = useMemo(() => {
+    const amt = Number(watchedOriginalSum) || 0;
+    return Math.max(0, amt - retentionAmount);
+  }, [watchedOriginalSum, retentionAmount]);
+  const fmtNaira = (n: number) =>
+    `₦${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const { data: existing } = useContract(isEdit ? Number(id) : null);
 
@@ -781,9 +799,41 @@ const ContractForm = () => {
                     label="Retention Rate (%)"
                     name="retention_rate"
                     tooltip="Optional. Leave blank for contracts without retention (consultancy, supply, service). DB-enforced 0–20%. Works contracts typically use 5%."
+                    style={{ marginBottom: 8 }}
                   >
                     <InputNumber min={0} max={20} style={{ width: '100%' }} step={0.5} placeholder="Blank = no retention" />
                   </Form.Item>
+                  {/* …or enter retention as a ₦ value — synced to the % above.
+                      Only retention_rate is submitted; this back-computes it.
+                      Needs an Original Sum first (to convert ₦→%). */}
+                  <Form.Item
+                    label="…or Retention Amount (₦)"
+                    tooltip="Enter retention as a naira value; it converts to the % above (rate = amount ÷ original sum, capped 20%). Requires an Original Sum."
+                    style={{ marginBottom: 4 }}
+                  >
+                    <InputNumber
+                      min={0}
+                      style={{ width: '100%' }}
+                      step={1000}
+                      value={retentionAmount || undefined}
+                      disabled={!(Number(watchedOriginalSum) > 0)}
+                      placeholder={Number(watchedOriginalSum) > 0 ? '0.00' : 'Set Original Sum first'}
+                      formatter={(v) => (v !== undefined && v !== null ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+                      parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as number}
+                      onChange={(val) => {
+                        const amt = Number(watchedOriginalSum) || 0;
+                        if (amt <= 0) return;
+                        form.setFieldsValue({
+                          retention_rate: retentionRateFromAmount(amt, Number(val)),
+                        });
+                      }}
+                    />
+                  </Form.Item>
+                  {(Number(watchedOriginalSum) > 0) && (
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                      Reserve {fmtNaira(retentionAmount)} · Ceiling {fmtNaira(contractCeiling)}
+                    </div>
+                  )}
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item
@@ -800,12 +850,12 @@ const ContractForm = () => {
               <Row gutter={24}>
                 <Col xs={24} md={12}>
                   <Form.Item label="Signed Date" name="signed_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item label="Commencement Date" name="commencement_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -813,12 +863,12 @@ const ContractForm = () => {
               <Row gutter={24}>
                 <Col xs={24} md={12}>
                   <Form.Item label="Contract Start Date" name="contract_start_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item label="Contract End Date" name="contract_end_date">
-                    <DatePicker style={{ width: '100%' }} />
+                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                   </Form.Item>
                 </Col>
               </Row>

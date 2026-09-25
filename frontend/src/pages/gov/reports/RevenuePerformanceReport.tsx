@@ -34,19 +34,19 @@ export default function RevenuePerformanceReport() {
     }));
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Revenue Performance</h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>IGR Collection Analysis by Revenue Head and Month</p>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Revenue Performance</h1>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>IGR Collection Analysis by Revenue Head and Month</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
+                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', fontSize: '14px' }}>
                             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>FY {y}</option>)}
                         </select>
-                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>
                             <Printer size={16} /> Print
                         </button>
                         <ExportExcelButton
@@ -58,7 +58,7 @@ export default function RevenuePerformanceReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading...</div>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/revenue-performance/" />
                 ) : data ? (
@@ -70,20 +70,20 @@ export default function RevenuePerformanceReport() {
                         </div>
 
                         {/* By Revenue Head */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px' }}>
-                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Revenue by Head</div>
+                        <div style={{ background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px' }}>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>Revenue by Head</div>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '2px solid #e8ecf1' }}>
-                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Code</th>
-                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Revenue Head</th>
-                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Count</th>
-                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Amount</th>
+                                    <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Code</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Revenue Head</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Count</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Amount</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(data.by_revenue_head || []).map((rh: any, i: number) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr key={i} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                             <td style={{ padding: '8px 12px', fontSize: '13px', fontFamily: 'monospace' }}>{rh.revenue_head__code}</td>
                                             <td style={{ padding: '8px 12px', fontSize: '13px' }}>{rh.revenue_head__name}</td>
                                             <td style={{ padding: '8px 12px', fontSize: '13px', textAlign: 'right' }}>{rh.count}</td>
@@ -93,14 +93,14 @@ export default function RevenuePerformanceReport() {
                                 </tbody>
                             </table>
                             {(!data.by_revenue_head || data.by_revenue_head.length === 0) && (
-                                <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>No revenue collections posted for FY {fy}.</div>
+                                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--color-text-subtle)' }}>No revenue collections posted for FY {fy}.</div>
                             )}
                         </div>
 
                         {/* Monthly Trend */}
                         {monthData.length > 0 && (
-                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px' }}>
-                                <div style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Monthly Collection Trend</div>
+                            <div style={{ background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px' }}>
+                                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>Monthly Collection Trend</div>
                                 <div style={{ height: 260 }}>
                                     <ResponsiveContainer>
                                         <BarChart data={monthData}>

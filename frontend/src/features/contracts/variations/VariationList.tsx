@@ -134,7 +134,7 @@ const VariationList = () => {
                                 fontFamily: 'inherit',
                                 outline: 'none',
                                 minWidth: 220,
-                                color: tier ? '#0b1320' : '#94a3b8',
+                                color: tier ? 'var(--color-text)' : '#94a3b8',
                             }}
                         >
                             <option value="">All tiers</option>
@@ -182,8 +182,8 @@ const VariationList = () => {
                             color: '#64748b',
                         }}
                     >
-                        Showing <strong style={{ color: '#0b1320' }}>{rows.length}</strong> of{' '}
-                        <strong style={{ color: '#0b1320' }}>{data.count}</strong> write-ups
+                        Showing <strong style={{ color: 'var(--color-text)' }}>{rows.length}</strong> of{' '}
+                        <strong style={{ color: 'var(--color-text)' }}>{data.count}</strong> write-ups
                     </div>
                 )}
             </SectionCard>

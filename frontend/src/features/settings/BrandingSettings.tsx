@@ -53,10 +53,10 @@ const useUpdateBranding = () => {
 // ─── Shared style tokens ────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-    background: 'white',
+    background: 'var(--color-surface)',
     borderRadius: '20px',
     padding: '28px 32px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--color-border)',
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
@@ -64,7 +64,7 @@ const labelStyle: React.CSSProperties = {
     display: 'block',
     fontSize: '11px',
     fontWeight: 700,
-    color: '#64748b',
+    color: 'var(--color-text-muted)',
     textTransform: 'uppercase',
     letterSpacing: '0.6px',
     marginBottom: '8px',
@@ -73,10 +73,10 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '10px 14px',
-    border: '1.5px solid #e2e8f0',
+    border: '1.5px solid var(--color-border)',
     borderRadius: '12px',
-    background: '#f8fafc',
-    color: '#0f172a',
+    background: 'var(--color-surface-hover)',
+    color: 'var(--color-text)',
     fontSize: '14px',
     fontFamily: 'inherit',
     outline: 'none',
@@ -108,7 +108,7 @@ function Field({
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        e.target.style.borderColor = '#e2e8f0';
+        e.target.style.borderColor = 'var(--color-border)';
         e.target.style.boxShadow = 'none';
     };
 
@@ -122,7 +122,7 @@ function Field({
                     <Icon size={16} style={{
                         position: 'absolute', left: '12px', top: multiline ? '12px' : '50%',
                         transform: multiline ? undefined : 'translateY(-50%)',
-                        color: '#94a3b8', pointerEvents: 'none',
+                        color: 'var(--color-text-subtle)', pointerEvents: 'none',
                     }} />
                 )}
                 {multiline ? (
@@ -168,7 +168,7 @@ function SectionHeader({ icon: Icon, title, color }: {
             }}>
                 <Icon size={16} color="white" />
             </div>
-            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--color-text)' }}>
                 {title}
             </h2>
         </div>
@@ -299,9 +299,9 @@ export default function BrandingSettings() {
                             {/* Preview */}
                             <div style={{
                                 width: '84px', height: '84px', borderRadius: '16px',
-                                border: '2px dashed #cbd5e1',
+                                border: '2px dashed var(--color-border)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                overflow: 'hidden', background: '#f8fafc', flexShrink: 0,
+                                overflow: 'hidden', background: 'var(--color-surface-hover)', flexShrink: 0,
                                 transition: 'border-color 0.2s',
                             }}>
                                 {logoPreview ? (
@@ -316,9 +316,9 @@ export default function BrandingSettings() {
                                     onClick={() => fileInputRef.current?.click()}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: '6px',
-                                        padding: '8px 16px', border: '1.5px solid #e2e8f0',
-                                        borderRadius: '12px', background: 'white',
-                                        color: '#0f172a', fontSize: '13px',
+                                        padding: '8px 16px', border: '1.5px solid var(--color-border)',
+                                        borderRadius: '12px', background: 'var(--color-surface)',
+                                        color: 'var(--color-text)', fontSize: '13px',
                                         fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                                         transition: 'border-color 0.2s, box-shadow 0.2s',
                                     }}
@@ -327,7 +327,7 @@ export default function BrandingSettings() {
                                         e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.08)';
                                     }}
                                     onMouseLeave={e => {
-                                        e.currentTarget.style.borderColor = '#e2e8f0';
+                                        e.currentTarget.style.borderColor = 'var(--color-border)';
                                         e.currentTarget.style.boxShadow = 'none';
                                     }}
                                 >
@@ -349,7 +349,7 @@ export default function BrandingSettings() {
                                         <Trash2 size={13} /> Remove
                                     </button>
                                 )}
-                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--color-text-subtle)' }}>
                                     PNG, JPG, or SVG. Max 2 MB.
                                 </span>
                             </div>

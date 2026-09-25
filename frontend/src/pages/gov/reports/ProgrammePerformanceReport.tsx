@@ -65,21 +65,21 @@ export default function ProgrammePerformanceReport() {
     }, [data, filter]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Programme Performance Report</h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>Budget vs Actual Expenditure by Programme — Utilization Analysis</p>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Programme Performance Report</h1>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>Budget vs Actual Expenditure by Programme — Utilization Analysis</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select value={fyId} onChange={e => setFyId(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
+                        <select value={fyId} onChange={e => setFyId(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', fontSize: '14px' }}>
                             {yearOptions.map((opt: any) => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>
-                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>
                             <Printer size={16} /> Print
                         </button>
                         <ExportExcelButton
@@ -99,16 +99,16 @@ export default function ProgrammePerformanceReport() {
                 />
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading...</div>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/programme-performance/" />
                 ) : data ? (
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['Programme Code', 'Programme Name', 'Budget', 'Actual', 'Variance', '% Utilization'].map(h => (
-                                        <th key={h} style={{ padding: '12px 14px', textAlign: h === 'Programme Code' || h === 'Programme Name' ? 'left' : 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                                        <th key={h} style={{ padding: '12px 14px', textAlign: h === 'Programme Code' || h === 'Programme Name' ? 'left' : 'right', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
@@ -117,7 +117,7 @@ export default function ProgrammePerformanceReport() {
                                     const variance = parseFloat(row.variance || '0');
                                     const utilization = parseFloat(row.utilization_pct || '0');
                                     return (
-                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr key={idx} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                             <td style={{ padding: '10px 14px', fontSize: '13px', fontFamily: 'monospace', fontWeight: 500 }}>{row.program__code}</td>
                                             <td style={{ padding: '10px 14px', fontSize: '13px' }}>{row.program__name}</td>
                                             <td style={{ padding: '10px 14px', fontSize: '13px', textAlign: 'right', fontFamily: 'monospace' }}>{fmtNGN(row.budget_amount)}</td>
@@ -130,7 +130,7 @@ export default function ProgrammePerformanceReport() {
                             </tbody>
                             {data.grand_budget != null && !filter && (
                                 <tfoot>
-                                    <tr style={{ background: '#f0f4f8', borderTop: '2px solid #1e293b' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderTop: '2px solid #1e293b' }}>
                                         <td colSpan={2} style={{ padding: '12px 14px', fontWeight: 800, fontSize: '14px' }}>GRAND TOTAL</td>
                                         <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontFamily: 'monospace' }}>{fmtNGN(data.grand_budget)}</td>
                                         <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontFamily: 'monospace' }}>{fmtNGN(data.grand_actual)}</td>
@@ -141,7 +141,7 @@ export default function ProgrammePerformanceReport() {
                             )}
                         </table>
                         {(!data.rows || data.rows.length === 0) && (
-                            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No programme performance data for this fiscal year.</div>
+                            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>No programme performance data for this fiscal year.</div>
                         )}
                     </div>
                 ) : null}

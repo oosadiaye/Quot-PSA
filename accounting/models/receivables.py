@@ -36,6 +36,12 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0, validators=[MinValueValidator(Decimal('0.00'))])
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    # Retention LIEN (contract IPCs/milestones). A memo hold — never journalled.
+    # ``total_amount`` is booked GROSS; this slice of the AP payable is frozen
+    # from disbursement until released. Payable-now = total − paid − withheld.
+    # Released by the Release-Retention action (sets this to 0). See
+    # docs/superpowers/specs/2026-09-23-centralize-ap-ipc-as-invoice-design.md.
+    retention_withheld = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     currency = models.ForeignKey('accounting.Currency', on_delete=models.PROTECT, null=True, blank=True)
     status = models.CharField(max_length=20, choices=[
         # Lifecycle for AP Vendor Invoices:
@@ -114,6 +120,12 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
     @property
     def balance_due(self):
         return self.total_amount - self.paid_amount
+
+    @property
+    def payable_now(self):
+        """What can actually be disbursed = balance_due minus the frozen
+        retention lien. The AP payment flow caps disbursement at this."""
+        return self.total_amount - self.paid_amount - (self.retention_withheld or Decimal('0.00'))
 
     def __str__(self):
         return f"{self.invoice_number} - {self.vendor.name} ({self.total_amount})"

@@ -1,0 +1,196 @@
+/* ═══════════════════════════════════════════════════════════════════
+   modals.css — beautified dialogs & confirmations.
+
+   antd v6 emits its component styles under :where() (zero specificity),
+   so these plain selectors win over the defaults without !important.
+   Loaded last in main.tsx so it applies app-wide — confirmation
+   (Popconfirm) and action/clearing dialogs (Modal) get one consistent,
+   rounded, layered look.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --modal-radius: 16px;
+  --modal-accent: #4f46e5;
+  --modal-ink: #0f172a;
+  --modal-muted: #64748b;
+  --modal-border: #eef1f6;
+  --modal-head-wash: linear-gradient(180deg, #fbfcff 0%, #ffffff 100%);
+}
+
+/* Dark theme: keep the dividers/wash/text legible on antd's dark surface. */
+:root[data-theme="dark"] {
+  --modal-ink: #f1f5f9;
+  --modal-muted: #94a3b8;
+  --modal-border: #2a3547;
+  --modal-head-wash: linear-gradient(180deg, #1c2536 0%, #141c2b 100%);
+}
+
+/* ── Backdrop ─────────────────────────────────────────────────────── */
+.ant-modal-mask {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+/* ── Dialog surface ───────────────────────────────────────────────── */
+/* padding:0 so header / body / footer own their padding and their
+   dividers reach the rounded edge cleanly. */
+.ant-modal .ant-modal-content {
+  border-radius: var(--modal-radius);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.04),
+    0 24px 48px -14px rgba(15, 23, 42, 0.30),
+    0 8px 24px -10px rgba(15, 23, 42, 0.16);
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+.ant-modal .ant-modal-header {
+  margin: 0;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--modal-border);
+  border-radius: var(--modal-radius) var(--modal-radius) 0 0;
+  background: var(--modal-head-wash);
+}
+.ant-modal .ant-modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  color: var(--modal-ink);
+}
+
+/* ── Body ─────────────────────────────────────────────────────────── */
+.ant-modal .ant-modal-body {
+  padding: 20px 24px;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────── */
+.ant-modal .ant-modal-footer {
+  margin: 0;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--modal-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.ant-modal .ant-modal-footer .ant-btn {
+  border-radius: 10px;
+  font-weight: 600;
+  height: 38px;
+  padding-inline: 18px;
+  box-shadow: none;
+}
+.ant-modal .ant-modal-footer .ant-btn-primary {
+  box-shadow: 0 6px 16px -6px rgba(79, 70, 229, 0.55);
+}
+.ant-modal .ant-modal-footer .ant-btn-primary:not(:disabled):hover {
+  box-shadow: 0 8px 20px -6px rgba(79, 70, 229, 0.65);
+  transform: translateY(-1px);
+}
+.ant-modal .ant-modal-footer .ant-btn {
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+/* ── Close affordance ─────────────────────────────────────────────── */
+.ant-modal .ant-modal-close {
+  top: 14px;
+  inset-inline-end: 16px;
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  transition: background 150ms ease, color 150ms ease;
+}
+.ant-modal .ant-modal-close:hover {
+  background: var(--color-surface-hover, #f1f5f9);
+  color: var(--modal-ink);
+}
+
+/* ═══ Imperative confirm/info dialogs (Modal.confirm, useDialog) ══════ */
+/* These render their body straight into .ant-modal-content (no header /
+   body / footer sections), so the padding:0 above would cramp them —
+   restore it here, and round + space their buttons. Radius, shadow and
+   the blurred backdrop are inherited from the rules above. */
+.ant-modal-confirm .ant-modal-content {
+  padding: 24px;
+}
+.ant-modal-confirm .ant-modal-confirm-title {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--modal-ink);
+}
+.ant-modal-confirm .ant-modal-confirm-content {
+  color: var(--modal-muted);
+  line-height: 1.55;
+}
+.ant-modal-confirm .ant-modal-confirm-btns {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.ant-modal-confirm .ant-modal-confirm-btns .ant-btn {
+  border-radius: 10px;
+  font-weight: 600;
+  height: 38px;
+  padding-inline: 18px;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primary {
+  box-shadow: 0 6px 16px -6px rgba(79, 70, 229, 0.55);
+}
+.ant-modal-confirm .ant-modal-confirm-btns .ant-btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+/* ═══ Popconfirm — the confirmation surface ══════════════════════════ */
+.ant-popover .ant-popover-inner {
+  border-radius: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 14px 34px -10px rgba(15, 23, 42, 0.24),
+    0 4px 12px -4px rgba(15, 23, 42, 0.12);
+}
+.ant-popconfirm .ant-popconfirm-title {
+  font-weight: 700;
+  color: var(--modal-ink);
+}
+.ant-popconfirm .ant-popconfirm-description {
+  color: var(--modal-muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.ant-popconfirm .ant-popconfirm-buttons {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ant-popconfirm .ant-popconfirm-buttons .ant-btn {
+  border-radius: 9px;
+  font-weight: 600;
+  height: 32px;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.ant-popconfirm .ant-popconfirm-buttons .ant-btn-primary {
+  box-shadow: 0 5px 14px -6px rgba(79, 70, 229, 0.55);
+}
+.ant-popconfirm .ant-popconfirm-buttons .ant-btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ant-modal .ant-modal-footer .ant-btn,
+  .ant-popconfirm .ant-popconfirm-buttons .ant-btn {
+    transition: none;
+  }
+  .ant-modal .ant-modal-footer .ant-btn-primary:not(:disabled):hover,
+  .ant-popconfirm .ant-popconfirm-buttons .ant-btn-primary:not(:disabled):hover {
+    transform: none;
+  }
+}

@@ -22,7 +22,7 @@ function CashSection({ title, icon, rows, total, accentColor, accentBg, borderCo
 
     return (
         <div style={{
-            background: '#fff',
+            background: 'var(--color-surface)',
             borderRadius: '12px',
             overflow: 'hidden',
             boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
@@ -45,7 +45,7 @@ function CashSection({ title, icon, rows, total, accentColor, accentBg, borderCo
                 }}>
                     {icon}
                 </div>
-                <span style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
+                <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text)' }}>
                     {title}
                 </span>
                 <div style={{ flex: 1 }} />
@@ -59,7 +59,7 @@ function CashSection({ title, icon, rows, total, accentColor, accentBg, borderCo
 
             {/* Rows */}
             {rows.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: '13px' }}>
                     No activity in this period.
                 </div>
             ) : (
@@ -67,11 +67,11 @@ function CashSection({ title, icon, rows, total, accentColor, accentBg, borderCo
                     <tbody>
                         {rows.map((r, i) => (
                             <tr key={r.description ?? i}
-                                style={{ borderBottom: '1px solid #f1f5f9' }}
-                                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                style={{ borderBottom: '1px solid var(--color-border-light)' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                             >
-                                <td style={{ padding: '10px 20px', color: '#334155' }}>
+                                <td style={{ padding: '10px 20px', color: 'var(--color-text-secondary)' }}>
                                     {r.description}
                                 </td>
                                 <td style={{
@@ -87,8 +87,8 @@ function CashSection({ title, icon, rows, total, accentColor, accentBg, borderCo
                         ))}
                     </tbody>
                     <tfoot>
-                        <tr style={{ borderTop: '2px solid #e2e8f0' }}>
-                            <td style={{ padding: '12px 20px', fontWeight: 700, color: '#1e293b' }}>
+                        <tr style={{ borderTop: '2px solid var(--color-border)' }}>
+                            <td style={{ padding: '12px 20px', fontWeight: 700, color: 'var(--color-text)' }}>
                                 Net {title}
                             </td>
                             <td style={{
@@ -312,17 +312,17 @@ export default function CashFlow() {
 
     const inputStyle: React.CSSProperties = {
         padding: '6px 10px',
-        border: '1px solid #e2e8f0',
+        border: '1px solid var(--color-border)',
         borderRadius: '8px',
         fontSize: '13px',
         fontWeight: 600,
-        color: '#1e293b',
+        color: 'var(--color-text)',
     };
 
     const exportBtnStyle: React.CSSProperties = {
         display: 'inline-flex', alignItems: 'center', gap: '5px',
-        padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
-        background: '#f8fafc', fontSize: '13px', fontWeight: 600, color: '#475569',
+        padding: '6px 12px', border: '1px solid var(--color-border)', borderRadius: '8px',
+        background: 'var(--color-surface-hover)', fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)',
         cursor: 'pointer', whiteSpace: 'nowrap',
         opacity: submitted ? 1 : 0.4, pointerEvents: submitted ? 'auto' : 'none',
     };
@@ -338,11 +338,11 @@ export default function CashFlow() {
             {/* Filters — horizontal row */}
             <div style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
-                background: '#fff', borderRadius: '12px', padding: '10px 20px',
+                background: 'var(--color-surface)', borderRadius: '12px', padding: '10px 20px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
                 flexWrap: 'wrap',
             }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     Start Date
                 </span>
                 <input
@@ -351,7 +351,7 @@ export default function CashFlow() {
                     onChange={e => setStartDate(e.target.value)}
                     style={{ ...inputStyle, width: '150px' }}
                 />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     End Date
                 </span>
                 <input
@@ -360,7 +360,7 @@ export default function CashFlow() {
                     onChange={e => setEndDate(e.target.value)}
                     style={{ ...inputStyle, width: '150px' }}
                 />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     Method
                 </span>
                 <select
@@ -393,23 +393,23 @@ export default function CashFlow() {
 
             {!submitted ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Select a date range and click Generate.
                 </div>
             ) : isLoading ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Generating Cash Flow Statement…
                 </div>
             ) : error ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
                     textAlign: 'center', color: '#ef4444',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
@@ -470,10 +470,10 @@ export default function CashFlow() {
                                 <ArrowUpDown size={20} />
                             </div>
                             <div>
-                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                                     Net Change in Cash
                                 </div>
-                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                                     Operating + Investing + Financing
                                 </div>
                             </div>
@@ -506,7 +506,7 @@ export default function CashFlow() {
                                 flexDirection: 'column',
                                 gap: '4px',
                             }}>
-                                <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                     {item.label}
                                 </span>
                                 <span style={{ fontSize: '18px', fontWeight: 700, color: item.value >= 0 ? '#059669' : '#dc2626' }}>

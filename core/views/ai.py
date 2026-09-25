@@ -23,10 +23,14 @@ arrangement; the API key and base URL are not theirs to see. This
 serializer names its fields explicitly rather than excluding, so a field
 added to the model later cannot leak by default.
 
-**A tenant may switch AI off, never on.** Enabling costs money, picks a
-model, and sends content across a jurisdictional boundary — a platform and
-commercial decision. Switching off is none of those things, and the one
-control an organisation must never have to raise a ticket for.
+**A tenant switches capabilities on and off; the platform provisions
+them.** Choosing a provider and model, and committing spend, is the
+platform's decision, made once when a capability is set up. After that the
+organisation controls whether an already-provisioned capability is
+running — switching one back on is theirs, and stopping one must never need
+a support ticket. A capability the platform has not provisioned cannot be
+turned on here, and turning a tenant toggle on never overrides a platform
+switch that is off: usability still fails closed.
 """
 from __future__ import annotations
 
@@ -246,3 +250,60 @@ def ai_disable_all(request):
         tenant=tenant, is_active=True,
     ).update(is_active=False, updated_at=timezone.now())
     return Response({"disabled": disabled})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsTenantAdmin])
+def ai_enable(request):
+    """Switch one already-provisioned AI capability back on for this org.
+
+    The counterpart to :func:`ai_disable_all`. A tenant may re-enable only a
+    capability the platform has already provisioned for them — a
+    :class:`TenantAISetting` row that already carries the provider and model
+    the platform chose. This never creates a setting and never picks a
+    provider, model or spend cap; those remain the platform's decision. It
+    also cannot force a capability into use: ``is_usable`` still fails closed,
+    so a tenant toggle on while the platform switch is off stays unusable, and
+    the response says so. Enabling a capability with no provisioned row is
+    refused, because choosing a model and committing spend is not the
+    tenant's to do.
+    """
+    tenant = _tenant()
+    if tenant is None:
+        return Response(
+            {"detail": "No tenant on this request."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    capability = (request.data or {}).get("capability")
+    if not capability:
+        return Response(
+            {"detail": "A capability is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        setting = TenantAISetting.objects.select_related("provider").get(
+            tenant=tenant, capability=capability,
+        )
+    except TenantAISetting.DoesNotExist:
+        return Response(
+            {"detail": (
+                "That capability has not been provisioned for this "
+                "organisation. Ask your platform administrator to set it up "
+                "— choosing the provider and model is theirs to do."
+            )},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not setting.is_active:
+        setting.is_active = True
+        setting.updated_at = timezone.now()
+        setting.save(update_fields=["is_active", "updated_at"])
+
+    return Response({
+        "capability": setting.capability,
+        "capability_display": setting.get_capability_display(),
+        "is_active": setting.is_active,
+        "is_usable": setting.is_usable,
+    })

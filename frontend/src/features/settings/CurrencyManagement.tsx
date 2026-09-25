@@ -10,10 +10,10 @@ import {
 import SettingsLayout from './SettingsLayout';
 
 const cardStyle: React.CSSProperties = {
-    background: 'white',
+    background: 'var(--color-surface)',
     borderRadius: '20px',
     padding: '28px 32px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--color-border)',
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
@@ -21,7 +21,7 @@ const labelStyle: React.CSSProperties = {
     display: 'block',
     fontSize: '11px',
     fontWeight: 700,
-    color: '#64748b',
+    color: 'var(--color-text-muted)',
     textTransform: 'uppercase',
     letterSpacing: '0.6px',
     marginBottom: '8px',
@@ -30,10 +30,10 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '10px 14px',
-    border: '1.5px solid #e2e8f0',
+    border: '1.5px solid var(--color-border)',
     borderRadius: '12px',
-    background: '#f8fafc',
-    color: '#0f172a',
+    background: 'var(--color-surface-hover)',
+    color: 'var(--color-text)',
     fontSize: '14px',
     fontFamily: 'inherit',
     outline: 'none',
@@ -45,17 +45,17 @@ const thStyle: React.CSSProperties = {
     textAlign: 'left',
     fontWeight: 700,
     fontSize: '11px',
-    color: '#64748b',
+    color: 'var(--color-text-muted)',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
-    background: '#f8fafc',
+    background: 'var(--color-surface-hover)',
 };
 
 const tdStyle: React.CSSProperties = {
     padding: '12px 16px',
     fontSize: '14px',
-    color: '#0f172a',
-    borderBottom: '1px solid #f1f5f9',
+    color: 'var(--color-text)',
+    borderBottom: '1px solid var(--color-border-light)',
 };
 
 const iconBadge = (bg: string): React.CSSProperties => ({
@@ -74,13 +74,13 @@ const subtleButtonStyle: React.CSSProperties = {
     alignItems: 'center',
     gap: '6px',
     padding: '7px 14px',
-    border: '1.5px solid #e2e8f0',
-    background: 'white',
+    border: '1.5px solid var(--color-border)',
+    background: 'var(--color-surface)',
     borderRadius: '10px',
     cursor: 'pointer',
     fontWeight: 600,
     fontSize: '12px',
-    color: '#475569',
+    color: 'var(--color-text-secondary)',
     fontFamily: 'inherit',
     transition: 'all 0.15s ease',
 };
@@ -313,7 +313,7 @@ export default function CurrencyManagement() {
                         <div style={iconBadge('linear-gradient(135deg, #0284c7, #0369a1)')}>
                             <Coins size={18} color="white" />
                         </div>
-                        <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Currencies</h2>
+                        <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>Currencies</h2>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                         {/* Show seed button when not all 15 currencies exist */}
@@ -355,8 +355,8 @@ export default function CurrencyManagement() {
 
                 {showCurrForm && (
                     <form onSubmit={handleCurrSubmit} style={{
-                        marginBottom: '20px', padding: '20px 24px', background: '#f8fafc',
-                        borderRadius: '16px', border: '1.5px solid #e2e8f0',
+                        marginBottom: '20px', padding: '20px 24px', background: 'var(--color-surface-hover)',
+                        borderRadius: '16px', border: '1.5px solid var(--color-border)',
                     }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                             <div>
@@ -377,7 +377,7 @@ export default function CurrencyManagement() {
                             </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: '#334155', fontWeight: 500 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
                                 <input type="checkbox" checked={currForm.is_active} onChange={e => setCurrForm({ ...currForm, is_active: e.target.checked })} />
                                 Active
                             </label>
@@ -390,7 +390,7 @@ export default function CurrencyManagement() {
                     </form>
                 )}
 
-                <div style={{ overflowX: 'auto', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                <div style={{ overflowX: 'auto', borderRadius: '14px', border: '1px solid var(--color-border)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                         <thead>
                             <tr>
@@ -407,14 +407,14 @@ export default function CurrencyManagement() {
                             {currencies?.map((c: any) => (
                                 <tr
                                     key={c.id}
-                                    onMouseOver={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseOver={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
                                     style={{ transition: 'background 0.15s ease' }}
                                 >
-                                    <td style={{ ...tdStyle, fontWeight: 700, color: '#0f172a' }}>{c.code}</td>
+                                    <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--color-text)' }}>{c.code}</td>
                                     <td style={tdStyle}>{c.name}</td>
                                     <td style={{ ...tdStyle, textAlign: 'center', fontSize: '15px' }}>{c.symbol}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: '#334155' }}>{parseFloat(c.exchange_rate).toFixed(6)}</td>
+                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>{parseFloat(c.exchange_rate).toFixed(6)}</td>
                                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                                         {c.is_base_currency && (
                                             <span style={{
@@ -438,8 +438,8 @@ export default function CurrencyManagement() {
                                             <button
                                                 onClick={() => handleEditCurr(c)}
                                                 style={{
-                                                    padding: '6px', borderRadius: '8px', border: '1px solid #e2e8f0',
-                                                    background: 'white', color: '#0284c7', cursor: 'pointer',
+                                                    padding: '6px', borderRadius: '8px', border: '1px solid var(--color-border)',
+                                                    background: 'var(--color-surface)', color: '#0284c7', cursor: 'pointer',
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 }}
                                                 title="Edit"
@@ -464,9 +464,9 @@ export default function CurrencyManagement() {
                             {(!currencies || currencies.length === 0) && (
                                 <tr>
                                     <td colSpan={7} style={{ padding: '48px 20px', textAlign: 'center' }}>
-                                        <Globe size={36} style={{ margin: '0 auto 12px', opacity: 0.2, display: 'block', color: '#64748b' }} />
-                                        <p style={{ fontWeight: 600, margin: '0 0 6px', color: '#64748b', fontSize: '14px' }}>No currencies configured</p>
-                                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 16px', maxWidth: '400px', lineHeight: 1.5 }}>
+                                        <Globe size={36} style={{ margin: '0 auto 12px', opacity: 0.2, display: 'block', color: 'var(--color-text-muted)' }} />
+                                        <p style={{ fontWeight: 600, margin: '0 0 6px', color: 'var(--color-text-muted)', fontSize: '14px' }}>No currencies configured</p>
+                                        <p style={{ fontSize: '13px', color: 'var(--color-text-subtle)', margin: '0 0 16px', maxWidth: '400px', lineHeight: 1.5 }}>
                                             Seed 15 currencies — 10 African (NGN as base) + 5 global (USD, EUR, GBP, JPY, CNY) — with exchange rates.
                                         </p>
                                         <button
@@ -499,7 +499,7 @@ export default function CurrencyManagement() {
                         <div style={iconBadge('linear-gradient(135deg, #f59e0b, #d97706)')}>
                             <ArrowRightLeft size={18} color="white" />
                         </div>
-                        <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Exchange Rate Table</h2>
+                        <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>Exchange Rate Table</h2>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button
@@ -549,7 +549,7 @@ export default function CurrencyManagement() {
                     </div>
                 </div>
 
-                <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px', lineHeight: 1.6, margin: '0 0 16px 0' }}>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginBottom: '16px', lineHeight: 1.6, margin: '0 0 16px 0' }}>
                     Historical exchange rates for converting between currencies. Rates are bidirectional — adding a rate from A to B automatically enables conversion from B to A.
                 </p>
 
@@ -574,8 +574,8 @@ export default function CurrencyManagement() {
 
                 {showRateForm && currencies && (
                     <form onSubmit={handleRateSubmit} style={{
-                        marginBottom: '20px', padding: '20px 24px', background: '#f8fafc',
-                        borderRadius: '16px', border: `1.5px solid ${editingRateId ? 'rgba(59,130,246,0.3)' : '#e2e8f0'}`,
+                        marginBottom: '20px', padding: '20px 24px', background: 'var(--color-surface-hover)',
+                        borderRadius: '16px', border: `1.5px solid ${editingRateId ? 'rgba(59,130,246,0.3)' : 'var(--color-border)'}`,
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                             <div style={{
@@ -584,7 +584,7 @@ export default function CurrencyManagement() {
                             }}>
                                 {editingRateId ? <Edit2 size={14} color="white" /> : <Plus size={14} color="white" />}
                             </div>
-                            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{editingRateId ? 'Edit Exchange Rate' : 'Add Exchange Rate'}</span>
+                            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text)' }}>{editingRateId ? 'Edit Exchange Rate' : 'Add Exchange Rate'}</span>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                             <div>
@@ -624,7 +624,7 @@ export default function CurrencyManagement() {
                     </form>
                 )}
 
-                <div style={{ overflowX: 'auto', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                <div style={{ overflowX: 'auto', borderRadius: '14px', border: '1px solid var(--color-border)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                         <thead>
                             <tr>
@@ -641,16 +641,16 @@ export default function CurrencyManagement() {
                             {exchangeRates?.map((r: any) => (
                                 <tr
                                     key={r.id}
-                                    onMouseOver={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseOver={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
                                     style={{ transition: 'background 0.15s ease' }}
                                 >
                                     <td style={{ ...tdStyle, fontWeight: 600 }}>{getCurrencyName(r.from_currency)}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8' }}><ArrowRightLeft size={14} /></td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-subtle)' }}><ArrowRightLeft size={14} /></td>
                                     <td style={{ ...tdStyle, fontWeight: 600 }}>{getCurrencyName(r.to_currency)}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: '#334155' }}>{parseFloat(r.exchange_rate).toFixed(6)}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'center', color: '#64748b' }}>{r.rate_valid_from || r.rate_date}</td>
-                                    <td style={{ ...tdStyle, textAlign: 'center', color: r.rate_valid_to ? '#64748b' : '#94a3b8', fontStyle: r.rate_valid_to ? 'normal' : 'italic' }}>
+                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>{parseFloat(r.exchange_rate).toFixed(6)}</td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-muted)' }}>{r.rate_valid_from || r.rate_date}</td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', color: r.rate_valid_to ? 'var(--color-text-muted)' : 'var(--color-text-subtle)', fontStyle: r.rate_valid_to ? 'normal' : 'italic' }}>
                                         {r.rate_valid_to || 'Ongoing'}
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -682,7 +682,7 @@ export default function CurrencyManagement() {
                                 </tr>
                             ))}
                             {(!exchangeRates || exchangeRates.length === 0) && (
-                                <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>No exchange rates configured</td></tr>
+                                <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: '14px' }}>No exchange rates configured</td></tr>
                             )}
                         </tbody>
                     </table>
@@ -695,10 +695,10 @@ export default function CurrencyManagement() {
                     <div style={iconBadge('linear-gradient(135deg, #8b5cf6, #7c3aed)')}>
                         <Star size={18} color="white" />
                     </div>
-                    <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Default Reporting Currencies</h2>
+                    <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>Default Reporting Currencies</h2>
                 </div>
 
-                <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '24px', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginBottom: '24px', lineHeight: 1.6, margin: '0 0 24px 0' }}>
                     Select 5 global currencies used for reporting. Reports can display amounts in any of these currencies for comparison.
                     Choose the most relevant currencies for your organisation's international operations.
                 </p>
@@ -720,7 +720,7 @@ export default function CurrencyManagement() {
                             <select
                                 style={{
                                     ...inputStyle,
-                                    background: 'white',
+                                    background: 'var(--color-surface)',
                                     borderColor: slot.border,
                                 }}
                                 value={slot.value || ''}
@@ -731,7 +731,7 @@ export default function CurrencyManagement() {
                                     <option key={c.id} value={c.id}>{c.code} — {c.name} ({c.symbol})</option>
                                 ))}
                             </select>
-                            <div style={{ marginTop: '6px', fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                            <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--color-text-subtle)', fontStyle: 'italic' }}>
                                 e.g. {slot.hint}
                             </div>
                         </div>
