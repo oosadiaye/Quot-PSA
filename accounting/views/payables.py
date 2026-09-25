@@ -1746,13 +1746,25 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             posted = True
         else:
             from accounting.services.payment_preview import compute_payment_entries
-            entries = compute_payment_entries(payment)
+            # ``bank_account`` (optional) lets the operator simulate with the
+            # bank account currently selected in the form, before saving the
+            # draft — so the cash GL preview equals what post_payment will book.
+            override = None
+            ba_id = request.query_params.get('bank_account')
+            if ba_id:
+                from accounting.models import BankAccount as _BankAccount
+                override = _BankAccount.objects.filter(pk=ba_id).first()
+            entries = compute_payment_entries(payment, bank_account=override)
             posted = False
 
+        # The cash GL is unresolved when the bank line is a placeholder (no bank
+        # account chosen) — the UI uses this to prompt for a bank account.
+        needs_bank_account = any(e.get('_placeholder') for e in entries)
         total_debit = sum((e['debit'] or Decimal('0.00')) for e in entries)
         total_credit = sum((e['credit'] or Decimal('0.00')) for e in entries)
         return Response({
             'posted': posted,
+            'needs_bank_account': needs_bank_account,
             'entries': [
                 {
                     'account': e['account'],
@@ -2034,28 +2046,19 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 if not ap_account:
                     ap_account = Account.objects.filter(account_type='Liability', name__icontains='Payable').first()
 
-                # Bank/cash GL — prefer the bank_account's configured
-                # GL, then the bank_accounting reconciliation marker,
-                # then the legacy CASH_ACCOUNT code, then a name match.
+                # Bank/cash GL — the operator's chosen bank account's GL, with
+                # NO default-GL fallback: a bank account is required so the cash
+                # leg posts to the intended GL (and equals the Simulate preview).
                 bank_gl_account = None
                 if payment.bank_account:
                     bank_gl_account = payment.bank_account.gl_account
-                if not bank_gl_account:
-                    bank_gl_account = Account.objects.filter(
-                        reconciliation_type='bank_accounting', is_active=True,
-                    ).first()
-                if not bank_gl_account:
-                    cash_code = default_gl.get('CASH_ACCOUNT', '10100000')
-                    bank_gl_account = Account.objects.filter(code=cash_code).first()
-                    if not bank_gl_account:
-                        bank_gl_account = Account.objects.filter(account_type='Asset', name__icontains='Bank').first()
 
                 if not ap_account or not bank_gl_account:
                     missing = []
                     if not ap_account:
                         missing.append('Accounts Payable (flag a Liability account with reconciliation_type=accounts_payable)')
                     if not bank_gl_account:
-                        missing.append('Bank/Cash (set gl_account on the payment\'s bank account, or flag an Asset with reconciliation_type=bank_accounting)')
+                        missing.append('Bank/Cash — select a bank account with a GL on this payment before posting')
                     return Response(
                         {"error": "Required GL accounts not found: " + '; '.join(missing) + "."},
                         status=status.HTTP_400_BAD_REQUEST,

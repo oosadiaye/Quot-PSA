@@ -220,7 +220,7 @@ function PaymentFormModal({
     paymentVouchers = [],
     pvRequired = false,
     initialValues,
-    footerSlot = null,
+    proposedPaymentId = null,
     onSubmit,
     onClose,
     isLoading,
@@ -238,12 +238,11 @@ function PaymentFormModal({
      */
     initialValues?: Partial<typeof BLANK_PAYMENT>;
     /**
-     * Optional slot rendered just above the modal's submit/confirm
-     * buttons. Used by the edit-and-post (review-before-post) flow to
-     * surface the proposed journal entries so the operator sees what
-     * will hit the GL before committing.
+     * When set (edit-and-post flow), renders the Simulate journal-entries
+     * preview above the submit buttons, wired to the bank account currently
+     * selected in this form so the operator validates the cash GL.
      */
-    footerSlot?: React.ReactNode;
+    proposedPaymentId?: number | null;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     // ``useState({...})`` evaluates the initial state ONCE on mount, so
@@ -592,9 +591,9 @@ function PaymentFormModal({
                             )}
                         </div>
                     </div>
-                    {footerSlot && (
+                    {proposedPaymentId != null && (
                         <div style={{ marginTop: '20px' }}>
-                            {footerSlot}
+                            <ProposedEntries paymentId={proposedPaymentId} bankAccount={form.bank_account} />
                         </div>
                     )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
@@ -646,21 +645,31 @@ interface ProposedEntryLine {
 }
 interface ProposedEntriesResponse {
     posted: boolean;
+    needs_bank_account?: boolean;
     entries: ProposedEntryLine[];
     total_debit: string;
     total_credit: string;
     balanced: boolean;
 }
 
-function ProposedEntries({ paymentId }: { paymentId: number }) {
+// SAP-style "Simulate" preview: no journal is shown until the operator clicks
+// Simulate, and the cash line resolves from the bank account currently selected
+// in the form (not a hardcoded default) — so the operator validates that
+// posting will hit the intended GL. Changing the bank account clears the sim.
+function ProposedEntries({ paymentId, bankAccount }: { paymentId: number; bankAccount: string }) {
     const { formatCurrency } = useCurrency();
-    const { data, isLoading, error } = useQuery<ProposedEntriesResponse>({
-        queryKey: ['payment-proposed-entries', paymentId],
+    const [simulated, setSimulated] = useState(false);
+    // A new bank-account selection invalidates the last simulation.
+    useEffect(() => { setSimulated(false); }, [bankAccount]);
+
+    const { data, isLoading, error, refetch, isFetching } = useQuery<ProposedEntriesResponse>({
+        queryKey: ['payment-proposed-entries', paymentId, bankAccount],
         queryFn: async () => {
-            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`);
+            const params = bankAccount ? { bank_account: bankAccount } : {};
+            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`, { params });
             return data;
         },
-        enabled: !!paymentId,
+        enabled: !!paymentId && simulated,
     });
 
     // A decimal string counts as "present" on a line only when it parses to
@@ -671,31 +680,52 @@ function ProposedEntries({ paymentId }: { paymentId: number }) {
     const cellStyle: React.CSSProperties = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#334155' };
     const numCellStyle: React.CSSProperties = { ...cellStyle, textAlign: 'right', fontFamily: 'monospace', whiteSpace: 'nowrap' };
     const headStyle: React.CSSProperties = { padding: '6px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' };
+    const simBtnStyle: React.CSSProperties = { padding: '5px 14px', fontSize: 12, fontWeight: 700, background: '#191e6a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' };
+
+    const runSimulate = () => { if (!simulated) setSimulated(true); else refetch(); };
 
     return (
         <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
-                    {data?.posted ? 'Posted journal entries' : 'Proposed journal entries (will post on confirm)'}
+                    {data?.posted ? 'Posted journal entries' : 'Simulate journal entries (preview before posting)'}
                 </span>
-                {data && (
-                    data.balanced ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#166534' }}>Balanced ✓</span>
-                    ) : (
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b' }}>Unbalanced</span>
-                    )
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {simulated && data && !data.posted && (
+                        data.balanced ? (
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#166534' }}>Balanced ✓</span>
+                        ) : (
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b' }}>Unbalanced</span>
+                        )
+                    )}
+                    <button type="button" onClick={runSimulate} disabled={isFetching} style={simBtnStyle}>
+                        {isFetching ? 'Simulating…' : (simulated ? 'Re-simulate' : 'Simulate')}
+                    </button>
+                </div>
             </div>
 
-            {isLoading && (
-                <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Loading entries…</div>
-            )}
-            {error && (
-                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
-                    Failed to load proposed entries. {(error as Error)?.message ?? 'Please try again.'}
+            {!simulated && (
+                <div style={{ padding: '10px 12px', color: '#64748b', fontSize: 12 }}>
+                    Click <strong>Simulate</strong> to preview the journal entries that will post.
+                    The Bank / Cash line uses the GL of the bank account selected above, so you can
+                    confirm the posting hits the right account.
                 </div>
             )}
-            {data && !isLoading && (
+            {simulated && isLoading && (
+                <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Simulating…</div>
+            )}
+            {simulated && error && (
+                <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
+                    Failed to simulate entries. {(error as Error)?.message ?? 'Please try again.'}
+                </div>
+            )}
+            {simulated && data?.needs_bank_account && !isLoading && (
+                <div style={{ marginBottom: 10, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, color: '#92400e', fontSize: 12 }}>
+                    ⚠ No bank account selected — the cash GL is unresolved. Select a bank account above
+                    (required to post) and re-simulate to see the actual GL.
+                </div>
+            )}
+            {simulated && data && !isLoading && (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: 8 }}>
                         <thead>
@@ -1324,7 +1354,7 @@ export default function OutgoingPaymentsPage() {
                     // (editingPaymentId set) show the proposed journal entries
                     // so the operator sees what will hit the GL before
                     // confirming. Omitted for the create-new flow (no id yet).
-                    footerSlot={editingPaymentId ? <ProposedEntries paymentId={editingPaymentId} /> : null}
+                    proposedPaymentId={editingPaymentId}
                     onSubmit={handleSubmitPayment}
                     // Clear prefill alongside closing so the next plain
                     // "+ New Payment" click opens a blank form again.

@@ -56,31 +56,27 @@ def _resolve_ap_account():
     return acct
 
 
-def _resolve_bank_account(payment):
-    from django.conf import settings as dj
-    from accounting.models import Account
-    default_gl = getattr(dj, "DEFAULT_GL_ACCOUNTS", {})
+def _resolve_bank_gl(payment, override=None):
+    """The cash/bank GL for the disbursement — from the operator's current
+    (possibly unsaved) bank-account selection first, then the payment's saved
+    bank account. NO default-GL fallback: a missing bank account must surface so
+    the operator picks one, and the preview shows the SAME GL ``post_payment``
+    will use (which now also requires a bank account)."""
+    if override is not None and getattr(override, "gl_account", None):
+        return override.gl_account
     if payment.bank_account_id and getattr(payment.bank_account, "gl_account", None):
         return payment.bank_account.gl_account
-    acct = Account.objects.filter(
-        reconciliation_type="bank_accounting", is_active=True,
-    ).first()
-    if acct is None:
-        acct = Account.objects.filter(
-            code=default_gl.get("CASH_ACCOUNT", "10100000"),
-        ).first()
-    if acct is None:
-        acct = Account.objects.filter(
-            account_type="Asset", name__icontains="Bank",
-        ).first()
-    return acct
+    return None
 
 
-def compute_payment_entries(payment) -> list[dict]:
+def compute_payment_entries(payment, *, bank_account=None) -> list[dict]:
     """Return the balanced proposed journal lines for ``payment``.
 
-    Amounts are exact; account resolution is best-effort and mirrors
-    ``post_payment``. Returns ``[]`` when there is nothing to disburse.
+    ``bank_account`` (optional) is the operator's current selection used to
+    resolve the cash GL before the draft is saved — mirrors what ``post_payment``
+    will book. When no bank GL resolves, the cash line is a flagged placeholder
+    (``_placeholder``) so the caller can tell the operator to pick a bank account.
+    Amounts are exact. Returns ``[]`` when there is nothing to disburse.
     """
     pv = getattr(payment, "payment_voucher", None)
     deductions = (
@@ -134,7 +130,19 @@ def compute_payment_entries(payment) -> list[dict]:
                 memo=f"{label} withheld" + (f" — {desc}" if desc else ""),
             ))
 
-    bank = _resolve_bank_account(payment)
-    lines.append(_line(bank, credit=net, memo="Bank / Cash — net cash out"))
+    bank = _resolve_bank_gl(payment, bank_account)
+    if bank is not None:
+        lines.append(_line(bank, credit=net, memo="Bank / Cash — net cash out"))
+    else:
+        # No bank account chosen yet — show a placeholder instead of a made-up
+        # GL, and flag it so the endpoint can tell the UI to pick a bank account.
+        lines.append({
+            "account": "— select a bank account —",
+            "account_code": "",
+            "debit": ZERO,
+            "credit": net,
+            "memo": "Bank / Cash — select a bank account to resolve the GL",
+            "_placeholder": True,
+        })
 
     return lines
