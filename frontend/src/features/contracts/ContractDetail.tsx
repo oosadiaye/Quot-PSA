@@ -17,7 +17,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/utils/date';
 import {
   Popconfirm, Button, App as AntApp,
-  Modal, Form, Input, InputNumber, DatePicker,
+  Modal, Form, Input, InputNumber,
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -25,7 +25,6 @@ import {
     type JournalDetail,
 } from '../accounting/components/shared/JournalViewer';
 import JournalDetailModal from '../accounting/components/JournalDetailModal';
-import dayjs from 'dayjs';
 import apiClient from '../../api/client';
 import {
   ArrowLeft, ChevronRight, Tag as TagIcon, Hash, Check,
@@ -401,7 +400,8 @@ const ContractDetail = () => {
         description:       values.description,
         scheduled_value:   values.scheduled_value,
         percentage_weight: values.percentage_weight,
-        target_date:       values.target_date.format('YYYY-MM-DD'),
+        // Native <input type="date"> already yields an ISO YYYY-MM-DD string.
+        target_date:       values.target_date,
         notes:             values.notes ?? '',
       });
       message.success(`Milestone #${nextNumber} added.`);
@@ -1015,7 +1015,7 @@ const ContractDetail = () => {
           )}
         </div>
 
-        <Form form={milestoneForm} layout="vertical" preserve={false}>
+        <Form form={milestoneForm} layout="vertical" preserve={false} initialValues={{ target_date: '' }}>
           <Form.Item
             label="Description"
             name="description"
@@ -1074,21 +1074,17 @@ const ContractDetail = () => {
             name="target_date"
             rules={[{ required: true, message: 'Target date required' }]}
           >
-            <DatePicker
-              style={{ width: '100%' }}
-              format="DD/MM/YYYY"
-              disabledDate={(d) => {
-                if (!d) return false;
-                const start = contract.contract_start_date
-                  ? dayjs(contract.contract_start_date)
-                  : null;
-                const end = contract.contract_end_date
-                  ? dayjs(contract.contract_end_date)
-                  : null;
-                if (start && d.isBefore(start, 'day')) return true;
-                if (end && d.isAfter(end, 'day')) return true;
-                return false;
-              }}
+            {/* Native date input — the antd DatePicker was not accepting
+                typed/picked input reliably here. A native picker enters the
+                date every time and yields an ISO (YYYY-MM-DD) value, which is
+                exactly what the API stores. ``min``/``max`` clamp the picker to
+                the contract window (both are already ISO strings from the API);
+                the browser still DISPLAYS the date in the user's locale. */}
+            <input
+              type="date"
+              min={contract.contract_start_date || undefined}
+              max={contract.contract_end_date || undefined}
+              style={nativeDateInput}
             />
           </Form.Item>
           <Form.Item label="Notes (optional)" name="notes">
@@ -1478,6 +1474,23 @@ function MilestonesTab({
 const milestoneFootRow: React.CSSProperties = {
   borderTop: '2px solid #e2e8f0',
   background: 'rgba(248, 250, 252, 0.5)',
+};
+
+// Native <input type="date"> styled to sit alongside the antd form fields in
+// the New Milestone modal.
+const nativeDateInput: React.CSSProperties = {
+  width: '100%',
+  height: 32,
+  padding: '4px 11px',
+  fontSize: 14,
+  lineHeight: 1.5714,
+  color: 'rgba(0,0,0,0.88)',
+  background: '#fff',
+  border: '1px solid #d9d9d9',
+  borderRadius: 6,
+  outline: 'none',
+  boxSizing: 'border-box',
+  fontFamily: 'inherit',
 };
 
 const milestoneActionsCell: React.CSSProperties = {
