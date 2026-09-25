@@ -1251,7 +1251,7 @@ function MilestonesTab({
     );
   }
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
@@ -1823,7 +1823,7 @@ function VariationsTab({ variations, onOpen, formatCurrency }: VariationsTabProp
     );
   }
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
@@ -1894,7 +1894,7 @@ function YearPlansTab({ yearPlans, originalSum, formatCurrency }: YearPlansTabPr
   const reconciles = Math.abs(totalPlanned - originalSum) < 0.01;
 
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
