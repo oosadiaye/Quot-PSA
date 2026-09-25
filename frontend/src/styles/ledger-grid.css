@@ -94,6 +94,10 @@ table:not([data-plain-table]):not([data-plain-table] table) tbody td {
   font-size: var(--grid-font) !important;
   line-height: 1.35 !important;
   background: var(--grid-cell);
+  /* Default cell ink follows the theme (dark on light, light on dark). Cells
+     that set their own inline colour — green credits, red negatives, link
+     refs — keep it; only plain inherited text is corrected. */
+  color: var(--grid-ink);
   vertical-align: middle;
   /* One line per row is the whole point of the compact register: it is
      what takes the Revenue list from 5 visible rows to 10. Cells that
@@ -390,20 +394,18 @@ td.tt-total-label {
 }
 
 /* ── Dark scheme ──────────────────────────────────────────────────── */
-/* The app ships light-only today. These tokens are declared so the grid
-   does not become the one surface that breaks if a dark theme lands. */
-@media (prefers-color-scheme: dark) {
-  :root[data-theme="dark"] {
-    --grid-cell:        #1b2027;
-    --grid-band:        #20262e;
-    --grid-gutter:      #262d36;
-    --grid-line:        #38424e;
-    --grid-line-strong: #55606e;
-    --grid-ink:         #e4e9ef;
-    --grid-ink-2:       #b3bcc7;
-    --grid-ink-3:       #8894a2;
-    --grid-accent:      #6fa0e8;
-    --grid-accent-wash: #23324a;
-    --grid-neg:         #ee8a82;
-  }
+/* Applied whenever the theme switcher sets data-theme="dark" — independent of
+   the OS preference, so Light/Dark/Auto all drive the register grid. */
+:root[data-theme="dark"] {
+  --grid-cell:        #1b2027;
+  --grid-band:        #20262e;
+  --grid-gutter:      #262d36;
+  --grid-line:        #38424e;
+  --grid-line-strong: #55606e;
+  --grid-ink:         #e4e9ef;
+  --grid-ink-2:       #b3bcc7;
+  --grid-ink-3:       #8894a2;
+  --grid-accent:      #6fa0e8;
+  --grid-accent-wash: #23324a;
+  --grid-neg:         #ee8a82;
 }

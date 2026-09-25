@@ -187,7 +187,7 @@ const ContractsDashboard = () => {
                                 style={{
                                     fontSize: 26,
                                     fontWeight: 800,
-                                    color: '#0b1320',
+                                    color: 'var(--color-text)',
                                     fontVariantNumeric: 'tabular-nums',
                                     lineHeight: 1.15,
                                 }}
@@ -268,7 +268,7 @@ const ContractsDashboard = () => {
                                         <div
                                             style={{
                                                 fontWeight: 600,
-                                                color: '#0b1320',
+                                                color: 'var(--color-text)',
                                                 fontSize: 14,
                                             }}
                                         >

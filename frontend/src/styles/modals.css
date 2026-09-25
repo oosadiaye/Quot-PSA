@@ -17,6 +17,14 @@
   --modal-head-wash: linear-gradient(180deg, #fbfcff 0%, #ffffff 100%);
 }
 
+/* Dark theme: keep the dividers/wash/text legible on antd's dark surface. */
+:root[data-theme="dark"] {
+  --modal-ink: #f1f5f9;
+  --modal-muted: #94a3b8;
+  --modal-border: #2a3547;
+  --modal-head-wash: linear-gradient(180deg, #1c2536 0%, #141c2b 100%);
+}
+
 /* ── Backdrop ─────────────────────────────────────────────────────── */
 .ant-modal-mask {
   background: rgba(15, 23, 42, 0.55);
@@ -96,7 +104,7 @@
   transition: background 150ms ease, color 150ms ease;
 }
 .ant-modal .ant-modal-close:hover {
-  background: #f1f5f9;
+  background: var(--color-surface-hover, #f1f5f9);
   color: var(--modal-ink);
 }
 
@@ -146,9 +154,6 @@
   box-shadow:
     0 14px 34px -10px rgba(15, 23, 42, 0.24),
     0 4px 12px -4px rgba(15, 23, 42, 0.12);
-}
-.ant-popover .ant-popover-arrow::before {
-  background: #ffffff;
 }
 .ant-popconfirm .ant-popconfirm-title {
   font-weight: 700;

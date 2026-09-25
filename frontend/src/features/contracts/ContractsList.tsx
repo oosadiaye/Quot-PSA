@@ -57,7 +57,7 @@ const ContractsList = () => {
             header: 'Title',
             mobilePrimary: true,
             render: (r) => (
-                <span style={{ color: '#0b1320' }}>{r.title}</span>
+                <span style={{ color: 'var(--color-text)' }}>{r.title}</span>
             ),
         },
         { key: 'vendor_name', header: 'Vendor' },
@@ -230,7 +230,7 @@ const ContractsList = () => {
                             keyField="id"
                             emptyState={
                                 <div style={{ padding: 16 }}>
-                                    <div style={{ fontWeight: 600, color: '#0b1320', marginBottom: 4 }}>
+                                    <div style={{ fontWeight: 600, color: 'var(--color-text)', marginBottom: 4 }}>
                                         No contracts yet
                                     </div>
                                     <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
@@ -262,8 +262,8 @@ const ContractsList = () => {
                         }}
                     >
                         <span>
-                            Showing <strong style={{ color: '#0b1320' }}>{rows.length}</strong> of{' '}
-                            <strong style={{ color: '#0b1320' }}>{data.count}</strong> contracts
+                            Showing <strong style={{ color: 'var(--color-text)' }}>{rows.length}</strong> of{' '}
+                            <strong style={{ color: 'var(--color-text)' }}>{data.count}</strong> contracts
                         </span>
                     </div>
                 )}

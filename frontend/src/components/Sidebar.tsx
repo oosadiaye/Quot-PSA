@@ -78,6 +78,7 @@ import { usePermissions, hasPermission } from '../hooks/usePermissions';
 import { useTenantModules } from '../hooks/useTenantModules';
 import { useBranding } from '../context/BrandingContext';
 import { useAuth } from '../context/AuthContext';
+import ThemeSwitcher from './ThemeSwitcher';
 import { useIsMobile } from '../design';
 import OrganizationSwitcher from './OrganizationSwitcher';
 import NotificationBell from './NotificationBell';
@@ -830,7 +831,11 @@ const Sidebar = () => {
             </nav>
 
             {/* Footer */}
-            <div style={{ padding: '12px', borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '12px', borderTop: '1px solid var(--sidebar-border, #e2e8f0)' }}>
+                {/* Theme: Light / Dark / Auto (time of day) */}
+                <div style={{ marginBottom: 10 }}>
+                    <ThemeSwitcher block />
+                </div>
                 {/* Account / Profile link — real <Link> so right-click /
                     middle-click / Ctrl+click open in a new tab natively.
                     Active state uses the same solid indigo pill as the

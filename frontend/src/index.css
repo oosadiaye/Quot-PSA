@@ -242,7 +242,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  background: white;
+  background: var(--color-surface);
   box-shadow: 0 0 0 3px rgba(36, 42, 136, 0.1);
 }
 
@@ -340,7 +340,7 @@ tr:hover {
   font-size: 13px !important;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  color: #475569 !important;
+  color: var(--color-text-secondary) !important;
 }
 
 .ant-table-tbody > tr:hover > td {
@@ -349,7 +349,7 @@ tr:hover {
 
 .ant-card {
   border-radius: 14px !important;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid var(--color-border) !important;
 }
 
 .ant-card:hover {
@@ -362,7 +362,7 @@ tr:hover {
 
 .ant-input, .ant-input-affix-wrapper, .ant-select-selector {
   border-radius: 10px !important;
-  border-color: #e2e8f0 !important;
+  border-color: var(--color-border) !important;
 }
 
 .ant-input:focus, .ant-input-focused, .ant-input-affix-wrapper:focus, .ant-input-affix-wrapper-focused,
