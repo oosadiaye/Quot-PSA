@@ -16,9 +16,11 @@ const OPTIONS: { mode: ThemeMode; label: string; Icon: ComponentType<{ size?: nu
 interface ThemeSwitcherProps {
   /** Fill the container width with three equal segments (sidebar footer). */
   block?: boolean;
+  /** Icons only, no text labels — for the compact top-bar control. */
+  iconOnly?: boolean;
 }
 
-export default function ThemeSwitcher({ block = false }: ThemeSwitcherProps) {
+export default function ThemeSwitcher({ block = false, iconOnly = false }: ThemeSwitcherProps) {
   const { mode, theme, setMode } = useTheme();
   return (
     <div style={wrap} role="group" aria-label="Theme">
@@ -30,15 +32,17 @@ export default function ThemeSwitcher({ block = false }: ThemeSwitcherProps) {
             type="button"
             onClick={() => setMode(m)}
             aria-pressed={active}
+            aria-label={`${label} theme`}
             title={m === 'auto' ? `Time of day — currently ${theme}` : `${label} theme`}
             style={{
               ...seg,
+              ...(iconOnly ? segIcon : {}),
               ...(block ? { flex: 1, justifyContent: 'center' } : {}),
               ...(active ? segActive : {}),
             }}
           >
             <Icon size={14} />
-            <span style={segLabel}>{label}</span>
+            {!iconOnly && <span style={segLabel}>{label}</span>}
           </button>
         );
       })}
@@ -60,6 +64,7 @@ const seg: CSSProperties = {
   fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
   transition: 'background 140ms ease, color 140ms ease',
 };
+const segIcon: CSSProperties = { padding: '6px 8px' };
 const segActive: CSSProperties = {
   background: 'var(--color-primary)',
   color: '#ffffff',
