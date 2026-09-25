@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { ListPageShell } from '../../components/layout';
 import LoadingScreen from '../../components/common/LoadingScreen';
+import JournalPreview from '../../components/JournalPreview';
 import {
   useContract, useContractBalance, useContractActivity,
   useActivateContract, useCloseContract,
@@ -1433,14 +1434,15 @@ function MilestonesTab({
                       <Popconfirm
                         title="Approve & post this milestone to AP?"
                         description={
-                          <span>
-                            This certifies the work and posts the milestone's coding as a
-                            vendor invoice (DR expense / CR vendor-AP) into the AP register —
-                            payable right away. Today's date is recorded as the completion date.
-                            <br /><br />
-                            <strong>Requires the coding lines added when the milestone was
-                            created.</strong>
-                          </span>
+                          <JournalPreview
+                            intro="Certifies the work and posts the milestone as a vendor invoice"
+                            lines={[
+                              { drcr: 'DR', account: 'Expense (coding lines)', amount: formatCurrency(Number(m.scheduled_value || 0)) },
+                              { drcr: 'CR', account: 'Vendor AP', amount: formatCurrency(Number(m.scheduled_value || 0)), indent: true },
+                            ]}
+                            info="Into the AP register, payable right away · today's date is recorded as the completion date."
+                            note="Requires the coding lines added when the milestone was created."
+                          />
                         }
                         okText="Approve & post"
                         cancelText="Cancel"
