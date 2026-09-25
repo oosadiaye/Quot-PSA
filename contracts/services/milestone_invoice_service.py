@@ -34,7 +34,10 @@ class MilestoneInvoiceService:
 
     @classmethod
     @transaction.atomic
-    def approve_and_invoice(cls, *, milestone, actor, posting_date=None):
+    def approve_and_invoice(
+        cls, *, milestone, actor, posting_date=None,
+        completion_date=None, notes=None,
+    ):
         from contracts.models import ContractBalance, MilestoneStatus
         from accounting.models import JournalHeader, JournalLine, VendorInvoice
         from accounting.services.base_posting import TransactionPostingError
@@ -146,9 +149,20 @@ class MilestoneInvoiceService:
                 "Raise a variation first."
             ) from exc
 
+        # Approval is now a single step (certify + invoice). Record the physical
+        # completion date + any approval note when the caller (the ``approve``
+        # action) supplies them; service-level callers that omit them leave the
+        # existing values untouched.
         milestone.status = MilestoneStatus.INVOICED
         milestone.updated_by = actor
-        milestone.save(update_fields=["status", "updated_by", "updated_at"])
+        save_fields = ["status", "updated_by", "updated_at"]
+        if completion_date is not None:
+            milestone.actual_completion_date = completion_date
+            save_fields.append("actual_completion_date")
+        if notes is not None:
+            milestone.notes = notes
+            save_fields.append("notes")
+        milestone.save(update_fields=save_fields)
 
         return invoice
 

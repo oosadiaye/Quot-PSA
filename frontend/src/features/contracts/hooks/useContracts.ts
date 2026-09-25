@@ -210,6 +210,15 @@ export const useCreateMilestone = () => {
       percentage_weight: string | number;
       target_date: string;        // YYYY-MM-DD
       notes?: string;
+      // Nested GL/budget coding captured at creation (adopted from the
+      // contract). Materialised into MilestoneInvoiceLine rows server-side;
+      // Σ amount must equal scheduled_value.
+      lines?: Array<{
+        account: number;
+        appropriation?: number | null;
+        description?: string;
+        amount: string;
+      }>;
     }) => {
       const { data } = await apiClient.post('/contracts/milestones/', payload);
       return data;
@@ -311,8 +320,11 @@ export const useApproveMilestone = () => {
       return { data, contractId };
     },
     onSuccess: ({ contractId }) => {
+      // Approve now posts the AP invoice (certified + retention change), so the
+      // contract balance must refresh too, not just the milestone list.
       qc.invalidateQueries({ queryKey: ['contract', contractId] });
       qc.invalidateQueries({ queryKey: ['contracts'] });
+      qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
     },
   });
 };
@@ -393,79 +405,6 @@ export interface MilestoneLine {
   description: string;
   amount: string;
 }
-
-/** GET the coding lines for one milestone. */
-export const useMilestoneLines = (milestoneId: number | null | undefined) => {
-  return useQuery<MilestoneLine[]>({
-    queryKey: ['milestone-lines', milestoneId],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/contracts/milestone-lines/', {
-        params: { milestone: milestoneId, page_size: 50 },
-      });
-      return Array.isArray(data) ? data : (data?.results ?? []);
-    },
-    enabled: !!milestoneId,
-    staleTime: 10 * 1000,
-  });
-};
-
-/** POST a new coding line. Locked (403) once the milestone is INVOICED. */
-export const useCreateMilestoneLine = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (payload: {
-      milestone: number; account: number; appropriation?: number | null;
-      description?: string; amount: string; contractId: number;
-    }) => {
-      const { contractId, ...body } = payload;
-      const { data } = await apiClient.post('/contracts/milestone-lines/', body);
-      return { data, milestoneId: body.milestone, contractId };
-    },
-    onSuccess: ({ milestoneId, contractId }) => {
-      qc.invalidateQueries({ queryKey: ['milestone-lines', milestoneId] });
-      qc.invalidateQueries({ queryKey: ['contract', contractId] });
-    },
-  });
-};
-
-/** DELETE a coding line. */
-export const useDeleteMilestoneLine = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ lineId, milestoneId, contractId }: {
-      lineId: number; milestoneId: number; contractId: number;
-    }) => {
-      await apiClient.delete(`/contracts/milestone-lines/${lineId}/`);
-      return { milestoneId, contractId };
-    },
-    onSuccess: ({ milestoneId, contractId }) => {
-      qc.invalidateQueries({ queryKey: ['milestone-lines', milestoneId] });
-      qc.invalidateQueries({ queryKey: ['contract', contractId] });
-    },
-  });
-};
-
-/**
- * POST /contracts/milestones/{id}/post-invoice/
- * — the milestone-as-invoice action: posts the accrual (DR expense per coding
- * line / CR vendor-AP), materialises the VendorInvoice + retention lien, and
- * flips the milestone to INVOICED. Requires >=1 coding line (backend 400s
- * "Add at least one appropriation line…" otherwise). No body.
- */
-export const usePostMilestoneInvoice = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ milestoneId, contractId }: { milestoneId: number; contractId: number }) => {
-      const { data } = await apiClient.post(`/contracts/milestones/${milestoneId}/post-invoice/`);
-      return { data, contractId };
-    },
-    onSuccess: ({ contractId }) => {
-      qc.invalidateQueries({ queryKey: ['contract', contractId] });
-      qc.invalidateQueries({ queryKey: ['contracts'] });
-      qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
-    },
-  });
-};
 
 /**
  * GET /contracts/mobilization-payments/?contract={id}

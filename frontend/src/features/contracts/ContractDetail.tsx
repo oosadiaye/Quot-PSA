@@ -17,7 +17,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/utils/date';
 import {
   Popconfirm, Button, App as AntApp,
-  Modal, Form, Input, InputNumber,
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -35,18 +34,18 @@ import LoadingScreen from '../../components/common/LoadingScreen';
 import {
   useContract, useContractBalance, useContractActivity,
   useActivateContract, useCloseContract,
-  useCreateMilestone, useStartMilestone, useApproveMilestone,
+  useStartMilestone, useApproveMilestone,
   useContractMobilization, useIssueMobilization,
   useReleaseRetentionLien,
   type MilestoneLine,
 } from './hooks/useContracts';
-import MilestoneInvoiceModal from './milestones/MilestoneInvoiceModal';
+import MilestoneCreateModal from './milestones/MilestoneCreateModal';
 import { useVariations } from './hooks/useVariations';
 import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
 
 // ── Status mapping ──────────────────────────────────────────────────
 // 7 backend statuses → 5 visual phases for the compact stepper.
@@ -184,7 +183,6 @@ const ContractDetail = () => {
 
   const activateMut = useActivateContract();
   const closeMut = useCloseContract();
-  const createMilestoneMut = useCreateMilestone();
   const startMilestoneMut = useStartMilestone();
   const approveMilestoneMut = useApproveMilestone();
 
@@ -200,7 +198,7 @@ const ContractDetail = () => {
   const handleApproveMilestone = async (milestoneId: number) => {
     try {
       await approveMilestoneMut.mutateAsync({ id: milestoneId, contractId: cid });
-      message.success('Milestone approved — IPC can now be raised against it.');
+      message.success('Milestone approved and invoiced — now in the AP register.');
     } catch (e) {
       message.error(formatServiceError(e, 'Failed to approve milestone'));
     }
@@ -251,75 +249,18 @@ const ContractDetail = () => {
       message.error(formatServiceError(e, 'Failed to release retention'));
     }
   };
-  // Milestone-as-invoice: the "Post Invoice" action opens a coding-line editor
-  // (see MilestoneInvoiceModal), which posts the accrual and flips the
-  // milestone to INVOICED. This replaced the old "Convert to IPC" flow.
-  const [invoiceMilestone, setInvoiceMilestone] = useState<MilestoneRow | null>(null);
-
-  // Inline "New Milestone" modal — keeps the user in the contract
-  // detail context (no navigation away). Matches SAP's "schedule
-  // line" pattern where child rows are added via a slide-over panel
-  // rather than a separate page.
+  // Inline "New Milestone" modal — keeps the user in the contract detail
+  // context. See MilestoneCreateModal, which captures the milestone's GL/budget
+  // coding (adopted from the contract) so approving it posts to the AP register.
   const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
   // "Acct Doc" — the GL journal (accounting document) to show in a modal,
   // opened from a milestone row (its invoice's accrual journal) or a payment
   // sub-line (its disbursement journal).
   const [viewJournalId, setViewJournalId] = useState<number | null>(null);
-  const [milestoneForm] = Form.useForm();
 
-  // ── Derived values (safe with undefined contract during loading) ──
-  // Computed BEFORE early returns so the hooks below can depend on
-  // them without violating the Rules of Hooks (hook count must be
-  // stable across renders).
+  // Contract ceiling — used by the milestones table footer + the create modal.
+  // Computed before the early returns so hook order stays stable.
   const ceiling = Number(contract?.contract_ceiling || 0);
-
-  // Aggregate caps — derived from the loaded contract + milestones.
-  // Used by both the table footer and the create-modal live preview
-  // so what we show always matches what the backend will accept.
-  const milestoneTotals = useMemo(() => {
-    const list = (contract?.milestones ?? []) as any[];
-    const totalValue = list.reduce(
-      (s, m) => s + (parseFloat(String(m.scheduled_value || 0)) || 0), 0,
-    );
-    const totalWeight = list.reduce(
-      (s, m) => s + (parseFloat(String(m.percentage_weight || 0)) || 0), 0,
-    );
-    return {
-      totalValue,
-      totalWeight,
-      remainingValue: Math.max(0, ceiling - totalValue),
-      remainingWeight: Math.max(0, 100 - totalWeight),
-    };
-  }, [contract?.milestones, ceiling]);
-
-  // Live-watch the modal form so the preview banner updates as the
-  // user types. ``Form.useWatch`` re-renders whenever the watched
-  // field changes, so the comparisons below always reflect what's
-  // currently in the inputs. Hoisted above early-returns to keep
-  // hook order stable.
-  const liveValue = Form.useWatch('scheduled_value', milestoneForm) || 0;
-  const liveWeight = Form.useWatch('percentage_weight', milestoneForm) || 0;
-
-  // ── Auto-populate Percentage Weight from Scheduled Value ──────────
-  // The "default" weight in a lump-sum contract is the milestone's
-  // share of the contract sum: weight = value / contract_sum * 100.
-  // Operators can still override it manually for risk-weighted
-  // milestones (e.g. mobilisation typically carries less weight than
-  // its raw value would suggest) — typing a new value just refreshes
-  // the auto-fill. Rounded to 3dp to match the model's
-  // ``decimal_places=3`` so what the user sees equals what the
-  // backend stores. The equality guard prevents an avoidable
-  // re-render loop when the computed weight matches the stored one.
-  useEffect(() => {
-    if (!milestoneModalOpen) return;
-    if (!Number.isFinite(ceiling) || ceiling <= 0) return;
-    const v = Number(liveValue || 0);
-    const computed = Math.round((v / ceiling) * 100000) / 1000; // 3dp
-    const current = milestoneForm.getFieldValue('percentage_weight');
-    if (Number(current ?? -1) !== computed) {
-      milestoneForm.setFieldValue('percentage_weight', computed);
-    }
-  }, [liveValue, ceiling, milestoneModalOpen, milestoneForm]);
 
   if (loadingC) return <LoadingScreen />;
   if (!contract) {
@@ -363,58 +304,6 @@ const ContractDetail = () => {
     }
   };
 
-  const projectedValue = milestoneTotals.totalValue + Number(liveValue || 0);
-  const projectedWeight = milestoneTotals.totalWeight + Number(liveWeight || 0);
-  const valueOverflow = projectedValue > ceiling;
-  const weightOverflow = projectedWeight > 100;
-
-  const handleSubmitMilestone = async () => {
-    try {
-      const values = await milestoneForm.validateFields();
-      // Client-side aggregate check — backend's
-      // ``MilestoneSchedule.clean`` enforces the same rule (defence
-      // in depth), but failing fast in the UI saves a round-trip
-      // and gives a more contextual error.
-      const v = Number(values.scheduled_value || 0);
-      const w = Number(values.percentage_weight || 0);
-      if (milestoneTotals.totalValue + v > ceiling && ceiling > 0) {
-        message.error(
-          `Total milestone value would be ${formatCurrency(milestoneTotals.totalValue + v)}, `
-          + `which exceeds the contract sum of ${formatCurrency(ceiling)}. `
-          + `Reduce the value or raise a contract write-up first.`,
-        );
-        return;
-      }
-      if (milestoneTotals.totalWeight + w > 100) {
-        message.error(
-          `Total milestone weight would be ${(milestoneTotals.totalWeight + w).toFixed(2)}% — `
-          + `over the 100% cap.`,
-        );
-        return;
-      }
-
-      const nextNumber = (contract.milestones?.length ?? 0) + 1;
-      await createMilestoneMut.mutateAsync({
-        contract: cid,
-        milestone_number: nextNumber,
-        description:       values.description,
-        scheduled_value:   values.scheduled_value,
-        percentage_weight: values.percentage_weight,
-        // Native <input type="date"> already yields an ISO YYYY-MM-DD string.
-        target_date:       values.target_date,
-        notes:             values.notes ?? '',
-      });
-      message.success(`Milestone #${nextNumber} added.`);
-      milestoneForm.resetFields();
-      setMilestoneModalOpen(false);
-    } catch (e) {
-      // ``validateFields`` rejects with an errorFields object — that's
-      // not a service error, it's just "fix the form". Service errors
-      // are real failures from the API call.
-      if ((e as { errorFields?: unknown })?.errorFields) return;
-      message.error(formatServiceError(e, 'Failed to add milestone'));
-    }
-  };
 
   const canRaiseIPC = status !== 'DRAFT' && status !== 'CLOSED';
   const canRaiseVariation = canRaiseIPC;
@@ -787,7 +676,6 @@ const ContractDetail = () => {
                 formatCurrency={formatCurrency}
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
-                onPostInvoice={(m) => setInvoiceMilestone(m)}
                 onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
                 onViewJournal={(id) => setViewJournalId(id)}
                 actionLoading={
@@ -930,168 +818,22 @@ const ContractDetail = () => {
         <JournalDetailModal id={viewJournalId} onClose={() => setViewJournalId(null)} />
       )}
 
-      {/* Milestone-as-invoice — coding-line editor + Post Invoice. Opened from
-          a COMPLETED milestone's "Post Invoice" action. */}
-      {invoiceMilestone && (
-        <MilestoneInvoiceModal
-          milestone={invoiceMilestone}
+      {/* New Milestone — captures the milestone's GL/budget coding at creation
+          (adopted from the contract) so approving it posts to the AP register.
+          See MilestoneCreateModal (invoice-style coding grid). */}
+      {milestoneModalOpen && (
+        <MilestoneCreateModal
+          contract={contract}
           contractId={cid}
-          defaultAppropriation={contract.appropriation ?? null}
-          defaultAppropriationLabel={contract.appropriation_label ?? null}
+          ceiling={ceiling}
+          milestones={contract.milestones ?? []}
           formatCurrency={formatCurrency}
-          onClose={() => setInvoiceMilestone(null)}
-          onPosted={(res) => {
-            message.success(
-              res.invoice_number
-                ? `Invoice ${res.invoice_number} posted — milestone is now INVOICED.`
-                : 'Milestone invoiced.',
-            );
-          }}
+          onClose={() => setMilestoneModalOpen(false)}
+          onCreated={(n) =>
+            message.success(`Milestone #${n} added — approve it to post to the AP register.`)
+          }
         />
       )}
-
-      {/* New Milestone modal — defined inline so the form state lives
-          beside the contract context. The next milestone_number is
-          computed at submit time from the current count, so the user
-          never has to think about numbering. */}
-      <Modal
-        title={`New Milestone — Contract ${contract.contract_number ?? `#${cid}`}`}
-        open={milestoneModalOpen}
-        onCancel={() => setMilestoneModalOpen(false)}
-        onOk={handleSubmitMilestone}
-        okText={`Add Milestone #${(contract.milestones?.length ?? 0) + 1}`}
-        okButtonProps={{ disabled: valueOverflow || weightOverflow }}
-        confirmLoading={createMilestoneMut.isPending}
-        destroyOnHidden
-        width={560}
-      >
-        <p style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>
-          Milestones are physical contractual checkpoints (e.g. "Foundation laid",
-          "Roof complete"). When achieved, they trigger an IPC for payment.
-        </p>
-
-        {/* Live aggregate preview — refreshes as the user types so they
-            never bump up against the backend's cap unexpectedly. */}
-        <div style={{
-          background: valueOverflow || weightOverflow ? '#fef2f2' : '#f0f9ff',
-          border: `1px solid ${valueOverflow || weightOverflow ? '#fecaca' : '#bae6fd'}`,
-          borderRadius: 8,
-          padding: '0.75rem 1rem',
-          marginBottom: 16,
-          fontSize: 12,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-            <span>
-              <strong>Existing milestones:</strong>{' '}
-              {formatCurrency(milestoneTotals.totalValue)} · {milestoneTotals.totalWeight.toFixed(1)}%
-            </span>
-            <span>
-              <strong>Remaining:</strong>{' '}
-              {formatCurrency(milestoneTotals.remainingValue)} · {milestoneTotals.remainingWeight.toFixed(1)}%
-            </span>
-          </div>
-          {(liveValue > 0 || liveWeight > 0) && (
-            <div style={{
-              paddingTop: 6, borderTop: `1px solid ${valueOverflow || weightOverflow ? '#fecaca' : '#bae6fd'}`,
-              color: valueOverflow || weightOverflow ? '#b91c1c' : '#0369a1',
-              fontWeight: 600,
-            }}>
-              <strong>After adding this milestone:</strong>{' '}
-              {formatCurrency(projectedValue)} ({((projectedValue / Math.max(ceiling, 1)) * 100).toFixed(1)}%)
-              {' · '}
-              Weight {projectedWeight.toFixed(1)}%
-              {valueOverflow && (
-                <div style={{ marginTop: 4, fontSize: 11 }}>
-                  ⚠ Exceeds contract sum {formatCurrency(ceiling)} by{' '}
-                  {formatCurrency(projectedValue - ceiling)}
-                </div>
-              )}
-              {weightOverflow && (
-                <div style={{ marginTop: 4, fontSize: 11 }}>
-                  ⚠ Exceeds 100% weight cap by {(projectedWeight - 100).toFixed(2)}%
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <Form form={milestoneForm} layout="vertical" preserve={false} initialValues={{ target_date: '' }}>
-          <Form.Item
-            label="Description"
-            name="description"
-            rules={[{ required: true, message: 'Describe the milestone' }]}
-          >
-            <Input placeholder="e.g. Foundation work complete" />
-          </Form.Item>
-          <Form.Item
-            label="Scheduled Value (NGN)"
-            name="scheduled_value"
-            rules={[
-              { required: true, message: 'Scheduled value required' },
-              {
-                validator: (_, v) =>
-                  v && Number(v) > 0 ? Promise.resolve() : Promise.reject('Must be > 0'),
-              },
-            ]}
-            tooltip={`Of the ${formatCurrency(ceiling)} contract ceiling.`}
-          >
-            <InputNumber
-              min={0.01}
-              style={{ width: '100%' }}
-              step={1000}
-              formatter={(v) => (v != null ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
-              parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as 0.01}
-            />
-          </Form.Item>
-          <Form.Item
-            label="Percentage Weight"
-            name="percentage_weight"
-            rules={[
-              { required: true, message: 'Weight required' },
-              { type: 'number', min: 0, max: 100, message: '0–100%' },
-            ]}
-            tooltip={
-              ceiling > 0
-                ? `Auto-calculated as Scheduled Value ÷ Contract Sum (${formatCurrency(ceiling)}) × 100. Override manually for risk-weighted milestones.`
-                : 'What share of the total project this milestone represents.'
-            }
-            extra={
-              ceiling > 0
-                ? 'Auto-filled from Scheduled Value — edit if this milestone carries a different risk weight.'
-                : undefined
-            }
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              style={{ width: '100%' }}
-              step={1}
-              addonAfter="%"
-            />
-          </Form.Item>
-          <Form.Item
-            label="Target Date"
-            name="target_date"
-            rules={[{ required: true, message: 'Target date required' }]}
-          >
-            {/* Native date input — the antd DatePicker was not accepting
-                typed/picked input reliably here. A native picker enters the
-                date every time and yields an ISO (YYYY-MM-DD) value, which is
-                exactly what the API stores. ``min``/``max`` clamp the picker to
-                the contract window (both are already ISO strings from the API);
-                the browser still DISPLAYS the date in the user's locale. */}
-            <input
-              type="date"
-              min={contract.contract_start_date || undefined}
-              max={contract.contract_end_date || undefined}
-              style={nativeDateInput}
-            />
-          </Form.Item>
-          <Form.Item label="Notes (optional)" name="notes">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </Form>
-      </Modal>
     </ListPageShell>
   );
 };
@@ -1214,14 +956,13 @@ interface MilestonesTabProps {
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
-  onPostInvoice: (milestone: MilestoneRow) => void;
   onOpenIPC: (ipcId: number) => void;
   onViewJournal: (journalId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
   milestones, contractCeiling, formatCurrency,
-  onStart, onApprove, onPostInvoice, onOpenIPC, onViewJournal, actionLoading,
+  onStart, onApprove, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
@@ -1304,19 +1045,20 @@ function MilestonesTab({
                       </button>
                     </Popconfirm>
                   )}
-                  {(m.status === 'PENDING' || m.status === 'IN_PROGRESS') && (
+                  {(m.status === 'PENDING' || m.status === 'IN_PROGRESS' || m.status === 'COMPLETED') && !m.ipc && (
                     <Popconfirm
-                      title="Approve this milestone as complete?"
+                      title="Approve & post this milestone to AP?"
                       description={
                         <span>
-                          This certifies the work as physically complete and unlocks
-                          IPC submission against this milestone. Today's date will be
-                          recorded as the completion date.
+                          This certifies the work and posts the milestone's coding as a
+                          vendor invoice (DR expense / CR vendor-AP) into the AP register —
+                          payable right away. Today's date is recorded as the completion date.
                           <br /><br />
-                          <strong>This is the milestone "approval" step.</strong>
+                          <strong>Requires the coding lines added when the milestone was
+                          created.</strong>
                         </span>
                       }
-                      okText="Yes, approve"
+                      okText="Approve & post"
                       cancelText="Cancel"
                       onConfirm={() => onApprove(m.id)}
                     >
@@ -1324,17 +1066,6 @@ function MilestonesTab({
                         ✓ Approve
                       </button>
                     </Popconfirm>
-                  )}
-                  {m.status === 'COMPLETED' && !m.ipc && (
-                    <button
-                      type="button"
-                      style={milestoneConvertBtn}
-                      disabled={actionLoading}
-                      onClick={() => onPostInvoice(m)}
-                      title="Add coding lines and post this milestone as a vendor invoice"
-                    >
-                      Post Invoice
-                    </button>
                   )}
                   {m.status === 'COMPLETED' && m.ipc && (
                     <button
@@ -1476,23 +1207,6 @@ const milestoneFootRow: React.CSSProperties = {
   background: 'rgba(248, 250, 252, 0.5)',
 };
 
-// Native <input type="date"> styled to sit alongside the antd form fields in
-// the New Milestone modal.
-const nativeDateInput: React.CSSProperties = {
-  width: '100%',
-  height: 32,
-  padding: '4px 11px',
-  fontSize: 14,
-  lineHeight: 1.5714,
-  color: 'rgba(0,0,0,0.88)',
-  background: '#fff',
-  border: '1px solid #d9d9d9',
-  borderRadius: 6,
-  outline: 'none',
-  boxSizing: 'border-box',
-  fontFamily: 'inherit',
-};
-
 const milestoneActionsCell: React.CSSProperties = {
   display: 'inline-flex', gap: 6, justifyContent: 'flex-end',
 };
@@ -1535,14 +1249,6 @@ const milestoneApprovedTag: React.CSSProperties = {
   background: '#dcfce7', color: '#15803d',
   borderRadius: 999,
   textTransform: 'uppercase', letterSpacing: '0.05em',
-};
-const milestoneConvertBtn: React.CSSProperties = {
-  padding: '4px 12px',
-  fontSize: 11, fontWeight: 700,
-  background: '#4f46e5', color: '#fff',
-  border: 'none', borderRadius: 6,
-  cursor: 'pointer',
-  boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)',
 };
 const milestoneIPCLink: React.CSSProperties = {
   display: 'inline-block',

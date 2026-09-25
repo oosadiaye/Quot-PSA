@@ -322,3 +322,133 @@ class TestMilestoneInvoice:
         bare = MilestoneScheduleSerializer(ms).data
         assert bare["invoice"] is None
         assert bare["payments"] == []
+
+    # ── Coding captured at creation + approve auto-posts to AP ────────────
+
+    def test_serializer_create_persists_nested_coding_lines(
+        self, activated_contract, _legacy_accounts, appropriation, approver,
+    ):
+        """POSTing a milestone with a nested ``lines`` list materialises the
+        MilestoneInvoiceLine rows (coding captured at creation)."""
+        from contracts.serializers import MilestoneScheduleSerializer
+
+        data = {
+            "contract": activated_contract.id,
+            "milestone_number": 20,
+            "description": "Roof",
+            "scheduled_value": "1000000.00",
+            "percentage_weight": "10.000",
+            "lines": [
+                {"account": _legacy_accounts.expense.id, "appropriation": appropriation.id,
+                 "description": "Roof works", "amount": "600000.00"},
+                {"account": _legacy_accounts.expense.id, "description": "Extras", "amount": "400000.00"},
+            ],
+        }
+        ser = MilestoneScheduleSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        ms = ser.save(created_by=approver, updated_by=approver)
+
+        lines = list(ms.lines.all())
+        assert len(lines) == 2
+        assert sum(l.amount for l in lines) == Decimal("1000000.00")
+        assert lines[0].appropriation_id == appropriation.id
+
+    def test_serializer_rejects_lines_not_summing_to_scheduled_value(
+        self, activated_contract, _legacy_accounts,
+    ):
+        """Coding lines must total the Scheduled Value (milestone = invoice)."""
+        from contracts.serializers import MilestoneScheduleSerializer
+
+        data = {
+            "contract": activated_contract.id, "milestone_number": 21,
+            "description": "Bad", "scheduled_value": "1000000.00",
+            "percentage_weight": "10.000",
+            # 600k ≠ 1M
+            "lines": [{"account": _legacy_accounts.expense.id, "amount": "600000.00"}],
+        }
+        ser = MilestoneScheduleSerializer(data=data)
+        assert not ser.is_valid()
+        assert "lines" in ser.errors
+
+    def test_serializer_locks_lines_after_invoiced(
+        self, activated_contract, _legacy_accounts, approver,
+    ):
+        """Editing coding on an INVOICED milestone is rejected (locked)."""
+        from contracts.serializers import MilestoneScheduleSerializer
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        ms = _milestone_with_lines(
+            activated_contract, _legacy_accounts.expense, number=24, amount="2000000.00",
+        )
+        MilestoneInvoiceService.approve_and_invoice(milestone=ms, actor=approver)
+        ms.refresh_from_db()
+
+        ser = MilestoneScheduleSerializer(
+            ms, partial=True,
+            data={"lines": [{"account": _legacy_accounts.expense.id, "amount": "2000000.00"}]},
+        )
+        assert not ser.is_valid()
+        assert "lines" in ser.errors
+
+    def test_approve_endpoint_auto_posts_to_ap_register(
+        self, activated_contract, _legacy_accounts,
+    ):
+        """The approve action posts the AP invoice from the milestone's coding
+        lines and flips it to INVOICED — it appears in the AP register at once."""
+        from rest_framework.test import APIClient
+        from django.contrib.auth import get_user_model
+        from contracts.models import MilestoneSchedule, MilestoneInvoiceLine, MilestoneStatus
+        from accounting.models import VendorInvoice
+
+        ms = MilestoneSchedule.objects.create(
+            contract=activated_contract, milestone_number=22, description="Slab",
+            scheduled_value=Decimal("5000000.00"), percentage_weight=Decimal("10.000"),
+            status=MilestoneStatus.IN_PROGRESS,
+        )
+        MilestoneInvoiceLine.objects.create(
+            milestone=ms, account=_legacy_accounts.expense,
+            description="Slab", amount=Decimal("5000000.00"),
+        )
+        # get_or_create — auth_user (public schema) is not flushed between
+        # transaction=True reuse-db runs, so a plain create would collide.
+        su, _ = get_user_model().objects.get_or_create(
+            username="ms_approve_su", defaults={"is_superuser": True, "is_staff": True},
+        )
+        client = APIClient(HTTP_X_TENANT_DOMAIN="pytest.localhost")
+        client.force_authenticate(su)
+
+        resp = client.post(f"/api/contracts/milestones/{ms.id}/approve/", {}, format="json")
+        assert resp.status_code == 200, resp.content
+
+        ms.refresh_from_db()
+        assert ms.status == MilestoneStatus.INVOICED
+        # In the AP register: a Posted VendorInvoice keyed to the contract.
+        inv = (VendorInvoice.objects
+               .filter(reference=activated_contract.contract_number)
+               .order_by("-id").first())
+        assert inv is not None
+        assert inv.status == "Posted"
+        assert inv.total_amount == Decimal("5000000.00")
+
+    def test_approve_endpoint_without_lines_errors(self, activated_contract):
+        """Approving a milestone with no coding lines is rejected (can't post)."""
+        from rest_framework.test import APIClient
+        from django.contrib.auth import get_user_model
+        from contracts.models import MilestoneSchedule, MilestoneStatus
+
+        ms = MilestoneSchedule.objects.create(
+            contract=activated_contract, milestone_number=23, description="No coding",
+            scheduled_value=Decimal("1000000.00"), percentage_weight=Decimal("5.000"),
+            status=MilestoneStatus.IN_PROGRESS,
+        )
+        su, _ = get_user_model().objects.get_or_create(
+            username="ms_nolines_su", defaults={"is_superuser": True, "is_staff": True},
+        )
+        client = APIClient(HTTP_X_TENANT_DOMAIN="pytest.localhost")
+        client.force_authenticate(su)
+
+        resp = client.post(f"/api/contracts/milestones/{ms.id}/approve/", {}, format="json")
+        assert resp.status_code == 400
+        assert b"line" in resp.content.lower()
+        ms.refresh_from_db()
+        assert ms.status != MilestoneStatus.INVOICED

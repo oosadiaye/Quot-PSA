@@ -178,6 +178,16 @@ class MilestoneInvoiceLineSerializer(serializers.ModelSerializer):
         return getattr(getattr(appr, "economic", None), "name", None) if appr else None
 
 
+class MilestoneInvoiceLineWriteSerializer(serializers.ModelSerializer):
+    """Write shape for a milestone coding line nested under a milestone create/
+    update. Excludes ``milestone`` — the parent sets it. ``account`` is required
+    (the DR GL); ``appropriation`` is optional; ``amount`` must be > 0."""
+
+    class Meta:
+        model = MilestoneInvoiceLine
+        fields = ["account", "appropriation", "description", "amount"]
+
+
 class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # ── IPC linkage (read-only) ───────────────────────────────────────
     # ``InterimPaymentCertificate.milestone`` is a OneToOneField with
@@ -194,8 +204,10 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
     # as the human-readable audit pointer next to the row.
     ipc = serializers.SerializerMethodField()
     ipc_number = serializers.SerializerMethodField()
-    # Budget-appropriation coding lines (centralised-AP). Read-only here;
-    # created/edited via the dedicated milestone-lines endpoint.
+    # Budget-appropriation coding lines (centralised-AP). This field is the
+    # read/display shape; WRITES come in as a nested ``lines`` list on the
+    # milestone create/update and are handled in validate()/create()/update()
+    # below (materialised into MilestoneInvoiceLine rows, Σ == scheduled_value).
     lines = MilestoneInvoiceLineSerializer(many=True, read_only=True)
     # ── Milestone-as-invoice → payment history (read-only) ────────────
     # An approved milestone becomes a VendorInvoice (invoice_number =
@@ -220,6 +232,73 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "invoice", "payments",
         ]
         read_only_fields = ["id", "invoice", "payments"]
+
+    # ── Nested coding-line writes ─────────────────────────────────────
+    # A milestone carries its GL/budget coding at CREATION (adopted from the
+    # contract). ``lines`` above is read-only for output; on write we parse the
+    # raw ``lines`` list from the request, validate each row, enforce
+    # Σ amount == scheduled_value (the milestone value IS the invoice total),
+    # and materialise the MilestoneInvoiceLine rows. Coding is locked once the
+    # milestone is INVOICED. Lines are optional (a milestone can be coded later),
+    # but ``approve`` requires at least one.
+    def _extract_line_data(self):
+        raw = getattr(self, "initial_data", None)
+        if not isinstance(raw, dict) or "lines" not in raw:
+            return None
+        payload = raw.get("lines")
+        if payload is None:
+            return None
+        write = MilestoneInvoiceLineWriteSerializer(data=payload, many=True)
+        write.is_valid(raise_exception=True)
+        return list(write.validated_data)
+
+    def validate(self, attrs):
+        from contracts.models import MilestoneStatus
+        attrs = super().validate(attrs)
+        lines = self._extract_line_data()
+        if lines is not None:
+            if self.instance is not None and self.instance.status == MilestoneStatus.INVOICED:
+                raise serializers.ValidationError(
+                    {"lines": "Coding is locked once the milestone is invoiced."}
+                )
+            if not lines:
+                raise serializers.ValidationError({"lines": "Add at least one coding line."})
+            sched = attrs.get(
+                "scheduled_value", getattr(self.instance, "scheduled_value", None),
+            )
+            total = sum(
+                (Decimal(str(row["amount"])) for row in lines), Decimal("0"),
+            ).quantize(Decimal("0.01"))
+            if sched is not None and total != Decimal(str(sched)).quantize(Decimal("0.01")):
+                raise serializers.ValidationError({
+                    "lines": (
+                        f"Coding lines total ₦{total:,.2f} must equal the "
+                        f"scheduled value ₦{Decimal(str(sched)):,.2f}."
+                    )
+                })
+            self._pending_lines = lines
+        return attrs
+
+    def create(self, validated_data):
+        instance = super().create(validated_data)
+        lines = getattr(self, "_pending_lines", None)
+        if lines:
+            self._replace_lines(instance, lines)
+        return instance
+
+    def update(self, instance, validated_data):
+        # The INVOICED lock is enforced in validate() (returns 400 via is_valid).
+        lines = getattr(self, "_pending_lines", None)
+        instance = super().update(instance, validated_data)
+        if lines is not None:
+            self._replace_lines(instance, lines)
+        return instance
+
+    @staticmethod
+    def _replace_lines(milestone, lines):
+        milestone.lines.all().delete()
+        for row in lines:
+            MilestoneInvoiceLine.objects.create(milestone=milestone, **row)
 
     def get_ipc(self, obj):
         # ``hasattr`` returns False for an unset reverse OneToOne in

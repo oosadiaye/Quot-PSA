@@ -419,18 +419,20 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
 
     # ── Milestone approval / state transitions ────────────────────────
-    # Three actions covering the full lifecycle:
+    # Lifecycle (centralised-AP):
     #   start      — PENDING → IN_PROGRESS  (work has begun on site)
-    #   approve    — anything → COMPLETED   (engineer certifies done)
+    #   approve    — anything → INVOICED    (certify AND post the AP invoice,
+    #                                        real-time; shows in the AP register)
     #   reopen     — COMPLETED → IN_PROGRESS (defect found post-cert)
-    # ``approve`` is the most common — it's the "approve milestone"
-    # action the user asked for. Once COMPLETED, an IPC may be raised
-    # against this milestone for payment.
+    # ``approve`` is the single certify+invoice step: the milestone's coding
+    # lines (captured at creation) become the accrual (DR expense / CR vendor-AP)
+    # and a VendorInvoice, so an approved milestone is immediately payable
+    # through AP. The old IPC path is retired (convert_to_ipc stays for Phase 3).
 
     def get_permissions(self):
         # Custom transition actions need the certification permission.
         # Tenant admins and superusers always pass via ``_BaseContractsPermission``.
-        if self.action in {"approve", "start", "reopen", "post_invoice"}:
+        if self.action in {"approve", "start", "reopen"}:
             return [CanApproveMilestone()]
         if self.action == "convert_to_ipc":
             # Conversion creates an IPC — same permission tier as
@@ -456,31 +458,34 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """Approve / certify a milestone — sets status COMPLETED.
+        """Approve a milestone AND post it as an AP invoice — one step.
+
+        Certifies the milestone and posts its coding lines as the accrual
+        (DR expense per line / CR vendor-AP gross), materialises the
+        ``VendorInvoice`` booked GROSS with the retention lien, bumps the
+        contract balance, and flips the milestone to INVOICED — atomic and
+        real-time, so it appears in the AP register immediately. Requires the
+        coding lines captured at creation; a milestone with none returns 400.
 
         Body (all optional):
             actual_completion_date  YYYY-MM-DD; defaults to today
-            notes                   free-text approval narrative
+            notes                   free-text approval narrative (appended)
 
-        Permission: ``CanApproveMilestone`` — tenant admins always
-        pass; otherwise the user needs ``contracts.certify_milestone``
-        or ``contracts.certify_ipc``.
+        Permission: ``CanApproveMilestone``.
         """
-        from datetime import date as _date
+        from datetime import date as _date, datetime as _dt
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
 
         milestone = self.get_object()
-        if milestone.status == "COMPLETED":
+        if milestone.status == "INVOICED":
             return Response(
-                {
-                    "error": "Milestone is already COMPLETED.",
-                    "actual_completion_date": milestone.actual_completion_date,
-                },
+                {"error": "Milestone is already invoiced."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         completion_raw = request.data.get("actual_completion_date")
         if completion_raw:
-            from datetime import datetime as _dt
             try:
                 completion_date = _dt.strptime(completion_raw, "%Y-%m-%d").date()
             except ValueError:
@@ -491,6 +496,9 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
         else:
             completion_date = _date.today()
 
+        # Compose the note addendum (stamped) if the caller sent one; None leaves
+        # the existing notes untouched.
+        note_value = None
         notes_addendum = (request.data.get("notes") or "").strip()
         if notes_addendum:
             existing = (milestone.notes or "").strip()
@@ -498,47 +506,23 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
                 f"\n[Approved by {request.user.get_username()} "
                 f"on {completion_date.isoformat()}] {notes_addendum}"
             )
-            milestone.notes = (existing + stamp).strip()
+            note_value = (existing + stamp).strip()
 
-        milestone.status = "COMPLETED"
-        milestone.actual_completion_date = completion_date
-        milestone.updated_by = request.user
-        milestone.save(update_fields=[
-            "status", "actual_completion_date", "notes",
-            "updated_by", "updated_at",
-        ])
-        return Response(MilestoneScheduleSerializer(milestone).data)
-
-    @action(detail=True, methods=["post"], url_path="post-invoice")
-    def post_invoice(self, request, pk=None):
-        """Approve the milestone and post it as an AP invoice (centralised AP).
-
-        Requires appropriation lines. Posts DR Expense (per line) / CR Vendor-AP
-        (gross), materialises the ``VendorInvoice`` booked GROSS with the
-        retention lien, bumps the contract balance, and flips the milestone to
-        INVOICED — all atomic, real-time. Replaces the IPC path.
-        """
-        from accounting.services.base_posting import TransactionPostingError
-        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
-
-        milestone = self.get_object()
         try:
             invoice = MilestoneInvoiceService.approve_and_invoice(
                 milestone=milestone, actor=request.user,
+                completion_date=completion_date, notes=note_value,
             )
         except TransactionPostingError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(
-            {
-                "milestone_id": milestone.pk,
-                "invoice_id": invoice.pk,
-                "invoice_number": invoice.invoice_number,
-                "total_amount": str(invoice.total_amount),
-                "retention_withheld": str(invoice.retention_withheld),
-                "payable_now": str(invoice.payable_now),
-            },
-            status=status.HTTP_201_CREATED,
-        )
+
+        milestone.refresh_from_db()
+        data = MilestoneScheduleSerializer(milestone).data
+        data["invoice_id"] = invoice.pk
+        data["invoice_number"] = invoice.invoice_number
+        data["retention_withheld"] = str(invoice.retention_withheld)
+        data["payable_now"] = str(invoice.payable_now)
+        return Response(data)
 
     @action(detail=True, methods=["post"], url_path="convert-to-ipc")
     def convert_to_ipc(self, request, pk=None):
