@@ -180,6 +180,17 @@ const ContractDetail = () => {
   const matchedAppropriation = (appropriationMatches && appropriationMatches[0]) || null;
   const apprApproved = parseFloat(String(matchedAppropriation?.amount_approved ?? 0)) || 0;
   const apprAvailable = parseFloat(String(matchedAppropriation?.available_balance ?? 0)) || 0;
+  // The contract's budget appropriation (resolved from its NCoA segments + FY —
+  // Contract.appropriation FK is intentionally unset). Passed READ-ONLY into the
+  // milestone coding grid so every milestone line draws against the same budget.
+  const contractAppropriation = matchedAppropriation
+    ? {
+        id: matchedAppropriation.id as number,
+        label: matchedAppropriation.economic_code
+          ? `${matchedAppropriation.economic_code}${matchedAppropriation.economic_name ? ' — ' + matchedAppropriation.economic_name : ''}`
+          : `Appropriation #${matchedAppropriation.id}`,
+      }
+    : null;
 
   const activateMut = useActivateContract();
   const closeMut = useCloseContract();
@@ -853,6 +864,7 @@ const ContractDetail = () => {
           contractId={cid}
           ceiling={ceiling}
           milestones={contract.milestones ?? []}
+          contractAppropriation={contractAppropriation}
           formatCurrency={formatCurrency}
           onClose={() => setMilestoneModalOpen(false)}
           onCreated={(n) =>
@@ -866,8 +878,9 @@ const ContractDetail = () => {
           contractId={cid}
           ceiling={ceiling}
           milestones={contract.milestones ?? []}
-          formatCurrency={formatCurrency}
+          contractAppropriation={contractAppropriation}
           editMilestone={editMilestone}
+          formatCurrency={formatCurrency}
           onClose={() => setEditMilestone(null)}
           onCreated={(n) => message.success(`Milestone #${n} saved.`)}
         />

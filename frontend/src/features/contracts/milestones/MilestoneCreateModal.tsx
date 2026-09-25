@@ -17,7 +17,6 @@ import { Plus, Trash2 } from 'lucide-react';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
 import { makeAccountSearch } from '../../accounting/hooks/useAccountSearch';
-import { makeAppropriationSearch } from '../hooks/useAppropriationSearch';
 import { useCreateMilestone, useUpdateMilestone, type MilestoneLine } from '../hooks/useContracts';
 import { formatServiceError } from '../utils/errors';
 
@@ -57,6 +56,13 @@ interface MilestoneCreateModalProps {
   contractId: number;
   ceiling: number;
   milestones: MilestoneLike[];
+  /**
+   * The contract's budget appropriation (resolved from its NCoA segments + FY).
+   * The coding grid's Appropriation is READ-ONLY and fixed to this — every
+   * milestone line draws against the contract's budget, not a free choice.
+   * ``null`` when the contract has no matching appropriation.
+   */
+  contractAppropriation?: { id: number; label: string } | null;
   formatCurrency: (n: number) => string;
   onClose: () => void;
   onCreated: (milestoneNumber: number) => void;
@@ -68,8 +74,8 @@ let _uid = 0;
 const nextUid = () => (_uid += 1);
 
 export default function MilestoneCreateModal({
-  contract, contractId, ceiling, milestones, formatCurrency, onClose, onCreated,
-  editMilestone,
+  contract, contractId, ceiling, milestones, contractAppropriation, formatCurrency,
+  onClose, onCreated, editMilestone,
 }: MilestoneCreateModalProps) {
   const { message } = AntApp.useApp();
   const isEdit = !!editMilestone;
@@ -78,9 +84,10 @@ export default function MilestoneCreateModal({
   const pending = isEdit ? updateMut.isPending : createMut.isPending;
 
   const accountSearch = useMemo(() => makeAccountSearch({ postableOnly: true }), []);
-  const apprSearch = useMemo(() => makeAppropriationSearch(), []);
 
-  // Contract defaults for the first coding row.
+  // Contract defaults for the first coding row. The Appropriation is NOT a free
+  // choice — it is fixed to the contract's resolved budget appropriation
+  // (``contractAppropriation``), so there is no per-line appropriation picker.
   const defaultAccountSeed = useMemo(() => {
     const id = contract?.ncoa_code_economic_id;
     if (id == null) return undefined;
@@ -90,11 +97,6 @@ export default function MilestoneCreateModal({
       value: String(id),
       label: code ? `${code}${name ? ' — ' + name : ''}` : `Account #${id}`,
     };
-  }, [contract]);
-  const defaultApprSeed = useMemo(() => {
-    const id = contract?.appropriation;
-    if (id == null) return undefined;
-    return { value: String(id), label: contract?.appropriation_label || `Appropriation #${id}` };
   }, [contract]);
 
   const [description, setDescription] = useState(editMilestone?.description ?? '');
@@ -125,14 +127,15 @@ export default function MilestoneCreateModal({
       }));
     }
     // Create, or edit a milestone that has no coding yet → default from contract.
+    // Appropriation is contract-fixed (read-only), so no per-line seed for it.
     return [{
       uid: nextUid(),
       account: defaultAccountSeed?.value ?? '',
-      appropriation: defaultApprSeed?.value ?? '',
+      appropriation: '',
       description: '',
       amount: '',
       accountSeed: defaultAccountSeed,
-      apprSeed: defaultApprSeed,
+      apprSeed: undefined,
     }];
   });
 
@@ -207,9 +210,13 @@ export default function MilestoneCreateModal({
       }
       return;
     }
+    // Appropriation is fixed to the contract's budget appropriation for every
+    // line — never a per-line choice. Falls back to null when the contract has
+    // no resolved appropriation (e.g. legacy/unmatched NCoA coding).
+    const contractApprId = contractAppropriation?.id ?? null;
     const linePayload = lines.map((l) => ({
       account: Number(l.account),
-      appropriation: l.appropriation ? Number(l.appropriation) : null,
+      appropriation: contractApprId,
       description: l.description.trim(),
       amount: l.amount,
     }));
@@ -317,13 +324,13 @@ export default function MilestoneCreateModal({
       <div style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>GL / Budget coding</span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>DR expense per line · CR vendor-AP on approval</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>Appropriation from contract · DR expense per line · CR vendor-AP on approval</span>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1.5px solid #e2e8f0' }}>
               <th style={{ ...thCell, width: '30%' }}>Account (GL)</th>
-              <th style={{ ...thCell, width: '26%' }}>Appropriation</th>
+              <th style={{ ...thCell, width: '26%' }}>Appropriation <span style={{ fontWeight: 400, color: '#94a3b8' }}>(from contract)</span></th>
               <th style={thCell}>Description</th>
               <th style={{ ...thCell, width: 120, textAlign: 'right' }}>Amount</th>
               <th style={{ ...thCell, width: 30 }} />
@@ -342,13 +349,11 @@ export default function MilestoneCreateModal({
                   />
                 </td>
                 <td style={tdCell}>
-                  <SearchableSelect
-                    value={l.appropriation}
-                    onChange={(v) => setLine(l.uid, { appropriation: v })}
-                    onSearch={apprSearch}
-                    options={l.apprSeed ? [l.apprSeed] : []}
-                    placeholder="Optional"
-                  />
+                  <div style={apprReadonly} title={contractAppropriation?.label ?? 'No budget appropriation resolved for this contract'}>
+                    {contractAppropriation?.label ?? (
+                      <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>— not set on contract —</span>
+                    )}
+                  </div>
                 </td>
                 <td style={tdCell}>
                   <input value={l.description} onChange={(e) => setLine(l.uid, { description: e.target.value })}
@@ -405,6 +410,12 @@ const textInput: React.CSSProperties = {
   width: '100%', padding: '0.5rem 0.625rem', borderRadius: 6,
   border: '2.5px solid #e2e8f0', fontSize: 12, outline: 'none',
   fontFamily: 'inherit', boxSizing: 'border-box',
+};
+const apprReadonly: React.CSSProperties = {
+  width: '100%', padding: '0.5rem 0.625rem', borderRadius: 6,
+  border: '2.5px solid #e2e8f0', background: '#f8fafc', fontSize: 12,
+  color: '#334155', boxSizing: 'border-box', whiteSpace: 'nowrap',
+  overflow: 'hidden', textOverflow: 'ellipsis',
 };
 const thCell: React.CSSProperties = { padding: '6px 8px', fontWeight: 600 };
 const tdCell: React.CSSProperties = { padding: '5px 8px', color: '#334155', verticalAlign: 'top' };
