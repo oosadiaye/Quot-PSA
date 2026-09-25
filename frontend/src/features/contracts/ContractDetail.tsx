@@ -45,7 +45,7 @@ import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 // ── Status mapping ──────────────────────────────────────────────────
 // 7 backend statuses → 5 visual phases for the compact stepper.
@@ -107,7 +107,7 @@ function currentPhaseIndex(status: ContractStatus): number {
 // ── Tab type ─────────────────────────────────────────────────────────
 // 'year-plans' is the multi-year contract tab — visible on every contract,
 // shows even single-year contracts (which auto-create one year_plan row).
-type TabKey = 'milestones' | 'variations' | 'year-plans' | 'mobilization';
+type TabKey = 'financials' | 'milestones' | 'variations' | 'year-plans' | 'mobilization';
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -128,8 +128,8 @@ const ContractDetail = () => {
   // else changes.
   const initialTab = ((): TabKey => {
     const raw = searchParams.get('tab');
-    const allowed: TabKey[] = ['milestones', 'variations', 'year-plans', 'mobilization'];
-    return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'milestones';
+    const allowed: TabKey[] = ['financials', 'milestones', 'variations', 'year-plans', 'mobilization'];
+    return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'financials';
   })();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
@@ -635,25 +635,15 @@ const ContractDetail = () => {
             />
           )}
 
-          {/* Contract financials — full contract sum + deductions as line
-              items, before the milestone tabs. */}
-          <ContractFinancials
-            fullSum={fullSum}
-            variations={Number(contract.approved_variations_total ?? 0)}
-            retentionReserve={Number(contract.retention_reserve ?? retentionHeld ?? 0)}
-            retentionPct={retentionPct}
-            mobilizationAmount={Number(contract.mobilization_amount ?? 0)}
-            mobilizationPct={mobilizationPct}
-            whtRate={Number(contract.withholding_tax_rate ?? 0)}
-            vatRate={Number(contract.vat_rate ?? 0)}
-            ceiling={ceiling}
-            formatCurrency={formatCurrency}
-          />
-
           {/* Tabs */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={tabsHeader}>
               <div style={{ display: 'flex', gap: '2rem' }}>
+                <TabButton
+                  active={activeTab === 'financials'}
+                  onClick={() => setActiveTab('financials')}
+                  label="Financials"
+                />
                 <TabButton
                   active={activeTab === 'milestones'}
                   onClick={() => setActiveTab('milestones')}
@@ -705,6 +695,23 @@ const ContractDetail = () => {
               </div>
             </div>
 
+            {activeTab === 'financials' && (
+              <FinancialsTab
+                fullSum={fullSum}
+                variations={Number(contract.approved_variations_total ?? 0)}
+                retentionReserve={Number(contract.retention_reserve ?? retentionHeld ?? 0)}
+                retentionPct={retentionPct}
+                mobilizationAmount={Number(contract.mobilization_amount ?? 0)}
+                mobilizationPct={mobilizationPct}
+                whtRate={Number(contract.withholding_tax_rate ?? 0)}
+                vatRate={Number(contract.vat_rate ?? 0)}
+                ceiling={ceiling}
+                milestones={contract.milestones ?? []}
+                mobilization={mobilizationPayment}
+                formatCurrency={formatCurrency}
+                onViewJournal={(id) => setViewJournalId(id)}
+              />
+            )}
             {activeTab === 'milestones' && (
               <MilestonesTab
                 milestones={contract.milestones ?? []}
@@ -1060,6 +1067,205 @@ const cfFootRow: React.CSSProperties = {
 };
 
 
+// ── Financials tab ────────────────────────────────────────────────────
+// The contract's financial statement: the deduction summary (ContractFinancials)
+// plus a movements ledger of every certified invoice (a CREDIT — value owed to
+// the contractor) and every disbursement incl. the mobilization advance (a
+// DEBIT — cash paid), in date order with a running outstanding balance. Each row
+// links to its actual GL journal via "Acct Doc".
+interface LedgerMovement {
+  key: string;
+  date: string | null;
+  label: string;
+  ref: string;
+  debit: number;
+  credit: number;
+  journalId: number | null;
+}
+
+interface FinancialsTabProps {
+  fullSum: number;
+  variations: number;
+  retentionReserve: number;
+  retentionPct: number;
+  mobilizationAmount: number;
+  mobilizationPct: number;
+  whtRate: number;
+  vatRate: number;
+  ceiling: number;
+  milestones: MilestoneRow[];
+  mobilization: MobilizationRecord | null | undefined;
+  formatCurrency: (n: number) => string;
+  onViewJournal: (journalId: number) => void;
+}
+
+function FinancialsTab({
+  fullSum, variations, retentionReserve, retentionPct,
+  mobilizationAmount, mobilizationPct, whtRate, vatRate, ceiling,
+  milestones, mobilization, formatCurrency, onViewJournal,
+}: FinancialsTabProps) {
+  const movements = useMemo<Array<LedgerMovement & { balance: number }>>(() => {
+    const rows: LedgerMovement[] = [];
+    for (const m of milestones) {
+      const inv = m.invoice;
+      if (inv) {
+        rows.push({
+          key: `inv-${inv.id}`,
+          date: inv.invoice_date ?? m.actual_completion_date ?? null,
+          label: `Milestone ${m.milestone_number} invoice`,
+          ref: inv.invoice_number,
+          debit: 0,
+          credit: Number(inv.total_amount || 0),
+          journalId: inv.journal_entry_id ?? null,
+        });
+      }
+      for (const p of m.payments ?? []) {
+        rows.push({
+          key: `pay-${p.payment_id}-m${m.id}`,
+          date: p.payment_date,
+          label: p.is_advance ? 'Advance payment' : 'Payment',
+          ref: p.payment_number,
+          debit: Number(p.amount || 0),
+          credit: 0,
+          journalId: p.journal_entry_id ?? null,
+        });
+      }
+    }
+    // Mobilization advance — cash paid ahead of certification (recovered from
+    // certificates). Skip if a milestone payment already carries its journal.
+    if (mobilization && Number(mobilization.amount) > 0) {
+      const jid = mobilization.payment_voucher_journal_id ?? null;
+      const dup = jid != null && rows.some((r) => r.journalId === jid);
+      if (!dup) {
+        rows.push({
+          key: `mob-${mobilization.id}`,
+          // Advances often predate any certificate; fall back to created_at so
+          // the row dates and sorts before the milestone invoices it precedes.
+          date: mobilization.payment_date ?? mobilization.created_at ?? null,
+          label: 'Mobilization advance',
+          ref: mobilization.payment_voucher_number ?? '—',
+          debit: Number(mobilization.amount || 0),
+          credit: 0,
+          journalId: jid,
+        });
+      }
+    }
+    // Date order; undated rows sort last, ties keep insertion order (stable).
+    rows.sort((a, b) => {
+      const ad = a.date ?? '9999-12-31';
+      const bd = b.date ?? '9999-12-31';
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+    // Running balance = Σcredit − Σdebit (outstanding certified value payable).
+    let bal = 0;
+    return rows.map((r) => {
+      bal += r.credit - r.debit;
+      return { ...r, balance: bal };
+    });
+  }, [milestones, mobilization]);
+
+  const totalDebit = movements.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = movements.reduce((s, r) => s + r.credit, 0);
+  const outstanding = totalCredit - totalDebit;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <ContractFinancials
+        fullSum={fullSum}
+        variations={variations}
+        retentionReserve={retentionReserve}
+        retentionPct={retentionPct}
+        mobilizationAmount={mobilizationAmount}
+        mobilizationPct={mobilizationPct}
+        whtRate={whtRate}
+        vatRate={vatRate}
+        ceiling={ceiling}
+        formatCurrency={formatCurrency}
+      />
+
+      <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
+        <div style={cfHeader}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Movements</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            Invoices credit · payments debit · balance = outstanding to contractor
+          </span>
+        </div>
+        {movements.length === 0 ? (
+          <div style={{ padding: '1.25rem 1rem', fontSize: 12.5, color: '#94a3b8' }}>
+            No financial movements yet — approve a milestone or issue a mobilization advance.
+          </div>
+        ) : (
+          <table style={dataTable} data-no-sort>
+            <thead>
+              <tr style={tableHeadRow}>
+                <th style={th}>Date</th>
+                <th style={th}>Movement</th>
+                <th style={th}>Reference</th>
+                <th style={{ ...th, textAlign: 'right' }}>Debit</th>
+                <th style={{ ...th, textAlign: 'right' }}>Credit</th>
+                <th style={{ ...th, textAlign: 'right' }}>Balance</th>
+                <th style={{ ...th, textAlign: 'right' }}>Doc</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.map((r) => (
+                <tr key={r.key} style={tableRow}>
+                  <td style={td}>{r.date ? formatDate(r.date) : '—'}</td>
+                  <td style={{ ...td, maxWidth: 170 }}>{r.label}</td>
+                  <td style={{ ...td, fontFamily: 'monospace', color: '#475569', maxWidth: 180 }}>{r.ref}</td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                    {r.debit ? formatCurrency(r.debit) : '—'}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: '#047857' }}>
+                    {r.credit ? formatCurrency(r.credit) : '—'}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: r.balance < 0 ? '#b45309' : '#0f172a' }}>
+                    {formatCurrency(r.balance)}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    {r.journalId != null && (
+                      <button
+                        type="button"
+                        onClick={() => onViewJournal(r.journalId as number)}
+                        style={acctDocLink}
+                        title="View the GL journal posted for this movement"
+                      >
+                        Acct Doc
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={milestoneFootRow}>
+                <td style={{ ...td, fontWeight: 800, color: '#0f172a' }} colSpan={3}>
+                  Totals ({movements.length} movement{movements.length === 1 ? '' : 's'})
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#b91c1c' }}>
+                  {formatCurrency(totalDebit)}
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#047857' }}>
+                  {formatCurrency(totalCredit)}
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: outstanding < 0 ? '#b45309' : '#0f172a' }}>
+                  {formatCurrency(outstanding)}
+                </td>
+                <td style={td} />
+              </tr>
+            </tfoot>
+          </table>
+        )}
+        <div style={{ padding: '0.5rem 1rem 0.85rem', fontSize: 11, color: '#94a3b8' }}>
+          A positive balance is outstanding certified value payable to the contractor; a negative
+          balance means cash paid to date (including the mobilization advance) exceeds certified work.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 interface MilestonePaymentRow {
   payment_id: number;
   payment_number: string;
@@ -1094,6 +1300,7 @@ interface MilestoneRow {
     total_amount: string;
     paid_amount: string;
     payable_now: string;
+    invoice_date?: string | null;      // posting date of the accrual
     journal_entry_id?: number | null;  // accrual journal (Acct Doc)
   } | null;
   payments?: MilestonePaymentRow[];

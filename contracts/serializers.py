@@ -334,6 +334,8 @@ class MilestoneScheduleSerializer(serializers.ModelSerializer):
             "total_amount": str(inv.total_amount),
             "paid_amount": str(inv.paid_amount),
             "payable_now": str(inv.payable_now),
+            # Posting date of the accrual — drives the contract financials ledger.
+            "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
             # The accrual journal (DR expense / CR vendor-AP) posted for this
             # milestone invoice — the contract page's "Acct Doc" link opens it.
             "journal_entry_id": inv.journal_entry_id,
