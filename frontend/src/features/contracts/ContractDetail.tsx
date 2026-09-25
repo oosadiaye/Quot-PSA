@@ -1165,7 +1165,7 @@ function MilestonesTab({
               <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>
                 {m.milestone_number}
               </td>
-              <td style={td}>{m.description}</td>
+              <td style={{ ...td, maxWidth: 200 }}>{m.description}</td>
               <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
                 {formatCurrency(Number(m.scheduled_value || 0))}
               </td>
@@ -1236,10 +1236,13 @@ function MilestonesTab({
                         cursor: 'pointer',
                         padding: '4px 10px',
                         textDecoration: 'underline',
+                        maxWidth: '100%',
                       }}
                       title={`Open IPC ${m.ipc_number ?? ''}`.trim()}
                     >
-                      {m.ipc_number ? `IPC ${m.ipc_number}` : 'IPC raised'}
+                      {m.ipc_number
+                        ? `IPC ${String(m.ipc_number).split('/').pop()}`
+                        : 'IPC raised'}
                     </button>
                   )}
                 </div>
@@ -1252,7 +1255,7 @@ function MilestonesTab({
                     Acct Doc link in the Actions column like every other row. */}
                 <tr style={subRowStyle}>
                   <td style={subIndentTd}>↳</td>
-                  <td style={subTd}>
+                  <td style={{ ...subTd, maxWidth: 200 }}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{m.invoice.invoice_number}</span>
                     {(!m.payments || m.payments.length === 0) && (
                       <span style={{ marginLeft: 8, color: '#94a3b8', fontStyle: 'italic' }}>— awaiting payment</span>
@@ -1283,7 +1286,7 @@ function MilestonesTab({
                 {m.payments?.map((p) => (
                   <tr key={p.payment_id} style={subRowStyle}>
                     <td style={subIndentTd}>↳</td>
-                    <td style={subTd}>
+                    <td style={{ ...subTd, maxWidth: 200 }}>
                       <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>{p.payment_number}</span>
                       <span style={{ marginLeft: 8, color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
                       {p.is_advance && <span style={{ marginLeft: 8, fontSize: 10, color: '#b45309' }}>advance</span>}
@@ -1364,7 +1367,8 @@ const milestoneFootRow: React.CSSProperties = {
 };
 
 const milestoneActionsCell: React.CSSProperties = {
-  display: 'inline-flex', gap: 6, justifyContent: 'flex-end',
+  display: 'flex', gap: 6, justifyContent: 'flex-end',
+  flexWrap: 'wrap', alignItems: 'center',
 };
 // Small "Acct Doc" link that opens the GL journal modal from a milestone
 // invoice line or a payment sub-line.
@@ -1420,6 +1424,7 @@ const milestoneIPCLink: React.CSSProperties = {
   background: '#dbeafe', color: '#1d4ed8',
   borderRadius: 999,
   textTransform: 'uppercase', letterSpacing: '0.05em',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 
 
