@@ -869,6 +869,30 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
     payment_voucher_journal_id = serializers.IntegerField(
         source="payment_voucher.journal_id", read_only=True, default=None, allow_null=True,
     )
+    # The disbursement's GL journal, resolved wherever it actually posted: the
+    # PV's own journal (legacy direct-post) OR the central Payment that disbursed
+    # the PV (current path — the PV no longer posts; Payment.post_payment does,
+    # so ``payment_voucher.journal_id`` is null for those). Lets every surface
+    # link to "the accounting document" for the advance.
+    disbursement_journal_id = serializers.SerializerMethodField()
+
+    def get_disbursement_journal_id(self, obj):
+        pv = obj.payment_voucher
+        if pv is None:
+            return None
+        if getattr(pv, "journal_id", None):
+            return pv.journal_id
+        # Fallback: the Posted central Payment funding this PV carries the
+        # disbursement journal. (One extra lookup per row — fine for the single
+        # advance on a contract detail; the cross-contract list is paginated.)
+        from accounting.models import Payment
+        pay = (
+            Payment.objects.filter(payment_voucher_id=pv.id, journal_entry__isnull=False)
+            .exclude(status="Void")
+            .order_by("-id")
+            .first()
+        )
+        return pay.journal_entry_id if pay else None
 
     class Meta:
         model = MobilizationPayment
@@ -877,6 +901,7 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
             "amount",
             "payment_voucher", "payment_voucher_number",
             "payment_voucher_status", "payment_voucher_journal_id",
+            "disbursement_journal_id",
             "payment_date",
             "status", "notes",
             "created_at", "updated_at",
@@ -887,6 +912,7 @@ class MobilizationPaymentSerializer(serializers.ModelSerializer):
             "contract_number", "contract_title", "vendor_name",
             "payment_voucher_number",
             "payment_voucher_status", "payment_voucher_journal_id",
+            "disbursement_journal_id",
         ]
 
 

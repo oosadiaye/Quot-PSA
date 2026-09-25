@@ -1134,7 +1134,8 @@ function FinancialsTab({
     // Mobilization advance — cash paid ahead of certification (recovered from
     // certificates). Skip if a milestone payment already carries its journal.
     if (mobilization && Number(mobilization.amount) > 0) {
-      const jid = mobilization.payment_voucher_journal_id ?? null;
+      const jid = mobilization.disbursement_journal_id
+        ?? mobilization.payment_voucher_journal_id ?? null;
       const dup = jid != null && rows.some((r) => r.journalId === jid);
       if (!dup) {
         rows.push({
@@ -1669,6 +1670,9 @@ interface MobilizationRecord {
   payment_voucher_number?: string;
   payment_voucher_status?: string;
   payment_voucher_journal_id?: number | null;
+  // Disbursement journal resolved wherever it posted (PV or the central Payment
+  // that funded it) — the PV's own journal is null under central payment posting.
+  disbursement_journal_id?: number | null;
   payment_date?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -1697,7 +1701,8 @@ function MobilizationTab({
   // as the Revenue Collection detail page — the journal endpoint
   // returns lines with account_code / account_name pre-expanded so
   // we don't need a second lookup for the GL display.
-  const journalId = payment?.payment_voucher_journal_id ?? null;
+  const journalId = payment?.disbursement_journal_id
+    ?? payment?.payment_voucher_journal_id ?? null;
   const { data: journal, isLoading: journalLoading } = useQuery<JournalDetail>({
     queryKey: ['mobilization-journal', journalId],
     queryFn: async () => {
