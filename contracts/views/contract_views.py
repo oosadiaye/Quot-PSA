@@ -288,6 +288,29 @@ class ContractViewSet(viewsets.ModelViewSet):
             )
         return Response(ContractBalanceSerializer(balance).data)
 
+    @action(detail=True, methods=["get"])
+    def appropriation(self, request, pk=None):
+        """The contract's resolved budget appropriation headroom.
+
+        Drives the write-up form's cap warning: a write-up may not exceed
+        ``available_balance``. ``resolved=False`` when no appropriation matches
+        the contract's NCoA segments (the cap is then not enforced).
+        """
+        from contracts.services import VariationService
+        contract = self.get_object()
+        appr = VariationService._resolve_appropriation(contract)
+        if appr is None:
+            return Response({
+                "resolved": False,
+                "amount_approved": None,
+                "available_balance": None,
+            })
+        return Response({
+            "resolved": True,
+            "amount_approved": str(appr.amount_approved),
+            "available_balance": str(appr.available_balance),
+        })
+
     @action(detail=True, methods=["get"], url_path="approval-steps")
     def approval_steps(self, request, pk=None):
         contract = self.get_object()

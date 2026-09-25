@@ -657,6 +657,62 @@ class ContractVariationSerializer(serializers.ModelSerializer):
     supporting_reference = serializers.CharField(
         source="bpp_approval_ref", read_only=True
     )
+    # A "write-up" is an ADDITION; the form need only send amount + justification,
+    # so type defaults to ADDITION and description falls back to the justification.
+    variation_type = serializers.ChoiceField(
+        choices=ContractVariation._meta.get_field("variation_type").choices,
+        required=False,
+    )
+    description = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        from decimal import Decimal
+        from contracts.services import VariationService
+        amount = attrs.get("amount")
+        vtype = attrs.get("variation_type") or "ADDITION"
+        contract = attrs.get("contract")
+        # Write-ups (upward revaluations) must be a positive increase and must
+        # not exceed the budget available on the contract's appropriation.
+        if vtype != "OMISSION":
+            if amount is None or Decimal(str(amount)) <= 0:
+                raise serializers.ValidationError(
+                    {"amount": "Write-up amount must be greater than zero."}
+                )
+            if contract is not None:
+                headroom = VariationService.appropriation_headroom(contract)
+                if headroom is not None and Decimal(str(amount)) > headroom:
+                    raise serializers.ValidationError(
+                        {"amount": (
+                            f"Write-up of ₦{Decimal(str(amount)):,.2f} exceeds the "
+                            f"budget available on this contract's appropriation "
+                            f"(₦{headroom:,.2f} remaining). Reduce it or raise a "
+                            f"supplementary budget first."
+                        )}
+                    )
+        return attrs
+
+    def create(self, validated_data):
+        # Route through the service so ``variation_number`` is assigned and the
+        # DRAFT lifecycle/tier are set (the model requires a number, which the
+        # default ModelViewSet.create would not provide).
+        from contracts.services import VariationService
+        actor = validated_data.pop("created_by", None)
+        validated_data.pop("updated_by", None)
+        if actor is None:
+            request = self.context.get("request")
+            actor = getattr(request, "user", None)
+        justification = validated_data.get("justification", "") or ""
+        description = validated_data.get("description") or justification or "Write-up"
+        return VariationService.create_draft(
+            contract=validated_data["contract"],
+            variation_type=validated_data.get("variation_type") or "ADDITION",
+            amount=validated_data["amount"],
+            description=description[:255],
+            justification=justification,
+            actor=actor,
+            time_extension_days=validated_data.get("time_extension_days") or 0,
+            bpp_approval_ref=validated_data.get("bpp_approval_ref") or "",
+        )
 
     class Meta:
         model = ContractVariation

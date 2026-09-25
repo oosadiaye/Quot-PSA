@@ -69,6 +69,27 @@ export const useContractBalance = (id: number | null | undefined) => {
   });
 };
 
+/** The contract's resolved budget appropriation headroom — drives the write-up
+ *  cap. `available_balance`/`amount_approved` are decimal strings or null when
+ *  no appropriation resolves (`resolved: false`). */
+export interface ContractAppropriation {
+  resolved: boolean;
+  amount_approved: string | null;
+  available_balance: string | null;
+}
+
+export const useContractAppropriation = (id: number | null | undefined) => {
+  return useQuery<ContractAppropriation>({
+    queryKey: ['contract-appropriation', id],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${CONTRACTS_BASE}${id}/appropriation/`);
+      return data;
+    },
+    enabled: !!id,
+    staleTime: 30 * 1000,
+  });
+};
+
 /** One audit-log entry from GET /contracts/contracts/{id}/activity/. */
 export interface ContractActivityEntry {
   id: number;

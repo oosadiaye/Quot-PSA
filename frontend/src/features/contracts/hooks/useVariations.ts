@@ -55,9 +55,19 @@ export const useCreateVariation = () => {
       const { data } = await apiClient.post(VARIATIONS_BASE, payload);
       return data;
     },
-    onSuccess: () => {
+    // Refresh the parent contract too — a write-up changes the contract amount,
+    // so the detail page's Contract Sum / ceiling / Certified-Amount utilisation
+    // (which read the ['contract'] and ['contract-balance'] queries) must update
+    // in real time, not just the variations list.
+    onSuccess: (data, payload) => {
+      const contractId = data?.contract ?? payload?.contract;
       qc.invalidateQueries({ queryKey: ['variations'] });
       qc.invalidateQueries({ queryKey: ['contracts'] });
+      if (contractId != null) {
+        qc.invalidateQueries({ queryKey: ['contract', contractId] });
+        qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
+        qc.invalidateQueries({ queryKey: ['contract-activity', contractId] });
+      }
     },
   });
 };
@@ -69,10 +79,19 @@ const useVariationAction = (action: string) => {
       const { data } = await apiClient.post(`${VARIATIONS_BASE}${id}/${action}/`, payload ?? {});
       return data;
     },
-    onSuccess: (_d, vars) => {
+    // Approving a write-up applies the delta to the contract amount, so the
+    // contract detail + balance must refresh live. The action response carries
+    // the variation, whose ``contract`` is the parent id to invalidate.
+    onSuccess: (data, vars) => {
+      const contractId = (data as { contract?: number } | undefined)?.contract;
       qc.invalidateQueries({ queryKey: ['variations'] });
       qc.invalidateQueries({ queryKey: ['variation', vars.id] });
       qc.invalidateQueries({ queryKey: ['contracts'] });
+      if (contractId != null) {
+        qc.invalidateQueries({ queryKey: ['contract', contractId] });
+        qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
+        qc.invalidateQueries({ queryKey: ['contract-activity', contractId] });
+      }
     },
   });
 };
