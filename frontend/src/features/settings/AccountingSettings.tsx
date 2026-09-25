@@ -34,15 +34,15 @@ const SETTINGS_URL = '/accounting/settings/';
 
 // ── Styles ───────────────────────────────────────────────────
 const cardStyle: React.CSSProperties = {
-    background: 'white', borderRadius: '20px', padding: '28px 32px',
-    border: '1px solid #e2e8f0',
+    background: 'var(--color-surface)', borderRadius: '20px', padding: '28px 32px',
+    border: '1px solid var(--color-border)',
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
 const navCardStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '16px 20px',
-    background: '#ffffff', border: '1px solid rgba(0,0,0,0.08)',
+    background: 'var(--color-surface)', border: '1px solid rgba(0,0,0,0.08)',
     borderRadius: '12px', cursor: 'pointer',
     marginTop: '20px', transition: 'all 0.15s ease',
 };
@@ -128,7 +128,7 @@ export default function AccountingSettingsPage() {
             <SettingsLayout>
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    minHeight: '400px', gap: '12px', color: '#94a3b8',
+                    minHeight: '400px', gap: '12px', color: 'var(--color-text-subtle)',
                 }}>
                     <Loader2 size={28} style={{ animation: 'spin 1s linear infinite' }} />
                     <span style={{ fontSize: '14px', fontWeight: 500 }}>Loading settings...</span>
@@ -144,7 +144,7 @@ export default function AccountingSettingsPage() {
                 <div style={{
                     display: 'flex', alignItems: 'flex-start', gap: '16px',
                     marginBottom: '24px', paddingBottom: '20px',
-                    borderBottom: '1px solid #f1f5f9',
+                    borderBottom: '1px solid var(--color-border-light)',
                 }}>
                     <div style={{
                         width: '48px', height: '48px', borderRadius: '14px',
@@ -157,12 +157,12 @@ export default function AccountingSettingsPage() {
                     </div>
                     <div>
                         <h2 style={{
-                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            fontSize: '18px', fontWeight: 700, color: 'var(--color-text)',
                             margin: '0 0 4px 0', letterSpacing: '-0.2px',
                         }}>
                             Vendor Registration Invoice
                         </h2>
-                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                        <p style={{ fontSize: '13px', color: 'var(--color-text-subtle)', margin: 0, lineHeight: 1.5 }}>
                             Controls whether new vendors must pay a registration invoice before activation.
                             When disabled, vendors are created as active immediately — useful during initial setup.
                         </p>
@@ -172,8 +172,8 @@ export default function AccountingSettingsPage() {
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '20px',
                     padding: '16px 20px', borderRadius: '14px',
-                    background: requireVendorInvoice ? '#f5f3ff' : '#f8fafc',
-                    border: `1.5px solid ${requireVendorInvoice ? '#ddd6fe' : '#e2e8f0'}`,
+                    background: requireVendorInvoice ? '#f5f3ff' : 'var(--color-surface-hover)',
+                    border: `1.5px solid ${requireVendorInvoice ? '#ddd6fe' : 'var(--color-border)'}`,
                     transition: 'all 0.3s',
                 }}>
                     <button
@@ -203,10 +203,10 @@ export default function AccountingSettingsPage() {
                         </div>
                     </button>
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireVendorInvoice ? '#7c3aed' : '#64748b' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireVendorInvoice ? '#7c3aed' : 'var(--color-text-muted)' }}>
                             {requireVendorInvoice ? 'Enabled' : 'Disabled'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                             {requireVendorInvoice
                                 ? 'New vendors start inactive. Registration invoice + payment required before activation.'
                                 : 'New vendors are created active immediately. No invoice gate — finance team can proceed without interruption.'}
@@ -239,7 +239,7 @@ export default function AccountingSettingsPage() {
                     <div style={{ marginTop: '20px' }}>
                         <label style={{
                             display: 'block', fontSize: '12px', fontWeight: 700,
-                            color: '#475569', textTransform: 'uppercase',
+                            color: 'var(--color-text-secondary)', textTransform: 'uppercase',
                             letterSpacing: '0.04em', marginBottom: '8px',
                         }}>
                             Registration-Fee Revenue Account
@@ -249,8 +249,8 @@ export default function AccountingSettingsPage() {
                             onChange={(e) => setVendorRegRevenueAccount(e.target.value)}
                             style={{
                                 width: '100%', padding: '10px 12px', borderRadius: '10px',
-                                border: '1.5px solid #e2e8f0', fontSize: '14px',
-                                background: '#fff', color: '#0f172a',
+                                border: '1.5px solid var(--color-border)', fontSize: '14px',
+                                background: 'var(--color-surface)', color: 'var(--color-text)',
                                 cursor: 'pointer',
                             }}
                         >
@@ -261,7 +261,7 @@ export default function AccountingSettingsPage() {
                                 </option>
                             ))}
                         </select>
-                        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.5 }}>
+                        <p style={{ fontSize: '12px', color: 'var(--color-text-subtle)', margin: '8px 0 0', lineHeight: 1.5 }}>
                             Income account credited when vendors pay their registration invoice.
                             Leave on default to use NCoA code 12100200; pick an explicit account if
                             your CoA uses a different revenue code.
@@ -276,7 +276,7 @@ export default function AccountingSettingsPage() {
                     downstream records without an upstream authorisation. */}
                 <div style={{
                     marginTop: '28px', paddingTop: '24px',
-                    borderTop: '1px solid #f1f5f9',
+                    borderTop: '1px solid var(--color-border-light)',
                     display: 'flex', alignItems: 'flex-start', gap: '16px',
                     marginBottom: '20px',
                 }}>
@@ -291,12 +291,12 @@ export default function AccountingSettingsPage() {
                     </div>
                     <div>
                         <h2 style={{
-                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            fontSize: '18px', fontWeight: 700, color: 'var(--color-text)',
                             margin: '0 0 4px 0', letterSpacing: '-0.2px',
                         }}>
                             Require Payment Voucher before Payment
                         </h2>
-                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                        <p style={{ fontSize: '13px', color: 'var(--color-text-subtle)', margin: 0, lineHeight: 1.5 }}>
                             Controls whether every outgoing payment must reference an approved
                             Payment Voucher (PV). When disabled, finance can raise payments
                             directly from vendor invoices without the PV step.
@@ -307,8 +307,8 @@ export default function AccountingSettingsPage() {
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '20px',
                     padding: '16px 20px', borderRadius: '14px',
-                    background: requirePvBeforePayment ? '#fef3c7' : '#f8fafc',
-                    border: `1.5px solid ${requirePvBeforePayment ? '#fde68a' : '#e2e8f0'}`,
+                    background: requirePvBeforePayment ? '#fef3c7' : 'var(--color-surface-hover)',
+                    border: `1.5px solid ${requirePvBeforePayment ? '#fde68a' : 'var(--color-border)'}`,
                     transition: 'all 0.3s',
                 }}>
                     <button
@@ -338,10 +338,10 @@ export default function AccountingSettingsPage() {
                         </div>
                     </button>
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: requirePvBeforePayment ? '#d97706' : '#64748b' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requirePvBeforePayment ? '#d97706' : 'var(--color-text-muted)' }}>
                             {requirePvBeforePayment ? 'Enabled — PV Required' : 'Disabled — Direct payments allowed'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                             {requirePvBeforePayment
                                 ? 'Every outgoing payment must reference an approved PV. Enforced at payment-creation time.'
                                 : 'Outgoing payments can be posted directly. PV reference is optional.'}
@@ -357,7 +357,7 @@ export default function AccountingSettingsPage() {
                     warrant-based control. */}
                 <div style={{
                     marginTop: '28px', paddingTop: '24px',
-                    borderTop: '1px solid #f1f5f9',
+                    borderTop: '1px solid var(--color-border-light)',
                     display: 'flex', alignItems: 'flex-start', gap: '16px',
                     marginBottom: '20px',
                 }}>
@@ -372,12 +372,12 @@ export default function AccountingSettingsPage() {
                     </div>
                     <div>
                         <h2 style={{
-                            fontSize: '18px', fontWeight: 700, color: '#0f172a',
+                            fontSize: '18px', fontWeight: 700, color: 'var(--color-text)',
                             margin: '0 0 4px 0', letterSpacing: '-0.2px',
                         }}>
                             Require Warrant (AIE) before Payment
                         </h2>
-                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+                        <p style={{ fontSize: '13px', color: 'var(--color-text-subtle)', margin: 0, lineHeight: 1.5 }}>
                             Master switch for warrant-based cash control. When enabled,
                             cash-out is gated by released Warrant (AIE) availability across
                             outgoing payments, vendor down-payments, and contract
@@ -393,8 +393,8 @@ export default function AccountingSettingsPage() {
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '20px',
                     padding: '16px 20px', borderRadius: '14px',
-                    background: requireWarrantBeforePayment ? '#fee2e2' : '#f8fafc',
-                    border: `1.5px solid ${requireWarrantBeforePayment ? '#fecaca' : '#e2e8f0'}`,
+                    background: requireWarrantBeforePayment ? '#fee2e2' : 'var(--color-surface-hover)',
+                    border: `1.5px solid ${requireWarrantBeforePayment ? '#fecaca' : 'var(--color-border)'}`,
                     transition: 'all 0.3s',
                 }}>
                     <button
@@ -424,10 +424,10 @@ export default function AccountingSettingsPage() {
                         </div>
                     </button>
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireWarrantBeforePayment ? '#dc2626' : '#64748b' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: requireWarrantBeforePayment ? '#dc2626' : 'var(--color-text-muted)' }}>
                             {requireWarrantBeforePayment ? 'Enabled — Warrant Required' : 'Disabled — Warrant bypassed'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                             {requireWarrantBeforePayment
                                 ? 'Cash-out is blocked when released Warrant (AIE) for the MDA + Fund + Account would not cover the amount — across outgoing payments, down-payment requests, and contract mobilization advances. (Manual ad-hoc advances carry no appropriation, so route them via a PO/DPR or contract to keep them warrant-gated.)'
                                 : 'Outgoing payments, AP-invoice posting, down-payments, and contract mobilization all skip the warrant ceiling check. Cash can leave the TSA without a released Warrant — use only for non-warrant-based jurisdictions.'}
@@ -455,7 +455,7 @@ export default function AccountingSettingsPage() {
                 {/* Save Button */}
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '16px',
-                    paddingTop: '20px', marginTop: '20px', borderTop: '1px solid #f1f5f9',
+                    paddingTop: '20px', marginTop: '20px', borderTop: '1px solid var(--color-border-light)',
                 }}>
                     <button
                         onClick={() => saveMutation.mutate()}
@@ -521,16 +521,16 @@ export default function AccountingSettingsPage() {
                         <ShieldAlert size={22} />
                     </div>
                     <div>
-                        <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text)' }}>
                             Budget Check Rules
                         </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: 2 }}>
+                        <div style={{ fontSize: '13px', color: 'var(--color-text-muted)', marginTop: 2 }}>
                             Per-GL policy controlling how strictly postings are gated against appropriations
                             (NONE / Warning / Strict). Applies across journals, PO, 3-way match, invoice, PV.
                         </div>
                     </div>
                 </div>
-                <ChevronRight size={20} color="#94a3b8" />
+                <ChevronRight size={20} color="var(--color-text-subtle)" />
             </div>
 
             <style>{`

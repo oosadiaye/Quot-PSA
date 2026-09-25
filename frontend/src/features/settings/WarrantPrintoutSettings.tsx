@@ -109,9 +109,9 @@ function LetterheadLogoUploader({
         <div>
             <div style={{ ...fieldLabel, marginBottom: 6 }}>Letterhead Logo</div>
             <div style={{
-                border: '2px dashed #cbd5e1', borderRadius: 8,
+                border: '2px dashed var(--color-border)', borderRadius: 8,
                 height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: '#f8fafc', position: 'relative', overflow: 'hidden',
+                background: 'var(--color-surface-hover)', position: 'relative', overflow: 'hidden',
             }}>
                 {previewUrl ? (
                     <img
@@ -124,7 +124,7 @@ function LetterheadLogoUploader({
                     />
                 ) : (
                     <div style={{
-                        color: '#94a3b8', fontSize: 12, display: 'flex',
+                        color: 'var(--color-text-subtle)', fontSize: 12, display: 'flex',
                         alignItems: 'center', gap: 6,
                     }}>
                         <ImageIcon size={14} /> No logo uploaded
@@ -150,14 +150,14 @@ function LetterheadLogoUploader({
                     <button
                         type="button"
                         onClick={() => onFileChange('letterhead_logo', null)}
-                        style={{ ...smallBtn, background: '#fff', color: '#dc2626' }}
+                        style={{ ...smallBtn, background: 'var(--color-surface)', color: '#dc2626' }}
                     >
                         <X size={12} /> Cancel pick
                     </button>
                 )}
             </div>
             <div style={{
-                marginTop: 6, fontSize: 10, color: '#94a3b8',
+                marginTop: 6, fontSize: 10, color: 'var(--color-text-subtle)',
                 lineHeight: 1.4,
             }}>
                 State coat of arms / crest. Falls back to Branding logo if empty.
@@ -202,8 +202,8 @@ function SignatureSlot({
 
     return (
         <div style={{
-            border: '1px solid #e2e8f0', borderRadius: 10,
-            padding: 20, background: '#fff',
+            border: '1px solid var(--color-border)', borderRadius: 10,
+            padding: 20, background: 'var(--color-surface)',
             display: 'grid', gridTemplateColumns: '1fr 240px', gap: 24,
             alignItems: 'start',
         }}>
@@ -242,9 +242,9 @@ function SignatureSlot({
             <div>
                 <div style={{ ...fieldLabel, marginBottom: 6 }}>Signature image</div>
                 <div style={{
-                    border: '2px dashed #cbd5e1', borderRadius: 8,
+                    border: '2px dashed var(--color-border)', borderRadius: 8,
                     height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: '#f8fafc', position: 'relative', overflow: 'hidden',
+                    background: 'var(--color-surface-hover)', position: 'relative', overflow: 'hidden',
                 }}>
                     {previewUrl ? (
                         <img
@@ -257,7 +257,7 @@ function SignatureSlot({
                         />
                     ) : (
                         <div style={{
-                            color: '#94a3b8', fontSize: 12, display: 'flex',
+                            color: 'var(--color-text-subtle)', fontSize: 12, display: 'flex',
                             alignItems: 'center', gap: 6,
                         }}>
                             <ImageIcon size={14} /> No signature uploaded
@@ -283,14 +283,14 @@ function SignatureSlot({
                         <button
                             type="button"
                             onClick={() => onFileChange(imageField, null)}
-                            style={{ ...smallBtn, background: '#fff', color: '#dc2626' }}
+                            style={{ ...smallBtn, background: 'var(--color-surface)', color: '#dc2626' }}
                         >
                             Cancel pick
                         </button>
                     )}
                 </div>
                 <div style={{
-                    marginTop: 6, fontSize: 10, color: '#94a3b8',
+                    marginTop: 6, fontSize: 10, color: 'var(--color-text-subtle)',
                     lineHeight: 1.4,
                 }}>
                     PNG with transparent background recommended.
@@ -550,7 +550,7 @@ export default function WarrantPrintoutSettingsPage() {
                                         style={{
                                             display: 'inline-flex', alignItems: 'center', gap: 6,
                                             padding: '6px 12px', borderRadius: 6,
-                                            border: '1px solid #cbd5e1', background: '#fff',
+                                            border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                             color: '#1e40af', fontSize: 13, fontWeight: 600,
                                             cursor: 'pointer',
                                         }}
@@ -558,7 +558,7 @@ export default function WarrantPrintoutSettingsPage() {
                                         <Eye size={14} /> View current sample
                                     </button>
                                 ) : (
-                                    <span style={{ color: '#94a3b8', fontSize: 13 }}>
+                                    <span style={{ color: 'var(--color-text-subtle)', fontSize: 13 }}>
                                         No sample uploaded yet
                                     </span>
                                 )}
@@ -635,8 +635,8 @@ export default function WarrantPrintoutSettingsPage() {
 // Inline styles
 // ─────────────────────────────────────────────────────────────────────
 const card: React.CSSProperties = {
-    background: '#fff',
-    border: '1px solid #e2e8f0',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
     borderRadius: 12,
     padding: 22,
 };
@@ -644,11 +644,11 @@ const cardTitle: React.CSSProperties = {
     fontSize: 16,
     fontWeight: 700,
     margin: 0,
-    color: '#0f172a',
+    color: 'var(--color-text)',
 };
 const cardHint: React.CSSProperties = {
     margin: '4px 0 14px 0',
-    color: '#64748b',
+    color: 'var(--color-text-muted)',
     fontSize: 13,
     lineHeight: 1.5,
 };
@@ -656,7 +656,7 @@ const fieldLabel: React.CSSProperties = {
     display: 'block',
     fontSize: 11,
     fontWeight: 700,
-    color: '#475569',
+    color: 'var(--color-text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 6,
@@ -665,11 +665,11 @@ const textInput: React.CSSProperties = {
     width: '100%',
     padding: '8px 11px',
     borderRadius: 6,
-    border: '1px solid #cbd5e1',
+    border: '1px solid var(--color-border)',
     fontSize: 14,
     fontFamily: 'inherit',
-    color: '#0f172a',
-    background: '#fff',
+    color: 'var(--color-text)',
+    background: 'var(--color-surface)',
     outline: 'none',
 };
 const smallBtn: React.CSSProperties = {
@@ -680,8 +680,8 @@ const smallBtn: React.CSSProperties = {
     fontSize: 11,
     fontWeight: 600,
     color: '#1e40af',
-    background: '#fff',
-    border: '1px solid #cbd5e1',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
     borderRadius: 6,
     cursor: 'pointer',
 };

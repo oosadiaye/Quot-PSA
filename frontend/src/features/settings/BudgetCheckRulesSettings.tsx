@@ -41,13 +41,13 @@ const CHECK_LEVELS: Array<{ value: Rule['check_level']; label: string; hint: str
 ];
 
 const lblStyle: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, color: '#64748b',
+    fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)',
     textTransform: 'uppercase', letterSpacing: '0.4px',
     display: 'block', marginBottom: 4,
 };
 const inputBase: React.CSSProperties = {
     width: '100%', padding: '8px 10px', fontSize: 13,
-    borderRadius: 6, border: '1.5px solid #e2e8f0', background: '#fff',
+    borderRadius: 6, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
     outline: 'none', fontFamily: 'inherit',
 };
 
@@ -179,13 +179,13 @@ export default function BudgetCheckRulesSettings() {
         return (
             <div style={{ display: 'flex' }}>
                 <Sidebar />
-                <main style={{ flex: 1, marginLeft: 260, padding: 40, color: '#94a3b8' }}>Loading…</main>
+                <main style={{ flex: 1, marginLeft: 260, padding: 40, color: 'var(--color-text-subtle)' }}>Loading…</main>
             </div>
         );
     }
 
     return (
-        <div style={{ display: 'flex', background: '#f5f7fb', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', background: 'var(--color-background)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ flex: 1, marginLeft: 260, padding: '32px' }}>
                 <PageHeader
@@ -246,15 +246,15 @@ export default function BudgetCheckRulesSettings() {
 
                 {/* ── Rules table ─────────────────────────────────────── */}
                 <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+                    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
                     padding: 20, marginBottom: 20,
                 }}>
                     <div style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid #e2e8f0',
+                        marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--color-border)',
                     }}>
                         <div>
-                            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                                 Rules ({visibleRules.length})
                             </h3>
                             {(dirtyCount > 0 || deletedCount > 0) && (
@@ -279,8 +279,8 @@ export default function BudgetCheckRulesSettings() {
 
                     {visibleRules.length === 0 ? (
                         <div style={{
-                            padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 14,
-                            background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1',
+                            padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)', fontSize: 14,
+                            background: 'var(--color-surface-hover)', borderRadius: 8, border: '1px dashed var(--color-border)',
                         }}>
                             No rules yet — click <strong>Add Line</strong> to define one.
                         </div>
@@ -317,8 +317,8 @@ export default function BudgetCheckRulesSettings() {
                                 return (
                                     <div key={i} style={{
                                         padding: 14, borderRadius: 10,
-                                        background: r._new ? '#f0fdf4' : '#fff',
-                                        border: `1.5px solid ${r._new ? '#86efac' : '#e2e8f0'}`,
+                                        background: r._new ? '#f0fdf4' : 'var(--color-surface)',
+                                        border: `1.5px solid ${r._new ? '#86efac' : 'var(--color-border)'}`,
                                         borderLeft: `4px solid ${tint}`,
                                         display: 'grid',
                                         gridTemplateColumns: '120px 120px 150px 100px 1fr 70px 60px 40px',
@@ -361,8 +361,8 @@ export default function BudgetCheckRulesSettings() {
                                                 disabled={r.check_level !== 'WARNING'}
                                                 style={{
                                                     ...inputBase,
-                                                    background: r.check_level === 'WARNING' ? '#fff' : '#f1f5f9',
-                                                    color: r.check_level === 'WARNING' ? '#0f172a' : '#94a3b8',
+                                                    background: r.check_level === 'WARNING' ? 'var(--color-surface)' : 'var(--color-surface-hover)',
+                                                    color: r.check_level === 'WARNING' ? 'var(--color-text)' : 'var(--color-text-subtle)',
                                                 }}
                                                 value={r.warning_threshold_pct}
                                                 onChange={e => updateLine(i, 'warning_threshold_pct', e.target.value)}
@@ -426,7 +426,7 @@ export default function BudgetCheckRulesSettings() {
                         disabled={saving}
                         style={{
                             padding: '10px 20px', borderRadius: 8, cursor: 'pointer',
-                            background: '#fff', color: '#64748b', border: '1px solid #e2e8f0',
+                            background: 'var(--color-surface)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)',
                             fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                         }}
                     >
