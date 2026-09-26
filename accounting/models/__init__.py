@@ -41,6 +41,7 @@ from accounting.models.async_export import AsyncExportJob  # noqa: F401
 from accounting.models.payment_batch import (  # noqa: F401
     BankLetterSettings, PaymentBatch, PaymentBatchLine,
 )
+from accounting.models.payment_document import PaymentDocument, PaymentDocumentLine  # noqa: F401
 from accounting.models.advanced import *
 from accounting.models.audit import *
 
@@ -250,4 +251,8 @@ __all__ = [
     'BankLetterSettings',
     'PaymentBatch',
     'PaymentBatchLine',
+
+    # payment_document.py — SAP F-53 style outgoing payment (additive)
+    'PaymentDocument',
+    'PaymentDocumentLine',
 ]
