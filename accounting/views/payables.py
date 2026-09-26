@@ -1867,94 +1867,24 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if pv is not None and not payment.allocations.exists():
             return self._post_direct_pv_payment(payment, request, pv, net)
 
-        # S1-06 — fiscal period gate on the payment_date.
-        try:
-            from accounting.services.base_posting import BasePostingService
-            BasePostingService._validate_fiscal_period(payment.payment_date, user=request.user)
-        except Exception as exc:
-            return Response(
-                {"error": str(exc), "period_closed": True},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Payment-stage warrant gate. The default behaviour is
-        # GIFMIS-compliant — cash cannot leave the consolidated
-        # account beyond released warrants — but a per-tenant toggle
-        # (``AccountingSettings.require_warrant_before_payment``) can
-        # bypass it for jurisdictions / sub-tenants that don't yet
-        # operate on warrant-based cash control. The toggle defaults
-        # to True; flipping it OFF is an explicit, audited decision
-        # the operator makes via Accounting Settings.
-        # Payment-stage warrant gate is unconditional w.r.t.
-        # WARRANT_ENFORCEMENT_STAGE — cash leaving the TSA is always the
-        # binding moment — so it consults only the tenant master switch.
-        # ``warrant_enforcement_enabled()`` fails closed if settings are
-        # unreadable.
-        from accounting.budget_logic import (
-            check_warrant_availability,
-            warrant_enforcement_enabled,
+        # ── Shared pre-disbursement controls ─────────────────────────
+        # Fiscal-period gate (S1-06) + payment-stage warrant (AIE) gate,
+        # extracted to ``accounting.services.disbursement_controls`` so the
+        # gateway disbursement path enforces the identical checks rather
+        # than a copy that could drift. Behaviour and error payloads are
+        # unchanged. The warrant gate stays GIFMIS-compliant — cash cannot
+        # leave the TSA beyond released warrants — and consults only the
+        # tenant master switch, which fails closed if settings are unreadable.
+        from accounting.services.disbursement_controls import (
+            DisbursementControlError,
+            enforce_fiscal_period,
+            enforce_payment_warrant,
         )
-        _enforce_warrant = warrant_enforcement_enabled()
-        from collections import defaultdict
-        buckets: dict = defaultdict(lambda: {'amount': Decimal('0'), 'mda': None, 'fund': None, 'account': None})
-        for alloc in payment.allocations.select_related('invoice').all():
-            inv = alloc.invoice
-            if not inv or not inv.mda or not inv.fund:
-                continue
-            key = (inv.mda_id, inv.fund_id, getattr(inv, 'account_id', None))
-            b = buckets[key]
-            b['amount'] += alloc.amount or Decimal('0')
-            b['mda'] = inv.mda
-            b['fund'] = inv.fund
-            b['account'] = getattr(inv, 'account', None)
-        if _enforce_warrant:
-            for b in buckets.values():
-                if b['amount'] == 0:
-                    continue
-                allowed, warrant_msg, info = check_warrant_availability(
-                    dimensions={'mda': b['mda'], 'fund': b['fund']},
-                    account=b['account'],
-                    amount=b['amount'],
-                )
-                if not allowed:
-                    # Distinguish two failure modes for a clearer
-                    # operator-facing message:
-                    #   1. No warrant has been released at all for this
-                    #      expense line (warrants_released == 0)
-                    #   2. Warrant exists but the amount being paid
-                    #      would push consumption past the released
-                    #      ceiling
-                    # The frontend reads ``warrant_no_warrant`` /
-                    # ``warrant_exceeded`` flags to render the
-                    # appropriate CTA (release warrant vs. issue
-                    # additional warrant).
-                    warrants_released = info.get('warrants_released') or Decimal('0')
-                    appro_label = info.get('appropriation_label', '')
-                    if warrants_released == 0:
-                        clean_msg = (
-                            f"No Warrant (AIE) has been released for "
-                            f"{appro_label or 'this expense line'}. "
-                            f"Release a Warrant for this appropriation "
-                            f"before posting the payment."
-                        )
-                        return Response(
-                            {
-                                "error": clean_msg,
-                                "warrant_no_warrant": True,
-                                "warrant_exceeded": False,
-                                "info": info,
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    return Response(
-                        {
-                            "error": f"Warrant limit exceeded: {warrant_msg}",
-                            "warrant_exceeded": True,
-                            "warrant_no_warrant": False,
-                            "info": info,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        try:
+            enforce_fiscal_period(payment.payment_date, user=request.user)
+            enforce_payment_warrant(payment)
+        except DisbursementControlError as _control_exc:
+            return Response(_control_exc.payload, status=_control_exc.http_status)
 
         # Validate allocations sum equals the gross settled — but ONLY
         # when allocations exist (allocation is not mandatory). Invoices
