@@ -141,3 +141,33 @@ def test_post_refuses_when_net_not_positive(pd_accounts, pd_bank, open_period):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
+
+
+@pytest.mark.django_db(transaction=True)
+def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, open_period):
+    """A DEBIT to an Expense GL consumes budget, so the service's own
+    expense-appropriation gate must block it when no Appropriation exists.
+
+    Proves the expense path is genuinely gated (not vacuously): account
+    22020101 falls under the tenant's STRICT BudgetCheckRule, and with no
+    Appropriation seeded and no header MDA/fund to resolve one, check_policy
+    returns blocked and the service raises PaymentDocumentError before any
+    journal is created. This is the complement of the settlement tests: only
+    a settlement-only document posts budget-free.
+    """
+    from accounting.models import PaymentDocument, PaymentDocumentLine, JournalHeader
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(
+        document_number="PD-POST-EXP", bank_account=pd_bank, description="Direct expense payout",
+    )
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["expense"], debit=Decimal("40000.00"),
+    )
+    with pytest.raises(PaymentDocumentError):
+        post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # gate fired before posting
+    # No journal was created for this document.
+    assert JournalHeader.objects.filter(
+        source_module="payment_document", source_document_id=doc.pk,
+    ).count() == 0
