@@ -19,6 +19,8 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
+from superadmin.gateway_webhook import gateway_webhook
+
 v1_patterns = [
     # ─── Quot PSE: Nigeria Government IFMIS API ───────────────────────
     path('accounting/', include('accounting.urls')),
@@ -34,6 +36,9 @@ v1_patterns = [
     path('contracts/', include('contracts.urls', namespace='contracts')),
     path('revenue-admin/', include('revenue_admin.urls')),
     path('integrations/', include('integrations.urls')),
+    # Public, HMAC-authenticated PSP callback (see core.middleware
+    # _GATEWAY_WEBHOOK_PREFIXES — pinned to public, no tenant resolution).
+    path('gateway/webhook/<str:gateway>/', gateway_webhook, name='gateway-webhook'),
     path('', include('snapshots.urls')),
 ]
 

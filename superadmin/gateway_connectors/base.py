@@ -95,7 +95,7 @@ class GatewayConnector(Protocol):
         """Constant-time verification of an inbound callback's signature."""
         ...
 
-    def parse_webhook(self, payload: dict) -> WebhookEvent:
+    def parse_webhook(self, provider, payload: dict) -> WebhookEvent:
         """Normalise a verified callback body into a :class:`WebhookEvent`."""
         ...
 

@@ -1661,7 +1661,7 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         # S7-01 — MFA-gate cash disbursement.
         from accounting.permissions import RequiresMFA
-        if self.action == 'post_payment':
+        if self.action in ('post_payment', 'disburse_via_gateway'):
             return [IsApprover('post'), RequiresMFA()]
         # Clearing settles open items and posts a contra journal for the
         # advance leg — gate it with the same posting authority as disbursement
@@ -1766,6 +1766,81 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             'total_debit': str(total_debit),
             'total_credit': str(total_credit),
             'balanced': total_debit == total_credit,
+        })
+
+    @action(detail=True, methods=['post'], url_path='disburse-via-gateway')
+    def disburse_via_gateway(self, request, pk=None):
+        """Post the clearing journal and dispatch this payment via a gateway.
+
+        The electronic-payout counterpart of ``post_payment``: instead of
+        DR AP / CR Bank it posts DR AP / CR Gateway Settlement Clearing and
+        sends the net to the PSP (Remita). Settlement — driven by the PSP
+        webhook — moves the clearing balance to Bank on success, or reverses
+        it on failure. Same posting authority + fresh MFA as post_payment,
+        because it commits cash out of the TSA.
+
+        Body: optional ``gateway`` (provider key, e.g. "remita") to pick a
+        specific gateway; otherwise the tenant's default active disbursement
+        gateway is used.
+        """
+        from django.db import connection
+
+        from accounting.services.disbursement_controls import DisbursementControlError
+        from accounting.services.gateway_disbursement import (
+            GatewayDisbursementError,
+            dispatch_payment_via_gateway,
+        )
+        from superadmin.gateway_client import GatewayRefused
+        from superadmin.gateway_models import TenantGatewaySetting
+
+        payment = self.get_object()
+        tenant = getattr(connection, 'tenant', None)
+        if tenant is None:
+            return Response(
+                {"error": "No tenant on this request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        settings_qs = (
+            TenantGatewaySetting.objects
+            .select_related('provider')
+            .filter(
+                tenant=tenant, is_active=True,
+                provider__is_enabled=True, provider__supports_disbursement=True,
+            )
+        )
+        gateway_key = request.data.get('gateway')
+        if gateway_key:
+            settings_qs = settings_qs.filter(provider__key=gateway_key)
+        setting = settings_qs.order_by('-is_default', 'provider__sort_order').first()
+        if setting is None:
+            return Response(
+                {"error": (
+                    "No active disbursement gateway is available for this "
+                    "organisation. Ask your platform administrator to enable one."
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result, journal = dispatch_payment_via_gateway(
+                payment, setting, actor=request.user,
+            )
+        except GatewayRefused as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except DisbursementControlError as exc:
+            return Response(exc.payload, status=exc.http_status)
+        except GatewayDisbursementError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "status": "dispatched",
+            "payment_number": payment.payment_number,
+            "gateway": setting.provider.key,
+            "gateway_reference": result.gateway_reference,
+            "gateway_transaction_id": result.transaction_id,
+            "journal_id": journal.pk,
+            "accepted": result.accepted,
         })
 
     @action(detail=True, methods=['post'])

@@ -80,6 +80,23 @@ def _is_snapshot_path(path: str) -> bool:
     return any(path.startswith(p) for p in _SNAPSHOT_PATH_PREFIXES)
 
 
+# Payment-gateway (PSP) callbacks bypass the tenant resolver for the same
+# reason as snapshots: a PSP cannot send X-Tenant-Domain and hits a single
+# apex URL, and GatewayTransaction lives in the public schema. The webhook
+# view authenticates by HMAC signature, resolves the tenant from the
+# transaction reference, and settles inside the tenant schema via
+# schema_context. We pin public and short-circuit so hostname resolution
+# never 404s the callback.
+_GATEWAY_WEBHOOK_PREFIXES = (
+    '/api/v1/gateway/webhook/',
+    '/api/gateway/webhook/',
+)
+
+
+def _is_gateway_webhook_path(path: str) -> bool:
+    return any(path.startswith(p) for p in _GATEWAY_WEBHOOK_PREFIXES)
+
+
 def _is_public_path(path):
     """Check if a path is public using exact match or controlled prefix match."""
     if path in PUBLIC_PATHS_EXACT:
@@ -126,7 +143,7 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         # tenant domain to resolve, so TenantMainMiddleware's hostname-based
         # resolution would 404. Handle these before the general public-path
         # check so they never reach super().__call__().
-        if _is_snapshot_path(path):
+        if _is_snapshot_path(path) or _is_gateway_webhook_path(path):
             _db_conn.set_schema_to_public()
             return self.get_response(request)
 
@@ -241,7 +258,7 @@ class TenantAccessMiddleware:
         # Snapshot paths live in the public schema and have no tenant binding.
         # Explicit bypass; do not depend on tenant=None falling through the
         # subsequent block.
-        if _is_public_path(path) or _is_snapshot_path(path):
+        if _is_public_path(path) or _is_snapshot_path(path) or _is_gateway_webhook_path(path):
             return self.get_response(request)
 
         user = getattr(request, 'user', None)
