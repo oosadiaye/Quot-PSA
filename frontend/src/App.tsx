@@ -219,6 +219,7 @@ const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManage
 const BankAccountSettings = lazy(() => import('./features/settings/BankAccountSettings'));
 const BrandingSettings = lazy(() => import('./features/settings/BrandingSettings'));
 const AISettingsPage = lazy(() => import('./features/settings/AISettings'));
+const PaymentGatewaySettingsPage = lazy(() => import('./features/settings/PaymentGatewaySettings'));
 const SplitPurchaseScanPage = lazy(() => import('./features/procurement/SplitPurchaseScan'));
 const WarrantPrintoutSettingsPage = lazy(() => import('./features/settings/WarrantPrintoutSettings'));
 const WarrantPrintPreview = lazy(() => import('./pages/gov/WarrantPrintPreview'));
@@ -438,6 +439,9 @@ function App() {
                       } />
                       <Route path="/settings/bank-letter" element={
                         <ProtectedRoute requiredRole="admin"><BankLetterSettingsPage /></ProtectedRoute>
+                      } />
+                      <Route path="/settings/payment-gateways" element={
+                        <ProtectedRoute requiredRole="admin"><PaymentGatewaySettingsPage /></ProtectedRoute>
                       } />
 
                       {/* ══ MODULE-GUARDED ROUTES ════════════════════════

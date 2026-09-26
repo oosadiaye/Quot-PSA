@@ -347,6 +347,7 @@ const menuItems: MenuItem[] = [
             // and where. Read-only apart from an off switch — enabling is
             // a platform decision, see features/settings/AISettings.tsx.
             { name: 'AI', path: '/settings/ai', icon: Sparkles },
+            { name: 'Payment Gateways', path: '/settings/payment-gateways', icon: CreditCard },
         ],
     },
     {
