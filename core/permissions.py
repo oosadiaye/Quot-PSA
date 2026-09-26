@@ -292,3 +292,23 @@ class IsTenantAdmin(permissions.BasePermission):
         if not utr:
             return False
         return utr.role in ('admin', 'senior_manager')
+
+
+class ModuleEnabled(permissions.BasePermission):
+    """Module-subscription gate — pass-through on this branch.
+
+    On ``feat/future-modules`` this refuses a request when the ViewSet's
+    ``module_key`` names a module the tenant has not subscribed to, composed
+    as ``[IsAuthenticated, ModuleEnabled, RBACPermission]``. The
+    ``revenue_admin`` and ``integrations`` apps were brought over from that
+    branch and declare it.
+
+    The module-registry / pricing subsystem it queries is not present on
+    ``main``, so there is nothing to gate against: this passes through and
+    lets ``RBACPermission`` make the real access decision — behaviourally
+    identical to "every module enabled". When the registry is brought in,
+    replace this body with the real per-tenant lookup and 403 shape.
+    """
+
+    def has_permission(self, request, view):
+        return True

@@ -98,6 +98,8 @@ TENANT_APPS = [
     'hrm',
     'simple_history',
     'contracts',      # Contract & Milestone Payment Management (overpayment prevention)
+    'revenue_admin',  # IGR tax administration (assessments, demand notices) — feeds online collection
+    'integrations',   # Switchable external connectors (Remita/Xpresspay/NIBSS) — runs + message idempotency
 
     # Stub apps — deleted for public sector, kept for migration history only
     'sales',

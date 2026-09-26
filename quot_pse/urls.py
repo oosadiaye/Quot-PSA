@@ -32,6 +32,8 @@ v1_patterns = [
     path('tenants/', include('tenants.urls')),
     path('superadmin/', include('superadmin.urls')),
     path('contracts/', include('contracts.urls', namespace='contracts')),
+    path('revenue-admin/', include('revenue_admin.urls')),
+    path('integrations/', include('integrations.urls')),
     path('', include('snapshots.urls')),
 ]
 
