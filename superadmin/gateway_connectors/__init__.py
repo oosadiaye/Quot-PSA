@@ -11,6 +11,7 @@ a new connector, not a change to the seam.
 from __future__ import annotations
 
 from superadmin.gateway_connectors.base import (
+    CollectRequest,
     ConnectorError,
     DisburseRequest,
     GatewayConnector,
@@ -39,6 +40,7 @@ def get_connector(provider) -> GatewayConnector:
 
 
 __all__ = [
+    "CollectRequest",
     "ConnectorError",
     "ConnectorResult",
     "DisburseRequest",

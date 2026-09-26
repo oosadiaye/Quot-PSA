@@ -46,6 +46,20 @@ class DisburseRequest:
 
 
 @dataclass
+class CollectRequest:
+    """A request to raise a collection (money in) at the gateway."""
+
+    #: Our idempotency key AND the reference we quote to the PSP.
+    reference: str
+    amount: Decimal
+    payer_name: str
+    payer_email: str = ""
+    payer_phone: str = ""
+    description: str = ""
+    currency: str = "NGN"
+
+
+@dataclass
 class ConnectorResult:
     """A gateway's immediate answer to a dispatch.
 
@@ -85,6 +99,12 @@ class GatewayConnector(Protocol):
         """Send a payout instruction. Never raises on a declined payment —
         it returns ``accepted=False``; it raises :class:`ConnectorError`
         only on transport/protocol failure."""
+        ...
+
+    def initiate_collection(self, provider, request: CollectRequest) -> ConnectorResult:
+        """Raise a collection (money in). ``raw`` carries any checkout URL /
+        reference the payer needs. ``accepted`` means the gateway took the
+        request; confirmation arrives later via a :class:`WebhookEvent`."""
         ...
 
     def query_status(self, provider, gateway_reference: str) -> WebhookEvent:

@@ -17,7 +17,7 @@ from .views.organization import (
 )
 from .views.audit import AuditLogListView
 from .views.ai import ai_status, ai_calls, ai_disable_all
-from .views.gateway import gateway_status, gateway_enable, gateway_disable_all
+from .views.gateway import gateway_status, gateway_enable, gateway_disable_all, gateway_collect
 from .views.notifications import NotificationViewSet
 # S6-04 — MFA endpoints.
 from .views.mfa import (
@@ -113,4 +113,5 @@ urlpatterns = [
     path('gateways/status/', gateway_status, name='tenant-gateway-status'),
     path('gateways/enable/', gateway_enable, name='tenant-gateway-enable'),
     path('gateways/disable-all/', gateway_disable_all, name='tenant-gateway-disable-all'),
+    path('gateways/collect/', gateway_collect, name='tenant-gateway-collect'),
 ]

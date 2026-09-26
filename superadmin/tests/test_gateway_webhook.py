@@ -138,3 +138,24 @@ class TestGatewayWebhook:
     def test_unknown_gateway_is_bad_request(self, client):
         resp = _post(client, {"transactionRef": "x", "status": "success"}, gateway="paystack")
         assert resp.status_code == 400
+
+    def test_collection_callback_routes_to_collection_settle(self, client, wh_provider):
+        # A COLLECTION-direction transaction settles through the collection
+        # path, not the disbursement one — the webhook branches on direction.
+        from tenants.models import Client
+        tenant = Client(schema_name="gw_wh_col", name="WH Col")
+        tenant.auto_create_schema = False
+        tenant.save()
+        GatewayTransaction.objects.create(
+            tenant=tenant, provider=wh_provider,
+            direction=GatewayService.COLLECTION, idempotency_key="IGR-WH-1",
+            gateway_reference="XP-WH-1", amount=Decimal("500.00"),
+            status=GatewayTransaction.Status.SENT,
+            subject={"model": "RevenueCollection", "id": 1},
+        )
+        with patch("accounting.services.gateway_collection.settle_collection") as col, \
+                patch("accounting.services.gateway_disbursement.settle_gateway_disbursement") as dis:
+            resp = _post(client, {"transactionRef": "XP-WH-1", "status": "success"})
+        assert resp.status_code == 200
+        col.assert_called_once()
+        dis.assert_not_called()

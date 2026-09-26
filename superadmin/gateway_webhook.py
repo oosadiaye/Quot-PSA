@@ -27,7 +27,11 @@ from django_tenants.utils import schema_context
 
 from superadmin.gateway_connectors import get_connector
 from superadmin.gateway_connectors.base import WebhookEvent
-from superadmin.gateway_models import GatewayTransaction, PaymentGatewayProvider
+from superadmin.gateway_models import (
+    GatewayService,
+    GatewayTransaction,
+    PaymentGatewayProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +102,17 @@ def gateway_webhook(request, gateway):
     ):
         return JsonResponse({"status": "already settled"}, status=200)
 
-    from accounting.services.gateway_disbursement import settle_gateway_disbursement
-
     success = event.outcome == WebhookEvent.SUCCESS
     try:
         with schema_context(txn.tenant.schema_name):
-            settle_gateway_disbursement(txn, success=success)
+            if txn.direction == GatewayService.COLLECTION:
+                from accounting.services.gateway_collection import settle_collection
+                settle_collection(txn, success=success)
+            else:
+                from accounting.services.gateway_disbursement import (
+                    settle_gateway_disbursement,
+                )
+                settle_gateway_disbursement(txn, success=success)
     except Exception:  # noqa: BLE001 - log server-side, don't echo internals to a PSP
         logger.exception(
             "Gateway webhook settlement failed for %s ref %s",

@@ -141,6 +141,73 @@ def gateway_enable(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsTenantAdmin])
+def gateway_collect(request):
+    """Raise an IGR collection through the tenant's collection gateway.
+
+    Returns a payment reference and (when the gateway provides one) a
+    checkout URL for the payer. The collection is confirmed and posted to
+    the GL (DR Cash-in-TSA / CR Revenue) only when the gateway's webhook
+    confirms payment — nothing is recognised on the strength of a request.
+    """
+    tenant = _tenant()
+    if tenant is None:
+        return Response({"detail": "No tenant on this request."}, status=status.HTTP_400_BAD_REQUEST)
+
+    data = request.data or {}
+    settings_qs = TenantGatewaySetting.objects.select_related("provider").filter(
+        tenant=tenant, is_active=True,
+        provider__is_enabled=True, provider__supports_collection=True,
+    )
+    if data.get("gateway"):
+        settings_qs = settings_qs.filter(provider__key=data["gateway"])
+    setting = settings_qs.order_by("-is_default", "provider__sort_order").first()
+    if setting is None:
+        return Response(
+            {"detail": "No active collection gateway is available for this organisation."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    required = ["revenue_head", "ncoa_code", "tsa_account", "amount", "payer_name"]
+    missing = [f for f in required if not data.get(f)]
+    if missing:
+        return Response(
+            {"detail": f"Missing required fields: {', '.join(missing)}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from accounting.services.gateway_collection import (
+        GatewayCollectionError,
+        initiate_collection,
+    )
+    from superadmin.gateway_client import GatewayRefused
+
+    try:
+        txn, checkout_url = initiate_collection(
+            tenant=tenant, setting=setting,
+            revenue_head_id=data["revenue_head"], ncoa_code_id=data["ncoa_code"],
+            tsa_account_id=data["tsa_account"], amount=data["amount"],
+            payer_name=data["payer_name"], payer_tin=data.get("payer_tin", ""),
+            payer_phone=data.get("payer_phone", ""),
+            collecting_mda_id=data.get("collecting_mda"),
+            description=data.get("description", ""),
+        )
+    except GatewayRefused as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except GatewayCollectionError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        "status": txn.status,
+        "reference": txn.idempotency_key,
+        "gateway_reference": txn.gateway_reference,
+        "checkout_url": checkout_url,
+        "gateway": setting.provider.key,
+        "gateway_transaction_id": txn.pk,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsTenantAdmin])
 def gateway_disable_all(request):
     """Switch every gateway off for this organisation. One-directional and
     always available — the control an operator must never need a ticket for."""

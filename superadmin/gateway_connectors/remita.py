@@ -107,6 +107,14 @@ class RemitaConnector:
             raw=data,
         )
 
+    def initiate_collection(self, provider, request) -> ConnectorResult:
+        # Remita is provisioned here as the disbursement rail; the seam guards
+        # on supports_collection, so this should never be reached.
+        raise ConnectorError(
+            "Remita is configured as a disbursement gateway here and does not "
+            "raise collections. Use the collection gateway (Xpresspay)."
+        )
+
     def query_status(self, provider, gateway_reference: str) -> WebhookEvent:
         signature = hmac_sha512(
             provider.secret_key, f"{provider.merchant_id}{gateway_reference}{provider.api_key}",
