@@ -41,7 +41,7 @@ def gw_vendor(db):
     return Vendor.objects.create(
         name="ACME Ltd", code="V-GW", is_active=True,
         bank_name="Zenith Bank", bank_account_number="0123456789",
-        bank_sort_code="057",
+        bank_sort_code="057", balance=Decimal("1000.00"),
     )
 
 
@@ -117,6 +117,9 @@ def test_dispatch_posts_clearing_journal_not_bank(gw_accounts, gw_setting, draft
     draft_payment.refresh_from_db()
     assert draft_payment.status == "Posted"
     assert draft_payment.journal_entry_id == journal.pk
+    # The vendor's outstanding balance dropped by the gross settled.
+    draft_payment.vendor.refresh_from_db()
+    assert draft_payment.vendor.balance == Decimal("0.00")
     # The net was dispatched, tagged back to the payment.
     assert calls[0]["request"].amount == Decimal("1000.00")
     assert calls[0]["subject"] == {"model": "Payment", "id": draft_payment.pk}
@@ -178,6 +181,9 @@ def test_settlement_failure_auto_reverses_to_payable(gw_accounts, gw_setting, dr
     assert clearing_debit.account_id == gw_accounts["clearing"].pk  # DR Clearing (undone)
     txn.refresh_from_db()
     assert txn.status == GatewayTransaction.Status.REVERSED
+    # The vendor's balance is reinstated (dispatch had reduced it).
+    draft_payment.vendor.refresh_from_db()
+    assert draft_payment.vendor.balance == Decimal("1000.00")
 
 
 @pytest.mark.django_db

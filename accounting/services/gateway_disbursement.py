@@ -154,6 +154,15 @@ def dispatch_payment_via_gateway(payment, setting, *, actor=None):
     payment.journal_entry = journal
     payment.save(_allow_status_change=True)
 
+    # Reduce the vendor's outstanding balance by the gross settled — the
+    # deduction is withheld from cash, not from the vendor's settlement, so
+    # the payable clears at gross. Mirrors the normal post_payment path.
+    if payment.vendor_id:
+        from django.db.models import F
+        type(payment.vendor).objects.filter(pk=payment.vendor_id).update(
+            balance=F("balance") - gross,
+        )
+
     request = DisburseRequest(
         reference=payment.payment_number,
         amount=net,
@@ -233,14 +242,26 @@ def settle_gateway_disbursement(txn: GatewayTransaction, *, success: bool):
         source_module="gateway_settlement",
         source_document_id=payment.pk,
     )
+    gross = Decimal("0.00")
     for line in original.lines.all():
         JournalLine.objects.create(
             header=reversal, account=line.account,
             debit=line.credit, credit=line.debit,
             memo=f"Reversal {payment.payment_number}",
         )
+        # The original DR is the AP debit at gross — the amount the payable
+        # is reinstated by.
+        gross += line.debit
     BasePostingService._validate_journal_balanced(reversal)
     BasePostingService._update_gl_balances(reversal)
+
+    # Reinstate the vendor's outstanding balance (the dispatch reduced it).
+    if payment.vendor_id and gross > 0:
+        from django.db.models import F
+        type(payment.vendor).objects.filter(pk=payment.vendor_id).update(
+            balance=F("balance") + gross,
+        )
+
     txn.status = GatewayTransaction.Status.REVERSED
     txn.settled_at = timezone.now()
     txn.save(update_fields=["status", "settled_at", "updated_at"])
