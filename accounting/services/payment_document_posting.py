@@ -232,10 +232,18 @@ def _settle_vendor_and_bank(lines, bank, cash_out):
     from accounting.models import BankAccount
 
     for ln in lines:
-        if ln.vendor_id and ln.debit and ln.debit > 0 and ln.account.account_type in ("Liability", "Asset"):
-            type(ln.vendor).objects.filter(pk=ln.vendor_id).update(
-                balance=F("balance") - ln.debit, updated_at=timezone.now(),
-            )
+        # Move the vendor sub-ledger by the SAME net amount its AP line moves the
+        # GL, in BOTH directions, so vendor.balance never drifts from the AP
+        # control account. A DEBIT to the vendor's AP/asset account reduces what
+        # is owed (a payment); a CREDIT increases it. balance is "amount owed",
+        # so it drops by (debit − credit). By the time this runs, every vendor
+        # line has a resolved account (see _resolve_vendor_only_accounts).
+        if ln.vendor_id and ln.account and ln.account.account_type in ("Liability", "Asset"):
+            delta = (ln.debit or Decimal("0.00")) - (ln.credit or Decimal("0.00"))
+            if delta:
+                type(ln.vendor).objects.filter(pk=ln.vendor_id).update(
+                    balance=F("balance") - delta, updated_at=timezone.now(),
+                )
     BankAccount.objects.filter(pk=bank.pk).update(
         current_balance=F("current_balance") - cash_out, updated_at=timezone.now(),
     )

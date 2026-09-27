@@ -189,18 +189,42 @@ def test_post_vendor_only_line_resolves_ap_account(pd_accounts, pd_bank, open_pe
     assert doc.status == "Posted"
 
 
-@pytest.mark.django_db
-def test_post_refuses_line_with_neither_account_nor_vendor(pd_accounts, pd_bank, open_period):
-    """A line with no GL account AND no vendor is rejected (nothing to post to)."""
+@pytest.mark.django_db(transaction=True)
+def test_post_vendor_credit_line_increases_vendor_balance(pd_accounts, pd_bank, open_period):
+    """A vendor AP line entered as a CREDIT increases the payable, so the vendor
+    sub-ledger must move UP by the same amount — the sub-ledger tracks the GL AP
+    movement in BOTH directions (else vendor balances drift from the control
+    account). Regression for the credit-side settlement gap."""
+    from procurement.models import Vendor
+    from accounting.models import PaymentDocument, PaymentDocumentLine, Account
+    from accounting.services.payment_document_posting import post_payment_document
+    ap, _ = Account.objects.get_or_create(
+        code="48010102",
+        defaults={"name": "Trade Vendors (Central)", "account_type": "Liability", "is_active": True,
+                  "is_postable": True, "reconciliation_type": "accounts_payable"},
+    )
+    vendor = Vendor.objects.create(name="Contra Vendor", code="V-PD-CR", is_active=True, balance=Decimal("5000.00"))
+    doc = PaymentDocument.objects.create(document_number="PD-POST-CR", bank_account=pd_bank)
+    # Balanced, bank credited: DR liability 8000 / CR vendor-AP 3000 / CR bank 5000.
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("8000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=ap, vendor=vendor, credit=Decimal("3000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("5000.00"))
+    post_payment_document(doc, actor=None)
+    vendor.refresh_from_db()
+    assert vendor.balance == Decimal("8000.00")  # 5000 + 3000 (credit raised the payable)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_line_with_neither_account_nor_vendor_rejected_by_db(pd_accounts, pd_bank, open_period):
+    """A line with no GL account AND no vendor is rejected — the DB CheckConstraint
+    is the hard backstop (the serializer and posting service also guard it, but
+    the constraint blocks the row before either is reached)."""
+    from django.db import IntegrityError, transaction
     from accounting.models import PaymentDocument, PaymentDocumentLine
-    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
     doc = PaymentDocument.objects.create(document_number="PD-POST-NN", bank_account=pd_bank)
-    PaymentDocumentLine.objects.create(payment_document=doc, debit=Decimal("100.00"))  # neither account nor vendor
-    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("100.00"))
-    with pytest.raises(PaymentDocumentError, match="GL account or a vendor"):
-        post_payment_document(doc, actor=None)
-    doc.refresh_from_db()
-    assert doc.status == "Draft"
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():  # contain the constraint violation so the connection stays usable
+            PaymentDocumentLine.objects.create(payment_document=doc, debit=Decimal("100.00"))  # neither account nor vendor
 
 
 @pytest.mark.django_db

@@ -109,3 +109,13 @@ class PaymentDocumentLine(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            # Belt-and-suspenders for the account-OR-vendor rule the serializer
+            # and posting service enforce: a hard DB backstop so no future
+            # direct-ORM write path (bulk action, fixture, another importer) can
+            # persist a line that names neither.
+            models.CheckConstraint(
+                check=models.Q(account__isnull=False) | models.Q(vendor__isnull=False),
+                name="paymentdocumentline_account_or_vendor",
+            ),
+        ]
