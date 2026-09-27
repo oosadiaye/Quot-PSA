@@ -12,6 +12,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
 from accounting.services.base_posting import TransactionPostingError
@@ -25,15 +26,45 @@ logger = logging.getLogger(__name__)
 
 # Source-document attachment allowlist — the security crux. An upload is
 # accepted only when BOTH its declared content type AND its lowercased file
-# extension are in these sets, and it is at or under the size cap. Anything
-# else is rejected (fail-closed).
+# extension are in these sets, it is at or under the size cap, AND its actual
+# leading bytes match the declared kind (see ``_attachment_bytes_match_type``).
+# Anything else is rejected (fail-closed). Note: the non-standard "image/jpg"
+# is deliberately NOT accepted — browsers send "image/jpeg" — while ".jpg"
+# stays a valid extension.
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_ATTACHMENT_CONTENT_TYPES = frozenset({
-    "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "application/pdf",
+    "image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf",
 })
 ALLOWED_ATTACHMENT_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf",
 })
+PDF_MAGIC = b"%PDF-"
+
+
+def _attachment_bytes_match_type(f) -> bool:
+    """Verify the uploaded bytes actually match the declared content type.
+
+    The allowlist above only checks metadata (content type + extension), which
+    a client fully controls. This opens the real file and confirms it decodes:
+    images must parse under Pillow; PDFs must start with the ``%PDF-`` marker.
+    The file pointer is always reset to 0 so the subsequent save streams the
+    whole file. Any decode failure means reject (fail-closed).
+    """
+    content_type = f.content_type or ""
+    if content_type.startswith("image/"):
+        from PIL import Image
+        try:
+            Image.open(f).verify()
+        except Exception:  # noqa: BLE001 — any decode failure is a rejection
+            return False
+        finally:
+            f.seek(0)
+        return True
+    if content_type == "application/pdf":
+        header = f.read(len(PDF_MAGIC))
+        f.seek(0)
+        return header == PDF_MAGIC
+    return False  # defensive: allowlist already excludes anything else
 
 
 class PaymentDocumentLineSerializer(serializers.ModelSerializer):
@@ -72,7 +103,8 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         return bool(obj.attachment)
 
     def get_attachment_name(self, obj):
-        return os.path.basename(obj.attachment.name) if obj.attachment else None
+        # The human display name — NEVER the randomized stored path/basename.
+        return obj.attachment_original_name or None
 
     class Meta:
         model = PaymentDocument
@@ -137,6 +169,15 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return [IsApprover("post"), RequiresMFA()]
         return super().get_permissions()
 
+    def get_throttles(self):
+        # Dedicated cheap-DoS cap on the file upload: the parser reads the whole
+        # body before the size check runs, so a scoped rate limit bounds how
+        # often a client can force that read. Mirrors snapshots/views.py.
+        if self.action == "upload_attachment":
+            self.throttle_scope = "payment_doc_attachment"
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
+
     @action(detail=True, methods=["post"], url_path="post")
     def post(self, request, pk=None):
         doc = self.get_object()
@@ -171,11 +212,14 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     def upload_attachment(self, request, pk=None):
         """Attach a source-document scan (image/PDF) to the payment document.
 
-        Fail-closed validation: reject anything not in the size cap AND both
-        allowlists (declared content type + lowercased extension). Allowed on
-        Posted documents too — a source scan is supporting reference material,
-        not an edit to the posted journal, so the metadata-only save bypasses
-        ImmutableModelMixin via ``_allow_status_change=True``.
+        Fail-closed validation, in order: size cap, then BOTH allowlists
+        (declared content type + lowercased extension), then a magic-byte check
+        that the actual bytes match the declared kind. Allowed on Posted
+        documents too — a source scan is supporting reference material, not an
+        edit to the posted journal, so the metadata-only save bypasses
+        ImmutableModelMixin via ``_allow_status_change=True``. Provenance
+        (``updated_by``/``updated_at``) is recorded on every attach/replace,
+        which matters most when the host document is already Posted.
         """
         doc = self.get_object()
         f = request.FILES.get("file")
@@ -190,8 +234,17 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 or ext not in ALLOWED_ATTACHMENT_EXTENSIONS):
             return Response({"error": "Only images (PNG/JPG/WEBP/GIF) or PDF are allowed."},
                             status=status.HTTP_400_BAD_REQUEST)
+        if not _attachment_bytes_match_type(f):
+            return Response({"error": "File content does not match its declared type."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # Stored under a random UUID name; keep the human name for display.
         doc.attachment.save(f.name, f, save=False)
-        doc.save(update_fields=["attachment", "updated_at"], _allow_status_change=True)
+        doc.attachment_original_name = f.name
+        doc.updated_by = request.user
+        doc.save(
+            update_fields=["attachment", "attachment_original_name", "updated_by", "updated_at"],
+            _allow_status_change=True,
+        )
         return Response(self.get_serializer(doc).data)
 
     @action(detail=True, methods=["get"], url_path="attachment/download")

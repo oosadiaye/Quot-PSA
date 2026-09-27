@@ -18,8 +18,25 @@ from decimal import Decimal
 
 from django.db import models
 
-from accounting.models.gl import tenant_upload_path
 from core.models import AuditBaseModel, ImmutableModelMixin
+
+
+def payment_document_attachment_path(instance, filename):
+    """Randomized, tenant-scoped upload path for the source-document scan.
+
+    The stored name is a random UUID (NOT the user's filename), so the file
+    is NOT reachable by a guessable/constructible URL even if a webserver
+    ``/media/`` alias serves the directory unauthenticated. The human filename
+    is preserved separately in ``attachment_original_name`` for display; the
+    only sanctioned way to fetch the bytes is the authenticated
+    ``attachment/download`` action.
+    """
+    import os
+    import uuid
+    from django.db import connection
+    schema = getattr(connection, "schema_name", "public")
+    ext = os.path.splitext(filename)[1].lower()
+    return f"tenants/{schema}/documents/payment_docs/{uuid.uuid4().hex}{ext}"
 
 
 class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
@@ -47,10 +64,13 @@ class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
         related_name="payment_documents",
     )
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default="manual")
-    # Source-document scan/PDF (image or PDF). Tenant-scoped upload path mirrors
-    # ``VendorInvoice.attachment``. Never served via raw /media — download runs
-    # through the authenticated ``attachment/download`` action on the ViewSet.
-    attachment = models.FileField(upload_to=tenant_upload_path, null=True, blank=True)
+    # Source-document scan (image or PDF). The file is stored under a random
+    # UUID name (see ``payment_document_attachment_path``) so it cannot be
+    # reached by a guessable /media URL; the human filename lives in
+    # ``attachment_original_name``. Download is ONLY via the authenticated
+    # ``attachment/download`` action on the ViewSet.
+    attachment = models.FileField(upload_to=payment_document_attachment_path, null=True, blank=True)
+    attachment_original_name = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["-created_at"]

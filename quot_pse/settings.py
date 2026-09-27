@@ -432,6 +432,9 @@ REST_FRAMEWORK = {
         # Bulk imports are rate-limited separately since one call can
         # legitimately insert thousands of rows.
         'bulk_import':  '10/hour',
+        # Source-document attachment upload — the multipart parser reads the
+        # whole body before the size check, so cap how often it can be forced.
+        'payment_doc_attachment': os.getenv('PAYMENT_DOC_ATTACHMENT_THROTTLE_RATE', '30/hour'),
         # Approval actions — prevent approval-click spam.
         'approve':      '120/hour',
         # G-A4 — heavy READ endpoints. IPSAS/statutory reports and file

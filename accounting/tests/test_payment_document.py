@@ -525,7 +525,15 @@ def test_api_upload_attachment_accepts_pdf(pd_api, pd_accounts, pd_bank):
                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     body = resp.json()
     assert body["has_attachment"] is True
-    assert body["attachment_name"].endswith(".pdf")
+    # ``attachment_name`` is the HUMAN filename, not the randomized stored name.
+    assert body["attachment_name"] == "src.pdf"
+    # The doc's stored file is a random UUID name, NOT the uploaded filename —
+    # so it can't be reached by a guessable /media URL.
+    from accounting.models import PaymentDocument
+    stored = PaymentDocument.objects.get(pk=doc_id).attachment.name
+    assert stored.endswith(".pdf")
+    assert "src.pdf" not in stored
+    assert "payment_docs/" in stored
 
 
 @pytest.mark.django_db
@@ -568,3 +576,87 @@ def test_api_download_attachment_404_when_none(pd_api, pd_accounts, pd_bank):
     resp = client.get(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/download/",
                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 404, resp.content
+
+
+def _tiny_png_bytes():
+    """A genuinely valid 2x2 PNG so the Pillow magic-byte check passes."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 2), "red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.mark.django_db
+def test_api_upload_attachment_accepts_real_png(pd_api, pd_accounts, pd_bank):
+    """A real PNG clears the metadata allowlist AND the Pillow decode check."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    f = SimpleUploadedFile("scan.png", _tiny_png_bytes(), content_type="image/png")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["attachment_name"] == "scan.png"
+
+
+@pytest.mark.django_db
+def test_api_upload_attachment_rejects_fake_image(pd_api, pd_accounts, pd_bank):
+    """Correct metadata (image/png + .png) but garbage bytes → the magic-byte
+    (Pillow) check rejects it. Proves the sniff is not vacuous — metadata alone
+    would have let this through."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    f = SimpleUploadedFile("fake.png", b"this is definitely not a real png",
+                           content_type="image/png")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+
+
+@pytest.mark.django_db
+def test_api_upload_attachment_rejects_fake_pdf(pd_api, pd_accounts, pd_bank):
+    """Correct metadata (application/pdf + .pdf) but no %PDF- header → the
+    magic-byte check rejects it."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    f = SimpleUploadedFile("fake.pdf", b"GIF89a not a pdf at all",
+                           content_type="application/pdf")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+
+
+@pytest.mark.django_db
+def test_api_attachment_endpoints_forbidden_without_rbac(pd_api, pd_accounts, pd_bank):
+    """A non-superuser with NO tenant role/permission is denied (403) on BOTH
+    the upload and the download — the download is authenticated (RBAC), never
+    an open /media URL. ``pd_api`` is used only to (re)assert the tenant
+    Client/Domain rows; the request itself uses a fresh plain user."""
+    from django.contrib.auth import get_user_model
+    from rest_framework.test import APIClient
+    client, _ = pd_api  # side-effect: ensures pytest Client/Domain exist
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+
+    User = get_user_model()
+    plain, _ = User.objects.get_or_create(
+        username="pd_plain", defaults={"is_staff": False, "is_superuser": False},
+    )
+    plain_client = APIClient()
+    plain_client.force_authenticate(user=plain)
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    f = SimpleUploadedFile("scan.png", _tiny_png_bytes(), content_type="image/png")
+    resp = plain_client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                            {"file": f}, format="multipart",
+                            HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 403, resp.content
+
+    resp = plain_client.get(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/download/",
+                           HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 403, resp.content
