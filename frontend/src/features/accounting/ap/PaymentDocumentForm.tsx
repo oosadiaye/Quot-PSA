@@ -541,15 +541,18 @@ export default function PaymentDocumentForm() {
                     {existingDoc.has_attachment && (
                         <div className="card">
                             <label className="label">Source Document</label>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            {/* Single-line layout (filename left, compact View right) so this
+                                card matches the height of the other detail cards — a grid row
+                                stretches every cell to its tallest sibling. */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                                 {existingDoc.attachment_name && (
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-sm)' }}>
+                                    <span title={existingDoc.attachment_name} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', minWidth: 0, overflow: 'hidden', fontSize: 'var(--text-sm)' }}>
                                         <Paperclip size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-                                        {existingDoc.attachment_name}
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{existingDoc.attachment_name}</span>
                                     </span>
                                 )}
-                                <button type="button" className="btn btn-outline" onClick={() => handleViewAttachment(existingDoc.id)} disabled={viewAttachment.isPending}>
-                                    <Eye size={16} /> View Source Document
+                                <button type="button" className="btn btn-outline" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 'var(--text-xs)', padding: '0.3rem 0.6rem' }} onClick={() => handleViewAttachment(existingDoc.id)} disabled={viewAttachment.isPending} title="View source document">
+                                    <Eye size={14} /> View
                                 </button>
                             </div>
                         </div>
