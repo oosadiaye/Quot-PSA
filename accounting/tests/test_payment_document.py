@@ -251,3 +251,81 @@ def test_post_refuses_negative_amount(pd_accounts, pd_bank, open_period):
     assert JournalHeader.objects.filter(
         source_module="payment_document", source_document_id=doc.pk,
     ).count() == 0
+
+
+# ── API tests — exercise the DRF viewset over real HTTP (CRUD + gated post +
+# proposed-entries preview). The superuser client bypasses IsApprover and
+# RequiresMFA (both exempt superusers), so the gated post succeeds. ──────────
+@pytest.fixture
+def pd_api(db):
+    """Superuser API client on the pytest tenant.
+
+    Re-asserts the ``pytest.localhost`` Client + Domain on the public schema
+    first. A preceding ``@pytest.mark.django_db(transaction=True)`` test
+    flushes the public ``tenants_client`` / ``tenants_domain`` rows at
+    teardown (the conftest patches ``sql_flush`` to CASCADE, so the flush now
+    succeeds locally as it does on CI — see project memory
+    ``ci_tenant_flush_wipes_domain``). Without the Domain row the tenant
+    middleware 400s ``"Unknown tenant domain"`` on this test's request. The
+    ``get_or_create`` calls are idempotent — a no-op when the rows survive.
+    """
+    from django.db import connection
+    from rest_framework.test import APIClient
+    from django.contrib.auth import get_user_model
+    from tenants.models import Client, Domain
+
+    # Client/Domain are public-schema rows and django-tenants refuses to
+    # create a tenant while routed to a tenant schema, so re-assert them on
+    # public, then restore the tenant routing the autouse fixture set up.
+    connection.set_schema_to_public()
+    try:
+        tenant, _ = Client.objects.get_or_create(
+            schema_name="pytest_schema", defaults={"name": "PyTest Tenant"},
+        )
+        Domain.objects.get_or_create(
+            domain="pytest.localhost", tenant=tenant, defaults={"is_primary": True},
+        )
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="pd_admin", defaults={"is_staff": True, "is_superuser": True},
+        )
+    finally:
+        connection.set_schema("pytest_schema")
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client, user
+
+
+@pytest.mark.django_db(transaction=True)
+def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
+    client, _ = pd_api
+    payload = {
+        "bank_account": pd_bank.pk,
+        "description": "API salary run",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 201, resp.content
+    doc_id = resp.json()["id"]
+
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["status"] == "Posted"
+
+
+@pytest.mark.django_db
+def test_api_proposed_entries_previews_balanced_lines(pd_api, pd_accounts, pd_bank):
+    client, _ = pd_api
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    doc = PaymentDocument.objects.create(document_number="PD-PREV-1", bank_account=pd_bank)
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("500.00"))
+    resp = client.get(f"/api/v1/accounting/payment-documents/{doc.pk}/proposed-entries/",
+                      HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    assert sum(Decimal(e["debit"]) for e in entries) == sum(Decimal(e["credit"]) for e in entries)
