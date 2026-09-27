@@ -288,8 +288,10 @@ export default function PaymentDocumentForm() {
         () =>
             [...banks].map((b) => ({
                 value: String(b.id),
-                label: b.account_number ? `${b.account_name ?? ''} — ${b.account_number}` : (b.account_name ?? ''),
-                sublabel: b.bank_name,
+                // Account NAME on top; account code (number) — with the bank
+                // name for context when a distinct account name is present — beneath.
+                label: b.account_name || b.bank_name || 'Bank account',
+                sublabel: [b.account_name ? b.bank_name : null, b.account_number].filter(Boolean).join(' — ') || undefined,
             })),
         [banks],
     );
