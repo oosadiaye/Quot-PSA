@@ -171,3 +171,48 @@ def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, open_pe
     assert JournalHeader.objects.filter(
         source_module="payment_document", source_document_id=doc.pk,
     ).count() == 0
+
+
+# ── Fast guard tests — these raise at the input-validation stage BEFORE any
+# journal / GL posting, so plain @pytest.mark.django_db (no transaction=True)
+# keeps them fast. ─────────────────────────────────────────────────────────
+@pytest.mark.django_db
+def test_post_refuses_no_lines(pd_accounts, pd_bank):
+    from accounting.models import PaymentDocument
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NL", bank_account=pd_bank)
+    with pytest.raises(PaymentDocumentError):
+        post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # nothing posted
+
+
+@pytest.mark.django_db
+def test_post_refuses_line_with_both_debit_and_credit(pd_accounts, pd_bank):
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-BOTH", bank_account=pd_bank)
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["liability"],
+        debit=Decimal("10"), credit=Decimal("10"),
+    )
+    with pytest.raises(PaymentDocumentError):
+        post_payment_document(doc, actor=None)
+
+
+@pytest.mark.django_db
+def test_post_refuses_when_bank_has_no_gl_account(pd_accounts):
+    from accounting.models import PaymentDocument, PaymentDocumentLine, BankAccount
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    bank_no_gl, _ = BankAccount.objects.get_or_create(
+        account_number="0000000009",
+        defaults={"name": "No-GL Bank", "bank_name": "CBN",
+                  "gl_account": None, "current_balance": Decimal("1000000.00"),
+                  "currency": None},
+    )
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NOGL", bank_account=bank_no_gl)
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["liability"], debit=Decimal("50000.00"),
+    )
+    with pytest.raises(PaymentDocumentError):
+        post_payment_document(doc, actor=None)

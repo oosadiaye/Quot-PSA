@@ -3,8 +3,13 @@
 Header bank account is the single credit (cash out); lines are the debit/
 credit legs (expenditure, liability settlement, vendor recon, or deduction).
 Posts ONE balanced journal via ``payment_document_posting.post_payment_document``.
-Budget appropriation is enforced only on expense-debit lines by the existing
-``budget_enforcement`` signal, so liability/vendor settlements post with none.
+Budget appropriation is enforced by ``post_payment_document`` itself on
+expense-type debit lines: the ``budget_enforcement`` signal gates by GL code
+range (not account_type), which would otherwise block liability/vendor
+settlements whose codes fall in the expenditure range, so the service runs the
+expense-only appropriation/warrant check and sets ``journal._budget_checked`` to
+suppress the signal's broader gate. Liability/vendor/asset settlements post with
+no budget check.
 """
 from __future__ import annotations
 
