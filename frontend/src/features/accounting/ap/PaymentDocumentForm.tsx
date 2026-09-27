@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Save, X, Plus, Trash2, AlertCircle, Banknote, ChevronDown, ChevronUp, Lock, ArrowLeft } from 'lucide-react';
+import { Save, X, Plus, Trash2, AlertCircle, Banknote, Lock, ArrowLeft } from 'lucide-react';
 import apiClient from '../../../api/client';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
@@ -198,11 +198,6 @@ export default function PaymentDocumentForm() {
     const [description, setDescription] = useState('');
     const [referenceNumber, setReferenceNumber] = useState('');
     const [documentDate, setDocumentDate] = useState(todayLocalISO());
-    // Header-level appropriation. MDA is REQUIRED (promoted to the top of the
-    // form); Fund stays optional and matches expenditure debits to a warrant.
-    const [mda, setMda] = useState('');
-    const [fund, setFund] = useState('');
-    const [showAppropriation, setShowAppropriation] = useState(false);
     // User settlement (debit) lines only — the bank-credit line is derived from
     // the header (Bank + Amount) and rendered as a locked row, not stored here.
     const [lines, setLines] = useState<PDLine[]>([blankLine()]);
@@ -234,7 +229,7 @@ export default function PaymentDocumentForm() {
     // prior (failed) Post & Pay attempt, so the next attempt creates a fresh one.
     useEffect(() => {
         createdIdRef.current = null;
-    }, [bankAccount, amount, description, referenceNumber, documentDate, mda, fund, lines]);
+    }, [bankAccount, amount, description, referenceNumber, documentDate, lines]);
 
     // Edit-mode hydration — runs once when the detail finishes loading. Maps the
     // server document (header + lines) into local form state. Runs for any
@@ -249,9 +244,6 @@ export default function PaymentDocumentForm() {
         setDescription(existingDoc.description ?? '');
         setReferenceNumber(existingDoc.reference_number ?? '');
         setDocumentDate(existingDoc.document_date || todayLocalISO());
-        setMda(existingDoc.mda != null ? String(existingDoc.mda) : '');
-        setFund(existingDoc.fund != null ? String(existingDoc.fund) : '');
-        if (existingDoc.fund != null) setShowAppropriation(true);
 
         // The bank-credit line = account is the bank's GL account, credit-only.
         const selBank = banks.find((b) => String(b.id) === String(existingDoc.bank_account));
@@ -338,11 +330,10 @@ export default function PaymentDocumentForm() {
     // rejects edits, so this is belt-and-suspenders. Only a Draft is editable.
     const docStatus = existingDoc?.status;
     const isReadOnly = isEditMode && docStatus != null && docStatus !== 'Draft';
-    // Floor for both actions: MDA, Bank (with a GL account), a positive Amount
-    // and a Reference. Post & Pay adds the balance requirement; a Draft may be
-    // saved unbalanced so the operator can come back and finish it.
+    // Floor for both actions: Bank (with a GL account), a positive Amount and a
+    // Reference. Post & Pay adds the balance requirement; a Draft may be saved
+    // unbalanced so the operator can come back and finish it.
     const baseReady =
-        !!mda &&
         !!bankAccount &&
         !bankGlMissing &&
         amountNum > 0 &&
@@ -377,8 +368,6 @@ export default function PaymentDocumentForm() {
             description,
             reference_number: referenceNumber,
             document_date: documentDate,
-            mda: mda || null,
-            fund: fund || null,
             lines: [bankLine, ...userPayloadLines],
         };
     };
@@ -605,21 +594,6 @@ export default function PaymentDocumentForm() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                     <div className="card">
-                        <label className="label">MDA<span className="required-mark"> *</span></label>
-                        <SearchableSelect
-                            options={mdaOptions}
-                            value={mda}
-                            onChange={setMda}
-                            placeholder="Search MDA…"
-                            required
-                        />
-                        {!mda && (
-                            <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
-                                An MDA is required to save or post.
-                            </p>
-                        )}
-                    </div>
-                    <div className="card">
                         <label className="label">Bank Account<span className="required-mark"> *</span></label>
                         <SearchableSelect
                             options={bankOptions}
@@ -775,42 +749,6 @@ export default function PaymentDocumentForm() {
                             </tfoot>
                         </table>
                     </div>
-                </div>
-
-                {/* ── Optional Fund appropriation ──
-                    MDA is captured above (required). Fund is optional — the
-                    payment stage matches expenditure debits against the
-                    available warrant (AIE). Leave blank for pure liability /
-                    vendor settlements. */}
-                <div className="card" style={{ marginTop: '2.5rem' }}>
-                    <button
-                        type="button"
-                        onClick={() => setShowAppropriation((v) => !v)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
-                    >
-                        <h3 style={{ margin: 0, fontSize: 'var(--text-base)', flex: 1 }}>
-                            Fund Appropriation <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
-                        </h3>
-                        {showAppropriation ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </button>
-                    <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                        MDA is set above. Optionally tag a Fund — the payment stage matches expenditure
-                        debits against the available warrant (AIE). Leave blank for pure liability /
-                        vendor settlements.
-                    </p>
-                    {showAppropriation && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
-                            <div>
-                                <label className="label">Fund</label>
-                                <SearchableSelect
-                                    options={fundOptions}
-                                    value={fund}
-                                    onChange={setFund}
-                                    placeholder="Search Fund…"
-                                />
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 {/* Existing Draft only — a preview of the balanced journal this

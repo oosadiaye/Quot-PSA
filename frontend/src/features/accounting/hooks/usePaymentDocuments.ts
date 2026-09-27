@@ -16,9 +16,9 @@ export interface PaymentDocumentInput {
   description?: string;
   reference_number?: string;
   document_date?: string;
-  // MDA is required in practice (the form enforces it); kept nullable so a
-  // payload can still express "no MDA" defensively without an `any` cast.
-  mda: number | string | null;
+  // Appropriation dimensions are optional and no longer captured by the
+  // Payment Document form; kept on the type for other/legacy callers.
+  mda?: number | string | null;
   fund?: number | string | null;
   // Full balanced set: the auto bank-credit line (account = bank's GL account,
   // debit 0, credit = Amount) PLUS each user settlement line. No `memo`.
