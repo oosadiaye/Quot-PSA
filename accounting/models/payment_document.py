@@ -69,7 +69,11 @@ class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
     # reached by a guessable /media URL; the human filename lives in
     # ``attachment_original_name``. Download is ONLY via the authenticated
     # ``attachment/download`` action on the ViewSet.
-    attachment = models.FileField(upload_to=payment_document_attachment_path, null=True, blank=True)
+    # max_length 255 (not the FileField default of 100): the tenant-scoped
+    # media path (long schema name + payment_docs/ + a 32-char uuid) can exceed
+    # 100 chars, which would otherwise force the storage backend to truncate the
+    # random name to fit.
+    attachment = models.FileField(upload_to=payment_document_attachment_path, max_length=255, null=True, blank=True)
     attachment_original_name = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:

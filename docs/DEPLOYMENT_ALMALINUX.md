@@ -440,7 +440,22 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # Uploaded files (if any)
+    # Uploaded files.
+    # SECURITY (CRITICAL): tenant-scoped uploads under media/tenants/ —
+    # payment source-documents, vendor-invoice scans, bank letters and other
+    # confidential financial records — MUST NOT be served directly by nginx.
+    # nginx has no knowledge of Django auth, so a blanket /media/ alias hands
+    # these files to anyone who can guess a path, across tenants. They are
+    # streamed only through authenticated, RBAC-gated Django endpoints (e.g.
+    # /api/v1/accounting/payment-documents/<id>/attachment/download/), which
+    # read the bytes from disk via FileResponse — nginx is never in that path.
+    # Deny direct access to the tenant subtree so no guessable URL can bypass
+    # authentication. (^~ makes this prefix win over the general /media/ block.)
+    location ^~ /media/tenants/ {
+        deny all;
+        return 404;
+    }
+    # Non-tenant, genuinely public media only (if any).
     location /media/ {
         alias /opt/quotpse/app/media/;
     }
