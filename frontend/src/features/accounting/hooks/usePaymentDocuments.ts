@@ -64,6 +64,11 @@ export interface PaymentDocumentDetail {
   net_amount?: string | number;
   journal: number | string | null;
   lines: PaymentDocumentLineDetail[];
+  // Source-document attachment metadata (image/PDF). The raw file URL is
+  // never exposed by the serializer — download runs through the authenticated
+  // ``attachment/download`` action, and upload through the ``attachment`` action.
+  has_attachment?: boolean;
+  attachment_name?: string | null;
 }
 
 export function usePaymentDocuments(params: Record<string, unknown> = {}) {
@@ -146,5 +151,48 @@ export function useBulkImportPaymentDocuments() {
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['payment-documents'] }),
+  });
+}
+
+// Attach a source-document scan (image/PDF) to an EXISTING payment document.
+// The endpoint keys off the doc id, so callers must create/save the document
+// first and only then upload — never before the id exists.
+export function useUploadPaymentDocumentAttachment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: number | string; file: File }) => {
+      const form = new FormData();
+      form.append('file', file);
+      const { data } = await apiClient.post(`${BASE}${id}/attachment/`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return data as PaymentDocumentDetail;
+    },
+    onSuccess: (_data, { id }) => {
+      void qc.invalidateQueries({ queryKey: ['payment-documents'] });
+      void qc.invalidateQueries({ queryKey: ['payment-document', id] });
+    },
+  });
+}
+
+// How long a viewed-attachment blob URL is kept alive before it is revoked —
+// long enough for the opened tab to fetch it, short enough to avoid a lasting
+// memory leak from repeated views.
+const ATTACHMENT_BLOB_TTL_MS = 60_000;
+
+// Open a document's attachment in a new tab. The file is NOT served as a raw
+// /media URL, so we fetch it as a BLOB through apiClient (which attaches the
+// auth token + tenant headers), then open an object URL. Works for both images
+// and PDFs. The object URL is revoked after a short delay.
+export function useViewPaymentDocumentAttachment() {
+  return useMutation({
+    mutationFn: async (id: number | string) => {
+      const { data } = await apiClient.get(`${BASE}${id}/attachment/download/`, {
+        responseType: 'blob',
+      });
+      const blobUrl = URL.createObjectURL(data as Blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), ATTACHMENT_BLOB_TTL_MS);
+    },
   });
 }

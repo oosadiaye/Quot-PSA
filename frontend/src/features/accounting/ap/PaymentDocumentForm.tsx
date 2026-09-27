@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Save, X, Plus, Trash2, AlertCircle, Banknote, Lock, ArrowLeft } from 'lucide-react';
+import { Save, X, Plus, Trash2, AlertCircle, Banknote, Lock, ArrowLeft, Paperclip, Eye } from 'lucide-react';
 import apiClient from '../../../api/client';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
@@ -18,6 +18,8 @@ import {
     usePaymentDocument,
     useProposedEntries,
     useUpdatePaymentDocument,
+    useUploadPaymentDocumentAttachment,
+    useViewPaymentDocumentAttachment,
     type PaymentDocumentInput,
     type PaymentDocumentLineInput,
 } from '../hooks/usePaymentDocuments';
@@ -189,6 +191,8 @@ export default function PaymentDocumentForm() {
     const createDoc = useCreatePaymentDocument();
     const postDoc = usePostPaymentDocument();
     const updateDoc = useUpdatePaymentDocument();
+    const uploadAttachment = useUploadPaymentDocumentAttachment();
+    const viewAttachment = useViewPaymentDocumentAttachment();
     const { data: existingDoc, isLoading: docLoading } = usePaymentDocument(isEditMode ? id : null);
 
     const [bankAccount, setBankAccount] = useState('');
@@ -201,6 +205,10 @@ export default function PaymentDocumentForm() {
     // User settlement (debit) lines only — the bank-credit line is derived from
     // the header (Bank + Amount) and rendered as a locked row, not stored here.
     const [lines, setLines] = useState<PDLine[]>([blankLine()]);
+    // Source-document scan (image/PDF) chosen by the operator. Uploaded via a
+    // dedicated endpoint AFTER the document exists (create/save), never as part
+    // of the create payload — the endpoint keys off the doc id.
+    const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
     // One-shot hydration guard — populate from the loaded doc only once so a
     // background refetch can't wipe in-progress edits (mirrors JournalForm).
     const [hydrated, setHydrated] = useState(false);
@@ -372,20 +380,44 @@ export default function PaymentDocumentForm() {
         };
     };
 
+    // Upload the chosen source document to the (now-existing) doc id, then clear
+    // it so a later retry doesn't re-upload the same file. Runs only when a file
+    // is staged; upload errors propagate to the caller's toast.
+    const uploadIfPresent = async (docId: number | string) => {
+        if (!attachmentFile) return;
+        await uploadAttachment.mutateAsync({ id: docId, file: attachmentFile });
+        setAttachmentFile(null);
+    };
+
+    // Open the persisted attachment in a new tab; surface any error via toast.
+    const handleViewAttachment = async (docId: number | string) => {
+        try {
+            await viewAttachment.mutateAsync(docId);
+        } catch (err: unknown) {
+            addToast(extractError(err, 'Could not open attachment'), 'error');
+        }
+    };
+
     const onSaveDraft = async () => {
         try {
             if (isEditMode && id) {
                 // EDIT: PATCH the existing draft in place — never create a new one.
                 await updateDoc.mutateAsync({ id, payload: buildPayload() });
+                await uploadIfPresent(id);
                 addToast('Draft saved', 'success');
                 navigate('/accounting/payment-documents');
                 return;
             }
             // CREATE: if a Post & Pay attempt already persisted this (unchanged)
-            // draft, it is saved — just navigate rather than create a duplicate.
-            if (createdIdRef.current == null) {
-                await createDoc.mutateAsync(buildPayload());
+            // draft, it is saved — reuse that id rather than create a duplicate.
+            let docId = createdIdRef.current;
+            if (docId == null) {
+                const created = await createDoc.mutateAsync(buildPayload());
+                docId = created.id as number | string;
             }
+            // Attachment upload needs the doc id, so it happens here — after the
+            // document exists, never before create.
+            await uploadIfPresent(docId);
             createdIdRef.current = null;
             addToast('Draft saved', 'success');
             navigate('/accounting/payment-documents');
@@ -399,9 +431,10 @@ export default function PaymentDocumentForm() {
         if (!window.confirm('Post & Pay — this credits the bank and moves funds. Continue?')) return;
         try {
             if (isEditMode && id) {
-                // EDIT: persist any edits, then post the EXISTING id. Never
-                // create a second document in edit mode.
+                // EDIT: persist any edits, upload the attachment (if any), then
+                // post the EXISTING id. Never create a second document in edit mode.
                 await updateDoc.mutateAsync({ id, payload: buildPayload() });
+                await uploadIfPresent(id);
                 await postDoc.mutateAsync(id);
                 addToast('Payment document posted', 'success');
                 navigate('/accounting/payment-documents');
@@ -415,6 +448,9 @@ export default function PaymentDocumentForm() {
                 docId = created.id as number | string;
                 createdIdRef.current = docId;
             }
+            // Upload the source document (if staged) BEFORE posting, so the
+            // scan is attached to the document the operator is about to post.
+            await uploadIfPresent(docId);
             await postDoc.mutateAsync(docId);
             createdIdRef.current = null;
             addToast('Payment document posted', 'success');
@@ -500,6 +536,22 @@ export default function PaymentDocumentForm() {
                         <label className="label">Journal</label>
                         <div>{existingDoc.journal != null ? `Journal reference #${existingDoc.journal}` : 'Not posted'}</div>
                     </div>
+                    {existingDoc.has_attachment && (
+                        <div className="card">
+                            <label className="label">Source Document</label>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                {existingDoc.attachment_name && (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-sm)' }}>
+                                        <Paperclip size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                                        {existingDoc.attachment_name}
+                                    </span>
+                                )}
+                                <button type="button" className="btn btn-outline" onClick={() => handleViewAttachment(existingDoc.id)} disabled={viewAttachment.isPending}>
+                                    <Eye size={16} /> View Source Document
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {(mdaLabel || fundLabel) && (
@@ -592,7 +644,7 @@ export default function PaymentDocumentForm() {
                     }
                 />
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
+                <div className="pd-header-fields" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                     <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Bank Account<span className="required-mark"> *</span></label>
                         <SearchableSelect
@@ -615,11 +667,6 @@ export default function PaymentDocumentForm() {
                     <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Reference #<span className="required-mark"> *</span></label>
                         <input type="text" placeholder="e.g. PAY-2026-001" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} required />
-                        {referenceNumber.trim() === '' && (
-                            <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
-                                A reference is required to save or post.
-                            </p>
-                        )}
                     </div>
                     <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Document Date<span className="required-mark"> *</span></label>
@@ -628,6 +675,42 @@ export default function PaymentDocumentForm() {
                     <div className="card" style={{ padding: '14px 20px', gridColumn: 'span 2' }}>
                         <label className="label">Description</label>
                         <input type="text" placeholder="Purpose of this payment" value={description} onChange={(e) => setDescription(e.target.value)} />
+                    </div>
+                    {/* Source Document — optional image/PDF scan of the payment
+                        voucher/supporting doc. Uploaded via a dedicated endpoint
+                        AFTER the doc is saved/created (see uploadIfPresent). */}
+                    <div className="card" style={{ padding: '14px 20px', gridColumn: 'span 2' }}>
+                        <label className="label">Source Document</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                            {/* Attachment already persisted on the loaded doc (edit mode). */}
+                            {isEditMode && existingDoc?.has_attachment && (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.6rem', borderRadius: '7px', background: 'rgba(25,30,106,0.05)', border: '1px solid rgba(25,30,106,0.18)', fontSize: 'var(--text-xs)', minWidth: 0 }}>
+                                    <Paperclip size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                                        {existingDoc.attachment_name}
+                                    </span>
+                                    <button type="button" className="btn btn-outline" style={{ fontSize: 'var(--text-xs)', padding: '0.25rem 0.5rem' }} onClick={() => handleViewAttachment(existingDoc.id)} disabled={viewAttachment.isPending}>
+                                        <Eye size={14} /> View
+                                    </button>
+                                </div>
+                            )}
+                            {/* File picker — attach (or replace) an image/PDF. */}
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.75rem', borderRadius: '7px', border: '1.5px dashed var(--border)', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+                                <Paperclip size={14} />
+                                <span>{isEditMode && existingDoc?.has_attachment ? 'Replace image/PDF' : 'Attach image/PDF'}</span>
+                                <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)} />
+                            </label>
+                            {/* Staged (not-yet-uploaded) file chip. */}
+                            {attachmentFile && (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.6rem', borderRadius: '7px', background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.3)', fontSize: 'var(--text-xs)', minWidth: 0 }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>{attachmentFile.name}</span>
+                                    <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>({(attachmentFile.size / 1024).toFixed(0)} KB)</span>
+                                    <button type="button" onClick={() => setAttachmentFile(null)} title="Remove selected file" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', padding: 0, display: 'flex', flexShrink: 0 }}>
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -762,6 +845,16 @@ export default function PaymentDocumentForm() {
                     font-weight: 600;
                     text-transform: uppercase;
                     color: var(--text-muted);
+                }
+                /* Compact header fields — scoped to THIS form only. Overrides the
+                   global 13px input padding (and SearchableSelect's inline
+                   padding, hence !important) so the header inputs, the amount
+                   field and the bank picker read as one shorter, denser row.
+                   Only vertical padding changes; the hidden file input is
+                   display:none, so unaffected. */
+                .pd-header-fields input {
+                    padding-top: 0.375rem !important;
+                    padding-bottom: 0.375rem !important;
                 }
             `}</style>
         </AccountingLayout>
