@@ -25,6 +25,7 @@ interface PaymentDocumentRow {
     id: number | string;
     document_number: string;
     document_date?: string;
+    reference_number?: string;
     bank_account_name?: string;
     net_amount?: string | number;
     status: string;
@@ -75,6 +76,7 @@ export default function PaymentDocumentsList() {
                         <thead>
                             <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Document #</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Reference</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Date</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Bank Account</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Account Paid</th>
@@ -85,9 +87,9 @@ export default function PaymentDocumentsList() {
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan={7} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</td></tr>
+                                <tr><td colSpan={8} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</td></tr>
                             ) : docs.length === 0 ? (
-                                <tr><td colSpan={7} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No payment documents yet.</td></tr>
+                                <tr><td colSpan={8} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No payment documents yet.</td></tr>
                             ) : (
                                 docs.map((d: PaymentDocumentRow) => {
                                     const accountPaid = deriveAccountPaid(d.lines);
@@ -102,6 +104,7 @@ export default function PaymentDocumentsList() {
                                                     {d.document_number}
                                                 </Link>
                                             </td>
+                                            <td style={{ padding: '1rem' }}>{d.reference_number || '—'}</td>
                                             <td style={{ padding: '1rem' }}>{formatDate(d.document_date)}</td>
                                             <td style={{ padding: '1rem' }}>{d.bank_account_name ?? '—'}</td>
                                             <td style={{ padding: '1rem', maxWidth: 240 }}>

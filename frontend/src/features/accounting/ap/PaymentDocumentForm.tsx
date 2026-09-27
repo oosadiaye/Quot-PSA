@@ -37,7 +37,6 @@ interface PDLine {
     vendor: string;
     debit: string;
     credit: string;
-    memo: string;
 }
 
 // Shape used by the account/dimension pickers (mirror JournalForm's toCodeOptions).
@@ -62,7 +61,6 @@ const blankLine = (): PDLine => ({
     vendor: '',
     debit: '0',
     credit: '0',
-    memo: '',
 });
 
 // Today's date as YYYY-MM-DD in the user's *local* timezone. ``toISOString()``
@@ -247,7 +245,6 @@ export default function PaymentDocumentForm() {
                     vendor: l.vendor != null ? String(l.vendor) : '',
                     debit: String(l.debit ?? '0'),
                     credit: String(l.credit ?? '0'),
-                    memo: l.memo ?? '',
                 })),
             );
         }
@@ -286,7 +283,12 @@ export default function PaymentDocumentForm() {
     const docStatus = existingDoc?.status;
     const isReadOnly = isEditMode && docStatus != null && docStatus !== 'Draft';
     const canSaveDraft =
-        !!bankAccount && validLines.length > 0 && !createDoc.isPending && !postDoc.isPending && !updateDoc.isPending;
+        !!bankAccount &&
+        referenceNumber.trim() !== '' &&
+        validLines.length > 0 &&
+        !createDoc.isPending &&
+        !postDoc.isPending &&
+        !updateDoc.isPending;
     const canPostAndPay = canSaveDraft && net > 0;
 
     const addLine = () => setLines((prev) => [...prev, blankLine()]);
@@ -306,7 +308,6 @@ export default function PaymentDocumentForm() {
             vendor: l.vendor || null,
             debit: String(parseFloat(l.debit) || 0),
             credit: String(parseFloat(l.credit) || 0),
-            memo: l.memo,
         })),
     });
 
@@ -465,7 +466,6 @@ export default function PaymentDocumentForm() {
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '220px' }}>Vendor</th>
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px', textAlign: 'right' }}>Debit</th>
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px', textAlign: 'right' }}>Credit</th>
-                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Memo</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -477,7 +477,6 @@ export default function PaymentDocumentForm() {
                                         <td style={{ padding: '0.75rem 1rem' }}>{l.vendor_name || '—'}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{formatCurrency(parseFloat(l.debit) || 0)}</td>
                                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{formatCurrency(parseFloat(l.credit) || 0)}</td>
-                                        <td style={{ padding: '0.75rem 1rem' }}>{l.memo || '—'}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -486,7 +485,6 @@ export default function PaymentDocumentForm() {
                                     <td colSpan={2} style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>Totals</td>
                                     <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(roDebit)}</td>
                                     <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(roCredit)}</td>
-                                    <td style={{ padding: '1rem', borderTop: '2px solid var(--border)' }} />
                                 </tr>
                             </tfoot>
                         </table>
@@ -552,8 +550,13 @@ export default function PaymentDocumentForm() {
                         </p>
                     </div>
                     <div className="card">
-                        <label className="label">Reference #</label>
-                        <input type="text" placeholder="e.g. PAY-2026-001" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
+                        <label className="label">Reference #<span className="required-mark"> *</span></label>
+                        <input type="text" placeholder="e.g. PAY-2026-001" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} required />
+                        {referenceNumber.trim() === '' && (
+                            <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
+                                A reference is required to save or post.
+                            </p>
+                        )}
                     </div>
                     <div className="card" style={{ gridColumn: 'span 2' }}>
                         <label className="label">Description</label>
@@ -574,7 +577,6 @@ export default function PaymentDocumentForm() {
                                     </th>
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px' }}>Debit</th>
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px' }}>Credit</th>
-                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Memo</th>
                                     <th style={{ padding: '1rem', width: '50px' }}></th>
                                 </tr>
                             </thead>
@@ -605,9 +607,6 @@ export default function PaymentDocumentForm() {
                                             <AmountInput value={line.credit} onChange={(v) => updateLine(idx, 'credit', v)} />
                                         </td>
                                         <td style={{ padding: '0.75rem' }}>
-                                            <input type="text" placeholder="Line memo" value={line.memo} onChange={(e) => updateLine(idx, 'memo', e.target.value)} />
-                                        </td>
-                                        <td style={{ padding: '0.75rem' }}>
                                             {lines.length > 2 && (
                                                 <button type="button" onClick={() => removeLine(idx)} style={{ color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer' }}>
                                                     <Trash2 size={18} />
@@ -627,14 +626,14 @@ export default function PaymentDocumentForm() {
                                     <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>Totals</td>
                                     <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalDebit)}</td>
                                     <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalCredit)}</td>
-                                    <td colSpan={2} style={{ padding: '1rem' }} />
+                                    <td style={{ padding: '1rem' }} />
                                 </tr>
                                 <tr style={{ background: 'var(--surface)' }}>
                                     <td colSpan={2} style={{ padding: '1rem', fontWeight: 700 }}>Net to bank (cash out)</td>
                                     <td colSpan={2} style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', color: net > 0 ? 'var(--primary)' : 'var(--error)' }}>
                                         {formatCurrency(net)}
                                     </td>
-                                    <td colSpan={2} style={{ padding: '1rem' }}>
+                                    <td style={{ padding: '1rem' }}>
                                         {net <= 0 && (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error)', fontSize: 'var(--text-xs)' }}>
                                                 <AlertCircle size={14} /> Net to bank must be positive to Post &amp; Pay

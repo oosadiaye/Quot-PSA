@@ -8,7 +8,6 @@ export interface PaymentDocumentLineInput {
   vendor?: number | string | null;
   debit: string;
   credit: string;
-  memo?: string;
   is_deduction?: boolean;
 }
 
@@ -32,7 +31,6 @@ export interface PaymentDocumentLineDetail {
   vendor_name?: string;
   debit: string;
   credit: string;
-  memo?: string;
   is_deduction?: boolean;
 }
 
