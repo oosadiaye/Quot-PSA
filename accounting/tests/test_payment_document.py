@@ -223,17 +223,23 @@ def test_post_refuses_when_bank_has_no_gl_account(pd_accounts):
 
 
 @pytest.mark.django_db
-def test_post_refuses_negative_amount(pd_accounts, pd_bank):
-    """A mixed-sign line (negative debit + positive credit) must be rejected.
+def test_post_refuses_negative_amount(pd_accounts, pd_bank, open_period):
+    """A negative line amount must be rejected even when the document's net
+    stays POSITIVE — so ONLY the ``d < 0 or c < 0`` guard can catch it.
 
-    Negatives can partially cancel and still satisfy the header SUM balance
-    check, so this service — the only validation layer, since
-    PaymentDocumentLine has no DB/validator against negatives — must reject it
-    before any GL write.
+    Multi-line, net-positive by design: line B (debit=-50, credit=30) slips
+    past the both-sides guard (debit not > 0) and the neither guard (credit
+    > 0), and the ``net <= 0`` guard does NOT fire because
+    net = (200 + -50) - 30 = 120 > 0. PaymentDocumentLine has no DB/validator
+    against negatives, so the service's negative-amount guard is the only
+    thing standing between this corrupted line and the GL.
     """
-    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.models import PaymentDocument, PaymentDocumentLine, JournalHeader
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
     doc = PaymentDocument.objects.create(document_number="PD-GUARD-NEG", bank_account=pd_bank)
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["liability"], debit=Decimal("200.00"),
+    )
     PaymentDocumentLine.objects.create(
         payment_document=doc, account=pd_accounts["liability"],
         debit=Decimal("-50.00"), credit=Decimal("30.00"),
@@ -242,3 +248,6 @@ def test_post_refuses_negative_amount(pd_accounts, pd_bank):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
+    assert JournalHeader.objects.filter(
+        source_module="payment_document", source_document_id=doc.pk,
+    ).count() == 0
