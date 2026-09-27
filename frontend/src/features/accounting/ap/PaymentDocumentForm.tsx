@@ -661,7 +661,7 @@ export default function PaymentDocumentForm() {
                         )}
                     </div>
                     <div className="card" style={{ padding: '14px 20px' }}>
-                        <label className="label">Amount (credited from bank)<span className="required-mark"> *</span></label>
+                        <label className="label">Amount (CR)<span className="required-mark"> *</span></label>
                         <AmountInput value={amount} onChange={setAmount} required />
                     </div>
                     <div className="card" style={{ padding: '14px 20px' }}>
