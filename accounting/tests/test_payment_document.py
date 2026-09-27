@@ -302,6 +302,7 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
     client, _ = pd_api
     payload = {
         "bank_account": pd_bank.pk,
+        "reference_number": "REF-001",
         "description": "API salary run",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
@@ -326,6 +327,25 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
 
 
 @pytest.mark.django_db
+def test_api_create_requires_reference(pd_api, pd_accounts, pd_bank):
+    """A create with NO reference_number is rejected at serializer validation
+    (400) — reference is MANDATORY at the API. Fails before any posting, so
+    plain django_db (no transaction=True) is fine."""
+    client, _ = pd_api
+    payload = {
+        "bank_account": pd_bank.pk,
+        "description": "Missing reference",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+    assert "reference" in resp.content.decode().lower()
+
+
+@pytest.mark.django_db
 def test_api_proposed_entries_previews_balanced_lines(pd_api, pd_accounts, pd_bank):
     client, _ = pd_api
     from accounting.models import PaymentDocument, PaymentDocumentLine
@@ -347,6 +367,7 @@ def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank):
     client, _ = pd_api
     payload = {
         "bank_account": pd_bank.pk,
+        "reference_number": "REF-001",
         "description": "Draft to edit",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "100.00", "credit": "0.00"},
@@ -375,6 +396,7 @@ def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_per
     from accounting.models import PaymentDocument
     payload = {
         "bank_account": pd_bank.pk,
+        "reference_number": "REF-001",
         "description": "To be posted then edited",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
@@ -410,7 +432,7 @@ def test_bulk_import_creates_draft_documents(pd_accounts, pd_bank):
     rows = [
         {"document_ref": "SAL-01", "bank_account_number": pd_bank.account_number,
          "account_code": pd_accounts["liability"].code, "vendor_code": "",
-         "debit": "90000.00", "credit": "0.00", "memo": "March net pay"},
+         "debit": "90000.00", "credit": "0.00"},
     ]
     created = import_payment_documents_from_rows(rows, source="import")
     assert len(created) == 1

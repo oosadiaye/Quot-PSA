@@ -135,7 +135,7 @@ def _build_and_post_journal(doc, lines, bank, net):
         JournalLine.objects.create(
             header=journal, account=ln.account,
             debit=ln.debit or Decimal("0.00"), credit=ln.credit or Decimal("0.00"),
-            memo=(ln.memo or doc.document_number)[:255],
+            memo=doc.document_number[:255],
         )
     JournalLine.objects.create(
         header=journal, account=bank.gl_account,

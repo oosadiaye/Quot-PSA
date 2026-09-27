@@ -10,7 +10,7 @@ from django.db import transaction
 
 TEMPLATE_COLUMNS = [
     "document_ref", "bank_account_number", "account_code", "vendor_code",
-    "debit", "credit", "memo",
+    "debit", "credit",
 ]
 
 
@@ -18,7 +18,7 @@ def build_template_csv() -> str:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(TEMPLATE_COLUMNS)
-    writer.writerow(["SAL-2026-03", "0000000001", "21050000", "", "90000.00", "0.00", "March net pay"])
+    writer.writerow(["SAL-2026-03", "0000000001", "21050000", "", "90000.00", "0.00"])
     return buf.getvalue()
 
 
@@ -61,7 +61,6 @@ def import_payment_documents_from_rows(rows: list[dict], *, source: str = "impor
             PaymentDocumentLine.objects.create(
                 payment_document=doc, account=account, vendor=vendor,
                 debit=_dec(row.get("debit")), credit=_dec(row.get("credit")),
-                memo=(row.get("memo") or "")[:255],
             )
         created.append(doc)
     return created

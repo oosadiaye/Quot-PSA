@@ -69,7 +69,6 @@ class PaymentDocumentLine(models.Model):
     )
     debit = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     credit = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
-    memo = models.CharField(max_length=255, blank=True, default="")
     is_deduction = models.BooleanField(default=False)
 
     class Meta:

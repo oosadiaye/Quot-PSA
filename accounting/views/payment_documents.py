@@ -29,12 +29,19 @@ class PaymentDocumentLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentDocumentLine
         fields = ["id", "account", "account_code", "account_name", "vendor", "vendor_name",
-                  "debit", "credit", "memo", "is_deduction"]
+                  "debit", "credit", "is_deduction"]
 
 
 class PaymentDocumentSerializer(serializers.ModelSerializer):
     lines = PaymentDocumentLineSerializer(many=True)
     bank_account_name = serializers.CharField(source="bank_account.name", read_only=True)
+    # The model field is blank=True (DRF would default it to not-required), so
+    # override it here to make a non-blank reference MANDATORY on create AND
+    # PATCH — the requiredness is enforced at the API, not the DB.
+    reference_number = serializers.CharField(
+        required=True, allow_blank=False, max_length=100,
+        error_messages={"required": "A reference is required.", "blank": "A reference is required."},
+    )
 
     class Meta:
         model = PaymentDocument
