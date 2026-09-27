@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Save, X, Plus, Trash2, AlertCircle, Banknote } from 'lucide-react';
+import { Save, X, Plus, Trash2, AlertCircle, Banknote, ChevronDown, ChevronUp } from 'lucide-react';
 import apiClient from '../../../api/client';
 import SearchableSelect from '../../../components/SearchableSelect';
 import AmountInput from '../../../components/AmountInput';
@@ -11,6 +11,7 @@ import { useCurrency } from '../../../context/CurrencyContext';
 import { formatDate } from '@/utils/date';
 import AccountingLayout from '../AccountingLayout';
 import { useDimensions } from '../hooks/useJournal';
+import { useMDAs } from '../hooks/useBudgetDimensions';
 import {
     useCreatePaymentDocument,
     usePostPaymentDocument,
@@ -61,6 +62,17 @@ const blankLine = (): PDLine => ({
     memo: '',
 });
 
+// Today's date as YYYY-MM-DD in the user's *local* timezone. ``toISOString()``
+// converts to UTC first, which can roll the day backwards for users behind UTC
+// (or WAT users in the late-evening UTC window) — so build it from local parts.
+const todayLocalISO = (): string => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
 function useBankAccounts() {
     return useQuery<BankAccountRow[]>({
         queryKey: ['bank-accounts-dropdown'],
@@ -98,13 +110,27 @@ export default function PaymentDocumentForm() {
     const { data: banks = [] } = useBankAccounts();
     const { data: vendors = [] } = useVendors();
     const { data: dims, isLoading: dimsLoading } = useDimensions();
+    const { data: mdas = [] } = useMDAs({ is_active: true });
     const createDoc = useCreatePaymentDocument();
     const postDoc = usePostPaymentDocument();
 
     const [bankAccount, setBankAccount] = useState('');
     const [description, setDescription] = useState('');
     const [referenceNumber, setReferenceNumber] = useState('');
+    const [documentDate, setDocumentDate] = useState(todayLocalISO());
+    // Header-level appropriation. Required only when a line debits an Expense
+    // account (the backend warrant gate fails closed with mda/fund = None for
+    // expense debits); settlement-only documents leave these blank.
+    const [mda, setMda] = useState('');
+    const [fund, setFund] = useState('');
+    const [showAppropriation, setShowAppropriation] = useState(false);
     const [lines, setLines] = useState<PDLine[]>([blankLine(), blankLine()]);
+
+    // Retry safety: hold the id of the draft created by a Post & Pay attempt so
+    // a failed post (MFA/warrant/period/network) that the operator retries posts
+    // THAT draft instead of creating a second one. Cleared on a successful post,
+    // on Save Draft, and whenever any payload-affecting field changes (below).
+    const createdIdRef = useRef<number | string | null>(null);
 
     // Pickers — pre-sort by code and shape for SearchableSelect (mirror JournalForm).
     const toCodeOptions = (list: Coded[]) =>
@@ -117,6 +143,14 @@ export default function PaymentDocumentForm() {
             }));
 
     const accountOptions = useMemo(() => toCodeOptions((dims?.accounts ?? []) as Coded[]), [dims?.accounts]);
+    const fundOptions = useMemo(() => toCodeOptions((dims?.funds ?? []) as Coded[]), [dims?.funds]);
+    const mdaOptions = useMemo(() => toCodeOptions(mdas as Coded[]), [mdas]);
+
+    // Any change to a payload-affecting field invalidates a draft created by a
+    // prior (failed) Post & Pay attempt, so the next attempt creates a fresh one.
+    useEffect(() => {
+        createdIdRef.current = null;
+    }, [bankAccount, description, referenceNumber, documentDate, mda, fund, lines]);
 
     const bankOptions = useMemo(
         () =>
@@ -157,6 +191,9 @@ export default function PaymentDocumentForm() {
         bank_account: bankAccount,
         description,
         reference_number: referenceNumber,
+        document_date: documentDate,
+        mda: mda || null,
+        fund: fund || null,
         lines: validLines.map<PaymentDocumentLineInput>((l) => ({
             account: l.account,
             vendor: l.vendor || null,
@@ -168,7 +205,12 @@ export default function PaymentDocumentForm() {
 
     const onSaveDraft = async () => {
         try {
-            await createDoc.mutateAsync(buildPayload());
+            // If a Post & Pay attempt already persisted this (unchanged) draft,
+            // it is saved — just navigate rather than create a duplicate.
+            if (createdIdRef.current == null) {
+                await createDoc.mutateAsync(buildPayload());
+            }
+            createdIdRef.current = null;
             addToast('Draft saved', 'success');
             navigate('/accounting/payment-documents');
         } catch (err: unknown) {
@@ -180,8 +222,16 @@ export default function PaymentDocumentForm() {
         // Save the draft, then post it — the confirm guards a real cash movement.
         if (!window.confirm('Post & Pay — this credits the bank and moves funds. Continue?')) return;
         try {
-            const created = await createDoc.mutateAsync(buildPayload());
-            await postDoc.mutateAsync(created.id);
+            // Reuse the draft from a prior failed attempt so a retry never
+            // creates a second document (see createdIdRef above).
+            let docId = createdIdRef.current;
+            if (docId == null) {
+                const created = await createDoc.mutateAsync(buildPayload());
+                docId = created.id as number | string;
+                createdIdRef.current = docId;
+            }
+            await postDoc.mutateAsync(docId);
+            createdIdRef.current = null;
             addToast('Payment document posted', 'success');
             navigate('/accounting/payment-documents');
         } catch (err: unknown) {
@@ -227,8 +277,11 @@ export default function PaymentDocumentForm() {
                         />
                     </div>
                     <div className="card">
-                        <label className="label">Document Date</label>
-                        <input type="text" value={formatDate(new Date())} readOnly disabled />
+                        <label className="label">Document Date<span className="required-mark"> *</span></label>
+                        <input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value || todayLocalISO())} required />
+                        <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                            {formatDate(documentDate)} — back-date if the payment settled earlier.
+                        </p>
                     </div>
                     <div className="card">
                         <label className="label">Reference #</label>
@@ -324,6 +377,50 @@ export default function PaymentDocumentForm() {
                             </tfoot>
                         </table>
                     </div>
+                </div>
+
+                {/* ── Optional header-level Budget Appropriation ──
+                    Required only when a line debits an expenditure (Expense)
+                    account; the backend warrant gate fails closed when mda/fund
+                    are None for such lines. Settlement-only docs leave it blank. */}
+                <div className="card" style={{ marginTop: '2.5rem' }}>
+                    <button
+                        type="button"
+                        onClick={() => setShowAppropriation((v) => !v)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
+                    >
+                        <h3 style={{ margin: 0, fontSize: 'var(--text-base)', flex: 1 }}>
+                            Budget Appropriation <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+                        </h3>
+                        {showAppropriation ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                        Required only when a line debits an expenditure (Expense) account — the payment
+                        stage matches these against the available warrant (AIE). Leave blank for pure
+                        liability / vendor settlements.
+                    </p>
+                    {showAppropriation && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
+                            <div>
+                                <label className="label">MDA</label>
+                                <SearchableSelect
+                                    options={mdaOptions}
+                                    value={mda}
+                                    onChange={setMda}
+                                    placeholder="Search MDA…"
+                                />
+                            </div>
+                            <div>
+                                <label className="label">Fund</label>
+                                <SearchableSelect
+                                    options={fundOptions}
+                                    value={fund}
+                                    onChange={setFund}
+                                    placeholder="Search Fund…"
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
             </form>
             <style>{`
