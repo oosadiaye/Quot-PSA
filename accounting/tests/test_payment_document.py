@@ -400,3 +400,21 @@ def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_per
         PaymentDocument.objects.get(pk=doc_id).lines.values_list("account_id", "debit", "credit")
     )
     assert lines_after == lines_before  # posted document's lines are untouched
+
+
+# ── Bulk import — CSV rows grouped by ``document_ref`` create DRAFT documents
+# for operator review. Imported docs are NEVER auto-posted. ──────────────────
+@pytest.mark.django_db
+def test_bulk_import_creates_draft_documents(pd_accounts, pd_bank):
+    from accounting.services.payment_document_import import import_payment_documents_from_rows
+    rows = [
+        {"document_ref": "SAL-01", "bank_account_number": pd_bank.account_number,
+         "account_code": pd_accounts["liability"].code, "vendor_code": "",
+         "debit": "90000.00", "credit": "0.00", "memo": "March net pay"},
+    ]
+    created = import_payment_documents_from_rows(rows, source="import")
+    assert len(created) == 1
+    doc = created[0]
+    assert doc.status == "Draft"          # imported docs are never auto-posted
+    assert doc.lines.count() == 1
+    assert doc.lines.first().debit == Decimal("90000.00")

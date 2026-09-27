@@ -1,6 +1,7 @@
 """Payment Document API — CRUD, approver+MFA-gated post, proposed-entries preview."""
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -16,6 +17,8 @@ from accounting.services.payment_document_posting import (
 )
 from core.mixins import OrganizationFilterMixin
 from core.permissions import IsApprover
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentDocumentLineSerializer(serializers.ModelSerializer):
@@ -121,3 +124,27 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             "debit": "0.00", "credit": str(net if net > 0 else Decimal("0.00")),
         })
         return Response({"entries": entries, "net_amount": str(net)})
+
+    @action(detail=False, methods=["get"], url_path="download-template")
+    def download_template(self, request):
+        from django.http import HttpResponse
+        from accounting.services.payment_document_import import build_template_csv
+        resp = HttpResponse(build_template_csv(), content_type="text/csv")
+        resp["Content-Disposition"] = 'attachment; filename="payment-document-template.csv"'
+        return resp
+
+    @action(detail=False, methods=["post"], url_path="import")
+    def bulk_import(self, request):
+        from accounting.services.payment_document_import import parse_rows, import_payment_documents_from_rows
+        f = request.FILES.get("file")
+        if not f:
+            return Response({"error": "Upload a CSV file in the 'file' field."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            rows = parse_rows(f.read())
+            created = import_payment_documents_from_rows(rows, source="import")
+        except Exception:  # noqa: BLE001
+            logger.exception("Payment document import failed")
+            return Response({"error": "Import failed. Check the file format and values."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"created": len(created),
+                         "documents": self.get_serializer(created, many=True).data},
+                        status=status.HTTP_201_CREATED)
