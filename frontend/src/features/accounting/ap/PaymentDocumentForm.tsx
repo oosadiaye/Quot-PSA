@@ -593,7 +593,7 @@ export default function PaymentDocumentForm() {
                 />
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
-                    <div className="card">
+                    <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Bank Account<span className="required-mark"> *</span></label>
                         <SearchableSelect
                             options={bankOptions}
@@ -608,14 +608,11 @@ export default function PaymentDocumentForm() {
                             </p>
                         )}
                     </div>
-                    <div className="card">
+                    <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Amount (credited from bank)<span className="required-mark"> *</span></label>
                         <AmountInput value={amount} onChange={setAmount} required />
-                        <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                            Cash leaving the bank. Credits the bank's GL account on the locked line below.
-                        </p>
                     </div>
-                    <div className="card">
+                    <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Reference #<span className="required-mark"> *</span></label>
                         <input type="text" placeholder="e.g. PAY-2026-001" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} required />
                         {referenceNumber.trim() === '' && (
@@ -624,14 +621,11 @@ export default function PaymentDocumentForm() {
                             </p>
                         )}
                     </div>
-                    <div className="card">
+                    <div className="card" style={{ padding: '14px 20px' }}>
                         <label className="label">Document Date<span className="required-mark"> *</span></label>
                         <input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value || todayLocalISO())} required />
-                        <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                            {formatDate(documentDate)} — back-date if the payment settled earlier.
-                        </p>
                     </div>
-                    <div className="card" style={{ gridColumn: 'span 2' }}>
+                    <div className="card" style={{ padding: '14px 20px', gridColumn: 'span 2' }}>
                         <label className="label">Description</label>
                         <input type="text" placeholder="Purpose of this payment" value={description} onChange={(e) => setDescription(e.target.value)} />
                     </div>
