@@ -64,7 +64,15 @@ export default function PaymentDocumentsList() {
                             ) : (
                                 docs.map((d: PaymentDocumentRow) => (
                                     <tr key={d.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                        <td style={{ padding: '1rem', fontWeight: 600 }}>{d.document_number}</td>
+                                        <td style={{ padding: '1rem', fontWeight: 600 }}>
+                                            <Link
+                                                to={`/accounting/payment-documents/${d.id}`}
+                                                style={{ color: 'var(--primary)', textDecoration: 'none' }}
+                                                title={d.status === 'Draft' ? 'Open to edit or Post & Pay' : 'View payment document'}
+                                            >
+                                                {d.document_number}
+                                            </Link>
+                                        </td>
                                         <td style={{ padding: '1rem' }}>{formatDate(d.document_date)}</td>
                                         <td style={{ padding: '1rem' }}>{d.bank_account_name ?? '—'}</td>
                                         <td style={{ padding: '1rem', textAlign: 'right' }}>{formatCurrency(Number(d.net_amount ?? 0))}</td>

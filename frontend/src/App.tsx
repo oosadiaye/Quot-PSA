@@ -489,6 +489,9 @@ function App() {
                         <Route path="/accounting/payment-documents/new" element={
                           <ProtectedRoute><PaymentDocumentForm /></ProtectedRoute>
                         } />
+                        <Route path="/accounting/payment-documents/:id" element={
+                          <ProtectedRoute><PaymentDocumentForm /></ProtectedRoute>
+                        } />
                         <Route path="/accounting/cheque-register" element={
                           <ProtectedRoute><ChequeRegisterPage /></ProtectedRoute>
                         } />
