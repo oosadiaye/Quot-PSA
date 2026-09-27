@@ -486,3 +486,85 @@ def test_bulk_import_creates_draft_documents(pd_accounts, pd_bank):
     assert doc.status == "Draft"          # imported docs are never auto-posted
     assert doc.lines.count() == 1
     assert doc.lines.first().debit == Decimal("90000.00")
+
+
+# ── Source-document attachment — validated multipart upload + authenticated
+# streaming download. The upload allowlist (content type AND extension) plus
+# the size cap are the security crux; the download inherits RBACPermission
+# (not open /media). Superuser client bypasses RBAC, so auth is satisfied. ────
+def _create_attachment_draft(client, pd_accounts, pd_bank, amount="100.00"):
+    """Create a BALANCED Draft via the API (DR liability / CR bank) and return
+    its id — the create pattern the attachment tests attach to."""
+    payload = {
+        "bank_account": pd_bank.pk,
+        "reference_number": "REF-ATT",
+        "description": "Attachment host doc",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": amount, "credit": "0.00"},
+            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": amount},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 201, resp.content
+    return resp.json()["id"]
+
+
+@pytest.mark.django_db
+def test_api_upload_attachment_accepts_pdf(pd_api, pd_accounts, pd_bank):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    f = SimpleUploadedFile("src.pdf", b"%PDF-1.4 minimal pdf bytes", content_type="application/pdf")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+    # Re-fetch: the read-only attachment metadata now reflects the upload.
+    resp = client.get(f"/api/v1/accounting/payment-documents/{doc_id}/",
+                      HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    body = resp.json()
+    assert body["has_attachment"] is True
+    assert body["attachment_name"].endswith(".pdf")
+
+
+@pytest.mark.django_db
+def test_api_upload_attachment_rejects_bad_type(pd_api, pd_accounts, pd_bank):
+    """An .exe (disallowed content type AND extension) is rejected 400 — the
+    fail-closed allowlist, not a permissive default, is what blocks it."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    f = SimpleUploadedFile("x.exe", b"MZ\x90\x00 executable header",
+                           content_type="application/octet-stream")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+
+
+@pytest.mark.django_db
+def test_api_download_attachment_streams_file(pd_api, pd_accounts, pd_bank):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    payload_bytes = b"%PDF-1.4 stream-me-back exactly"
+    f = SimpleUploadedFile("dl.pdf", payload_bytes, content_type="application/pdf")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/",
+                       {"file": f}, format="multipart",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+    resp = client.get(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/download/",
+                      HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200
+    content = b"".join(resp.streaming_content)
+    assert content.startswith(payload_bytes)
+
+
+@pytest.mark.django_db
+def test_api_download_attachment_404_when_none(pd_api, pd_accounts, pd_bank):
+    client, _ = pd_api
+    doc_id = _create_attachment_draft(client, pd_accounts, pd_bank)
+    resp = client.get(f"/api/v1/accounting/payment-documents/{doc_id}/attachment/download/",
+                      HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 404, resp.content

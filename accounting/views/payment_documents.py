@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.http import FileResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
@@ -19,6 +22,18 @@ from core.mixins import OrganizationFilterMixin
 from core.permissions import IsApprover
 
 logger = logging.getLogger(__name__)
+
+# Source-document attachment allowlist — the security crux. An upload is
+# accepted only when BOTH its declared content type AND its lowercased file
+# extension are in these sets, and it is at or under the size cap. Anything
+# else is rejected (fail-closed).
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_ATTACHMENT_CONTENT_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "application/pdf",
+})
+ALLOWED_ATTACHMENT_EXTENSIONS = frozenset({
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf",
+})
 
 
 class PaymentDocumentLineSerializer(serializers.ModelSerializer):
@@ -46,12 +61,26 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
     # ModelSerializer defaults it to not-required. It stays in Meta.fields so a
     # caller can still set it (it flows onto the posted journal's dimensions).
 
+    # Read-only attachment metadata. The raw file URL is deliberately NOT
+    # exposed — the file is only reachable via the authenticated
+    # ``attachment/download`` action, and it is uploaded only via the
+    # ``attachment`` action, never through this serializer's writable fields.
+    has_attachment = serializers.SerializerMethodField()
+    attachment_name = serializers.SerializerMethodField()
+
+    def get_has_attachment(self, obj) -> bool:
+        return bool(obj.attachment)
+
+    def get_attachment_name(self, obj):
+        return os.path.basename(obj.attachment.name) if obj.attachment else None
+
     class Meta:
         model = PaymentDocument
         fields = ["id", "document_number", "document_date", "bank_account", "bank_account_name",
                   "reference_number", "description", "status", "source",
                   "mda", "fund", "function", "program", "geo",
-                  "net_amount", "journal", "lines", "created_at", "updated_at"]
+                  "net_amount", "journal", "lines", "has_attachment", "attachment_name",
+                  "created_at", "updated_at"]
         read_only_fields = ["id", "document_number", "status", "source", "net_amount",
                             "journal", "created_at", "updated_at"]
 
@@ -136,6 +165,49 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             for ln in lines
         ]
         return Response({"entries": entries, "net_amount": str(_bank_credit(lines, bank_gl_id))})
+
+    @action(detail=True, methods=["post"], url_path="attachment",
+            parser_classes=[MultiPartParser, FormParser])
+    def upload_attachment(self, request, pk=None):
+        """Attach a source-document scan (image/PDF) to the payment document.
+
+        Fail-closed validation: reject anything not in the size cap AND both
+        allowlists (declared content type + lowercased extension). Allowed on
+        Posted documents too — a source scan is supporting reference material,
+        not an edit to the posted journal, so the metadata-only save bypasses
+        ImmutableModelMixin via ``_allow_status_change=True``.
+        """
+        doc = self.get_object()
+        f = request.FILES.get("file")
+        if not f:
+            return Response({"error": "Upload a file in the 'file' field."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if f.size > MAX_ATTACHMENT_BYTES:
+            return Response({"error": "File too large (max 10MB)."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        ext = os.path.splitext(f.name)[1].lower()
+        if (f.content_type not in ALLOWED_ATTACHMENT_CONTENT_TYPES
+                or ext not in ALLOWED_ATTACHMENT_EXTENSIONS):
+            return Response({"error": "Only images (PNG/JPG/WEBP/GIF) or PDF are allowed."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        doc.attachment.save(f.name, f, save=False)
+        doc.save(update_fields=["attachment", "updated_at"], _allow_status_change=True)
+        return Response(self.get_serializer(doc).data)
+
+    @action(detail=True, methods=["get"], url_path="attachment/download")
+    def download_attachment(self, request, pk=None):
+        """Stream the attachment inline over an authenticated request.
+
+        Inherits ``get_permissions`` → the project-global RBACPermission (view
+        perm), so the file is NEVER served as an open /media URL.
+        """
+        doc = self.get_object()
+        if not doc.attachment:
+            return Response({"error": "No attachment on this document."},
+                            status=status.HTTP_404_NOT_FOUND)
+        resp = FileResponse(doc.attachment.open("rb"))
+        resp["Content-Disposition"] = f'inline; filename="{os.path.basename(doc.attachment.name)}"'
+        return resp
 
     @action(detail=False, methods=["get"], url_path="download-template")
     def download_template(self, request):

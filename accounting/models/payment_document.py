@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from django.db import models
 
+from accounting.models.gl import tenant_upload_path
 from core.models import AuditBaseModel, ImmutableModelMixin
 
 
@@ -46,6 +47,10 @@ class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
         related_name="payment_documents",
     )
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default="manual")
+    # Source-document scan/PDF (image or PDF). Tenant-scoped upload path mirrors
+    # ``VendorInvoice.attachment``. Never served via raw /media — download runs
+    # through the authenticated ``attachment/download`` action on the ViewSet.
+    attachment = models.FileField(upload_to=tenant_upload_path, null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
