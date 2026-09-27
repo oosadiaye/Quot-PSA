@@ -18,17 +18,20 @@ import {
     usePaymentDocument,
     useProposedEntries,
     useUpdatePaymentDocument,
+    type PaymentDocumentInput,
     type PaymentDocumentLineInput,
 } from '../hooks/usePaymentDocuments';
 
 /**
  * Payment Document form — SAP F-53–style multi-line outgoing payment.
  *
- * Mirrors ``JournalForm`` for the DR/CR line grid, then adds the pieces a
- * payment needs: a header **bank account** (the single credit / cash out),
- * an optional **vendor** per line (settles that vendor's sub-ledger), a live
- * "Net to bank" = Σdebit − Σcredit total, and a **Post & Pay** action that
- * saves the draft then posts it through the gated API.
+ * The user picks an **MDA** (required) and a **Bank Account**, enters the
+ * **Amount** credited out of that bank, and the form auto-adds a LOCKED line
+ * crediting the bank's GL account for that Amount. The user then adds the
+ * **debit** lines being settled (each with an optional **vendor**). The whole
+ * balanced set (bank credit line + debit lines) must balance — Σdebit ==
+ * Σcredit — and is sent to the API as entered; **Post & Pay** saves the draft
+ * then posts it through the gated API.
  */
 
 interface PDLine {
@@ -47,6 +50,12 @@ interface BankAccountRow {
     account_name?: string;
     account_number?: string;
     bank_name?: string;
+    // The bank's GL (cash/bank) account — the credit leg's account. The
+    // `/accounting/bank-accounts/` serializer exposes all three (see
+    // BankAccountSerializer: gl_account PK + gl_account_code/name read-only).
+    gl_account?: number | string | null;
+    gl_account_code?: string;
+    gl_account_name?: string;
 }
 
 interface VendorRow {
@@ -173,7 +182,7 @@ export default function PaymentDocumentForm() {
     const { id } = useParams<{ id?: string }>();
     const isEditMode = !!id && id !== 'new';
 
-    const { data: banks = [] } = useBankAccounts();
+    const { data: banks = [], isFetched: banksFetched } = useBankAccounts();
     const { data: vendors = [] } = useVendors();
     const { data: dims, isLoading: dimsLoading } = useDimensions();
     const { data: mdas = [] } = useMDAs({ is_active: true });
@@ -183,16 +192,20 @@ export default function PaymentDocumentForm() {
     const { data: existingDoc, isLoading: docLoading } = usePaymentDocument(isEditMode ? id : null);
 
     const [bankAccount, setBankAccount] = useState('');
+    // Cash credited out of the bank. Drives the LOCKED bank-credit line at the
+    // top of the grid (credit = Amount) — the user never edits that line directly.
+    const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
     const [referenceNumber, setReferenceNumber] = useState('');
     const [documentDate, setDocumentDate] = useState(todayLocalISO());
-    // Header-level appropriation. Required only when a line debits an Expense
-    // account (the backend warrant gate fails closed with mda/fund = None for
-    // expense debits); settlement-only documents leave these blank.
+    // Header-level appropriation. MDA is REQUIRED (promoted to the top of the
+    // form); Fund stays optional and matches expenditure debits to a warrant.
     const [mda, setMda] = useState('');
     const [fund, setFund] = useState('');
     const [showAppropriation, setShowAppropriation] = useState(false);
-    const [lines, setLines] = useState<PDLine[]>([blankLine(), blankLine()]);
+    // User settlement (debit) lines only — the bank-credit line is derived from
+    // the header (Bank + Amount) and rendered as a locked row, not stored here.
+    const [lines, setLines] = useState<PDLine[]>([blankLine()]);
     // One-shot hydration guard — populate from the loaded doc only once so a
     // background refetch can't wipe in-progress edits (mirrors JournalForm).
     const [hydrated, setHydrated] = useState(false);
@@ -221,35 +234,55 @@ export default function PaymentDocumentForm() {
     // prior (failed) Post & Pay attempt, so the next attempt creates a fresh one.
     useEffect(() => {
         createdIdRef.current = null;
-    }, [bankAccount, description, referenceNumber, documentDate, mda, fund, lines]);
+    }, [bankAccount, amount, description, referenceNumber, documentDate, mda, fund, lines]);
 
     // Edit-mode hydration — runs once when the detail finishes loading. Maps the
     // server document (header + lines) into local form state. Runs for any
     // status (Draft or Posted/Void); the read-only branch below then decides
     // whether the fields are editable.
+    // Gated on ``banksFetched`` so the bank's GL account is resolvable — that's
+    // how we recognise the persisted bank-credit line among the doc's lines and
+    // split it back out into the Amount field (the rest become user lines).
     useEffect(() => {
-        if (!isEditMode || hydrated || !existingDoc) return;
+        if (!isEditMode || hydrated || !existingDoc || !banksFetched) return;
         setBankAccount(existingDoc.bank_account != null ? String(existingDoc.bank_account) : '');
         setDescription(existingDoc.description ?? '');
         setReferenceNumber(existingDoc.reference_number ?? '');
         setDocumentDate(existingDoc.document_date || todayLocalISO());
         setMda(existingDoc.mda != null ? String(existingDoc.mda) : '');
         setFund(existingDoc.fund != null ? String(existingDoc.fund) : '');
-        if (existingDoc.mda != null || existingDoc.fund != null) setShowAppropriation(true);
+        if (existingDoc.fund != null) setShowAppropriation(true);
+
+        // The bank-credit line = account is the bank's GL account, credit-only.
+        const selBank = banks.find((b) => String(b.id) === String(existingDoc.bank_account));
+        const bankGlId = selBank?.gl_account != null ? String(selBank.gl_account) : null;
         const incoming = Array.isArray(existingDoc.lines) ? existingDoc.lines : [];
-        if (incoming.length) {
-            setLines(
-                incoming.map((l) => ({
-                    id: crypto.randomUUID(),
-                    account: l.account != null ? String(l.account) : '',
-                    vendor: l.vendor != null ? String(l.vendor) : '',
-                    debit: String(l.debit ?? '0'),
-                    credit: String(l.credit ?? '0'),
-                })),
-            );
+        const userLines: PDLine[] = [];
+        let derivedAmount = '';
+        let bankLineConsumed = false;
+        for (const l of incoming) {
+            const acct = l.account != null ? String(l.account) : '';
+            const db = parseFloat(l.debit) || 0;
+            const cr = parseFloat(l.credit) || 0;
+            const isBankCredit =
+                !bankLineConsumed && bankGlId != null && acct === bankGlId && cr > 0 && db === 0;
+            if (isBankCredit) {
+                derivedAmount = String(l.credit ?? '');
+                bankLineConsumed = true;
+                continue;
+            }
+            userLines.push({
+                id: crypto.randomUUID(),
+                account: acct,
+                vendor: l.vendor != null ? String(l.vendor) : '',
+                debit: String(l.debit ?? '0'),
+                credit: String(l.credit ?? '0'),
+            });
         }
+        setAmount(derivedAmount);
+        setLines(userLines.length ? userLines : [blankLine()]);
         setHydrated(true);
-    }, [isEditMode, hydrated, existingDoc]);
+    }, [isEditMode, hydrated, existingDoc, banksFetched, banks]);
 
     const bankOptions = useMemo(
         () =>
@@ -271,9 +304,32 @@ export default function PaymentDocumentForm() {
         [vendors],
     );
 
-    const totalDebit = lines.reduce((sum, l) => sum + (parseFloat(l.debit) || 0), 0);
-    const totalCredit = lines.reduce((sum, l) => sum + (parseFloat(l.credit) || 0), 0);
-    const net = totalDebit - totalCredit; // credited to the header bank (cash out)
+    // Selected bank + its GL (cash) account — the bank-credit line's account.
+    const selectedBank = useMemo(
+        () => banks.find((b) => String(b.id) === bankAccount),
+        [banks, bankAccount],
+    );
+    const bankGlAccountId = selectedBank?.gl_account != null ? String(selectedBank.gl_account) : '';
+    const bankGlLabel = selectedBank
+        ? selectedBank.gl_account_code
+            ? `${selectedBank.gl_account_code} — ${selectedBank.gl_account_name ?? ''}`
+            : (selectedBank.gl_account_name ?? '')
+        : '';
+    // A picked bank with no GL account can't credit anything — block posting.
+    const bankGlMissing = !!bankAccount && !!selectedBank && !bankGlAccountId;
+
+    const amountNum = parseFloat(amount) || 0;
+
+    // Totals span ALL lines, including the locked bank-credit line: its debit
+    // is 0 and its credit is the Amount. So debits = Σ user debits and credits
+    // = Σ user credits + Amount.
+    const userDebit = lines.reduce((sum, l) => sum + (parseFloat(l.debit) || 0), 0);
+    const userCredit = lines.reduce((sum, l) => sum + (parseFloat(l.credit) || 0), 0);
+    const totalDebit = userDebit;
+    const totalCredit = userCredit + amountNum;
+    // Compare at 2dp to dodge float noise (all amounts are 2-decimal currency).
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const isBalanced = round2(totalDebit) === round2(totalCredit) && totalDebit > 0;
 
     const validLines = lines.filter(
         (l) => l.account && ((parseFloat(l.debit) || 0) > 0 || (parseFloat(l.credit) || 0) > 0),
@@ -282,34 +338,50 @@ export default function PaymentDocumentForm() {
     // rejects edits, so this is belt-and-suspenders. Only a Draft is editable.
     const docStatus = existingDoc?.status;
     const isReadOnly = isEditMode && docStatus != null && docStatus !== 'Draft';
-    const canSaveDraft =
+    // Floor for both actions: MDA, Bank (with a GL account), a positive Amount
+    // and a Reference. Post & Pay adds the balance requirement; a Draft may be
+    // saved unbalanced so the operator can come back and finish it.
+    const baseReady =
+        !!mda &&
         !!bankAccount &&
+        !bankGlMissing &&
+        amountNum > 0 &&
         referenceNumber.trim() !== '' &&
-        validLines.length > 0 &&
         !createDoc.isPending &&
         !postDoc.isPending &&
         !updateDoc.isPending;
-    const canPostAndPay = canSaveDraft && net > 0;
+    const canSaveDraft = baseReady;
+    const canPostAndPay = baseReady && isBalanced;
 
     const addLine = () => setLines((prev) => [...prev, blankLine()]);
     const removeLine = (index: number) => setLines((prev) => prev.filter((_, i) => i !== index));
     const updateLine = (index: number, field: keyof PDLine, value: string) =>
         setLines((prev) => prev.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
 
-    const buildPayload = () => ({
-        bank_account: bankAccount,
-        description,
-        reference_number: referenceNumber,
-        document_date: documentDate,
-        mda: mda || null,
-        fund: fund || null,
-        lines: validLines.map<PaymentDocumentLineInput>((l) => ({
+    // The FULL balanced set: the auto bank-credit line first (bank's GL
+    // account, debit 0, credit = Amount), then each user settlement line.
+    const buildPayload = (): PaymentDocumentInput => {
+        const bankLine: PaymentDocumentLineInput = {
+            account: bankGlAccountId,
+            debit: '0',
+            credit: String(amountNum),
+        };
+        const userPayloadLines = validLines.map<PaymentDocumentLineInput>((l) => ({
             account: l.account,
             vendor: l.vendor || null,
             debit: String(parseFloat(l.debit) || 0),
             credit: String(parseFloat(l.credit) || 0),
-        })),
-    });
+        }));
+        return {
+            bank_account: bankAccount,
+            description,
+            reference_number: referenceNumber,
+            document_date: documentDate,
+            mda: mda || null,
+            fund: fund || null,
+            lines: [bankLine, ...userPayloadLines],
+        };
+    };
 
     const onSaveDraft = async () => {
         try {
@@ -514,7 +586,7 @@ export default function PaymentDocumentForm() {
             <form onSubmit={(e) => { e.preventDefault(); if (canSaveDraft) void onSaveDraft(); }}>
                 <PageHeader
                     title={isEditMode ? `Edit Payment Document${existingDoc?.document_number ? ` — ${existingDoc.document_number}` : ''}` : 'New Payment Document'}
-                    subtitle="A multi-line outgoing payment. The header bank account is the single credit (cash out); lines are the debit/credit legs."
+                    subtitle="A multi-line outgoing payment. The Amount credits the bank (cash out) on a locked line; add the debit lines being settled until the document balances."
                     icon={<Banknote size={22} />}
                     actions={
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -533,6 +605,21 @@ export default function PaymentDocumentForm() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                     <div className="card">
+                        <label className="label">MDA<span className="required-mark"> *</span></label>
+                        <SearchableSelect
+                            options={mdaOptions}
+                            value={mda}
+                            onChange={setMda}
+                            placeholder="Search MDA…"
+                            required
+                        />
+                        {!mda && (
+                            <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
+                                An MDA is required to save or post.
+                            </p>
+                        )}
+                    </div>
+                    <div className="card">
                         <label className="label">Bank Account<span className="required-mark"> *</span></label>
                         <SearchableSelect
                             options={bankOptions}
@@ -541,12 +628,17 @@ export default function PaymentDocumentForm() {
                             placeholder="Search bank account…"
                             required
                         />
+                        {bankGlMissing && (
+                            <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
+                                This bank has no GL account configured — set one on the bank account before paying.
+                            </p>
+                        )}
                     </div>
                     <div className="card">
-                        <label className="label">Document Date<span className="required-mark"> *</span></label>
-                        <input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value || todayLocalISO())} required />
+                        <label className="label">Amount (credited from bank)<span className="required-mark"> *</span></label>
+                        <AmountInput value={amount} onChange={setAmount} required />
                         <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                            {formatDate(documentDate)} — back-date if the payment settled earlier.
+                            Cash leaving the bank. Credits the bank's GL account on the locked line below.
                         </p>
                     </div>
                     <div className="card">
@@ -557,6 +649,13 @@ export default function PaymentDocumentForm() {
                                 A reference is required to save or post.
                             </p>
                         )}
+                    </div>
+                    <div className="card">
+                        <label className="label">Document Date<span className="required-mark"> *</span></label>
+                        <input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value || todayLocalISO())} required />
+                        <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                            {formatDate(documentDate)} — back-date if the payment settled earlier.
+                        </p>
                     </div>
                     <div className="card" style={{ gridColumn: 'span 2' }}>
                         <label className="label">Description</label>
@@ -581,6 +680,33 @@ export default function PaymentDocumentForm() {
                                 </tr>
                             </thead>
                             <tbody>
+                                {/* Locked bank-credit line — the cash out. Account is the
+                                    selected bank's GL account, credit = Amount; driven by the
+                                    header, never edited directly. Shown once a bank is picked. */}
+                                {bankAccount && (
+                                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(25,30,106,0.05)' }}>
+                                        <td style={{ padding: '0.75rem' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                                    <Lock size={12} /> Bank (cash out)
+                                                </span>
+                                                {bankGlMissing ? (
+                                                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
+                                                        No GL account on this bank.
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: 'var(--text-sm)' }}>{bankGlLabel || '—'}</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>—</td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(0)}</td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(amountNum)}</td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                            <Lock size={14} style={{ color: 'var(--text-muted)' }} />
+                                        </td>
+                                    </tr>
+                                )}
                                 {lines.map((line, idx) => (
                                     <tr key={line.id} style={{ borderBottom: '1px solid var(--border)' }}>
                                         <td style={{ padding: '0.75rem' }}>
@@ -607,7 +733,7 @@ export default function PaymentDocumentForm() {
                                             <AmountInput value={line.credit} onChange={(v) => updateLine(idx, 'credit', v)} />
                                         </td>
                                         <td style={{ padding: '0.75rem' }}>
-                                            {lines.length > 2 && (
+                                            {lines.length > 1 && (
                                                 <button type="button" onClick={() => removeLine(idx)} style={{ color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer' }}>
                                                     <Trash2 size={18} />
                                                 </button>
@@ -629,16 +755,21 @@ export default function PaymentDocumentForm() {
                                     <td style={{ padding: '1rem' }} />
                                 </tr>
                                 <tr style={{ background: 'var(--surface)' }}>
-                                    <td colSpan={2} style={{ padding: '1rem', fontWeight: 700 }}>Net to bank (cash out)</td>
-                                    <td colSpan={2} style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', color: net > 0 ? 'var(--primary)' : 'var(--error)' }}>
-                                        {formatCurrency(net)}
-                                    </td>
-                                    <td style={{ padding: '1rem' }}>
-                                        {net <= 0 && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error)', fontSize: 'var(--text-xs)' }}>
-                                                <AlertCircle size={14} /> Net to bank must be positive to Post &amp; Pay
-                                            </div>
+                                    <td colSpan={2} style={{ padding: '1rem', fontWeight: 700 }}>
+                                        {isBalanced ? (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: 'var(--success, #16a34a)' }}>
+                                                Balanced ✓
+                                            </span>
+                                        ) : (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: 'var(--error)' }}>
+                                                <AlertCircle size={14} /> Debits {formatCurrency(totalDebit)} ≠ Credits {formatCurrency(totalCredit)}
+                                            </span>
                                         )}
+                                    </td>
+                                    <td colSpan={3} style={{ padding: '1rem', textAlign: 'right', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                                        {isBalanced
+                                            ? 'Debits equal credits — ready to Post & Pay.'
+                                            : 'Add debit lines until they equal the bank credit (the Amount).'}
                                     </td>
                                 </tr>
                             </tfoot>
@@ -646,10 +777,11 @@ export default function PaymentDocumentForm() {
                     </div>
                 </div>
 
-                {/* ── Optional header-level Budget Appropriation ──
-                    Required only when a line debits an expenditure (Expense)
-                    account; the backend warrant gate fails closed when mda/fund
-                    are None for such lines. Settlement-only docs leave it blank. */}
+                {/* ── Optional Fund appropriation ──
+                    MDA is captured above (required). Fund is optional — the
+                    payment stage matches expenditure debits against the
+                    available warrant (AIE). Leave blank for pure liability /
+                    vendor settlements. */}
                 <div className="card" style={{ marginTop: '2.5rem' }}>
                     <button
                         type="button"
@@ -657,26 +789,17 @@ export default function PaymentDocumentForm() {
                         style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
                     >
                         <h3 style={{ margin: 0, fontSize: 'var(--text-base)', flex: 1 }}>
-                            Budget Appropriation <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+                            Fund Appropriation <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
                         </h3>
                         {showAppropriation ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </button>
                     <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                        Required only when a line debits an expenditure (Expense) account — the payment
-                        stage matches these against the available warrant (AIE). Leave blank for pure
-                        liability / vendor settlements.
+                        MDA is set above. Optionally tag a Fund — the payment stage matches expenditure
+                        debits against the available warrant (AIE). Leave blank for pure liability /
+                        vendor settlements.
                     </p>
                     {showAppropriation && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
-                            <div>
-                                <label className="label">MDA</label>
-                                <SearchableSelect
-                                    options={mdaOptions}
-                                    value={mda}
-                                    onChange={setMda}
-                                    placeholder="Search MDA…"
-                                />
-                            </div>
                             <div>
                                 <label className="label">Fund</label>
                                 <SearchableSelect
