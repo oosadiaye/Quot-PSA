@@ -149,6 +149,7 @@ const menuItems: MenuItem[] = [
             // Advances tab (Contract Mobilization Advances), so the standalone
             // link is retired.
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
+            { name: 'Payment Documents', path: '/accounting/payment-documents', icon: FileText },
             // Posted payments + the cheques issued against them; select posted
             // payment lines and create a cheque (number + date) covering them.
             { name: 'Cheque Register', path: '/accounting/cheque-register', icon: BookOpen },

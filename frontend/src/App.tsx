@@ -49,6 +49,8 @@ const IncomingPaymentsPage = lazy(() => import('./features/accounting/ar/Incomin
 const OutgoingPaymentsPage = lazy(() => import('./features/accounting/ap/OutgoingPaymentsPage'));
 const ChequeRegisterPage = lazy(() => import('./features/accounting/ap/ChequeRegisterPage'));
 const PaymentReconciliationQueue = lazy(() => import('./features/accounting/ap/PaymentReconciliationQueue'));
+const PaymentDocumentsList = lazy(() => import('./features/accounting/ap/PaymentDocumentsList'));
+const PaymentDocumentForm = lazy(() => import('./features/accounting/ap/PaymentDocumentForm'));
 const FixedAssets = lazy(() => import('./features/accounting/assets/FixedAssets'));
 const FixedAssetForm = lazy(() => import('./features/accounting/assets/FixedAssetForm'));
 const AssetCategoriesPage = lazy(() => import('./features/accounting/assets/AssetCategories'));
@@ -480,6 +482,12 @@ function App() {
                         } />
                         <Route path="/accounting/outgoing-payments" element={
                           <ProtectedRoute><OutgoingPaymentsPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-documents" element={
+                          <ProtectedRoute><PaymentDocumentsList /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/payment-documents/new" element={
+                          <ProtectedRoute><PaymentDocumentForm /></ProtectedRoute>
                         } />
                         <Route path="/accounting/cheque-register" element={
                           <ProtectedRoute><ChequeRegisterPage /></ProtectedRoute>
