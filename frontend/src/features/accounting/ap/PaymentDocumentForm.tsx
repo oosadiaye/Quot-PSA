@@ -16,6 +16,7 @@ import {
     useCreatePaymentDocument,
     usePostPaymentDocument,
     usePaymentDocument,
+    useProposedEntries,
     useUpdatePaymentDocument,
     type PaymentDocumentLineInput,
 } from '../hooks/usePaymentDocuments';
@@ -102,6 +103,65 @@ function extractError(err: unknown, fallback: string): string {
     const apiMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
     if (apiMsg) return apiMsg;
     return err instanceof Error ? err.message : fallback;
+}
+
+/**
+ * Accounting Entries (balanced) — the FULL journal effect this document posts,
+ * including the header bank-credit leg, so Σdebit == Σcredit. Fetches its own
+ * data via useProposedEntries; renders a compact Account / Debit / Credit table
+ * with a Totals row. Rendered for both the posted read-only view and an existing
+ * Draft (as a preview); never for the blank /new create form.
+ */
+function AccountingEntriesSection({ id, caption }: { id: number | string; caption?: string }) {
+    const { formatCurrency } = useCurrency();
+    const { data, isLoading } = useProposedEntries(id);
+    const entries = data?.entries ?? [];
+    const totalDebit = entries.reduce((s, e) => s + (parseFloat(e.debit) || 0), 0);
+    const totalCredit = entries.reduce((s, e) => s + (parseFloat(e.credit) || 0), 0);
+
+    return (
+        <div className="card" style={{ marginTop: '2.5rem', padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '1rem 1rem 0.75rem' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>Accounting Entries (balanced)</h3>
+                {caption && (
+                    <p style={{ margin: '0.35rem 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{caption}</p>
+                )}
+            </div>
+            {isLoading ? (
+                <div style={{ padding: '1rem', color: 'var(--text-muted)' }}>Loading entries…</div>
+            ) : entries.length === 0 ? (
+                <div style={{ padding: '1rem', color: 'var(--text-muted)' }}>No accounting entries.</div>
+            ) : (
+                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+                        <thead>
+                            <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>Account</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '160px', textAlign: 'right' }}>Debit</th>
+                                <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '160px', textAlign: 'right' }}>Credit</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {entries.map((e, i) => (
+                                <tr key={`${e.account}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '0.75rem 1rem' }}>{e.account_name ? `${e.account} — ${e.account_name}` : e.account}</td>
+                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{formatCurrency(parseFloat(e.debit) || 0)}</td>
+                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{formatCurrency(parseFloat(e.credit) || 0)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                        <tfoot>
+                            <tr style={{ background: 'var(--surface)' }}>
+                                <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>Totals</td>
+                                <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalDebit)}</td>
+                                <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalCredit)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default function PaymentDocumentForm() {
@@ -432,6 +492,11 @@ export default function PaymentDocumentForm() {
                         </table>
                     </div>
                 </div>
+
+                <AccountingEntriesSection
+                    id={existingDoc.id}
+                    caption="As posted to the general ledger — the full balanced journal including the bank credit leg."
+                />
                 <style>{`
                     .label {
                         display: block;
@@ -625,6 +690,15 @@ export default function PaymentDocumentForm() {
                         </div>
                     )}
                 </div>
+
+                {/* Existing Draft only — a preview of the balanced journal this
+                    document will post. Never shown on the blank /new form. */}
+                {isEditMode && id && (
+                    <AccountingEntriesSection
+                        id={id}
+                        caption="Preview of the balanced journal this draft will post, including the bank credit leg."
+                    />
+                )}
             </form>
             <style>{`
                 .label {

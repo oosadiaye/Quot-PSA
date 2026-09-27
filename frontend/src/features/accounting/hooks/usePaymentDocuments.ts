@@ -36,6 +36,13 @@ export interface PaymentDocumentLineDetail {
   is_deduction?: boolean;
 }
 
+// Shape of the /proposed-entries/ response — the FULL balanced journal effect
+// (all debit legs plus the header bank-credit leg), so Σdebit == Σcredit.
+export interface ProposedEntries {
+  entries: { account: string; account_name: string; debit: string; credit: string }[];
+  net_amount: string;
+}
+
 // Shape of the retrieve/detail response (GET ${BASE}${id}/).
 export interface PaymentDocumentDetail {
   id: number | string;
@@ -71,6 +78,16 @@ export function usePaymentDocument(id?: number | string | null) {
   return useQuery<PaymentDocumentDetail>({
     queryKey: ['payment-document', id],
     queryFn: async () => (await apiClient.get(`${BASE}${id}/`)).data,
+    enabled: id != null && id !== '',
+  });
+}
+
+// Proposed accounting entries — the full balanced journal (incl. bank credit)
+// this document posts. Works for Draft and Posted docs alike.
+export function useProposedEntries(id?: number | string | null) {
+  return useQuery<ProposedEntries>({
+    queryKey: ['payment-document-entries', id],
+    queryFn: async () => (await apiClient.get(`${BASE}${id}/proposed-entries/`)).data,
     enabled: id != null && id !== '',
   });
 }
