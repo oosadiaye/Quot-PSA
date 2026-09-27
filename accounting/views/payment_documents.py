@@ -10,7 +10,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounting.models import MDA, PaymentDocument, PaymentDocumentLine, TransactionSequence
+from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
 from accounting.services.base_posting import TransactionPostingError
 from accounting.services.payment_document_posting import (
     PaymentDocumentError, _bank_credit, post_payment_document,
@@ -42,13 +42,9 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         required=True, allow_blank=False, max_length=100,
         error_messages={"required": "A reference is required.", "blank": "A reference is required."},
     )
-    # An MDA is now MANDATORY on a payment document (the header MDA flows onto
-    # the posted journal and drives budget-gate resolution). The model field is
-    # nullable at the DB level; requiredness is enforced here at the API.
-    mda = serializers.PrimaryKeyRelatedField(
-        queryset=MDA.objects.all(), required=True,
-        error_messages={"required": "An MDA is required.", "null": "An MDA is required."},
-    )
+    # ``mda`` is OPTIONAL — the model field is null=True/blank=True, so the
+    # ModelSerializer defaults it to not-required. It stays in Meta.fields so a
+    # caller can still set it (it flows onto the posted journal's dimensions).
 
     class Meta:
         model = PaymentDocument

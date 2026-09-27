@@ -64,8 +64,6 @@ def _validate_lines_and_bank(doc, lines):
         raise PaymentDocumentError("Payment document is already posted.")
     if doc.journal_id:
         raise PaymentDocumentError("Payment document already has a journal.")
-    if doc.mda_id is None:
-        raise PaymentDocumentError("An MDA is required for a payment document.")
     if not lines:
         raise PaymentDocumentError("A payment document needs at least one line.")
     if len(lines) < 2:
@@ -145,8 +143,11 @@ def _enforce_expense_budget_gates(doc, lines, *, actor=None):
         if policy.blocked:
             raise PaymentDocumentError(policy.reason)
         # Quarterly warrant / AIE ceiling gate (only when the tenant enforces
-        # warrants before payment).
-        if warrant_on:
+        # warrants before payment). Skipped when the document carries no MDA:
+        # a warrant is scoped by MDA, so there is nothing to check against, and
+        # the annual appropriation gate above still fails closed on an expense
+        # debit with no matching appropriation.
+        if warrant_on and doc.mda_id is not None:
             allowed, warrant_msg, _info = check_warrant_availability(
                 dimensions={"mda": doc.mda, "fund": doc.fund},
                 account=ln.account, amount=ln.debit,
