@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
@@ -13,6 +14,7 @@ from accounting.services.base_posting import TransactionPostingError
 from accounting.services.payment_document_posting import (
     PaymentDocumentError, compute_net, post_payment_document,
 )
+from core.mixins import OrganizationFilterMixin
 from core.permissions import IsApprover
 
 
@@ -40,6 +42,16 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "document_number", "status", "source", "net_amount",
                             "journal", "created_at", "updated_at"]
 
+    def validate(self, attrs):
+        # Reject any mutation of a posted document BEFORE any DB write — the
+        # posted journal's lines must never be destroyed by an edit. The
+        # ImmutableModelMixin only guards the header ``save()``, which runs
+        # AFTER the line delete/recreate in ``update()``.
+        if self.instance and self.instance.status == "Posted":
+            raise serializers.ValidationError("Cannot modify a posted payment document.")
+        return attrs
+
+    @transaction.atomic
     def create(self, validated_data):
         lines = validated_data.pop("lines", [])
         validated_data["document_number"] = TransactionSequence.get_next("payment_document", "PD-")
@@ -50,6 +62,7 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         doc.save(update_fields=["net_amount"])
         return doc
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         lines = validated_data.pop("lines", None)
         for field, value in validated_data.items():
@@ -63,12 +76,18 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         return instance
 
 
-class PaymentDocumentViewSet(viewsets.ModelViewSet):
+class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     serializer_class = PaymentDocumentSerializer
-    permission_classes = [IsAuthenticated]
     queryset = PaymentDocument.objects.prefetch_related("lines").all()
+    # Tenant MDA-isolation: PaymentDocument carries an ``mda`` FK directly,
+    # so in SEPARATED mode an operator sees only their own MDA's documents.
+    # UNIFIED mode (the default) applies no filter.
+    org_filter_field = "mda"
 
     def get_permissions(self):
+        # CRUD inherits the project-global RBACPermission (see settings
+        # DEFAULT_PERMISSION_CLASSES); only the cash-moving ``post`` action is
+        # gated by approval authority + MFA (both exempt superusers/admins).
         from accounting.permissions import RequiresMFA
         if self.action == "post":
             return [IsApprover("post"), RequiresMFA()]
@@ -79,11 +98,9 @@ class PaymentDocumentViewSet(viewsets.ModelViewSet):
         doc = self.get_object()
         try:
             post_payment_document(doc, actor=request.user)
-        except (PaymentDocumentError, TransactionPostingError) as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as exc:  # noqa: BLE001 - budget ValidationError etc.; clean message out
-            msg = getattr(exc, "messages", None)
-            return Response({"error": (msg[0] if msg else str(exc))}, status=status.HTTP_400_BAD_REQUEST)
+        except (PaymentDocumentError, TransactionPostingError, DjangoValidationError) as exc:
+            messages = exc.messages if hasattr(exc, "messages") else [str(exc)]
+            return Response({"error": " ".join(messages)}, status=status.HTTP_400_BAD_REQUEST)
         doc.refresh_from_db()
         return Response(self.get_serializer(doc).data)
 

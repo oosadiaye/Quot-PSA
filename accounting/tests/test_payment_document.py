@@ -315,7 +315,14 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
     resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200, resp.content
-    assert resp.json()["status"] == "Posted"
+    body = resp.json()
+    assert body["status"] == "Posted"
+    assert Decimal(body["net_amount"]) == Decimal("90000.00")
+    # The post produced a real GL journal linked back to this document.
+    from accounting.models import JournalHeader
+    assert JournalHeader.objects.filter(
+        source_module="payment_document", source_document_id=doc_id,
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -327,5 +334,69 @@ def test_api_proposed_entries_previews_balanced_lines(pd_api, pd_accounts, pd_ba
     resp = client.get(f"/api/v1/accounting/payment-documents/{doc.pk}/proposed-entries/",
                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200
-    entries = resp.json()["entries"]
+    body = resp.json()
+    entries = body["entries"]
     assert sum(Decimal(e["debit"]) for e in entries) == sum(Decimal(e["credit"]) for e in entries)
+    # The balancing (last) entry is the bank credit for the net cash out.
+    assert entries[-1]["account"] == pd_bank.gl_account.code
+    assert body["net_amount"] == "500.00"
+
+
+@pytest.mark.django_db
+def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank):
+    client, _ = pd_api
+    payload = {
+        "bank_account": pd_bank.pk,
+        "description": "Draft to edit",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": "100.00", "credit": "0.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 201, resp.content
+    doc_id = resp.json()["id"]
+
+    patch = {"lines": [
+        {"account": pd_accounts["liability"].pk, "debit": "250.00", "credit": "0.00"},
+        {"account": pd_accounts["expense"].pk, "debit": "0.00", "credit": "50.00"},
+    ]}
+    resp = client.patch(f"/api/v1/accounting/payment-documents/{doc_id}/", patch, format="json",
+                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert len(body["lines"]) == 2                       # old single line was replaced
+    assert Decimal(body["net_amount"]) == Decimal("200.00")  # 250 debit - 50 credit
+
+
+@pytest.mark.django_db(transaction=True)
+def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_period):
+    client, _ = pd_api
+    from accounting.models import PaymentDocument
+    payload = {
+        "bank_account": pd_bank.pk,
+        "description": "To be posted then edited",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 201, resp.content
+    doc_id = resp.json()["id"]
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 200, resp.content
+
+    lines_before = list(
+        PaymentDocument.objects.get(pk=doc_id).lines.values_list("account_id", "debit", "credit")
+    )
+    resp = client.patch(f"/api/v1/accounting/payment-documents/{doc_id}/",
+                        {"lines": []}, format="json",
+                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    # A clean 400 — NOT a 500 from destroying the posted journal's lines.
+    assert resp.status_code == 400, resp.content
+    lines_after = list(
+        PaymentDocument.objects.get(pk=doc_id).lines.values_list("account_id", "debit", "credit")
+    )
+    assert lines_after == lines_before  # posted document's lines are untouched
