@@ -1,4 +1,10 @@
-"""Payment Document — models, posting, API, import."""
+"""Payment Document — models, posting, API, import.
+
+NEW posting model: the document is a FULL balanced journal. The bank credit
+(cash out) is an EXPLICIT line crediting the bank's GL account — the service no
+longer derives / appends it. Posting therefore requires ``Σ debit == Σ credit``
+and at least one bank-GL credit line. An MDA is mandatory on the document.
+"""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -28,19 +34,21 @@ def pd_accounts(db):
 
 
 @pytest.fixture
-def pd_bank(db, pd_accounts):
-    from accounting.models import BankAccount
-    # NOTE: field is ``name`` (not ``account_name``); ``currency=None`` is
-    # required because BankAccount.currency has a hardcoded FK ``default=1``
-    # and a fresh pytest tenant schema has no Currency row (see conftest
-    # ``bank_account_for_batch`` for the same gotcha).
-    bank, _ = BankAccount.objects.get_or_create(
-        account_number="0000000001",
-        defaults={"name": "Main TSA", "bank_name": "CBN",
-                  "gl_account": pd_accounts["bank_gl"], "current_balance": Decimal("1000000.00"),
-                  "currency": None},
+def pd_mda(db):
+    """The header MDA every posting document now requires (mandatory field).
+
+    get_or_create because MDA rows, like accounts, survive between transactional
+    tests. Only ``code`` + ``name`` are supplied — MDA's other fields are
+    nullable / default-bearing (``mda_type`` is a choices CharField that accepts
+    the empty string, ``short_name`` defaults to '', ``is_active`` defaults to
+    True), so this satisfies every required column.
+    """
+    from accounting.models import MDA
+    mda, _ = MDA.objects.get_or_create(
+        code="011700100100",
+        defaults={"name": "Office of the Accountant General"},
     )
-    return bank
+    return mda
 
 
 @pytest.mark.django_db
@@ -61,6 +69,22 @@ def test_payment_document_computes_net_from_lines(pd_accounts, pd_bank):
 
 
 @pytest.fixture
+def pd_bank(db, pd_accounts):
+    from accounting.models import BankAccount
+    # NOTE: field is ``name`` (not ``account_name``); ``currency=None`` is
+    # required because BankAccount.currency has a hardcoded FK ``default=1``
+    # and a fresh pytest tenant schema has no Currency row (see conftest
+    # ``bank_account_for_batch`` for the same gotcha).
+    bank, _ = BankAccount.objects.get_or_create(
+        account_number="0000000001",
+        defaults={"name": "Main TSA", "bank_name": "CBN",
+                  "gl_account": pd_accounts["bank_gl"], "current_balance": Decimal("1000000.00"),
+                  "currency": None},
+    )
+    return bank
+
+
+@pytest.fixture
 def open_period(db):
     """Reuse the shared open fiscal period so posting isn't period-locked."""
     from accounting.models import FiscalPeriod
@@ -73,49 +97,61 @@ def open_period(db):
     return fp
 
 
-def _doc_with_liability_debit(pd_accounts, pd_bank):
+def _balanced_liability_doc(pd_accounts, pd_bank, pd_mda, *,
+                            document_number="PD-POST-1", amount=Decimal("90000.00")):
+    """A minimal BALANCED settlement document: DR liability / CR bank.
+
+    The bank credit is an EXPLICIT line (the new model), so the document is a
+    complete balanced journal on its own.
+    """
     from accounting.models import PaymentDocument, PaymentDocumentLine
     doc = PaymentDocument.objects.create(
-        document_number="PD-POST-1", bank_account=pd_bank, description="Salary settlement",
+        document_number=document_number, bank_account=pd_bank, mda=pd_mda,
+        description="Salary settlement",
     )
     PaymentDocumentLine.objects.create(
-        payment_document=doc, account=pd_accounts["liability"], debit=Decimal("90000.00"),
+        payment_document=doc, account=pd_accounts["liability"], debit=amount,
+    )
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["bank_gl"], credit=amount,
     )
     return doc
 
 
 @pytest.mark.django_db(transaction=True)
-def test_post_settles_liability_credits_bank_no_budget(pd_accounts, pd_bank, open_period):
-    """DR Liability / CR Bank — no expense debit, so no appropriation needed."""
+def test_post_settles_liability_credits_bank_no_budget(pd_accounts, pd_bank, pd_mda, open_period):
+    """DR Liability / CR Bank (explicit) — no expense debit, so no appropriation
+    needed. Posts the two lines AS ENTERED into a balanced journal."""
     from accounting.services.payment_document_posting import post_payment_document
-    doc = _doc_with_liability_debit(pd_accounts, pd_bank)
+    doc = _balanced_liability_doc(pd_accounts, pd_bank, pd_mda, document_number="PD-POST-1")
     journal = post_payment_document(doc, actor=None)
 
     lines = list(journal.lines.all())
+    assert len(lines) == 2  # exactly the doc lines — no appended bank leg
     assert sum(l.debit for l in lines) == Decimal("90000.00")
     assert sum(l.credit for l in lines) == Decimal("90000.00")
     debit_line = next(l for l in lines if l.debit > 0)
     credit_line = next(l for l in lines if l.credit > 0)
     assert debit_line.account_id == pd_accounts["liability"].pk   # DR Payroll Liability
-    assert credit_line.account_id == pd_accounts["bank_gl"].pk    # CR Bank (net)
+    assert credit_line.account_id == pd_accounts["bank_gl"].pk    # CR Bank (explicit line)
     doc.refresh_from_db()
     assert doc.status == "Posted"
     assert doc.journal_id == journal.pk
-    assert doc.net_amount == Decimal("90000.00")
+    assert doc.net_amount == Decimal("90000.00")  # net_amount = bank credit (cash out)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_post_decrements_bank_balance_by_net(pd_accounts, pd_bank, open_period):
+def test_post_decrements_bank_balance_by_net(pd_accounts, pd_bank, pd_mda, open_period):
     from accounting.services.payment_document_posting import post_payment_document
     before = pd_bank.current_balance
-    doc = _doc_with_liability_debit(pd_accounts, pd_bank)
+    doc = _balanced_liability_doc(pd_accounts, pd_bank, pd_mda, document_number="PD-POST-2")
     post_payment_document(doc, actor=None)
     pd_bank.refresh_from_db()
-    assert pd_bank.current_balance == before - Decimal("90000.00")
+    assert pd_bank.current_balance == before - Decimal("90000.00")  # dropped by the cash out
 
 
 @pytest.mark.django_db(transaction=True)
-def test_post_vendor_settlement_decrements_vendor_balance(pd_accounts, pd_bank, open_period):
+def test_post_vendor_settlement_decrements_vendor_balance(pd_accounts, pd_bank, pd_mda, open_period):
     from procurement.models import Vendor
     from accounting.models import PaymentDocument, PaymentDocumentLine, Account
     from accounting.services.payment_document_posting import post_payment_document
@@ -124,45 +160,65 @@ def test_post_vendor_settlement_decrements_vendor_balance(pd_accounts, pd_bank, 
         defaults={"name": "Accounts Payable", "account_type": "Liability", "is_active": True, "is_postable": True},
     )
     vendor = Vendor.objects.create(name="ACME Ltd", code="V-PD", is_active=True, balance=Decimal("50000.00"))
-    doc = PaymentDocument.objects.create(document_number="PD-POST-V1", bank_account=pd_bank, description="Vendor payout")
+    doc = PaymentDocument.objects.create(
+        document_number="PD-POST-V1", bank_account=pd_bank, mda=pd_mda, description="Vendor payout",
+    )
     PaymentDocumentLine.objects.create(payment_document=doc, account=ap, vendor=vendor, debit=Decimal("50000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("50000.00"))
     post_payment_document(doc, actor=None)
     vendor.refresh_from_db()
     assert vendor.balance == Decimal("0.00")
 
 
 @pytest.mark.django_db
-def test_post_refuses_when_net_not_positive(pd_accounts, pd_bank, open_period):
+def test_post_refuses_when_unbalanced(pd_accounts, pd_bank, pd_mda, open_period):
+    """Σ debit ≠ Σ credit → the balance guard blocks the post; doc stays Draft."""
     from accounting.models import PaymentDocument, PaymentDocumentLine
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
-    doc = PaymentDocument.objects.create(document_number="PD-POST-Z", bank_account=pd_bank)
-    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], credit=Decimal("100.00"))
-    with pytest.raises(PaymentDocumentError):
+    doc = PaymentDocument.objects.create(document_number="PD-POST-Z", bank_account=pd_bank, mda=pd_mda)
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("100.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("50.00"))
+    with pytest.raises(PaymentDocumentError, match="not balanced"):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
 
 
 @pytest.mark.django_db
-def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, open_period):
+def test_post_requires_mda(pd_accounts, pd_bank, open_period):
+    """A balanced document with no MDA is refused — MDA is mandatory."""
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(document_number="PD-NO-MDA", bank_account=pd_bank)  # mda=None
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("90000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("90000.00"))
+    with pytest.raises(PaymentDocumentError, match="MDA"):
+        post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # nothing posted
+
+
+@pytest.mark.django_db
+def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, pd_mda, open_period):
     """A DEBIT to an Expense GL consumes budget, so the service's own
     expense-appropriation gate must block it when no Appropriation exists.
 
     Proves the expense path is genuinely gated (not vacuously): account
-    22020101 falls under the tenant's STRICT BudgetCheckRule, and with no
-    Appropriation seeded and no header MDA/fund to resolve one, check_policy
-    returns blocked and the service raises PaymentDocumentError before any
-    journal is created. This is the complement of the settlement tests: only
-    a settlement-only document posts budget-free.
+    22020101 falls under the tenant's STRICT BudgetCheckRule. The document is
+    balanced (DR expense / CR bank) and has an MDA, so it clears the structural
+    guards — but with no Appropriation seeded (and no header fund to resolve
+    one), ``find_matching_appropriation`` returns None and ``check_policy``
+    returns blocked, so the service raises PaymentDocumentError before any
+    journal is created. This is the complement of the settlement tests: only a
+    settlement-only document posts budget-free.
     """
     from accounting.models import PaymentDocument, PaymentDocumentLine, JournalHeader
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
     doc = PaymentDocument.objects.create(
-        document_number="PD-POST-EXP", bank_account=pd_bank, description="Direct expense payout",
+        document_number="PD-POST-EXP", bank_account=pd_bank, mda=pd_mda, description="Direct expense payout",
     )
-    PaymentDocumentLine.objects.create(
-        payment_document=doc, account=pd_accounts["expense"], debit=Decimal("40000.00"),
-    )
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["expense"], debit=Decimal("5000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("5000.00"))
     with pytest.raises(PaymentDocumentError):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
@@ -175,12 +231,13 @@ def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, open_pe
 
 # ── Fast guard tests — these raise at the input-validation stage BEFORE any
 # journal / GL posting, so plain @pytest.mark.django_db (no transaction=True)
-# keeps them fast. ─────────────────────────────────────────────────────────
+# keeps them fast. Each sets ``mda`` so it fails on the INTENDED guard, not on
+# the mandatory-MDA guard. ───────────────────────────────────────────────────
 @pytest.mark.django_db
-def test_post_refuses_no_lines(pd_accounts, pd_bank):
+def test_post_refuses_no_lines(pd_accounts, pd_bank, pd_mda):
     from accounting.models import PaymentDocument
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
-    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NL", bank_account=pd_bank)
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NL", bank_account=pd_bank, mda=pd_mda)
     with pytest.raises(PaymentDocumentError):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
@@ -188,22 +245,26 @@ def test_post_refuses_no_lines(pd_accounts, pd_bank):
 
 
 @pytest.mark.django_db
-def test_post_refuses_line_with_both_debit_and_credit(pd_accounts, pd_bank):
+def test_post_refuses_line_with_both_debit_and_credit(pd_accounts, pd_bank, pd_mda):
+    """A both-sided line is caught by the per-line guard. A second (bank) line
+    is present so the two-line minimum is satisfied and the both-sides guard —
+    not the line-count guard — is what fires."""
     from accounting.models import PaymentDocument, PaymentDocumentLine
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
-    doc = PaymentDocument.objects.create(document_number="PD-GUARD-BOTH", bank_account=pd_bank)
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-BOTH", bank_account=pd_bank, mda=pd_mda)
     PaymentDocumentLine.objects.create(
         payment_document=doc, account=pd_accounts["liability"],
         debit=Decimal("10"), credit=Decimal("10"),
     )
-    with pytest.raises(PaymentDocumentError):
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("10"))
+    with pytest.raises(PaymentDocumentError, match="both"):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
 
 
 @pytest.mark.django_db
-def test_post_refuses_when_bank_has_no_gl_account(pd_accounts):
+def test_post_refuses_when_bank_has_no_gl_account(pd_accounts, pd_mda):
     from accounting.models import PaymentDocument, PaymentDocumentLine, BankAccount
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
     bank_no_gl, _ = BankAccount.objects.get_or_create(
@@ -212,31 +273,36 @@ def test_post_refuses_when_bank_has_no_gl_account(pd_accounts):
                   "gl_account": None, "current_balance": Decimal("1000000.00"),
                   "currency": None},
     )
-    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NOGL", bank_account=bank_no_gl)
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NOGL", bank_account=bank_no_gl, mda=pd_mda)
+    # Two single-sided lines clear the per-line + count guards; the bank-GL
+    # guard is what fires because the bank account has no GL configured.
     PaymentDocumentLine.objects.create(
         payment_document=doc, account=pd_accounts["liability"], debit=Decimal("50000.00"),
     )
-    with pytest.raises(PaymentDocumentError):
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["liability"], credit=Decimal("50000.00"),
+    )
+    with pytest.raises(PaymentDocumentError, match="GL account"):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
 
 
 @pytest.mark.django_db
-def test_post_refuses_negative_amount(pd_accounts, pd_bank, open_period):
-    """A negative line amount must be rejected even when the document's net
-    stays POSITIVE — so ONLY the ``d < 0 or c < 0`` guard can catch it.
+def test_post_refuses_negative_amount(pd_accounts, pd_bank, pd_mda, open_period):
+    """A negative line amount must be rejected, and ONLY the ``d < 0 or c < 0``
+    guard can catch it.
 
-    Multi-line, net-positive by design: line B (debit=-50, credit=30) slips
-    past the both-sides guard (debit not > 0) and the neither guard (credit
-    > 0), and the ``net <= 0`` guard does NOT fire because
-    net = (200 + -50) - 30 = 120 > 0. PaymentDocumentLine has no DB/validator
-    against negatives, so the service's negative-amount guard is the only
-    thing standing between this corrupted line and the GL.
+    Line B (debit=-50, credit=30) slips past the both-sides guard (debit not
+    > 0) and the neither guard (credit > 0). The per-line loop runs before the
+    balance / cash-out checks, so the negative guard fires first regardless of
+    whether the document happens to balance. PaymentDocumentLine has no DB /
+    validator against negatives, so the service's guard is the only thing
+    standing between this corrupted line and the GL.
     """
     from accounting.models import PaymentDocument, PaymentDocumentLine, JournalHeader
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
-    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NEG", bank_account=pd_bank)
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NEG", bank_account=pd_bank, mda=pd_mda)
     PaymentDocumentLine.objects.create(
         payment_document=doc, account=pd_accounts["liability"], debit=Decimal("200.00"),
     )
@@ -244,7 +310,10 @@ def test_post_refuses_negative_amount(pd_accounts, pd_bank, open_period):
         payment_document=doc, account=pd_accounts["liability"],
         debit=Decimal("-50.00"), credit=Decimal("30.00"),
     )
-    with pytest.raises(PaymentDocumentError):
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("150.00"),
+    )
+    with pytest.raises(PaymentDocumentError, match="negative"):
         post_payment_document(doc, actor=None)
     doc.refresh_from_db()
     assert doc.status == "Draft"  # nothing posted
@@ -298,14 +367,16 @@ def pd_api(db):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
+def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, pd_mda, open_period):
     client, _ = pd_api
     payload = {
         "bank_account": pd_bank.pk,
         "reference_number": "REF-001",
+        "mda": pd_mda.pk,
         "description": "API salary run",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "90000.00"},
         ],
     }
     resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
@@ -327,13 +398,15 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
 
 
 @pytest.mark.django_db
-def test_api_create_requires_reference(pd_api, pd_accounts, pd_bank):
+def test_api_create_requires_reference(pd_api, pd_accounts, pd_bank, pd_mda):
     """A create with NO reference_number is rejected at serializer validation
-    (400) — reference is MANDATORY at the API. Fails before any posting, so
+    (400) — reference is MANDATORY at the API. MDA is supplied so the 400 is
+    specifically about the missing reference. Fails before any posting, so
     plain django_db (no transaction=True) is fine."""
     client, _ = pd_api
     payload = {
         "bank_account": pd_bank.pk,
+        "mda": pd_mda.pk,
         "description": "Missing reference",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
@@ -346,31 +419,55 @@ def test_api_create_requires_reference(pd_api, pd_accounts, pd_bank):
 
 
 @pytest.mark.django_db
-def test_api_proposed_entries_previews_balanced_lines(pd_api, pd_accounts, pd_bank):
+def test_api_create_requires_mda(pd_api, pd_accounts, pd_bank):
+    """A create with NO mda is rejected at serializer validation (400) — MDA is
+    MANDATORY at the API."""
+    client, _ = pd_api
+    payload = {
+        "bank_account": pd_bank.pk,
+        "reference_number": "REF-002",
+        "description": "Missing MDA",
+        "lines": [
+            {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+    assert "mda" in resp.content.decode().lower()
+
+
+@pytest.mark.django_db
+def test_api_proposed_entries_previews_balanced_lines(pd_api, pd_accounts, pd_bank, pd_mda):
     client, _ = pd_api
     from accounting.models import PaymentDocument, PaymentDocumentLine
-    doc = PaymentDocument.objects.create(document_number="PD-PREV-1", bank_account=pd_bank)
+    doc = PaymentDocument.objects.create(document_number="PD-PREV-1", bank_account=pd_bank, mda=pd_mda)
     PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("500.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("500.00"))
     resp = client.get(f"/api/v1/accounting/payment-documents/{doc.pk}/proposed-entries/",
                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200
     body = resp.json()
     entries = body["entries"]
+    assert len(entries) == 2  # exactly the doc lines — no synthetic bank leg appended
     assert sum(Decimal(e["debit"]) for e in entries) == sum(Decimal(e["credit"]) for e in entries)
-    # The balancing (last) entry is the bank credit for the net cash out.
-    assert entries[-1]["account"] == pd_bank.gl_account.code
-    assert body["net_amount"] == "500.00"
+    # The bank credit is a real document line now (not a computed extra entry).
+    bank_entry = next(e for e in entries if e["account"] == pd_bank.gl_account.code)
+    assert bank_entry["credit"] == "500.00"
+    assert body["net_amount"] == "500.00"  # net_amount = bank credit (cash out)
 
 
 @pytest.mark.django_db
-def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank):
+def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank, pd_mda):
     client, _ = pd_api
     payload = {
         "bank_account": pd_bank.pk,
         "reference_number": "REF-001",
+        "mda": pd_mda.pk,
         "description": "Draft to edit",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "100.00", "credit": "0.00"},
+            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "100.00"},
         ],
     }
     resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
@@ -381,25 +478,28 @@ def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank):
     patch = {"lines": [
         {"account": pd_accounts["liability"].pk, "debit": "250.00", "credit": "0.00"},
         {"account": pd_accounts["expense"].pk, "debit": "0.00", "credit": "50.00"},
+        {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "200.00"},
     ]}
     resp = client.patch(f"/api/v1/accounting/payment-documents/{doc_id}/", patch, format="json",
                         HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200, resp.content
     body = resp.json()
-    assert len(body["lines"]) == 2                       # old single line was replaced
-    assert Decimal(body["net_amount"]) == Decimal("200.00")  # 250 debit - 50 credit
+    assert len(body["lines"]) == 3                            # old lines were replaced
+    assert Decimal(body["net_amount"]) == Decimal("200.00")   # bank credit = cash out
 
 
 @pytest.mark.django_db(transaction=True)
-def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_period):
+def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, pd_mda, open_period):
     client, _ = pd_api
     from accounting.models import PaymentDocument
     payload = {
         "bank_account": pd_bank.pk,
         "reference_number": "REF-001",
+        "mda": pd_mda.pk,
         "description": "To be posted then edited",
         "lines": [
             {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
+            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "90000.00"},
         ],
     }
     resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
@@ -425,7 +525,8 @@ def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_per
 
 
 # ── Bulk import — CSV rows grouped by ``document_ref`` create DRAFT documents
-# for operator review. Imported docs are NEVER auto-posted. ──────────────────
+# for operator review. Imported docs are NEVER auto-posted, so they carry no
+# MDA / explicit bank line here — those become required only at POST time. ────
 @pytest.mark.django_db
 def test_bulk_import_creates_draft_documents(pd_accounts, pd_bank):
     from accounting.services.payment_document_import import import_payment_documents_from_rows

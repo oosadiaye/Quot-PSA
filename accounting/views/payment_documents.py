@@ -10,10 +10,10 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
+from accounting.models import MDA, PaymentDocument, PaymentDocumentLine, TransactionSequence
 from accounting.services.base_posting import TransactionPostingError
 from accounting.services.payment_document_posting import (
-    PaymentDocumentError, compute_net, post_payment_document,
+    PaymentDocumentError, _bank_credit, post_payment_document,
 )
 from core.mixins import OrganizationFilterMixin
 from core.permissions import IsApprover
@@ -42,6 +42,13 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         required=True, allow_blank=False, max_length=100,
         error_messages={"required": "A reference is required.", "blank": "A reference is required."},
     )
+    # An MDA is now MANDATORY on a payment document (the header MDA flows onto
+    # the posted journal and drives budget-gate resolution). The model field is
+    # nullable at the DB level; requiredness is enforced here at the API.
+    mda = serializers.PrimaryKeyRelatedField(
+        queryset=MDA.objects.all(), required=True,
+        error_messages={"required": "An MDA is required.", "null": "An MDA is required."},
+    )
 
     class Meta:
         model = PaymentDocument
@@ -68,7 +75,8 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         doc = PaymentDocument.objects.create(**validated_data)
         for ln in lines:
             PaymentDocumentLine.objects.create(payment_document=doc, **ln)
-        doc.net_amount = compute_net(list(doc.lines.all()))
+        bank_gl_id = doc.bank_account.gl_account_id if doc.bank_account_id else None
+        doc.net_amount = _bank_credit(list(doc.lines.all()), bank_gl_id)
         doc.save(update_fields=["net_amount"])
         return doc
 
@@ -81,7 +89,8 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
             instance.lines.all().delete()
             for ln in lines:
                 PaymentDocumentLine.objects.create(payment_document=instance, **ln)
-        instance.net_amount = compute_net(list(instance.lines.all()))
+        bank_gl_id = instance.bank_account.gl_account_id if instance.bank_account_id else None
+        instance.net_amount = _bank_credit(list(instance.lines.all()), bank_gl_id)
         instance.save()
         return instance
 
@@ -116,21 +125,21 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="proposed-entries")
     def proposed_entries(self, request, pk=None):
-        """Balanced DR/CR preview (computed, not persisted)."""
+        """DR/CR preview of the document's lines AS ENTERED (bank is a real line).
+
+        The bank credit is now an explicit document line, so this returns the
+        lines exactly and does NOT append a synthetic bank leg. ``net_amount``
+        is the cash out — the credit(s) against the bank's GL account.
+        """
         doc = self.get_object()
         lines = list(doc.lines.select_related("account").all())
-        net = compute_net(lines)
+        bank_gl_id = doc.bank_account.gl_account_id if doc.bank_account_id else None
         entries = [
             {"account": ln.account.code, "account_name": ln.account.name,
              "debit": str(ln.debit or Decimal("0.00")), "credit": str(ln.credit or Decimal("0.00"))}
             for ln in lines
         ]
-        bank = doc.bank_account
-        entries.append({
-            "account": getattr(bank.gl_account, "code", ""), "account_name": "Bank",
-            "debit": "0.00", "credit": str(net if net > 0 else Decimal("0.00")),
-        })
-        return Response({"entries": entries, "net_amount": str(net)})
+        return Response({"entries": entries, "net_amount": str(_bank_credit(lines, bank_gl_id))})
 
     @action(detail=False, methods=["get"], url_path="download-template")
     def download_template(self, request):
