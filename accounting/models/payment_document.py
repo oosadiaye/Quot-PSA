@@ -89,8 +89,15 @@ class PaymentDocumentLine(models.Model):
     payment_document = models.ForeignKey(
         PaymentDocument, on_delete=models.CASCADE, related_name="lines",
     )
+    # A line posts to EITHER a GL account OR a vendor. ``account`` is nullable
+    # so a vendor-only line can be entered; at posting the vendor's AP
+    # reconciliation account (via get_vendor_ap_account) is resolved into
+    # ``account`` so the journal always debits/credits a real GL. The
+    # account-or-vendor rule is enforced by the serializer and the posting
+    # service (PaymentDocumentLine has no DB-level check).
     account = models.ForeignKey(
-        "accounting.Account", on_delete=models.PROTECT, related_name="payment_document_lines",
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="payment_document_lines",
     )
     vendor = models.ForeignKey(
         "procurement.Vendor", on_delete=models.PROTECT, null=True, blank=True,

@@ -333,8 +333,10 @@ export default function PaymentDocumentForm() {
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const isBalanced = round2(totalDebit) === round2(totalCredit) && totalDebit > 0;
 
+    // A line is postable with EITHER a GL account OR a vendor (a vendor-only
+    // line resolves to the vendor's AP account server-side), plus an amount.
     const validLines = lines.filter(
-        (l) => l.account && ((parseFloat(l.debit) || 0) > 0 || (parseFloat(l.credit) || 0) > 0),
+        (l) => (l.account || l.vendor) && ((parseFloat(l.debit) || 0) > 0 || (parseFloat(l.credit) || 0) > 0),
     );
     // Posted / Void documents are read-only — the backend serializer also
     // rejects edits, so this is belt-and-suspenders. Only a Draft is editable.
@@ -368,7 +370,7 @@ export default function PaymentDocumentForm() {
             credit: String(amountNum),
         };
         const userPayloadLines = validLines.map<PaymentDocumentLineInput>((l) => ({
-            account: l.account,
+            account: l.account || null,
             vendor: l.vendor || null,
             debit: String(parseFloat(l.debit) || 0),
             credit: String(parseFloat(l.credit) || 0),
@@ -726,8 +728,8 @@ export default function PaymentDocumentForm() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
                             <thead>
                                 <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
-                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
-                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '220px' }} title="Tag this line to a Vendor to settle that vendor's sub-ledger">
+                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '320px' }}>GL Account</th>
+                                    <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '320px' }} title="Pick a Vendor instead of a GL account to pay a vendor directly, or tag a GL line to a vendor's sub-ledger">
                                         Vendor <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                                     </th>
                                     <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '150px' }}>Debit</th>
@@ -771,7 +773,7 @@ export default function PaymentDocumentForm() {
                                                 value={line.account}
                                                 onChange={(v) => updateLine(idx, 'account', v)}
                                                 placeholder="Search code or name…"
-                                                required
+                                                required={!line.vendor}
                                             />
                                         </td>
                                         <td style={{ padding: '0.75rem' }}>

@@ -152,6 +152,57 @@ def test_post_vendor_settlement_decrements_vendor_balance(pd_accounts, pd_bank, 
     assert vendor.balance == Decimal("0.00")
 
 
+@pytest.mark.django_db(transaction=True)
+def test_post_vendor_only_line_resolves_ap_account(pd_accounts, pd_bank, open_period):
+    """A line with a VENDOR and NO GL account (a direct vendor payment) posts to
+    the vendor's AP reconciliation account (get_vendor_ap_account). The resolved
+    GL is persisted onto the line AND the journal; the vendor sub-ledger drops."""
+    from procurement.models import Vendor
+    from accounting.models import PaymentDocument, PaymentDocumentLine, Account
+    from accounting.services.payment_document_posting import post_payment_document
+    # A globally-flagged AP recon account (the fallback path — vendor uncategorised).
+    ap, _ = Account.objects.get_or_create(
+        code="48010102",
+        defaults={"name": "Trade Vendors (Central)", "account_type": "Liability", "is_active": True,
+                  "is_postable": True, "reconciliation_type": "accounts_payable"},
+    )
+    vendor = Vendor.objects.create(name="Jacob PLC", code="V-PD-VO", is_active=True, balance=Decimal("10000.00"))
+    doc = PaymentDocument.objects.create(
+        document_number="PD-POST-VO", bank_account=pd_bank, description="Direct vendor payment",
+    )
+    # Vendor-only settlement line: NO account, just the vendor + a debit.
+    line = PaymentDocumentLine.objects.create(payment_document=doc, vendor=vendor, debit=Decimal("10000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("10000.00"))
+    assert line.account_id is None  # entered with a vendor but no GL
+
+    journal = post_payment_document(doc, actor=None)
+
+    line.refresh_from_db()
+    assert line.account_id == ap.pk  # vendor-only line resolved to the AP recon GL (persisted)
+    jlines = list(journal.lines.all())
+    debit_line = next(l for l in jlines if l.debit > 0)
+    assert debit_line.account_id == ap.pk  # journal debits the resolved AP account
+    assert sum(l.debit for l in jlines) == sum(l.credit for l in jlines) == Decimal("10000.00")
+    vendor.refresh_from_db()
+    assert vendor.balance == Decimal("0.00")  # AP is a Liability → sub-ledger decremented
+    doc.refresh_from_db()
+    assert doc.status == "Posted"
+
+
+@pytest.mark.django_db
+def test_post_refuses_line_with_neither_account_nor_vendor(pd_accounts, pd_bank, open_period):
+    """A line with no GL account AND no vendor is rejected (nothing to post to)."""
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(document_number="PD-POST-NN", bank_account=pd_bank)
+    PaymentDocumentLine.objects.create(payment_document=doc, debit=Decimal("100.00"))  # neither account nor vendor
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("100.00"))
+    with pytest.raises(PaymentDocumentError, match="GL account or a vendor"):
+        post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"
+
+
 @pytest.mark.django_db
 def test_post_refuses_when_unbalanced(pd_accounts, pd_bank, open_period):
     """Σ debit ≠ Σ credit → the balance guard blocks the post; doc stays Draft."""
@@ -382,6 +433,45 @@ def test_api_create_requires_reference(pd_api, pd_accounts, pd_bank):
                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 400, resp.content
     assert "reference" in resp.content.decode().lower()
+
+
+@pytest.mark.django_db
+def test_api_line_requires_account_or_vendor(pd_api, pd_bank):
+    """A create with a line naming NEITHER a GL account NOR a vendor is rejected
+    (400) at serializer validation — a line must post to one or the other."""
+    client, _ = pd_api
+    payload = {
+        "bank_account": pd_bank.pk,
+        "reference_number": "REF-NN",
+        "lines": [{"debit": "100.00", "credit": "0.00"}],  # no account, no vendor
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 400, resp.content
+    assert "account or a vendor" in resp.content.decode().lower()
+
+
+@pytest.mark.django_db
+def test_api_create_accepts_vendor_only_line(pd_api, pd_accounts, pd_bank):
+    """A vendor-only line (vendor set, no GL account) is ACCEPTED on create — the
+    GL is resolved at posting, so ``account`` may be omitted from the payload."""
+    from procurement.models import Vendor
+    client, _ = pd_api
+    vendor = Vendor.objects.create(name="Jacob PLC", code="V-API-VO", is_active=True)
+    payload = {
+        "bank_account": pd_bank.pk,
+        "reference_number": "REF-VO",
+        "lines": [
+            {"vendor": vendor.pk, "debit": "10000.00", "credit": "0.00"},
+            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "10000.00"},
+        ],
+    }
+    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
+                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp.status_code == 201, resp.content
+    body = resp.json()
+    vo_line = next(l for l in body["lines"] if l["vendor"] == vendor.pk)
+    assert vo_line["account"] is None  # accepted without a GL account
 
 
 @pytest.mark.django_db

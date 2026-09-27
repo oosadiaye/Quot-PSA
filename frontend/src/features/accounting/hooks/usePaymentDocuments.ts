@@ -4,7 +4,9 @@ import apiClient from '../../../api/client';
 const BASE = '/accounting/payment-documents/';
 
 export interface PaymentDocumentLineInput {
-  account: number | string;
+  // Nullable: a vendor-only line omits the GL account (resolved to the vendor's
+  // AP account server-side).
+  account: number | string | null;
   vendor?: number | string | null;
   debit: string;
   credit: string;

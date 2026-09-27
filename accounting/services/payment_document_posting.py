@@ -79,6 +79,8 @@ def _validate_lines_and_bank(doc, lines):
             raise PaymentDocumentError("A line cannot carry both a debit and a credit.")
         if d <= 0 and c <= 0:
             raise PaymentDocumentError("Each line must carry a debit or a credit amount.")
+        if ln.account_id is None and ln.vendor_id is None:
+            raise PaymentDocumentError("Each line must specify a GL account or a vendor.")
 
     bank = doc.bank_account
     if not bank or not bank.gl_account_id:
@@ -97,6 +99,32 @@ def _validate_lines_and_bank(doc, lines):
     if cash_out <= 0:
         raise PaymentDocumentError("The document must credit the bank account (cash out).")
     return bank, cash_out
+
+
+def _resolve_vendor_only_accounts(lines):
+    """Fill the GL account on vendor-only lines (a line entered with a vendor
+    and no GL account — a direct vendor payment).
+
+    Such a line posts to the vendor's AP RECONCILIATION account — the same GL
+    the invoice/PV path uses, resolved by ``get_vendor_ap_account`` (vendor
+    category recon account → any global reconciliation_type='accounts_payable'
+    → legacy DEFAULT_GL_ACCOUNTS['ACCOUNTS_PAYABLE']). The resolved account is
+    PERSISTED onto the line so the posted document, its journal, and the
+    proposed-entries preview all reference a real GL and the existing
+    downstream code (budget gates, journal build, vendor sub-ledger settlement)
+    works unchanged. Lines that already name an account are left untouched.
+
+    Raises ``TransactionPostingError`` (via ``get_vendor_ap_account``) when a
+    vendor has no resolvable AP account — the caller's ``except`` handles it.
+    """
+    from accounting.services.procurement_posting import get_vendor_ap_account
+    for ln in lines:
+        if ln.account_id is not None:
+            continue
+        # _validate_lines_and_bank guarantees vendor_id is set when account is absent.
+        account, _source = get_vendor_ap_account(ln.vendor)
+        ln.account = account
+        ln.save(update_fields=["account"])
 
 
 def _enforce_expense_budget_gates(doc, lines, *, actor=None):
@@ -228,6 +256,7 @@ def post_payment_document(doc, *, actor=None):
     """
     lines = _lines(doc)
     bank, cash_out = _validate_lines_and_bank(doc, lines)
+    _resolve_vendor_only_accounts(lines)  # vendor-only lines → vendor AP recon GL
     _enforce_expense_budget_gates(doc, lines, actor=actor)
     journal = _build_and_post_journal(doc, lines, bank, cash_out)
     _settle_vendor_and_bank(lines, bank, cash_out)

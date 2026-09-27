@@ -68,14 +68,26 @@ def _attachment_bytes_match_type(f) -> bool:
 
 
 class PaymentDocumentLineSerializer(serializers.ModelSerializer):
-    account_code = serializers.CharField(source="account.code", read_only=True)
-    account_name = serializers.CharField(source="account.name", read_only=True)
+    # ``default=None`` keeps these null-safe for a vendor-only line (no GL
+    # account yet — resolved to the vendor's AP recon account at posting).
+    account_code = serializers.CharField(source="account.code", read_only=True, default=None)
+    account_name = serializers.CharField(source="account.name", read_only=True, default=None)
     vendor_name = serializers.CharField(source="vendor.name", read_only=True, default=None)
 
     class Meta:
         model = PaymentDocumentLine
         fields = ["id", "account", "account_code", "account_name", "vendor", "vendor_name",
                   "debit", "credit", "is_deduction"]
+
+    def validate(self, attrs):
+        # A line posts to EITHER a GL account OR a vendor (a vendor-only line is
+        # a direct vendor payment; its GL is the vendor's AP recon account,
+        # resolved at posting). Reject a line that names neither.
+        account = attrs.get("account", getattr(self.instance, "account", None))
+        vendor = attrs.get("vendor", getattr(self.instance, "vendor", None))
+        if account is None and vendor is None:
+            raise serializers.ValidationError("Each line needs a GL account or a vendor.")
+        return attrs
 
 
 class PaymentDocumentSerializer(serializers.ModelSerializer):
@@ -198,13 +210,26 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         is the cash out — the credit(s) against the bank's GL account.
         """
         doc = self.get_object()
-        lines = list(doc.lines.select_related("account").all())
+        lines = list(doc.lines.select_related("account", "vendor").all())
         bank_gl_id = doc.bank_account.gl_account_id if doc.bank_account_id else None
-        entries = [
-            {"account": ln.account.code, "account_name": ln.account.name,
-             "debit": str(ln.debit or Decimal("0.00")), "credit": str(ln.credit or Decimal("0.00"))}
-            for ln in lines
-        ]
+        entries = []
+        for ln in lines:
+            acct = ln.account
+            if acct is None and ln.vendor_id:
+                # Vendor-only draft line — preview the vendor's AP recon GL it
+                # will post to. Best-effort: never let a config gap 500 the
+                # preview (the real check happens at post).
+                try:
+                    from accounting.services.procurement_posting import get_vendor_ap_account
+                    acct, _src = get_vendor_ap_account(ln.vendor)
+                except Exception:  # noqa: BLE001
+                    acct = None
+            entries.append({
+                "account": acct.code if acct else "—",
+                "account_name": acct.name if acct else (f"Vendor: {ln.vendor.name}" if ln.vendor_id else "—"),
+                "debit": str(ln.debit or Decimal("0.00")),
+                "credit": str(ln.credit or Decimal("0.00")),
+            })
         return Response({"entries": entries, "net_amount": str(_bank_credit(lines, bank_gl_id))})
 
     @action(detail=True, methods=["post"], url_path="attachment",
