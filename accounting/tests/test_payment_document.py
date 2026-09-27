@@ -131,7 +131,7 @@ def test_post_vendor_settlement_decrements_vendor_balance(pd_accounts, pd_bank, 
     assert vendor.balance == Decimal("0.00")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_post_refuses_when_net_not_positive(pd_accounts, pd_bank, open_period):
     from accounting.models import PaymentDocument, PaymentDocumentLine
     from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
@@ -143,7 +143,7 @@ def test_post_refuses_when_net_not_positive(pd_accounts, pd_bank, open_period):
     assert doc.status == "Draft"  # nothing posted
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_post_expense_debit_requires_appropriation(pd_accounts, pd_bank, open_period):
     """A DEBIT to an Expense GL consumes budget, so the service's own
     expense-appropriation gate must block it when no Appropriation exists.
@@ -198,6 +198,8 @@ def test_post_refuses_line_with_both_debit_and_credit(pd_accounts, pd_bank):
     )
     with pytest.raises(PaymentDocumentError):
         post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # nothing posted
 
 
 @pytest.mark.django_db
@@ -216,3 +218,27 @@ def test_post_refuses_when_bank_has_no_gl_account(pd_accounts):
     )
     with pytest.raises(PaymentDocumentError):
         post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # nothing posted
+
+
+@pytest.mark.django_db
+def test_post_refuses_negative_amount(pd_accounts, pd_bank):
+    """A mixed-sign line (negative debit + positive credit) must be rejected.
+
+    Negatives can partially cancel and still satisfy the header SUM balance
+    check, so this service — the only validation layer, since
+    PaymentDocumentLine has no DB/validator against negatives — must reject it
+    before any GL write.
+    """
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.services.payment_document_posting import post_payment_document, PaymentDocumentError
+    doc = PaymentDocument.objects.create(document_number="PD-GUARD-NEG", bank_account=pd_bank)
+    PaymentDocumentLine.objects.create(
+        payment_document=doc, account=pd_accounts["liability"],
+        debit=Decimal("-50.00"), credit=Decimal("30.00"),
+    )
+    with pytest.raises(PaymentDocumentError):
+        post_payment_document(doc, actor=None)
+    doc.refresh_from_db()
+    assert doc.status == "Draft"  # nothing posted
