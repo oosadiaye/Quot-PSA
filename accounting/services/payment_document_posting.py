@@ -60,8 +60,8 @@ def _validate_lines_and_bank(doc, lines):
     credit is one of ``lines`` (not derived), so we require ``Σ debit == Σ
     credit`` and at least one line crediting the bank's GL account.
     """
-    if doc.status == "Posted":
-        raise PaymentDocumentError("Payment document is already posted.")
+    if doc.status in ("Paid", "Void"):
+        raise PaymentDocumentError("Payment document is already finalized.")
     if doc.journal_id:
         raise PaymentDocumentError("Payment document already has a journal.")
     if not lines:
@@ -250,17 +250,19 @@ def _settle_vendor_and_bank(lines, bank, cash_out):
 
 
 @transaction.atomic
-def post_payment_document(doc, *, actor=None):
-    """Post ``doc`` as one balanced journal from its lines AS ENTERED.
+def post_document_journal(doc, *, actor=None):
+    """Post ``doc``'s balanced journal from its lines AS ENTERED and settle the
+    vendor + bank sub-ledgers. Returns ``(JournalHeader, cash_out)``.
 
-    The document already carries an explicit bank credit line, so posting does
-    not append a derived bank leg. Orchestrates: validate (balanced, MDA
-    present, bank credited) → enforce expense budget gates → build + post the
-    journal → settle vendor/bank sub-ledgers → link the document.
+    This is the reusable core: it does NOT set the document's terminal status,
+    so it can be driven either by the direct ``post_payment_document`` wrapper
+    (tests / legacy) OR by the Outgoing-Payment ``post_payment`` dispatch when a
+    Payment is sourced from this document. The document already carries an
+    explicit bank credit line, so no derived bank leg is appended.
 
-    Returns the ``JournalHeader``. Raises :class:`PaymentDocumentError` for a
-    domain problem, or ``ValidationError``/``TransactionPostingError`` if the
-    budget signal / balance validation rejects the journal.
+    Raises :class:`PaymentDocumentError` for a domain problem, or
+    ``ValidationError``/``TransactionPostingError`` if the budget signal /
+    balance validation rejects the journal.
     """
     lines = _lines(doc)
     bank, cash_out = _validate_lines_and_bank(doc, lines)
@@ -268,9 +270,21 @@ def post_payment_document(doc, *, actor=None):
     _enforce_expense_budget_gates(doc, lines, actor=actor)
     journal = _build_and_post_journal(doc, lines, bank, cash_out)
     _settle_vendor_and_bank(lines, bank, cash_out)
+    return journal, cash_out
 
+
+@transaction.atomic
+def post_payment_document(doc, *, actor=None):
+    """Direct post (tests / legacy callers): post the journal and flip the
+    document to its terminal ``Paid`` status. Returns the ``JournalHeader``.
+
+    The Payment-Proposal flow does NOT call this — a document is posted when its
+    provisioned Outgoing Payment is posted (see ``post_payment`` dispatch); this
+    wrapper keeps the single-call path working for tests and any legacy caller.
+    """
+    journal, cash_out = post_document_journal(doc, actor=actor)
     doc.journal = journal
     doc.net_amount = cash_out
-    doc.status = "Posted"
+    doc.status = "Paid"
     doc.save(update_fields=["journal", "net_amount", "status", "updated_at"], _allow_status_change=True)
     return journal

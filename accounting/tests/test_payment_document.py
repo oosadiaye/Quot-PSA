@@ -117,7 +117,7 @@ def test_post_settles_liability_credits_bank_no_budget(pd_accounts, pd_bank, ope
     assert debit_line.account_id == pd_accounts["liability"].pk   # DR Payroll Liability
     assert credit_line.account_id == pd_accounts["bank_gl"].pk    # CR Bank (explicit line)
     doc.refresh_from_db()
-    assert doc.status == "Posted"
+    assert doc.status == "Paid"
     assert doc.journal_id == journal.pk
     assert doc.net_amount == Decimal("90000.00")  # net_amount = bank credit (cash out)
 
@@ -186,7 +186,7 @@ def test_post_vendor_only_line_resolves_ap_account(pd_accounts, pd_bank, open_pe
     vendor.refresh_from_db()
     assert vendor.balance == Decimal("0.00")  # AP is a Liability → sub-ledger decremented
     doc.refresh_from_db()
-    assert doc.status == "Posted"
+    assert doc.status == "Paid"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -431,7 +431,7 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200, resp.content
     body = resp.json()
-    assert body["status"] == "Posted"
+    assert body["status"] == "Paid"
     assert Decimal(body["net_amount"]) == Decimal("90000.00")
     # The post produced a real GL journal linked back to this document.
     from accounting.models import JournalHeader

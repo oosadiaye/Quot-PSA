@@ -40,8 +40,20 @@ def payment_document_attachment_path(instance, filename):
 
 
 class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
-    STATUS_CHOICES = [("Draft", "Draft"), ("Posted", "Posted"), ("Void", "Void")]
+    STATUS_CHOICES = [
+        ("Draft", "Draft"),
+        ("Pending Approval", "Pending Approval"),
+        ("Approved", "Approved"),
+        ("Paid", "Paid"),
+        ("Void", "Void"),
+    ]
     SOURCE_CHOICES = [("manual", "Manual"), ("import", "Import")]
+    # A Payment Document is only editable while Draft. Once submitted it is
+    # under approval; once approved a Payment is provisioned; once Paid the
+    # journal is posted. Transitions between these states go through the
+    # ``_allow_status_change=True`` escape hatch (submit, approval dispatch,
+    # posting). See core.models.ImmutableModelMixin.
+    IMMUTABLE_STATUSES = ("Pending Approval", "Approved", "Paid", "Void")
 
     document_number = models.CharField(max_length=30, unique=True, db_index=True)
     document_date = models.DateField(default=date.today)
@@ -50,7 +62,7 @@ class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
     )
     reference_number = models.CharField(max_length=100, blank=True, default="")
     description = models.CharField(max_length=500, blank=True, default="")
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="Draft", db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Draft", db_index=True)
 
     mda = models.ForeignKey("accounting.MDA", on_delete=models.PROTECT, null=True, blank=True, related_name="payment_documents")
     fund = models.ForeignKey("accounting.Fund", on_delete=models.PROTECT, null=True, blank=True, related_name="payment_documents")

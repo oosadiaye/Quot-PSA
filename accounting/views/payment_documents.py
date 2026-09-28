@@ -129,12 +129,13 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
                             "journal", "created_at", "updated_at"]
 
     def validate(self, attrs):
-        # Reject any mutation of a posted document BEFORE any DB write — the
-        # posted journal's lines must never be destroyed by an edit. The
-        # ImmutableModelMixin only guards the header ``save()``, which runs
-        # AFTER the line delete/recreate in ``update()``.
-        if self.instance and self.instance.status == "Posted":
-            raise serializers.ValidationError("Cannot modify a posted payment document.")
+        # Reject any mutation of a non-Draft document BEFORE any DB write — once
+        # submitted, a document is under approval / provisioned / paid and its
+        # lines must never be edited. The ImmutableModelMixin only guards the
+        # header ``save()``, which runs AFTER the line delete/recreate in
+        # ``update()``, so the check lives here too.
+        if self.instance and self.instance.status != "Draft":
+            raise serializers.ValidationError("Only a Draft payment document can be modified.")
         return attrs
 
     @transaction.atomic

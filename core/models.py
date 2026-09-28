@@ -63,6 +63,12 @@ class ImmutableModelMixin(models.Model):
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Draft')
 
+    # Statuses whose rows are immutable (no edit/delete without the escape
+    # hatch). Default is the classic 'Posted'; subclasses with a different
+    # terminal vocabulary override this (e.g. PaymentDocument uses the
+    # proposal lifecycle Pending Approval/Approved/Paid/Void).
+    IMMUTABLE_STATUSES = ('Posted',)
+
     def save(self, *args, **kwargs):
         """Block mutation of Posted rows.
 
@@ -79,14 +85,14 @@ class ImmutableModelMixin(models.Model):
         if self.pk:
             try:
                 old = type(self).objects.get(pk=self.pk)
-                if old.status == 'Posted' and not allow:
+                if old.status in self.IMMUTABLE_STATUSES and not allow:
                     raise ValidationError("Cannot modify a posted transaction. Reverse it instead.")
             except type(self).DoesNotExist:
                 pass
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        if self.status == 'Posted':
+        if self.status in self.IMMUTABLE_STATUSES:
             raise ValidationError("Cannot delete a 'Posted' transaction.")
         return super().delete(*args, **kwargs)
 
