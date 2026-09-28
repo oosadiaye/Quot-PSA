@@ -255,7 +255,7 @@ export default function PaymentVoucherForm() {
             else if (d && typeof d === 'object') {
                 const msgs = Object.entries(d).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
                 setFormError(msgs.join(' | '));
-            } else setFormError(err.message || 'Failed to create Payment Voucher');
+            } else setFormError(err.message || 'Failed to create Payment Proposal');
         }
     };
 
@@ -264,7 +264,7 @@ export default function PaymentVoucherForm() {
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <PageHeader
-                    title="New Payment Voucher"
+                    title="New Payment Proposal"
                     subtitle="Raise a payment request — Treasury will post the final payment from the Outgoing Payments screen"
                     icon={<Receipt size={22} />}
                     actions={

@@ -157,7 +157,7 @@ const GovernmentDashboard = () => {
     // Quick actions — government-specific
     const quickActions = [
         { label: 'New Journal Entry', icon: FileText, path: '/accounting/new', color: GOV.blue },
-        { label: 'Payment Vouchers', icon: Receipt, path: '/accounting/payment-vouchers', color: GOV.green },
+        { label: 'Payment Proposal', icon: Receipt, path: '/accounting/payment-proposals', color: GOV.green },
         { label: 'Approval Inbox', icon: CheckCircle, path: '/approvals', color: GOV.gold },
         { label: 'Budget Execution', icon: BarChart3, path: '/budget/execution-report', color: GOV.red },
     ];

@@ -144,12 +144,14 @@ const menuItems: MenuItem[] = [
             // time. Sits next to ``TSA Accounts`` so operators reach it
             // from the same mental cluster as account management.
             { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
-            { name: 'Payment Vouchers', path: '/accounting/payment-vouchers', icon: Receipt },
+            // Unified approval-staging register for BOTH Payment Vouchers and
+            // Payment Documents. The standalone "Payment Documents" list is
+            // folded in here (its create/detail routes remain).
+            { name: 'Payment Proposal', path: '/accounting/payment-proposals', icon: Receipt },
             // Mobilization advances are now merged into Outgoing Payments →
             // Advances tab (Contract Mobilization Advances), so the standalone
             // link is retired.
             { name: 'Outgoing Payments', path: '/accounting/outgoing-payments', icon: ArrowUpRight },
-            { name: 'Payment Documents', path: '/accounting/payment-documents', icon: FileText },
             // Posted payments + the cheques issued against them; select posted
             // payment lines and create a cheque (number + date) covering them.
             { name: 'Cheque Register', path: '/accounting/cheque-register', icon: BookOpen },

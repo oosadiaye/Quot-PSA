@@ -121,11 +121,17 @@ export function useUpdatePaymentDocument() {
   });
 }
 
-export function usePostPaymentDocument() {
+// Submit a Draft/Rejected document for approval. It does NOT post any GL — on
+// approval a Draft Outgoing Payment is provisioned, and the cash-out happens
+// only when that payment is posted in Outgoing Payments.
+export function useSubmitPaymentDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: number | string) => (await apiClient.post(`${BASE}${id}/post/`, {})).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['payment-documents'] }),
+    mutationFn: async (id: number | string) => (await apiClient.post(`${BASE}${id}/submit/`, {})).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-documents'] });
+      qc.invalidateQueries({ queryKey: ['payment-proposals'] });
+    },
   });
 }
 

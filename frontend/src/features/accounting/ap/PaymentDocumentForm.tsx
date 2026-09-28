@@ -14,7 +14,7 @@ import { useDimensions } from '../hooks/useJournal';
 import { useMDAs } from '../hooks/useBudgetDimensions';
 import {
     useCreatePaymentDocument,
-    usePostPaymentDocument,
+    useSubmitPaymentDocument,
     usePaymentDocument,
     useProposedEntries,
     useUpdatePaymentDocument,
@@ -189,7 +189,7 @@ export default function PaymentDocumentForm() {
     const { data: dims, isLoading: dimsLoading } = useDimensions();
     const { data: mdas = [] } = useMDAs({ is_active: true });
     const createDoc = useCreatePaymentDocument();
-    const postDoc = usePostPaymentDocument();
+    const submitDoc = useSubmitPaymentDocument();
     const updateDoc = useUpdatePaymentDocument();
     const uploadAttachment = useUploadPaymentDocumentAttachment();
     const viewAttachment = useViewPaymentDocumentAttachment();
@@ -351,10 +351,10 @@ export default function PaymentDocumentForm() {
         amountNum > 0 &&
         referenceNumber.trim() !== '' &&
         !createDoc.isPending &&
-        !postDoc.isPending &&
+        !submitDoc.isPending &&
         !updateDoc.isPending;
     const canSaveDraft = baseReady;
-    const canPostAndPay = baseReady && isBalanced;
+    const canSubmit = baseReady && isBalanced;
 
     const addLine = () => setLines((prev) => [...prev, blankLine()]);
     const removeLine = (index: number) => setLines((prev) => prev.filter((_, i) => i !== index));
@@ -430,18 +430,19 @@ export default function PaymentDocumentForm() {
         }
     };
 
-    const onPostAndPay = async () => {
-        // Save the draft, then post it — the confirm guards a real cash movement.
-        if (!window.confirm('Post & Pay — this credits the bank and moves funds. Continue?')) return;
+    const onSubmit = async () => {
+        // Submit for approval — NOT a cash movement. The GL/cash-out happen only
+        // when the resulting Outgoing Payment is posted.
+        if (!window.confirm('Submit this payment document for approval?')) return;
         try {
             if (isEditMode && id) {
                 // EDIT: persist any edits, upload the attachment (if any), then
-                // post the EXISTING id. Never create a second document in edit mode.
+                // submit the EXISTING id. Never create a second document in edit mode.
                 await updateDoc.mutateAsync({ id, payload: buildPayload() });
                 await uploadIfPresent(id);
-                await postDoc.mutateAsync(id);
-                addToast('Payment document posted', 'success');
-                navigate('/accounting/payment-documents');
+                await submitDoc.mutateAsync(id);
+                addToast('Payment document submitted for approval', 'success');
+                navigate('/accounting/payment-proposals');
                 return;
             }
             // CREATE: reuse the draft from a prior failed attempt so a retry
@@ -452,13 +453,12 @@ export default function PaymentDocumentForm() {
                 docId = created.id as number | string;
                 createdIdRef.current = docId;
             }
-            // Upload the source document (if staged) BEFORE posting, so the
-            // scan is attached to the document the operator is about to post.
+            // Upload the source document (if staged) BEFORE submitting.
             await uploadIfPresent(docId);
-            await postDoc.mutateAsync(docId);
+            await submitDoc.mutateAsync(docId);
             createdIdRef.current = null;
-            addToast('Payment document posted', 'success');
-            navigate('/accounting/payment-documents');
+            addToast('Payment document submitted for approval', 'success');
+            navigate('/accounting/payment-proposals');
         } catch (err: unknown) {
             addToast(extractError(err, 'Post failed'), 'error');
         }
@@ -644,8 +644,8 @@ export default function PaymentDocumentForm() {
                             <button type="submit" className="btn btn-outline" disabled={!canSaveDraft}>
                                 <Save size={18} /> Save Draft
                             </button>
-                            <button type="button" className="btn btn-primary" onClick={onPostAndPay} disabled={!canPostAndPay}>
-                                <Banknote size={18} /> Post &amp; Pay
+                            <button type="button" className="btn btn-primary" onClick={onSubmit} disabled={!canSubmit}>
+                                <Banknote size={18} /> Submit for approval
                             </button>
                         </div>
                     }
@@ -826,7 +826,7 @@ export default function PaymentDocumentForm() {
                                     </td>
                                     <td colSpan={3} style={{ padding: '1rem', textAlign: 'right', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                                         {isBalanced
-                                            ? 'Debits equal credits — ready to Post & Pay.'
+                                            ? 'Debits equal credits — ready to submit for approval.'
                                             : 'Add debit lines until they equal the bank credit (the Amount).'}
                                     </td>
                                 </tr>

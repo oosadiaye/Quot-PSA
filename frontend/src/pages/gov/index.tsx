@@ -1383,7 +1383,7 @@ export const PaymentVoucherList = () => {
     const nav = useNavigate();
     return (
         <GenericListPage
-            title="Payment Vouchers"
+            title="Payment Proposals"
             subtitle="Government payment vouchers -- approved and processed via TSA"
             endpoint="/accounting/payment-vouchers/"
             columns={[
@@ -1403,7 +1403,7 @@ export const PaymentVoucherList = () => {
                 { key: 'status', label: 'Status', format: 'status' },
             ]}
             actions={[
-                { label: 'New Payment Voucher', onClick: () => nav('/accounting/payment-vouchers/new'), variant: 'primary', icon: icon(Plus) },
+                { label: 'New Payment Proposal', onClick: () => nav('/accounting/payment-vouchers/new'), variant: 'primary', icon: icon(Plus) },
             ]}
             onRowClick={(item) => nav(`/accounting/payment-vouchers/${item.id}`)}
         />

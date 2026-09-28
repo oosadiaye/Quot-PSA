@@ -189,7 +189,7 @@ export default function PaymentVoucherDetail() {
     };
 
     if (isLoading) return <AccountingLayout><div style={{ color: 'var(--color-text-muted)' }}>Loading…</div></AccountingLayout>;
-    if (error || !pv) return <AccountingLayout><div style={{ color: 'var(--color-error, #dc2626)' }}>Payment Voucher not found.</div></AccountingLayout>;
+    if (error || !pv) return <AccountingLayout><div style={{ color: 'var(--color-error, #dc2626)' }}>Payment Proposal not found.</div></AccountingLayout>;
 
     const statusColor = STATUS_COLOR[pv.status] || '#64748b';
     const btnBase: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 1rem', borderRadius: 8, fontSize: 'var(--text-sm)', fontWeight: 600, cursor: 'pointer', border: 'none' };

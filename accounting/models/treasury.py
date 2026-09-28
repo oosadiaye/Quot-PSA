@@ -223,8 +223,8 @@ class PaymentVoucherGov(AuditBaseModel):
 
     class Meta:
         ordering = ['-created_at']
-        verbose_name = 'Payment Voucher'
-        verbose_name_plural = 'Payment Vouchers'
+        verbose_name = 'Payment Proposal'
+        verbose_name_plural = 'Payment Proposals'
         indexes = [
             models.Index(fields=['status', 'payment_type']),
             models.Index(fields=['voucher_number']),

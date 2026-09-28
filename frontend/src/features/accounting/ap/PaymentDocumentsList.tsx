@@ -99,7 +99,7 @@ export default function PaymentDocumentsList() {
                                                 <Link
                                                     to={`/accounting/payment-documents/${d.id}`}
                                                     style={{ color: 'var(--primary)', textDecoration: 'none' }}
-                                                    title={d.status === 'Draft' ? 'Open to edit or Post & Pay' : 'View payment document'}
+                                                    title={d.status === 'Draft' ? 'Open to edit or submit for approval' : 'View payment document'}
                                                 >
                                                     {d.document_number}
                                                 </Link>
