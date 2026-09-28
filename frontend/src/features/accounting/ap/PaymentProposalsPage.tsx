@@ -49,24 +49,36 @@ export default function PaymentProposalsPage() {
                 }
             />
 
-            {/* Status tabs */}
-            <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-                {TABS.map((t) => (
-                    <button
-                        key={t}
-                        type="button"
-                        onClick={() => setTab(t)}
-                        style={{
-                            padding: '0.6rem 1rem', background: 'none', border: 'none', cursor: 'pointer',
-                            fontWeight: tab === t ? 700 : 500,
-                            color: tab === t ? 'var(--primary)' : 'var(--text-muted)',
-                            borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
-                            marginBottom: '-1px',
-                        }}
-                    >
-                        {t}
-                    </button>
-                ))}
+            {/* Status filter — pill buttons; the active one fills with that
+                status's own colour (amber Proposed / primary Approved / green
+                Paid / red Void) so the current filter reads at a glance. */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                {TABS.map((t) => {
+                    const active = tab === t;
+                    const accent = STATUS_COLORS[t];
+                    return (
+                        <button
+                            key={t}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => setTab(t)}
+                            style={{
+                                padding: '0.5rem 1.15rem',
+                                borderRadius: 999,
+                                fontSize: '0.875rem',
+                                fontWeight: active ? 700 : 600,
+                                cursor: 'pointer',
+                                background: active ? accent : 'var(--surface-hover, rgba(148,163,184,0.14))',
+                                color: active ? '#fff' : 'var(--text, var(--text-muted))',
+                                border: `1px solid ${active ? accent : 'var(--border, rgba(148,163,184,0.35))'}`,
+                                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.18)' : 'none',
+                                transition: 'background 120ms, color 120ms, border-color 120ms',
+                            }}
+                        >
+                            {t}
+                        </button>
+                    );
+                })}
             </div>
 
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
