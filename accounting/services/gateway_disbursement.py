@@ -96,7 +96,7 @@ def _beneficiary(payment):
 
 
 @transaction.atomic
-def can_disburse_via_gateway(payment) -> bool:
+def can_disburse_via_gateway(payment, *, has_allocations: bool | None = None) -> bool:
     """Whether ``payment`` may be disbursed through the gateway.
 
     Gateway disbursement books ``DR Accounts Payable``, which is only correct
@@ -108,6 +108,10 @@ def can_disburse_via_gateway(payment) -> bool:
     A standalone direct vendor payment (no PV) and an invoice-backed PV payment
     (has allocations) are allowed. This predicate is the classification guard
     that fixes the "always DR AP" misclassification AND scopes the auto-fire.
+
+    ``has_allocations`` overrides ``payment.allocations.exists()`` — needed for
+    an UNSAVED payment (the New Outgoing Payment simulation), whose reverse-FK
+    manager cannot be queried without a pk. Left None, it reads the DB as before.
     """
     vendor = payment.vendor
     if not (vendor and vendor.bank_account_number):
@@ -115,7 +119,9 @@ def can_disburse_via_gateway(payment) -> bool:
     if payment.is_advance:
         return False
     pv = payment.payment_voucher
-    if pv is not None and not payment.allocations.exists():
+    if has_allocations is None:
+        has_allocations = payment.allocations.exists()
+    if pv is not None and not has_allocations:
         return False  # direct/non-invoice PV — recognise expenditure, don't DR AP
     return True
 

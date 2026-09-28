@@ -1668,6 +1668,11 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # (no MFA: it moves no cash out of the TSA).
         if self.action == 'clear_open_items':
             return [IsApprover('post')]
+        # ``simulate`` computes a preview from form values and writes nothing —
+        # any authenticated operator composing a payment may see it.
+        if self.action == 'simulate':
+            from rest_framework.permissions import IsAuthenticated
+            return [IsAuthenticated()]
         return super().get_permissions()
 
     def perform_destroy(self, instance):
@@ -1763,6 +1768,66 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         total_credit = sum((e['credit'] or Decimal('0.00')) for e in entries)
         return Response({
             'posted': posted,
+            'entries': [
+                {
+                    'account': e['account'],
+                    'account_code': e['account_code'],
+                    'debit': str(e['debit'] or Decimal('0.00')),
+                    'credit': str(e['credit'] or Decimal('0.00')),
+                    'memo': e['memo'],
+                }
+                for e in entries
+            ],
+            'total_debit': str(total_debit),
+            'total_credit': str(total_credit),
+            'balanced': total_debit == total_credit,
+        })
+
+    @action(detail=False, methods=['post'], url_path='simulate')
+    def simulate(self, request):
+        """Stateless proposed-entries for a payment being composed on the New
+        Outgoing Payment form — BEFORE any Payment row exists.
+
+        Computes the DR/CR the payment WOULD post from the raw form values
+        (vendor, PV, amount, bank account, allocation) without creating or
+        saving anything, using the SAME ``compute_payment_entries`` logic the
+        saved-payment preview and ``post_payment`` use. Read-only.
+        """
+        from decimal import Decimal as _D
+        from accounting.models import Payment, BankAccount
+        from accounting.models.treasury import PaymentVoucherGov
+        from procurement.models import Vendor
+        from accounting.services.payment_preview import compute_payment_entries
+
+        data = request.data or {}
+        pv = (PaymentVoucherGov.objects.filter(pk=data.get('payment_voucher')).first()
+              if data.get('payment_voucher') else None)
+        bank = (BankAccount.objects.filter(pk=data.get('bank_account')).first()
+                if data.get('bank_account') else None)
+        vendor = (Vendor.objects.filter(pk=data.get('vendor')).first()
+                  if data.get('vendor') else None)
+        try:
+            amount = _D(str(data.get('amount') or data.get('total_amount') or '0'))
+        except (TypeError, ValueError):
+            amount = _D('0')
+        # Advances go through their own form; a standard outgoing payment is an
+        # advance only when its PV is an F-48 Special-GL 'A' voucher.
+        is_advance = bool(
+            pv and getattr(pv, 'payment_type', '') == 'ADVANCE'
+            and getattr(pv, 'special_gl_indicator', '') == 'A'
+        )
+        # Unsaved instance — never saved. has_allocations comes from the form's
+        # invoice selection, so the reverse-FK manager is never queried.
+        payment = Payment(
+            total_amount=amount, payment_voucher=pv,
+            bank_account=bank, vendor=vendor, is_advance=is_advance,
+        )
+        has_allocations = bool(data.get('invoice'))
+        entries = compute_payment_entries(payment, has_allocations=has_allocations)
+        total_debit = sum((e['debit'] or Decimal('0.00')) for e in entries)
+        total_credit = sum((e['credit'] or Decimal('0.00')) for e in entries)
+        return Response({
+            'posted': False,
             'entries': [
                 {
                     'account': e['account'],

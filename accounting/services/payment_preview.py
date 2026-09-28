@@ -79,11 +79,15 @@ def _resolve_bank_account(payment):
     return acct
 
 
-def compute_payment_entries(payment) -> list[dict]:
+def compute_payment_entries(payment, *, has_allocations=None) -> list[dict]:
     """Return the balanced proposed journal lines for ``payment``.
 
     Amounts are exact; account resolution is best-effort and mirrors
     ``post_payment``. Returns ``[]`` when there is nothing to disburse.
+
+    ``has_allocations`` overrides ``payment.allocations.exists()`` so this can
+    compute for an UNSAVED payment (the New Outgoing Payment simulation), whose
+    reverse-FK manager cannot be queried without a pk. Left None, reads the DB.
     """
     pv = getattr(payment, "payment_voucher", None)
     deductions = (
@@ -97,7 +101,8 @@ def compute_payment_entries(payment) -> list[dict]:
     gross = Decimal(str(gross))
     net = Decimal(str(net if net is not None else gross))
 
-    has_allocations = payment.allocations.exists()
+    if has_allocations is None:
+        has_allocations = payment.allocations.exists()
     lines: list[dict] = []
 
     # ── Debit leg — which account depends on the PV type ─────────────
@@ -143,7 +148,7 @@ def compute_payment_entries(payment) -> list[dict]:
     # can_disburse_via_gateway gate), so the preview shows the clearing leg
     # exactly when the real post will use it — the cash is parked, not gone,
     # until the PSP settlement webhook moves it to Bank.
-    clearing = _gateway_clearing_if_routed(payment)
+    clearing = _gateway_clearing_if_routed(payment, has_allocations=has_allocations)
     if clearing is not None:
         lines.append(_line(
             clearing, credit=net,
@@ -156,7 +161,7 @@ def compute_payment_entries(payment) -> list[dict]:
     return lines
 
 
-def _gateway_clearing_if_routed(payment):
+def _gateway_clearing_if_routed(payment, *, has_allocations=None):
     """The Gateway Settlement Clearing account IFF ``payment`` would post
     through the gateway (eligible AND an active usable tenant gateway), else
     None. Uses the SAME gates as ``post_payment`` so the preview cannot claim a
@@ -164,7 +169,7 @@ def _gateway_clearing_if_routed(payment):
     from accounting.services.gateway_disbursement import (
         can_disburse_via_gateway, active_disbursement_setting,
     )
-    if not can_disburse_via_gateway(payment):
+    if not can_disburse_via_gateway(payment, has_allocations=has_allocations):
         return None
     if active_disbursement_setting() is None:
         return None

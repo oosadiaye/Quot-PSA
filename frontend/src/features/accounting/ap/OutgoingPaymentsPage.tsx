@@ -10,7 +10,7 @@ import {
     useCreatePaymentAllocation, useVendorInvoices,
     useAccountingSettings,
 } from '../hooks/useAccountingEnhancements';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
 import { useVendors } from '../../procurement/hooks/useProcurement';
 import { useClearVendorAdvance } from '../hooks/useVendorAdvances';
@@ -229,10 +229,11 @@ function PaymentFormModal({
      * surface the proposed journal entries so the operator sees what
      * will hit the GL before committing.
      */
-    // Render-prop: receives the CURRENT form bank-account id so the footer
-    // (the proposed-entries simulation) can re-compute against the bank the
-    // operator has selected, not a stored/default one.
-    footerSlot?: (ctx: { bankAccountId: string }) => React.ReactNode;
+    // Render-prop: receives the CURRENT form values so the footer (the
+    // proposed-entries preview / the Simulate button) computes against what the
+    // operator has entered — the selected bank, PV, vendor and allocation —
+    // not a stored/default payment.
+    footerSlot?: (ctx: { form: typeof BLANK_PAYMENT }) => React.ReactNode;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     // ``useState({...})`` evaluates the initial state ONCE on mount, so
@@ -583,7 +584,7 @@ function PaymentFormModal({
                     </div>
                     {footerSlot && (
                         <div style={{ marginTop: '20px' }}>
-                            {footerSlot({ bankAccountId: form.bank_account })}
+                            {footerSlot({ form })}
                         </div>
                     )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
@@ -659,6 +660,17 @@ function ProposedEntries({ paymentId, bankAccountId }: { paymentId: number; bank
         enabled: !!paymentId,
     });
 
+    return <EntriesPreviewTable data={data} isLoading={isLoading} error={error} />;
+}
+
+// Shared presentational table for proposed / posted / simulated journal entries.
+function EntriesPreviewTable({ data, isLoading, error, headerLabel }: {
+    data?: ProposedEntriesResponse;
+    isLoading?: boolean;
+    error?: unknown;
+    headerLabel?: string;
+}) {
+    const { formatCurrency } = useCurrency();
     // A decimal string counts as "present" on a line only when it parses to
     // a non-zero number — the other side's cell is then left blank so each
     // line reads as a single DR or CR the way a ledger does.
@@ -672,7 +684,7 @@ function ProposedEntries({ paymentId, bankAccountId }: { paymentId: number; bank
         <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', background: '#f8fafc' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
-                    {data?.posted ? 'Posted journal entries' : 'Proposed journal entries (will post on confirm)'}
+                    {headerLabel ?? (data?.posted ? 'Posted journal entries' : 'Proposed journal entries (will post on confirm)')}
                 </span>
                 {data && (
                     data.balanced ? (
@@ -686,9 +698,9 @@ function ProposedEntries({ paymentId, bankAccountId }: { paymentId: number; bank
             {isLoading && (
                 <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Loading entries…</div>
             )}
-            {error && (
+            {!!error && (
                 <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 }}>
-                    Failed to load proposed entries. {(error as Error)?.message ?? 'Please try again.'}
+                    Could not compute the entries. {(error as Error)?.message ?? 'Please try again.'}
                 </div>
             )}
             {data && !isLoading && (
@@ -724,6 +736,48 @@ function ProposedEntries({ paymentId, bankAccountId }: { paymentId: number; bank
                         </tfoot>
                     </table>
                 </div>
+            )}
+        </div>
+    );
+}
+
+// New Outgoing Payment: simulate the journal BEFORE any Payment row exists.
+// The "Simulate" button posts the current form values to the stateless
+// /simulate/ endpoint and shows the DR/CR the payment would book — including
+// the correct bank GL (or the Gateway Settlement Clearing GL when it would
+// route through an active e-payment gateway).
+function SimulateEntries({ form }: { form: typeof BLANK_PAYMENT }) {
+    const [data, setData] = useState<ProposedEntriesResponse | undefined>(undefined);
+    const sim = useMutation<ProposedEntriesResponse>({
+        mutationFn: async () => (await apiClient.post('/accounting/payments/simulate/', {
+            vendor: form.vendor || undefined,
+            payment_voucher: form.payment_voucher || undefined,
+            bank_account: form.bank_account || undefined,
+            amount: form.total_amount || '0',
+            invoice: form.invoice || undefined,
+        })).data,
+        onSuccess: (d) => setData(d),
+    });
+    const showTable = !!data || sim.isPending || !!sim.error;
+    return (
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: showTable ? 12 : 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                    Journal simulation
+                    <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>preview the GL impact before saving</span>
+                </span>
+                <button type="button" onClick={() => sim.mutate()} disabled={sim.isPending}
+                    style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: sim.isPending ? 'default' : 'pointer', background: '#0ea5e9', color: '#fff', border: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {sim.isPending ? 'Simulating…' : 'Simulate'}
+                </button>
+            </div>
+            {showTable && (
+                <EntriesPreviewTable
+                    data={data}
+                    isLoading={sim.isPending}
+                    error={sim.error}
+                    headerLabel="Simulated journal entries (not yet saved)"
+                />
             )}
         </div>
     );
@@ -1288,9 +1342,12 @@ export default function OutgoingPaymentsPage() {
                     // (editingPaymentId set) show the proposed journal entries
                     // so the operator sees what will hit the GL before
                     // confirming. Omitted for the create-new flow (no id yet).
-                    footerSlot={editingPaymentId
-                        ? ({ bankAccountId }) => <ProposedEntries paymentId={editingPaymentId} bankAccountId={bankAccountId} />
-                        : undefined}
+                    // Edit-and-post a draft → auto-preview the saved payment's
+                    // entries (re-simulated on bank change). New payment → a
+                    // Simulate button computing from the form before it exists.
+                    footerSlot={({ form }) => editingPaymentId
+                        ? <ProposedEntries paymentId={editingPaymentId} bankAccountId={form.bank_account} />
+                        : <SimulateEntries form={form} />}
                     onSubmit={handleSubmitPayment}
                     // Clear prefill alongside closing so the next plain
                     // "+ New Payment" click opens a blank form again.

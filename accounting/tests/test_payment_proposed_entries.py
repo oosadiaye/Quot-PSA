@@ -42,6 +42,47 @@ def _proposed(payment, user, bank_account=None):
     return view(request, pk=payment.pk)
 
 
+def _simulate(user, **body):
+    """Drive PaymentViewSet.simulate (stateless, form-driven preview)."""
+    from rest_framework.test import APIRequestFactory, force_authenticate
+    from accounting.views.payables import PaymentViewSet
+    factory = APIRequestFactory()
+    request = factory.post('/accounting/payments/simulate/', body, format='json')
+    force_authenticate(request, user=user)
+    return PaymentViewSet.as_view({'post': 'simulate'})(request)
+
+
+@pytest.mark.django_db
+def test_simulate_computes_from_form_without_saving(superuser, bank_account_for_batch):
+    """The New Outgoing Payment 'Simulate' button posts raw form values to a
+    stateless endpoint that returns the DR/CR the payment WOULD book —
+    DR AP / CR deductions / CR the SELECTED bank — creating NO Payment row."""
+    from accounting.models.receivables import VendorInvoice, Payment
+    vendor = _vendor()
+    ap, wht_gl, _ = _accounts()
+    inv_no = f'VINV-{uuid.uuid4().hex[:8]}'
+    inv = VendorInvoice.objects.create(
+        invoice_number=inv_no, vendor=vendor,
+        total_amount=Decimal('100000.00'), status='Posted',
+    )
+    pv = _make_pv(invoice_number=inv_no, gross=Decimal('100000.00'), vendor=vendor)
+    _add_wht(pv, wht_gl, '10000.00')          # net = 90,000
+
+    before = Payment.objects.count()
+    resp = _simulate(
+        superuser, payment_voucher=pv.id, vendor=vendor.id,
+        bank_account=bank_account_for_batch.id, amount='90000.00', invoice=inv.id,
+    )
+    assert resp.status_code == 200, getattr(resp, 'data', resp)
+    assert Payment.objects.count() == before          # nothing was saved
+    data = resp.data
+    assert data['posted'] is False and data['balanced'] is True
+    by = {e['account_code']: e for e in data['entries']}
+    assert Decimal(by[ap.code]['debit']) == Decimal('100000.00')                       # DR AP gross
+    assert Decimal(by[wht_gl.code]['credit']) == Decimal('10000.00')                   # CR WHT
+    assert Decimal(by[bank_account_for_batch.gl_account.code]['credit']) == Decimal('90000.00')  # CR selected bank net
+
+
 @pytest.mark.django_db
 class TestProposedEntriesDraft:
 
