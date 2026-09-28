@@ -16,7 +16,7 @@ const GOV_GREEN = '#008751';
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; desc: string }> = {
     MDA:               { label: 'MDA',     color: '#1e40af', bg: '#dbeafe', desc: 'Standard Ministry/Dept/Agency — sees only own data in SEPARATED mode' },
     BUDGET_AUTHORITY:  { label: 'Budget',  color: '#166534', bg: '#dcfce7', desc: 'Min. of Budget & Economic Planning — manages appropriations for ALL MDAs' },
-    FINANCE_AUTHORITY: { label: 'Finance', color: '#6b21a8', bg: '#f3e8ff', desc: 'Accountant General Office — manages GL, TSA, payments for ALL MDAs' },
+    FINANCE_AUTHORITY: { label: 'Finance', color: '#6b21a8', bg: '#f3e8ff', desc: 'Accountant General Office — manages GL, treasury, payments for ALL MDAs' },
     AUDIT_AUTHORITY:   { label: 'Audit',   color: '#c2410c', bg: '#ffedd5', desc: 'Auditor General Office — read-only access to ALL data' },
 };
 

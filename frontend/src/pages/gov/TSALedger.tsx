@@ -2,7 +2,7 @@
  * TSA Ledger — Quot PSE
  * Route: /accounting/tsa-accounts/:id/ledger
  *
- * Bank-statement-style ledger for a single Treasury Single Account.
+ * Bank-statement-style ledger for a single bank account.
  * Shows chronological debits (outflows from PaymentInstruction) and
  * credits (inflows from RevenueCollection) with opening/closing balance
  * and optional date-range filter.
@@ -303,8 +303,8 @@ function RecordTransactionModal({
                         </datalist>
                         <div style={{ fontSize: '0.68rem', color: 'var(--color-text-subtle)', marginTop: 3 }}>
                             {direction === 'IN'
-                                ? 'DR the TSA cash account, CR this account.'
-                                : 'CR the TSA cash account, DR this account.'}
+                                ? 'DR the bank cash account, CR this account.'
+                                : 'CR the bank cash account, DR this account.'}
                         </div>
                     </div>
 
@@ -584,7 +584,7 @@ export default function TSALedger() {
                             fontSize: '13px', fontWeight: 500, cursor: 'pointer',
                         }}
                     >
-                        <ArrowLeft size={14} /> Back to TSA Accounts
+                        <ArrowLeft size={14} /> Back to Bank Accounts
                     </button>
 
                     <div style={{ display: 'flex', gap: '0.5rem' }}>

@@ -430,7 +430,7 @@ export default function AccountingSettingsPage() {
                         <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
                             {requireWarrantBeforePayment
                                 ? 'Cash-out is blocked when released Warrant (AIE) for the MDA + Fund + Account would not cover the amount — across outgoing payments, down-payment requests, and contract mobilization advances. (Manual ad-hoc advances carry no appropriation, so route them via a PO/DPR or contract to keep them warrant-gated.)'
-                                : 'Outgoing payments, AP-invoice posting, down-payments, and contract mobilization all skip the warrant ceiling check. Cash can leave the TSA without a released Warrant — use only for non-warrant-based jurisdictions.'}
+                                : 'Outgoing payments, AP-invoice posting, down-payments, and contract mobilization all skip the warrant ceiling check. Cash can leave the account without a released Warrant — use only for non-warrant-based jurisdictions.'}
                         </div>
                     </div>
                 </div>

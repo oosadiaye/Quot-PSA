@@ -1,8 +1,8 @@
 /**
- * TSA Account Create Form — Quot PSE
+ * Bank Account Create Form — Quot PSE
  * Route: /accounting/tsa-accounts/new
  *
- * Creates a Treasury Single Account entry with:
+ * Creates a bank account entry with:
  * - Account details (number, name, bank, type)
  * - Linking (MDA segment, fund segment, parent account)
  * - Settings (active status, description)
@@ -21,7 +21,7 @@ import {
 } from '../../hooks/useGovForms';
 
 const ACCOUNT_TYPES = [
-    ['MAIN_TSA', 'Main TSA'],
+    ['MAIN_TSA', 'Main Account'],
     ['CONSOLIDATED', 'Consolidated Revenue Fund'],
     ['SUB_ACCOUNT', 'Sub-Account'],
     ['ZERO_BALANCE', 'Zero-Balance Account'],
@@ -134,7 +134,7 @@ export default function TSAAccountForm() {
                 );
                 setFormError(msgs.join(' | '));
             } else {
-                setFormError(err.message || (isEditing ? 'Failed to update TSA Account' : 'Failed to create TSA Account'));
+                setFormError(err.message || (isEditing ? 'Failed to update Bank Account' : 'Failed to create Bank Account'));
             }
         }
     };
@@ -154,10 +154,10 @@ export default function TSAAccountForm() {
                 <div style={{ maxWidth: '900px' }}>
                     <form onSubmit={handleSubmit}>
                         <PageHeader
-                            title={isEditing ? 'Edit TSA Account' : 'New TSA Account'}
+                            title={isEditing ? 'Edit Bank Account' : 'New Bank Account'}
                             subtitle={isEditing
-                                ? `Update Treasury Single Account ${existingTSA?.account_number ?? ''}`.trim()
-                                : 'Create a Treasury Single Account entry'}
+                                ? `Update bank account ${existingTSA?.account_number ?? ''}`.trim()
+                                : 'Create a bank account entry'}
                             icon={<Landmark size={22} />}
                             actions={
                                 <>
@@ -168,14 +168,14 @@ export default function TSAAccountForm() {
                                         <Save size={18} />
                                         {isEditing
                                             ? (updateTSA.isPending ? 'Saving…' : 'Save Changes')
-                                            : (createTSA.isPending ? 'Creating…' : 'Create TSA Account')}
+                                            : (createTSA.isPending ? 'Creating…' : 'Create Bank Account')}
                                     </button>
                                 </>
                             }
                         />
                         {isEditing && existingLoading && (
                             <div style={{ padding: '1rem', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
-                                Loading existing TSA account…
+                                Loading existing bank account…
                             </div>
                         )}
 
@@ -199,7 +199,7 @@ export default function TSAAccountForm() {
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Account Name<span className="required-mark"> *</span></label>
-                                    <input className="input" required value={form.account_name} onChange={e => set('account_name', e.target.value)} placeholder="TSA account name" />
+                                    <input className="input" required value={form.account_name} onChange={e => set('account_name', e.target.value)} placeholder="bank account name" />
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Bank<span className="required-mark"> *</span></label>
@@ -226,7 +226,7 @@ export default function TSAAccountForm() {
                                     <div>
                                         <label style={labelStyle}>Owning MDA (if MDA-held bank account)</label>
                                         <select className="input" value={form.mda} onChange={e => set('mda', e.target.value)}>
-                                            <option value="">None — central TSA / consolidated</option>
+                                            <option value="">None — central / consolidated</option>
                                             {segments?.administrative?.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
                                         </select>
                                         <p style={helpStyle}>
@@ -243,7 +243,7 @@ export default function TSAAccountForm() {
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={labelStyle}>Parent TSA Account</label>
+                                        <label style={labelStyle}>Parent Bank Account</label>
                                         <select className="input" value={form.parent_account} onChange={e => set('parent_account', e.target.value)}>
                                             <option value="">None (top-level)</option>
                                             {(tsaAccounts || []).map((a: any) => <option key={a.id} value={a.id}>{a.account_number} - {a.account_name}</option>)}
@@ -259,7 +259,7 @@ export default function TSAAccountForm() {
                                 GL Mapping <span style={{ color: 'var(--color-text-subtle)', fontWeight: 400 }}>(IPSAS cash flow)</span>
                             </h3>
                             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: '1.5rem' }}>
-                                Link this TSA to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
+                                Link this account to its GL cash-control account so every posting reaches the correct ledger and the IPSAS Cash Flow Statement can be generated deterministically.
                             </p>
                             {glLoading ? (
                                 <div style={{ color: 'var(--color-text-subtle)' }}>Loading GL accounts…</div>

@@ -126,7 +126,7 @@ export default function RevenueCollectionDetail() {
                             <div><div style={fieldLabel}>Channel</div><div style={fieldValue}>{col.collection_channel}</div></div>
                             <div><div style={fieldLabel}>Payment Ref</div><div style={fieldValue}>{col.payment_reference}</div></div>
                             <div><div style={fieldLabel}>RRR (Remita)</div><div style={fieldValue}>{col.rrr || '---'}</div></div>
-                            <div><div style={fieldLabel}>TSA Account</div><div style={fieldValue}>{col.tsa_account_number || '---'}</div></div>
+                            <div><div style={fieldLabel}>Bank Account</div><div style={fieldValue}>{col.tsa_account_number || '---'}</div></div>
                         </div>
                         {col.description && <div style={{ marginTop: '12px' }}><div style={fieldLabel}>Description</div><div style={fieldValue}>{col.description}</div></div>}
                     </div>

@@ -396,7 +396,7 @@ export default function PaymentVoucherDetail() {
                 <Section icon={<FileText size={16} />} title="References">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                         <div><div style={fieldLabel}>Payment Type</div><div style={fieldValue}>{pv.payment_type || '—'}</div></div>
-                        <div><div style={fieldLabel}>TSA Account</div><div style={{ ...fieldValue, fontFamily: 'monospace' }}>{pv.tsa_account_number || '—'}</div></div>
+                        <div><div style={fieldLabel}>Bank Account</div><div style={{ ...fieldValue, fontFamily: 'monospace' }}>{pv.tsa_account_number || '—'}</div></div>
                         <div>
                             <div style={fieldLabel}>Source Doc</div>
                             {editing

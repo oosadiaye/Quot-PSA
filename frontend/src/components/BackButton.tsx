@@ -17,6 +17,12 @@ const ROUTE_LABELS: Record<string, string> = {
   '/accounting/reports': 'GL Reports',
   '/accounting/bank-cash': 'Bank & Cash',
   '/accounting/cash-accounts': 'Cash Accounts',
+  // Treasury Single Account routes keep the tsa-accounts URL; the breadcrumb
+  // label is de-acronymed to "Bank Accounts" etc. to match the menu/pages.
+  '/accounting/tsa-accounts': 'Bank Accounts',
+  '/accounting/tsa-accounts/new': 'Add Bank Account',
+  '/accounting/tsa-accounts/transfer': 'Bank Transfer',
+  '/accounting/ipsas/tsa-cash-position': 'Cash Position',
   '/accounting/cost-centers': 'Cost Centers',
   '/accounting/recurring-journals': 'Recurring Journals',
   '/accounting/recurring-journals/new': 'New Recurring Journal',

@@ -138,15 +138,15 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        name: 'Treasury & Banking (TSA)', icon: Landmark, path: '/accounting/tsa-accounts',
+        name: 'Treasury & Banking', icon: Landmark, path: '/accounting/tsa-accounts',
         requiredPerm: 'view_journalheader', module: 'treasury',
         subItems: [
-            { name: 'TSA Accounts', path: '/accounting/tsa-accounts', icon: Landmark },
+            { name: 'Bank Accounts', path: '/accounting/tsa-accounts', icon: Landmark },
             // Atomic inter-TSA transfer — posts a balanced JV (DR target /
             // CR source) and updates both ``current_balance`` rows in real
-            // time. Sits next to ``TSA Accounts`` so operators reach it
+            // time. Sits next to ``Bank Accounts`` so operators reach it
             // from the same mental cluster as account management.
-            { name: 'TSA Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
+            { name: 'Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
             // Unified approval-staging register for BOTH Payment Vouchers and
             // Payment Documents. The standalone "Payment Documents" list is
             // folded in here (its create/detail routes remain).
@@ -262,7 +262,7 @@ const menuItems: MenuItem[] = [
             { name: 'Budget vs Actual', path: '/accounting/ipsas/budget-vs-actual', icon: BarChart3 },
             { name: 'Budget Performance', path: '/accounting/ipsas/budget-performance', icon: Scale },
             { name: 'Revenue Performance', path: '/accounting/ipsas/revenue-performance', icon: Banknote },
-            { name: 'TSA Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Landmark },
+            { name: 'Cash Position', path: '/accounting/ipsas/tsa-cash-position', icon: Landmark },
             { name: 'Functional Performance', path: '/accounting/ipsas/functional-classification', icon: BarChart3 },
             { name: 'Programme Performance', path: '/accounting/ipsas/programme-performance', icon: TrendingUp },
             { name: 'Geographic Performance', path: '/accounting/ipsas/geographic-distribution', icon: MapPin },

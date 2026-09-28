@@ -1228,14 +1228,14 @@ export const WarrantList = () => {
     );
 };
 
-/* ── Treasury & TSA ────────────────────────────────────── */
+/* ── Treasury & Banking ────────────────────────────────────── */
 
 export const TSAAccountList = () => {
     const nav = useNavigate();
     const qc = useQueryClient();
 
     /**
-     * Delete a TSA account. Treasury data is heavily referenced
+     * Delete a bank account. Treasury data is heavily referenced
      * (payments, transfers, bank reconciliations) so the backend's
      * on_delete=PROTECT will often reject deletions — the error
      * message surfaces to the user so they understand why.
@@ -1249,8 +1249,8 @@ export const TSAAccountList = () => {
         const accountName = String(item.account_name ?? '');
         const id = item.id;
         const first = window.confirm(
-            `Delete TSA account "${accountName}" (${accountNumber})?\n\n` +
-            `This cannot be undone. TSA accounts referenced by posted ` +
+            `Delete bank account "${accountName}" (${accountNumber})?\n\n` +
+            `This cannot be undone. Bank accounts referenced by posted ` +
             `payments or transfers cannot be deleted — deactivate them ` +
             `instead (set Active = false).`
         );
@@ -1296,7 +1296,7 @@ export const TSAAccountList = () => {
         const numbers = items.map(it => String(it.account_number ?? '')).filter(Boolean);
         const preview = numbers.slice(0, 5).join(', ') + (numbers.length > 5 ? `, +${numbers.length - 5} more` : '');
         const first = window.confirm(
-            `Delete ${items.length} TSA account${items.length === 1 ? '' : 's'}?\n\n` +
+            `Delete ${items.length} bank account${items.length === 1 ? '' : 's'}?\n\n` +
             `Accounts: ${preview}\n\n` +
             `This cannot be undone. Accounts referenced by posted payments ` +
             `or transfers will be skipped (deactivate them instead).`
@@ -1336,8 +1336,8 @@ export const TSAAccountList = () => {
 
     return (
         <GenericListPage
-            title="TSA Accounts"
-            subtitle="Treasury Single Account structure -- Main TSA, sub-accounts, and zero-balance accounts"
+            title="Bank Accounts"
+            subtitle="Bank account structure -- main account, sub-accounts, and zero-balance accounts"
             endpoint="/accounting/tsa-accounts/"
             columns={[
                 { key: 'account_number', label: 'Account No.', width: '150px' },
@@ -1349,7 +1349,7 @@ export const TSAAccountList = () => {
                 { key: 'is_active', label: 'Active' },
             ]}
             actions={[
-                { label: 'Add TSA Account', onClick: () => nav('/accounting/tsa-accounts/new'), variant: 'primary', icon: icon(Plus) },
+                { label: 'Add Bank Account', onClick: () => nav('/accounting/tsa-accounts/new'), variant: 'primary', icon: icon(Plus) },
             ]}
             bulkActions={[
                 {
@@ -1384,7 +1384,7 @@ export const PaymentVoucherList = () => {
     return (
         <GenericListPage
             title="Payment Proposals"
-            subtitle="Government payment vouchers -- approved and processed via TSA"
+            subtitle="Government payment vouchers -- approved and processed via the treasury"
             endpoint="/accounting/payment-vouchers/"
             columns={[
                 // ``created_at`` is the PV's birthdate — when the
@@ -1630,7 +1630,7 @@ export const MobilizationPaymentList = () => {
 export const PaymentInstructionList = () => (
     <GenericListPage
         title="Payment Instructions"
-        subtitle="Electronic payment instructions sent to CBN/bank for TSA settlement"
+        subtitle="Electronic payment instructions sent to CBN/bank for settlement"
         endpoint="/accounting/payment-instructions/"
         columns={[
             { key: 'voucher_number', label: 'PV Ref' },

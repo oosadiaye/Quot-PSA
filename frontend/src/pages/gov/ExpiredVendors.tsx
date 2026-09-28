@@ -227,9 +227,9 @@ export default function ExpiredVendors() {
                                         value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} placeholder="e.g. 50000" />
                                 </div>
                                 <div>
-                                    <label style={lblStyle}>TSA Bank Account (pay into) *</label>
+                                    <label style={lblStyle}>Bank Account (pay into) *</label>
                                     <select style={selectStyle} value={invoiceForm.tsa_account_id} onChange={e => setInvoiceForm(f => ({ ...f, tsa_account_id: e.target.value }))}>
-                                        <option value="">Select TSA account...</option>
+                                        <option value="">Select bank account...</option>
                                         {(tsaAccounts || []).map((a: any) => <option key={a.id} value={a.id}>{a.account_number} — {a.account_name} ({a.bank})</option>)}
                                     </select>
                                 </div>
@@ -285,7 +285,7 @@ export default function ExpiredVendors() {
                                 </div>
 
                                 <div style={{ marginTop: '0.75rem', padding: '0.625rem', borderRadius: '6px', background: 'rgba(25,30,106,0.04)', border: '1px solid rgba(25,30,106,0.1)' }}>
-                                    <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.3rem' }}>Pay To (TSA Bank Account)</div>
+                                    <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '0.3rem' }}>Pay To (Bank Account)</div>
                                     <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{generatedInvoice.tsa_account_name}</div>
                                     <div style={{ fontSize: 'var(--text-sm)' }}>Account: <strong>{generatedInvoice.tsa_account_number}</strong></div>
                                     <div style={{ fontSize: 'var(--text-sm)' }}>Bank: {generatedInvoice.tsa_bank}</div>
@@ -308,7 +308,7 @@ export default function ExpiredVendors() {
                                     </button>
                                 </div>
                                 <p style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-                                    GL Entry: DR TSA Cash {fmtNGN(generatedInvoice.amount)} | CR Revenue (Registration Fees) {fmtNGN(generatedInvoice.amount)}
+                                    GL Entry: DR Bank Cash {fmtNGN(generatedInvoice.amount)} | CR Revenue (Registration Fees) {fmtNGN(generatedInvoice.amount)}
                                 </p>
                             </div>
                         </div>

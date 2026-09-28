@@ -60,7 +60,7 @@ interface Violation {
 const MODULE_OPTIONS = [
     ['accounting',  'General Ledger & Accounting'],
     ['budget',      'Budget & Appropriation'],
-    ['treasury',    'Treasury & TSA'],
+    ['treasury',    'Treasury & Banking'],
     ['procurement', 'Procurement & Due Process'],
     ['contracts',   'Contracts & IPC'],
     ['inventory',   'Stores & Inventory'],

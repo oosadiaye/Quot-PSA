@@ -1,8 +1,8 @@
 /**
- * TSA Bank Transfer Form — Quot PSE
+ * Bank Transfer Form — Quot PSE
  * Route: /accounting/tsa-accounts/transfer
  *
- * Atomic transfer of cash between two Treasury Single Accounts.
+ * Atomic transfer of cash between two bank accounts.
  *
  * Backend posts a balanced JV (DR target.gl_cash_account /
  * CR source.gl_cash_account) via IPSASJournalService.post_journal so
@@ -227,8 +227,8 @@ export default function TSATransferForm() {
             <main style={{ flex: 1, marginLeft: '260px', padding: '2.5rem' }}>
                 <form onSubmit={handleSubmit}>
                     <PageHeader
-                        title="TSA Bank Transfer"
-                        subtitle="Move cash between two Treasury Single Accounts. Posts a balanced JV in real time."
+                        title="Bank Transfer"
+                        subtitle="Move cash between two bank accounts. Posts a balanced JV in real time."
                         icon={<ArrowRightLeft size={22} />}
                         actions={
                             <>
@@ -314,12 +314,12 @@ export default function TSATransferForm() {
                         >
                             {/* Source TSA */}
                             <div>
-                                <label style={labelStyle}>From TSA Account<span className="required-mark"> *</span></label>
+                                <label style={labelStyle}>From Bank Account<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     value={form.source_tsa_id}
                                     onChange={(v) => set('source_tsa_id', v)}
                                     options={sourceOptions}
-                                    placeholder={tsaLoading ? 'Loading…' : 'Select source TSA'}
+                                    placeholder={tsaLoading ? 'Loading…' : 'Select source account'}
                                 />
                                 {sourceTSA && (
                                     <div
@@ -345,12 +345,12 @@ export default function TSATransferForm() {
 
                             {/* Target TSA */}
                             <div>
-                                <label style={labelStyle}>To TSA Account<span className="required-mark"> *</span></label>
+                                <label style={labelStyle}>To Bank Account<span className="required-mark"> *</span></label>
                                 <SearchableSelect
                                     value={form.target_tsa_id}
                                     onChange={(v) => set('target_tsa_id', v)}
                                     options={targetOptions}
-                                    placeholder={tsaLoading ? 'Loading…' : 'Select target TSA'}
+                                    placeholder={tsaLoading ? 'Loading…' : 'Select target account'}
                                 />
                                 {targetTSA && (
                                     <div
@@ -446,7 +446,7 @@ export default function TSATransferForm() {
                                 }}
                             >
                                 One or both selected TSAs have no GL Cash Account configured —
-                                the transfer journal cannot be posted. Edit the TSA records to
+                                the transfer journal cannot be posted. Edit the bank account records to
                                 assign a gl_cash_account before transferring.
                             </div>
                         )}

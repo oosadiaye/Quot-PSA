@@ -16,7 +16,7 @@
  *   - collection_channel: defaults to 'BANK' in initial state.
  *
  * What is REMOVED from the UI (vs older versions):
- *   - Channel / Payment Ref / RRR / TSA Account header cards
+ *   - Channel / Payment Ref / RRR / Bank Account header cards
  *   - Economic (Revenue Head) dropdown in NCoA panel (now derived)
  *   - MDA in NCoA panel (promoted to header — mandatory cannot live
  *     inside an "all 6 required" group when 1 of them is special).
@@ -47,7 +47,7 @@ const fmtNGN = (v: number): string =>
  *
  * ``tsa_account`` is the per-line shortcut for "this line is the cash
  * inflow against this TSA". When set, ``account`` is auto-resolved to
- * the TSA's underlying ``gl_cash_account`` (driven by
+ * the account's underlying ``gl_cash_account`` (driven by
  * ``TreasuryAccount.gl_cash_account`` — see backend model). This way
  * the user picks a meaningful TSA (e.g. "Main Treasury — UBA
  * 1024531234") instead of hunting through the full COA for the cash
@@ -137,7 +137,7 @@ export default function RevenueCollectionForm() {
     const setH = (field: string, value: string) =>
         setHeader((prev) => ({ ...prev, [field]: value }));
 
-    // Journal lines — double-entry. Seeded as 2 empty rows: Dr Cash/TSA | Cr Revenue.
+    // Journal lines — double-entry. Seeded as 2 empty rows: Dr Cash | Cr Revenue.
     const [lines, setLines] = useState<JournalLine[]>([newLine(), newLine()]);
 
     /**
@@ -246,8 +246,8 @@ export default function RevenueCollectionForm() {
         const anyLineHasTsa = lines.some((l) => l.tsa_account);
         if (!anyLineHasTsa && !header.tsa_account) {
             setFormError(
-                'At least one line must pick a TSA Account (the cash inflow leg). '
-                + 'Use the TSA Account column to designate which line is the cash receipt.',
+                'At least one line must pick a Bank Account (the cash inflow leg). '
+                + 'Use the Bank Account column to designate which line is the cash receipt.',
             );
             return;
         }
@@ -262,7 +262,7 @@ export default function RevenueCollectionForm() {
         );
         if (reversedTsaLine !== -1) {
             setFormError(
-                `Line ${reversedTsaLine + 1}: a TSA Account is the cash inflow `
+                `Line ${reversedTsaLine + 1}: a Bank Account is the cash inflow `
                 + `leg of revenue collection — its amount must be in the DEBIT `
                 + `column, not Credit.`,
             );
@@ -365,7 +365,7 @@ export default function RevenueCollectionForm() {
         <AccountingLayout>
             <PageHeader
                 title="Revenue Collection Entry"
-                subtitle="Record IGR revenue as a balanced GL journal (Dr Cash/TSA / Cr Revenue)"
+                subtitle="Record IGR revenue as a balanced GL journal (Dr Cash / Cr Revenue)"
                 icon={<BookOpen size={22} />}
             />
 
@@ -381,8 +381,8 @@ export default function RevenueCollectionForm() {
 
             <form onSubmit={handleSubmit}>
                 {/* ── Header fields ─────────────────────────────────
-                    Channel, Payment Ref, RRR, and TSA Account were
-                    moved off the header per UX feedback. TSA Account
+                    Channel, Payment Ref, RRR, and Bank Account were
+                    moved off the header per UX feedback. Bank Account
                     now comes exclusively from the per-line picker on
                     the journal-lines table (header.tsa_account is
                     auto-synced from the first TSA-tagged line). MDA
@@ -485,9 +485,9 @@ export default function RevenueCollectionForm() {
                             <tr style={{ background: 'var(--background)', textAlign: 'left' }}>
                                 <th
                                     style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 240 }}
-                                    title="Pick a Treasury Single Account to auto-resolve this row's GL Account to the TSA's underlying cash GL. Optional — leave blank for non-cash lines (e.g. the credit revenue leg)."
+                                    title="Pick a bank account to auto-resolve this row's GL Account to the account's underlying cash GL. Optional — leave blank for non-cash lines (e.g. the credit revenue leg)."
                                 >
-                                    TSA Account <span style={{ color: 'var(--color-text-subtle)', fontWeight: 400 }}>(cash leg)</span>
+                                    Bank Account <span style={{ color: 'var(--color-text-subtle)', fontWeight: 400 }}>(cash leg)</span>
                                 </th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Debit (NGN)</th>
@@ -513,7 +513,7 @@ export default function RevenueCollectionForm() {
                                         <select
                                             value={line.tsa_account}
                                             onChange={(e) => updateLine(idx, 'tsa_account', e.target.value)}
-                                            aria-label="Treasury Single Account for this line"
+                                            aria-label="bank account for this line"
                                             style={{ width: '100%' }}
                                         >
                                             <option value="">— (manual GL) —</option>
@@ -542,8 +542,8 @@ export default function RevenueCollectionForm() {
                                             onChange={(e) => updateLine(idx, 'account', e.target.value)}
                                             disabled={tsaLocked}
                                             title={tsaLocked
-                                                ? 'Auto-resolved from the TSA above. Clear the TSA to override.'
-                                                : 'Pick a GL account directly. Use the TSA column to the left to auto-fill the cash GL.'}
+                                                ? 'Auto-resolved from the bank account above. Clear the bank account to override.'
+                                                : 'Pick a GL account directly. Use the bank account column to the left to auto-fill the cash GL.'}
                                             style={{
                                                 width: '100%',
                                                 background: tsaLocked ? 'var(--color-surface-hover)' : 'var(--color-surface)',
@@ -609,7 +609,7 @@ export default function RevenueCollectionForm() {
                         <tfoot>
                             <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--color-surface-hover)' }}>
                                 {/* colSpan=2 because the table now has a leading
-                                    TSA Account column before GL Account — the
+                                    Bank Account column before GL Account — the
                                     Add Line affordance spans both since neither
                                     needs a footer total. */}
                                 <td colSpan={2} style={{ padding: '0.75rem 1rem' }}>

@@ -1,5 +1,5 @@
 /**
- * TSA Cash Position Report — Quot PSE
+ * Cash Position Report — Quot PSE
  * Route: /accounting/ipsas/tsa-cash-position
  */
 import { useQuery } from '@tanstack/react-query';
@@ -24,8 +24,8 @@ export default function TSACashPositionReport() {
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>TSA Cash Position</h1>
-                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>Real-time Treasury Single Account balance overview</p>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Cash Position</h1>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>Real-time bank account balance overview</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>
@@ -47,7 +47,7 @@ export default function TSACashPositionReport() {
                         {/* Total Balance */}
                         <div style={{ background: '#008751', borderRadius: '12px', padding: '32px', marginBottom: '24px', textAlign: 'center', color: '#fff' }}>
                             <Landmark size={32} style={{ marginBottom: '8px', opacity: 0.8 }} />
-                            <div style={{ fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.8 }}>Total TSA Balance</div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', opacity: 0.8 }}>Total Balance</div>
                             <div style={{ fontSize: '36px', fontWeight: 800, fontFamily: 'monospace', marginTop: '4px' }}>{fmtNGN(data.total_balance)}</div>
                             <div style={{ fontSize: '13px', opacity: 0.7, marginTop: '4px' }}>{data.account_count} active accounts</div>
                         </div>

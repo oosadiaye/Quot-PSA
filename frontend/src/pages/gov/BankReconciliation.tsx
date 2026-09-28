@@ -3,7 +3,7 @@
  * Route: /accounting/bank-reconciliation
  *
  * Complete bank-reconciliation workflow:
- *   1. Pick TSA account, upload CSV statement  → header + lines parsed
+ *   1. Pick bank account, upload CSV statement  → header + lines parsed
  *   2. Run Auto-Match                          → tier-matched by backend
  *   3. Review unmatched lines; link manually,  → matched lines stamped
  *      ignore bank charges, unlink mistakes      with user + timestamp
@@ -176,7 +176,7 @@ function UploadCard({
 
     const uploadMut = useMutation({
         mutationFn: async () => {
-            if (!tsaId) throw new Error('Select a TSA account');
+            if (!tsaId) throw new Error('Select a bank account');
             if (!file) throw new Error('Choose a CSV file to upload');
             const fd = new FormData();
             fd.append('tsa_account', tsaId);
@@ -233,7 +233,7 @@ function UploadCard({
                 gap: '0.75rem', alignItems: 'end',
             }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                    TSA Account
+                    Bank Account
                     <select
                         value={tsaId}
                         onChange={e => setTsaId(e.target.value)}
@@ -244,7 +244,7 @@ function UploadCard({
                             fontSize: '0.85rem',
                         }}
                     >
-                        <option value="">Select TSA account...</option>
+                        <option value="">Select bank account...</option>
                         {tsaAccounts.map(a => (
                             <option key={a.id} value={a.id}>
                                 {a.account_number} — {a.account_name}
@@ -1217,7 +1217,7 @@ export default function BankReconciliation() {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                 <thead>
                                     <tr style={{ background: 'var(--color-surface-hover)' }}>
-                                        <th style={thStyle}>TSA</th>
+                                        <th style={thStyle}>Bank</th>
                                         <th style={thStyle}>File</th>
                                         <th style={thStyle}>Period</th>
                                         <th style={{ ...thStyle, textAlign: 'right' }}>Lines</th>

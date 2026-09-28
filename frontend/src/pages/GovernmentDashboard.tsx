@@ -183,7 +183,7 @@ const GovernmentDashboard = () => {
 
                 {/* ── Row 1: KPI Cards ────────────────────────── */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? '12px' : '20px', marginBottom: '28px' }}>
-                    {/* TSA Cash Position */}
+                    {/* Cash Position */}
                     <div style={kpiCard(GOV.green)} onClick={() => navigate('/accounting/tsa-accounts')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                             <div style={{
@@ -194,7 +194,7 @@ const GovernmentDashboard = () => {
                                 <Landmark size={22} style={{ color: GOV.green }} />
                             </div>
                             <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
-                                TSA Cash Position
+                                Cash Position
                             </div>
                         </div>
                         <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-text)' }}>
@@ -427,11 +427,11 @@ const GovernmentDashboard = () => {
                     </div>
                 </div>
 
-                {/* ── Row 4: TSA Account Breakdown ──────────── */}
+                {/* ── Row 4: Bank Account Breakdown ──────────── */}
                 {tsa && tsa.by_account_type.length > 0 && (
                     <div style={cardStyle}>
                         <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', marginBottom: '16px' }}>
-                            TSA Account Breakdown
+                            Bank Account Breakdown
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isTabletOrSmaller ? 'repeat(2, 1fr)' : `repeat(${Math.min(tsa.by_account_type.length, 4)}, 1fr)`, gap: isMobile ? '10px' : '16px' }}>
                             {tsa.by_account_type.map((acct, i) => (
