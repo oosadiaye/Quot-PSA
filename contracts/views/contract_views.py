@@ -21,6 +21,7 @@ from contracts.models import (
     ContractBalance,
     ContractYearPlan,
     MilestoneSchedule,
+    MilestoneInvoiceLine,
 )
 from contracts.permissions import (
     CanActivateContract,
@@ -37,6 +38,7 @@ from contracts.serializers import (
     ContractSerializer,
     ContractYearPlanSerializer,
     MilestoneScheduleSerializer,
+    MilestoneInvoiceLineSerializer,
 )
 from contracts.services import (
     ContractActivationService,
@@ -115,6 +117,31 @@ class ContractViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Detail view: pre-load this contract's milestone invoices + their
+        posted payments ONCE, so ``MilestoneScheduleSerializer.invoice`` /
+        ``payments`` resolve from a context map rather than a per-milestone
+        query. The milestone↔invoice link is a string convention
+        (``invoice_number = {contract_number}/M{n}``), not an FK, so it can't
+        be prefetched through a normal relation."""
+        from accounting.models import VendorInvoice
+
+        instance = self.get_object()
+        context = self.get_serializer_context()
+        contract_number = instance.contract_number
+        if contract_number:
+            invoices = (
+                VendorInvoice.objects
+                .filter(reference=contract_number)
+                .prefetch_related("payment_allocations__payment")
+            )
+            context["contract_number"] = contract_number
+            context["milestone_invoice_map"] = {
+                inv.invoice_number: inv for inv in invoices
+            }
+        serializer = self.serializer_class(instance, context=context)
+        return Response(serializer.data)
 
     # ── Duplicate warning ─────────────────────────────────────────────
 
@@ -225,6 +252,27 @@ class ContractViewSet(viewsets.ModelViewSet):
             )
         return Response(ContractSerializer(contract).data)
 
+    @action(detail=True, methods=["post"], url_path="release-retention")
+    def release_retention(self, request, pk=None):
+        """Release the contract's held retention lien.
+
+        Unfreezes ``retention_withheld`` on every milestone invoice of the
+        contract (so the slice becomes payable via the normal AP flow) and
+        records it in ``retention_released``. Posts nothing — retention was
+        never journalled; this only lifts the lien.
+        """
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
+
+        contract = self.get_object()
+        try:
+            result = MilestoneInvoiceService.release_retention(
+                contract=contract, actor=request.user,
+            )
+        except TransactionPostingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
     # ── Read-only projections ─────────────────────────────────────────
 
     @action(detail=True, methods=["get"])
@@ -240,6 +288,29 @@ class ContractViewSet(viewsets.ModelViewSet):
             )
         return Response(ContractBalanceSerializer(balance).data)
 
+    @action(detail=True, methods=["get"])
+    def appropriation(self, request, pk=None):
+        """The contract's resolved budget appropriation headroom.
+
+        Drives the write-up form's cap warning: a write-up may not exceed
+        ``available_balance``. ``resolved=False`` when no appropriation matches
+        the contract's NCoA segments (the cap is then not enforced).
+        """
+        from contracts.services import VariationService
+        contract = self.get_object()
+        appr = VariationService._resolve_appropriation(contract)
+        if appr is None:
+            return Response({
+                "resolved": False,
+                "amount_approved": None,
+                "available_balance": None,
+            })
+        return Response({
+            "resolved": True,
+            "amount_approved": str(appr.amount_approved),
+            "available_balance": str(appr.available_balance),
+        })
+
     @action(detail=True, methods=["get"], url_path="approval-steps")
     def approval_steps(self, request, pk=None):
         contract = self.get_object()
@@ -254,6 +325,102 @@ class ContractViewSet(viewsets.ModelViewSet):
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["get"], url_path="activity")
+    def activity(self, request, pk=None):
+        """Full audit trail for this contract — every ``core.AuditLog`` entry on
+        the contract AND its sub-objects (milestones, IPCs, variations,
+        mobilization, retention releases, year plans), newest first, with the
+        actor (``username``). AuditLog links generically (content_type +
+        object_id) with no contract FK, so we compose one OR-query from the
+        contract's object ids, leaning on the (content_type, object_id,
+        -timestamp) index."""
+        from django.contrib.contenttypes.models import ContentType
+        from django.db.models import Q
+        from core.models import AuditLog
+        from core.views.audit import AuditLogSerializer
+        from contracts.models.contract import MilestoneSchedule
+        from contracts.models.payment import (
+            InterimPaymentCertificate, MobilizationPayment, RetentionRelease,
+        )
+        from contracts.models.variation import ContractVariation
+        from contracts.models.year_plan import ContractYearPlan
+
+        contract = self.get_object()
+
+        def _ids(model):
+            return list(
+                model.objects.filter(contract=contract).values_list("id", flat=True)
+            )
+
+        sources = [
+            (Contract, [contract.id]),
+            (MilestoneSchedule, _ids(MilestoneSchedule)),
+            (InterimPaymentCertificate, _ids(InterimPaymentCertificate)),
+            (ContractVariation, _ids(ContractVariation)),
+            (MobilizationPayment, _ids(MobilizationPayment)),
+            (RetentionRelease, _ids(RetentionRelease)),
+            (ContractYearPlan, _ids(ContractYearPlan)),
+        ]
+        q = Q()
+        matched = False
+        for model, ids in sources:
+            if not ids:
+                continue
+            ct = ContentType.objects.get_for_model(model)
+            q |= Q(content_type=ct, object_id__in=ids)
+            matched = True
+
+        logs = (
+            AuditLog.objects.filter(q).select_related("user").order_by("-timestamp")
+            if matched else AuditLog.objects.none()
+        )
+        page = self.paginate_queryset(logs)
+        if page is not None:
+            return self.get_paginated_response(AuditLogSerializer(page, many=True).data)
+        return Response(AuditLogSerializer(logs, many=True).data)
+
+
+class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
+    """CRUD for a milestone's budget-appropriation coding lines.
+
+    Each line becomes a DR Expense journal line when the milestone is posted as
+    an invoice (``MilestoneScheduleViewSet.post_invoice``). Filter by
+    ``?milestone=<id>``.
+    """
+
+    queryset = MilestoneInvoiceLine.objects.select_related(
+        "account", "milestone",
+    ).order_by("milestone_id", "id")
+    serializer_class = MilestoneInvoiceLineSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["milestone"]
+
+    def _assert_editable(self, milestone):
+        """Coding lines are immutable once the milestone is INVOICED — the
+        accrual journal was posted FROM these lines, so editing them
+        afterwards would desync the GL from the milestone. Reject the mutation
+        rather than silently drift."""
+        from rest_framework.exceptions import PermissionDenied
+        from contracts.models import MilestoneStatus
+        if milestone.status == MilestoneStatus.INVOICED:
+            raise PermissionDenied(
+                "This milestone has been invoiced — its coding lines are locked. "
+                "Reverse the invoice to change them."
+            )
+
+    def perform_create(self, serializer):
+        self._assert_editable(serializer.validated_data["milestone"])
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._assert_editable(serializer.instance.milestone)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._assert_editable(instance.milestone)
+        instance.delete()
 
 
 class MilestoneScheduleViewSet(viewsets.ModelViewSet):
@@ -275,13 +442,15 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
 
     # ── Milestone approval / state transitions ────────────────────────
-    # Three actions covering the full lifecycle:
+    # Lifecycle (centralised-AP):
     #   start      — PENDING → IN_PROGRESS  (work has begun on site)
-    #   approve    — anything → COMPLETED   (engineer certifies done)
+    #   approve    — anything → INVOICED    (certify AND post the AP invoice,
+    #                                        real-time; shows in the AP register)
     #   reopen     — COMPLETED → IN_PROGRESS (defect found post-cert)
-    # ``approve`` is the most common — it's the "approve milestone"
-    # action the user asked for. Once COMPLETED, an IPC may be raised
-    # against this milestone for payment.
+    # ``approve`` is the single certify+invoice step: the milestone's coding
+    # lines (captured at creation) become the accrual (DR expense / CR vendor-AP)
+    # and a VendorInvoice, so an approved milestone is immediately payable
+    # through AP. The old IPC path is retired (convert_to_ipc stays for Phase 3).
 
     def get_permissions(self):
         # Custom transition actions need the certification permission.
@@ -312,31 +481,34 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        """Approve / certify a milestone — sets status COMPLETED.
+        """Approve a milestone AND post it as an AP invoice — one step.
+
+        Certifies the milestone and posts its coding lines as the accrual
+        (DR expense per line / CR vendor-AP gross), materialises the
+        ``VendorInvoice`` booked GROSS with the retention lien, bumps the
+        contract balance, and flips the milestone to INVOICED — atomic and
+        real-time, so it appears in the AP register immediately. Requires the
+        coding lines captured at creation; a milestone with none returns 400.
 
         Body (all optional):
             actual_completion_date  YYYY-MM-DD; defaults to today
-            notes                   free-text approval narrative
+            notes                   free-text approval narrative (appended)
 
-        Permission: ``CanApproveMilestone`` — tenant admins always
-        pass; otherwise the user needs ``contracts.certify_milestone``
-        or ``contracts.certify_ipc``.
+        Permission: ``CanApproveMilestone``.
         """
-        from datetime import date as _date
+        from datetime import date as _date, datetime as _dt
+        from accounting.services.base_posting import TransactionPostingError
+        from contracts.services.milestone_invoice_service import MilestoneInvoiceService
 
         milestone = self.get_object()
-        if milestone.status == "COMPLETED":
+        if milestone.status == "INVOICED":
             return Response(
-                {
-                    "error": "Milestone is already COMPLETED.",
-                    "actual_completion_date": milestone.actual_completion_date,
-                },
+                {"error": "Milestone is already invoiced."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         completion_raw = request.data.get("actual_completion_date")
         if completion_raw:
-            from datetime import datetime as _dt
             try:
                 completion_date = _dt.strptime(completion_raw, "%Y-%m-%d").date()
             except ValueError:
@@ -347,6 +519,9 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
         else:
             completion_date = _date.today()
 
+        # Compose the note addendum (stamped) if the caller sent one; None leaves
+        # the existing notes untouched.
+        note_value = None
         notes_addendum = (request.data.get("notes") or "").strip()
         if notes_addendum:
             existing = (milestone.notes or "").strip()
@@ -354,16 +529,23 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
                 f"\n[Approved by {request.user.get_username()} "
                 f"on {completion_date.isoformat()}] {notes_addendum}"
             )
-            milestone.notes = (existing + stamp).strip()
+            note_value = (existing + stamp).strip()
 
-        milestone.status = "COMPLETED"
-        milestone.actual_completion_date = completion_date
-        milestone.updated_by = request.user
-        milestone.save(update_fields=[
-            "status", "actual_completion_date", "notes",
-            "updated_by", "updated_at",
-        ])
-        return Response(MilestoneScheduleSerializer(milestone).data)
+        try:
+            invoice = MilestoneInvoiceService.approve_and_invoice(
+                milestone=milestone, actor=request.user,
+                completion_date=completion_date, notes=note_value,
+            )
+        except TransactionPostingError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        milestone.refresh_from_db()
+        data = MilestoneScheduleSerializer(milestone).data
+        data["invoice_id"] = invoice.pk
+        data["invoice_number"] = invoice.invoice_number
+        data["retention_withheld"] = str(invoice.retention_withheld)
+        data["payable_now"] = str(invoice.payable_now)
+        return Response(data)
 
     @action(detail=True, methods=["post"], url_path="convert-to-ipc")
     def convert_to_ipc(self, request, pk=None):

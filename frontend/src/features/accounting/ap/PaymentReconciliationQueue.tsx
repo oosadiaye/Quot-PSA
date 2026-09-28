@@ -62,9 +62,9 @@ interface ResolvePayload {
 
 // ─── Style tokens ───────────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
-  width: '100%', padding: '8px 12px', border: '2.5px solid #d1d5db',
+  width: '100%', padding: '8px 12px', border: '2.5px solid var(--color-border)',
   borderRadius: '8px', fontSize: '14px', outline: 'none',
-  background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box',
+  background: 'var(--color-surface)', color: 'var(--color-text)', boxSizing: 'border-box',
 };
 
 // ─── Hooks (TanStack Query) ─────────────────────────────────────────────────
@@ -168,7 +168,7 @@ function ResolveModal({ failure, onClose }: ResolveModalProps) {
       <div
         ref={focusRef}
         style={{
-          background: '#fff', borderRadius: '12px', maxWidth: '640px',
+          background: 'var(--color-surface)', borderRadius: '12px', maxWidth: '640px',
           width: '100%', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
         }}
       >
@@ -186,7 +186,7 @@ function ResolveModal({ failure, onClose }: ResolveModalProps) {
           </button>
         </div>
 
-        <div style={{ marginBottom: '16px', fontSize: '14px', color: '#475569' }}>
+        <div style={{ marginBottom: '16px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
           <div><strong>Payment:</strong> {failure.payment_number}</div>
           <div><strong>IPC:</strong> {failure.ipc_reference ?? '—'}</div>
           <div><strong>Error:</strong> {failure.error_class}</div>
@@ -198,7 +198,7 @@ function ResolveModal({ failure, onClose }: ResolveModalProps) {
         <label htmlFor="resolution-note" style={{ display: 'block', fontWeight: 600, marginBottom: '4px' }}>
           Resolution note <span style={{ color: '#dc2626' }}>*</span>
         </label>
-        <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 8px' }}>
+        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', margin: '0 0 8px' }}>
           What did you do to resolve the underlying issue? Minimum {minNoteLength} characters; auditable.
         </p>
         <textarea
@@ -225,8 +225,8 @@ function ResolveModal({ failure, onClose }: ResolveModalProps) {
             type="button"
             onClick={onClose}
             style={{
-              padding: '8px 16px', border: '1.5px solid #d1d5db',
-              borderRadius: '8px', background: '#fff', cursor: 'pointer',
+              padding: '8px 16px', border: '1.5px solid var(--color-border)',
+              borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer',
             }}
           >
             Cancel
@@ -267,8 +267,8 @@ function FailureRow({ row, onResolveClick }: FailureRowProps) {
   return (
     <tr
       style={{
-        borderTop: '1px solid #e5e7eb',
-        background: row.resolved ? '#f8fafc' : '#fff',
+        borderTop: '1px solid var(--color-border)',
+        background: row.resolved ? 'var(--color-surface-hover)' : 'var(--color-surface)',
       }}
     >
       <td style={{ padding: '12px' }}>{row.id}</td>
@@ -280,13 +280,13 @@ function FailureRow({ row, onResolveClick }: FailureRowProps) {
       <td style={{ padding: '12px', fontSize: '13px', maxWidth: '420px' }}>
         <div style={{ marginBottom: '4px' }}>{row.error_message}</div>
         {actionRequired && (
-          <div style={{ color: '#475569', fontSize: '12px', fontStyle: 'italic' }}>
+          <div style={{ color: 'var(--color-text-secondary)', fontSize: '12px', fontStyle: 'italic' }}>
             <FileText size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
             {actionRequired}
           </div>
         )}
       </td>
-      <td style={{ padding: '12px', fontSize: '12px', color: '#64748b' }}>
+      <td style={{ padding: '12px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
         {formatDateTime(row.created_at)}
       </td>
       <td style={{ padding: '12px' }}>
@@ -311,12 +311,12 @@ function FailureRow({ row, onResolveClick }: FailureRowProps) {
           </button>
         )}
         {!row.resolved && !row.is_resolvable && (
-          <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+          <span style={{ fontSize: '12px', color: 'var(--color-text-subtle)' }}>
             (no permission)
           </span>
         )}
         {row.resolved && row.resolved_by_username && (
-          <span style={{ fontSize: '12px', color: '#64748b' }}>
+          <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
             by {row.resolved_by_username}
           </span>
         )}
@@ -348,7 +348,7 @@ export default function PaymentReconciliationQueue() {
           gap: '16px', marginBottom: '24px',
         }}
       >
-        <div style={{ padding: '16px', background: '#fff', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ padding: '16px', background: 'var(--color-surface)', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626' }}>
             <AlertTriangle size={18} />
             <span style={{ fontSize: '13px', fontWeight: 600 }}>Pending</span>
@@ -357,8 +357,8 @@ export default function PaymentReconciliationQueue() {
             {summaryQ.data?.pending_count ?? '—'}
           </div>
         </div>
-        <div style={{ padding: '16px', background: '#fff', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b' }}>
+        <div style={{ padding: '16px', background: 'var(--color-surface)', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-muted)' }}>
             <Clock size={18} />
             <span style={{ fontSize: '13px', fontWeight: 600 }}>Oldest pending</span>
           </div>
@@ -384,8 +384,8 @@ export default function PaymentReconciliationQueue() {
           onClick={() => failuresQ.refetch()}
           aria-label="Refresh"
           style={{
-            padding: '8px 12px', border: '1.5px solid #d1d5db',
-            borderRadius: '8px', background: '#fff', cursor: 'pointer',
+            padding: '8px 12px', border: '1.5px solid var(--color-border)',
+            borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '6px',
           }}
         >
@@ -394,7 +394,7 @@ export default function PaymentReconciliationQueue() {
       </div>
 
       {failuresQ.isLoading && (
-        <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
           Loading…
         </div>
       )}
@@ -417,10 +417,10 @@ export default function PaymentReconciliationQueue() {
       )}
 
       {failuresQ.data && failuresQ.data.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: 'var(--color-surface)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ background: '#f8fafc' }}>
-              <tr style={{ textAlign: 'left', fontSize: '13px', color: '#475569' }}>
+            <thead style={{ background: 'var(--color-surface-hover)' }}>
+              <tr style={{ textAlign: 'left', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
                 <th style={{ padding: '12px' }}>ID</th>
                 <th style={{ padding: '12px' }}>Payment</th>
                 <th style={{ padding: '12px' }}>IPC</th>

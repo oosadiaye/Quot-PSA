@@ -19,17 +19,17 @@ interface FilterBarProps {
 export default function FilterBar({ value, onChange, placeholder, total, visible }: FilterBarProps) {
     return (
         <div style={{
-            background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1',
+            background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
             padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10,
         }}>
-            <Search size={16} style={{ color: '#94a3b8' }} />
+            <Search size={16} style={{ color: 'var(--color-text-subtle)' }} />
             <input
                 type="text"
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 placeholder={placeholder}
                 style={{
-                    flex: 1, padding: '8px 10px', border: '1px solid #e2e8f0',
+                    flex: 1, padding: '8px 10px', border: '1px solid var(--color-border)',
                     borderRadius: 8, fontSize: 14, outline: 'none',
                 }}
             />
@@ -37,14 +37,14 @@ export default function FilterBar({ value, onChange, placeholder, total, visible
                 <button
                     onClick={() => onChange('')}
                     style={{
-                        padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8,
-                        background: '#fff', cursor: 'pointer', fontSize: 12, color: '#64748b',
+                        padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 8,
+                        background: 'var(--color-surface)', cursor: 'pointer', fontSize: 12, color: 'var(--color-text-muted)',
                     }}
                 >
                     Clear
                 </button>
             )}
-            <div style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                 {total > 0 ? `${visible} of ${total} row${total === 1 ? '' : 's'}` : ''}
             </div>
         </div>

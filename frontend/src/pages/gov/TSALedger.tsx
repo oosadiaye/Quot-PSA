@@ -228,12 +228,12 @@ function RecordTransactionModal({
     );
 
     const label: React.CSSProperties = {
-        display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b',
+        display: 'block', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)',
         textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.3rem',
     };
     const field: React.CSSProperties = {
         width: '100%', padding: '0.5rem 0.65rem', fontSize: '0.85rem',
-        border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', color: '#1e293b',
+        border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', color: 'var(--color-text)',
     };
 
     return (
@@ -251,16 +251,16 @@ function RecordTransactionModal({
                 onClick={(e) => e.stopPropagation()}
                 style={{
                     width: 460, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto',
-                    background: '#fff', borderRadius: 12, padding: '1.4rem 1.5rem',
+                    background: 'var(--color-surface)', borderRadius: 12, padding: '1.4rem 1.5rem',
                     boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
                 }}
             >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#1e293b' }}>Record Transaction</h3>
-                        <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>{accountName}</p>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-text)' }}>Record Transaction</h3>
+                        <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>{accountName}</p>
                     </div>
-                    <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b', padding: 4 }}>
+                    <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
                         <X size={18} />
                     </button>
                 </div>
@@ -277,9 +277,9 @@ function RecordTransactionModal({
                                     style={{
                                         flex: 1, padding: '0.5rem', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600,
                                         cursor: 'pointer',
-                                        border: `1px solid ${direction === d ? (d === 'IN' ? '#16a34a' : '#dc2626') : '#e2e8f0'}`,
-                                        background: direction === d ? (d === 'IN' ? '#f0fdf4' : '#fef2f2') : '#fff',
-                                        color: direction === d ? (d === 'IN' ? '#166534' : '#991b1b') : '#64748b',
+                                        border: `1px solid ${direction === d ? (d === 'IN' ? '#16a34a' : '#dc2626') : 'var(--color-border)'}`,
+                                        background: direction === d ? (d === 'IN' ? '#f0fdf4' : '#fef2f2') : 'var(--color-surface)',
+                                        color: direction === d ? (d === 'IN' ? '#166534' : '#991b1b') : 'var(--color-text-muted)',
                                     }}
                                 >
                                     {d === 'IN' ? 'Incoming (money in)' : 'Outgoing (money out)'}
@@ -301,7 +301,7 @@ function RecordTransactionModal({
                         <datalist id="rt-contra-options">
                             {options.map((o) => <option key={o.id} value={o.label} />)}
                         </datalist>
-                        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: 3 }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--color-text-subtle)', marginTop: 3 }}>
                             {direction === 'IN'
                                 ? 'DR the TSA cash account, CR this account.'
                                 : 'CR the TSA cash account, DR this account.'}
@@ -329,7 +329,7 @@ function RecordTransactionModal({
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.3rem' }}>
                         <button type="button" onClick={onClose}
-                            style={{ padding: '0.5rem 1rem', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', color: '#475569', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>
+                            style={{ padding: '0.5rem 1rem', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>
                             Cancel
                         </button>
                         <button type="button" onClick={() => { setErr(null); mutation.mutate(); }} disabled={!canSubmit}
@@ -366,27 +366,27 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
 
     const STATUS: Record<string, { bg: string; color: string }> = {
         Posted: { bg: '#dcfce7', color: '#166534' },
-        Draft: { bg: '#f1f5f9', color: '#475569' },
+        Draft: { bg: 'var(--color-surface-hover)', color: 'var(--color-text-secondary)' },
         Pending: { bg: '#fef3c7', color: '#92400e' },
         Reversed: { bg: '#fee2e2', color: '#991b1b' },
         Cancelled: { bg: '#fee2e2', color: '#991b1b' },
     };
     const sc = STATUS[data?.status] || STATUS.Draft;
 
-    const cell: React.CSSProperties = { padding: '0.6rem 0.85rem', fontSize: '0.82rem', color: '#1e293b' };
+    const cell: React.CSSProperties = { padding: '0.6rem 0.85rem', fontSize: '0.82rem', color: 'var(--color-text)' };
     const head: React.CSSProperties = {
         padding: '0.55rem 0.85rem', textAlign: 'left', fontSize: '0.64rem', fontWeight: 700,
-        textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', borderBottom: '1px solid #eef2f7',
+        textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-subtle)', borderBottom: '1px solid #eef2f7',
     };
     const label: React.CSSProperties = {
         fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.06em',
-        textTransform: 'uppercase', color: '#94a3b8', marginBottom: 3,
+        textTransform: 'uppercase', color: 'var(--color-text-subtle)', marginBottom: 3,
     };
 
     const meta = (lbl: string, value: React.ReactNode) => (
         <div>
             <div style={label}>{lbl}</div>
-            <div style={{ fontSize: '0.86rem', color: '#1e293b', fontWeight: 600 }}>{value}</div>
+            <div style={{ fontSize: '0.86rem', color: 'var(--color-text)', fontWeight: 600 }}>{value}</div>
         </div>
     );
 
@@ -395,7 +395,7 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
             onClick={onClose}>
             <div onClick={(e) => e.stopPropagation()}
-                style={{ width: 640, maxWidth: '100%', maxHeight: '90vh', background: '#fff', borderRadius: 16, boxShadow: '0 24px 60px rgba(15,23,42,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                style={{ width: 640, maxWidth: '100%', maxHeight: '90vh', background: 'var(--color-surface)', borderRadius: 16, boxShadow: '0 24px 60px rgba(15,23,42,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
                 {/* Header band */}
                 <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)', padding: '1.05rem 1.4rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.85rem', flexShrink: 0 }}>
@@ -416,7 +416,7 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
 
                 <div style={{ padding: '1.25rem 1.4rem', overflow: 'auto' }}>
                     {isLoading ? (
-                        <div style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '2rem', textAlign: 'center' }}>Loading…</div>
+                        <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.85rem', padding: '2rem', textAlign: 'center' }}>Loading…</div>
                     ) : isError ? (
                         <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.82rem', padding: '0.9rem 1rem', borderRadius: 10 }}>
                             Could not load journal #{journalId}: {String((error as any)?.message || 'unknown error')}
@@ -424,7 +424,7 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
                     ) : (
                         <>
                             {/* Meta panel */}
-                            <div style={{ background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 12, padding: '0.95rem 1.1rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.9rem 1rem', marginBottom: '1.1rem' }}>
+                            <div style={{ background: 'var(--color-surface-hover)', border: '1px solid #eef2f7', borderRadius: 12, padding: '0.95rem 1.1rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.9rem 1rem', marginBottom: '1.1rem' }}>
                                 {meta('Reference', <span style={{ fontFamily: 'monospace' }}>{data.reference_number || `JV-${data.id}`}</span>)}
                                 {meta('Date', data.posting_date ? formatDate(data.posting_date) : '—')}
                                 {meta('Status', (
@@ -439,7 +439,7 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
                             <div style={{ border: '1px solid #eef2f7', borderRadius: 12, overflow: 'hidden' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }} data-plain-table>
                                     <thead>
-                                        <tr style={{ background: '#f8fafc' }}>
+                                        <tr style={{ background: 'var(--color-surface-hover)' }}>
                                             <th style={head}>Account</th>
                                             <th style={{ ...head, textAlign: 'right' }}>Debit</th>
                                             <th style={{ ...head, textAlign: 'right' }}>Credit</th>
@@ -455,8 +455,8 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
                                                             <span style={{ width: 3, borderRadius: 2, background: isDr ? '#f43f5e' : '#10b981', flexShrink: 0 }} />
                                                             <div style={{ minWidth: 0 }}>
                                                                 <span style={{ fontFamily: 'monospace', fontWeight: 700, background: '#eef2ff', color: '#4f46e5', padding: '0.06rem 0.4rem', borderRadius: 5, fontSize: '0.72rem' }}>{l.account_code}</span>
-                                                                <span style={{ color: '#334155', marginLeft: '0.45rem' }}>{l.account_name}</span>
-                                                                {l.memo ? <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: 2 }}>{l.memo}</div> : null}
+                                                                <span style={{ color: 'var(--color-text-secondary)', marginLeft: '0.45rem' }}>{l.account_name}</span>
+                                                                {l.memo ? <div style={{ fontSize: '0.68rem', color: 'var(--color-text-subtle)', marginTop: 2 }}>{l.memo}</div> : null}
                                                             </div>
                                                         </div>
                                                     </td>
@@ -467,8 +467,8 @@ function JournalViewModal({ journalId, onClose }: { journalId: number; onClose: 
                                         })}
                                     </tbody>
                                     <tfoot>
-                                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                            <td style={{ ...cell, fontWeight: 800, textAlign: 'right', color: '#334155' }}>Total</td>
+                                        <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
+                                            <td style={{ ...cell, fontWeight: 800, textAlign: 'right', color: 'var(--color-text-secondary)' }}>Total</td>
                                             <td style={{ ...cell, textAlign: 'right', fontWeight: 800, color: '#e11d48', fontVariantNumeric: 'tabular-nums' }}>{fmtNGN(dr)}</td>
                                             <td style={{ ...cell, textAlign: 'right', fontWeight: 800, color: '#059669', fontVariantNumeric: 'tabular-nums' }}>{fmtNGN(cr)}</td>
                                         </tr>
@@ -609,7 +609,7 @@ export default function TSALedger() {
                             border: '1px solid var(--color-border, #e2e8f0)',
                             borderRadius: '8px',
                             background: 'var(--color-surface, #fff)',
-                            color: data.entries.length === 0 ? '#94a3b8' : '#0f766e',
+                            color: data.entries.length === 0 ? 'var(--color-text-subtle)' : '#0f766e',
                             fontSize: '13px', fontWeight: 500,
                             cursor: data.entries.length === 0 ? 'not-allowed' : 'pointer',
                         }}
@@ -775,11 +775,11 @@ export default function TSALedger() {
                             </thead>
                             <tbody>
                                 {/* Opening balance row */}
-                                <tr style={{ background: '#f8fafc' }}>
-                                    <td style={{ ...tdStyle, fontWeight: 600, color: '#64748b' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)' }}>
+                                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--color-text-muted)' }}>
                                         {data.from || '—'}
                                     </td>
-                                    <td colSpan={3} style={{ ...tdStyle, fontWeight: 600, fontStyle: 'italic', color: '#64748b' }}>
+                                    <td colSpan={3} style={{ ...tdStyle, fontWeight: 600, fontStyle: 'italic', color: 'var(--color-text-muted)' }}>
                                         Opening Balance
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'right' }}>—</td>

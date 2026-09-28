@@ -12,7 +12,7 @@ import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
 
 const fmtNGN = (v: number) => 'NGN ' + (v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-const card: React.CSSProperties = { background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px' };
+const card: React.CSSProperties = { background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px' };
 
 export default function FinancialPerformanceReport() {
     const [fy, setFy] = useState(new Date().getFullYear());
@@ -33,7 +33,7 @@ export default function FinancialPerformanceReport() {
                 blended in. */}
             {(items || []).map((i: any, idx: number) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: i.is_header ? '#92400e' : '#1e293b' }}>
+                    <span style={{ fontSize: '13px', color: i.is_header ? '#92400e' : 'var(--color-text)' }}>
                         {i.code} — {i.name}
                         {i.is_header && (
                             <span
@@ -47,14 +47,14 @@ export default function FinancialPerformanceReport() {
                     <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: i.is_header ? '#92400e' : undefined }}>{fmtNGN(i.amount)}</span>
                 </div>
             ))}
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 700, fontSize: '13px', background: '#f8fafc', borderRadius: '4px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 700, fontSize: '13px', background: 'var(--color-surface-hover)', borderRadius: '4px', marginTop: '4px' }}>
                 <span>Subtotal</span><span style={{ fontFamily: 'monospace', color }}>{fmtNGN(total)}</span>
             </div>
         </div>
     );
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             {/* See FinancialPositionReport for the rationale on the
                 print-only branded header pattern. Same approach
                 everywhere so a printed report carries the tenant's
@@ -72,20 +72,20 @@ export default function FinancialPerformanceReport() {
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div className="print-only" style={{ marginBottom: 16 }}>
                     <BrandedPrintHeader subtitle="Statement of Financial Performance · IPSAS 1" />
-                    <div style={{ marginTop: 8, fontSize: 11, color: '#475569', textAlign: 'center' }}>
+                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-secondary)', textAlign: 'center' }}>
                         Fiscal Year: <strong>FY {fy}</strong>
                     </div>
                 </div>
                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Statement of Financial Performance</h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>IPSAS 1 — Income and Expenditure Statement</p>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Statement of Financial Performance</h1>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>IPSAS 1 — Income and Expenditure Statement</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
+                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', fontSize: '14px' }}>
                             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>FY {y}</option>)}
                         </select>
-                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>
                             <Printer size={16} /> Print
                         </button>
                         <ExportExcelButton
@@ -97,7 +97,7 @@ export default function FinancialPerformanceReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Loading...</div>
+                    <div style={{ color: 'var(--color-text-subtle)', textAlign: 'center', padding: '40px' }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/financial-performance/" />
                 ) : data ? (
@@ -148,7 +148,7 @@ export default function FinancialPerformanceReport() {
                             border: `2px solid ${(data.surplus_deficit || 0) >= 0 ? '#22c55e' : '#ef4444'}`,
                             textAlign: 'center',
                         }}>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
                                 Surplus / (Deficit) for the Period
                             </div>
                             <div style={{

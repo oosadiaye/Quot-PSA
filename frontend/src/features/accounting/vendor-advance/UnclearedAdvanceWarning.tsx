@@ -22,10 +22,18 @@ import {
     type VendorAdvance,
 } from '../hooks/useVendorAdvances';
 import { useCurrency } from '../../../context/CurrencyContext';
+import JournalPreview from '../../../components/JournalPreview';
 
 interface Props {
     /** Vendor we're posting against. ``null`` renders nothing. */
     vendorId: number | null | undefined;
+    /**
+     * Optional contract scope. When set (the contract detail page), only
+     * advances RELATING to this contract are shown — unrelated vendor advances
+     * (other contracts' mobilizations, vendor-level down payments) are hidden.
+     * Omit it on vendor/AP/PV surfaces, which stay vendor-wide.
+     */
+    contractId?: number | null;
     /**
      * What the user is trying to do — used for the toast on success
      * and the optional ``cleared_against_*`` audit pin sent to the
@@ -53,13 +61,14 @@ interface Props {
 
 export default function UnclearedAdvanceWarning({
     vendorId,
+    contractId,
     context,
     variant = 'inline',
     open,
     onClose,
     onCleared,
 }: Props) {
-    const { data, isLoading } = useOutstandingAdvancesForVendor(vendorId);
+    const { data, isLoading } = useOutstandingAdvancesForVendor(vendorId, contractId);
     const clearMut = useClearVendorAdvance();
     const { message } = AntApp.useApp();
     const { formatCurrency } = useCurrency();
@@ -136,8 +145,8 @@ export default function UnclearedAdvanceWarning({
                 </span>
             </div>
             <p style={bodyTextStyle}>
-                This vendor has {advances.length} uncleared advance
-                {advances.length === 1 ? '' : 's'}. Clear before proceeding —
+                {contractId ? 'This contract' : 'This vendor'} has {advances.length} uncleared
+                advance{advances.length === 1 ? '' : 's'}. Clear before proceeding —
                 clearing reduces the net cash payable on the next AP / IPC / PV.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -173,18 +182,14 @@ export default function UnclearedAdvanceWarning({
                             <Popconfirm
                                 title="Clear this advance?"
                                 description={
-                                    <span>
-                                        Posts the F-54 contra journal:
-                                        <br />
-                                        <strong>DR Accounts Payable</strong>{' '}
-                                        {formatCurrency(outstanding)}
-                                        <br />
-                                        <strong>CR Vendor Advance (AD)</strong>{' '}
-                                        {formatCurrency(outstanding)}
-                                        <br /><br />
-                                        Cannot be undone — the contra journal stays on
-                                        the books for the audit trail.
-                                    </span>
+                                    <JournalPreview
+                                        intro="Posts the F-54 contra journal"
+                                        lines={[
+                                            { drcr: 'DR', account: 'Accounts Payable', amount: formatCurrency(outstanding) },
+                                            { drcr: 'CR', account: 'Vendor Advance (AD)', amount: formatCurrency(outstanding), indent: true },
+                                        ]}
+                                        note="Cannot be undone — the contra journal stays on the books for the audit trail."
+                                    />
                                 }
                                 okText="Yes, clear advance"
                                 cancelText="Cancel"

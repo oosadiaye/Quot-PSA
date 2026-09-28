@@ -74,7 +74,14 @@ class VariationService:
         time_extension_days: int = 0,
         bpp_approval_ref: str = "",
     ) -> ContractVariation:
-        """Create a DRAFT variation.  Tier is auto-computed in model.save()."""
+        """Create a DRAFT variation.  Tier is auto-computed in model.save().
+
+        A ceiling-increasing write-up is capped at the contract's budget
+        appropriation — it may not exceed the available balance (raises
+        ``InvalidTransitionError``). No-op for omissions / EOT / when no
+        appropriation resolves.
+        """
+        cls.assert_increase_within_budget(contract, amount)
         variation = ContractVariation.objects.create(
             contract=contract,
             variation_number=next_variation_number(contract),
@@ -201,34 +208,13 @@ class VariationService:
 
         cls._refresh_contract_ceiling(variation.contract)
 
-        # ── Appropriation re-check for ceiling-increasing variations ──
-        # If the approved variation INCREASES the contract ceiling
-        # (amount > 0), verify the appropriation can still absorb
-        # the new total. Without this check, a BPP-eligible
-        # variation (>25% increase) can blow through the
-        # appropriation balance silently — only caught at the next
-        # IPC approval, by which point the operator has already
-        # told the contractor "approved" and is committed to a
-        # supplementary appropriation as a fait accompli.
-        #
-        # Safe-additive: on a 0-amount or negative variation (EOT,
-        # omission), this is a no-op. Best-effort wrap — if the
-        # check function itself fails (e.g. dimension lookup
-        # missing), we log and let the approval stand rather than
-        # blocking the operator on a tooling issue. The IPC-time
-        # check will still fire as the final backstop.
-        from decimal import Decimal
-        if (variation.amount or Decimal('0')) > Decimal('0'):
-            try:
-                cls._appropriation_recheck_for_increase(variation)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    'Variation %s appropriation re-check failed: %s — '
-                    'approval proceeded; the IPC-time appropriation '
-                    'gate remains the final backstop.',
-                    variation.pk, exc,
-                )
+        # ── Appropriation cap for ceiling-increasing variations ──
+        # A write-up that INCREASES the contract ceiling (amount > 0) must not
+        # exceed the budget available on the contract's appropriation. This is a
+        # HARD gate now — an over-budget approval rolls back the whole atomic
+        # transaction (ceiling refresh included). No-op on omission/EOT or when
+        # no appropriation resolves; the IPC-time gate remains a later backstop.
+        cls.assert_increase_within_budget(variation.contract, variation.amount)
 
         cls._record_step(
             variation, actor, ApprovalAction.APPROVE, notes or f"Approved at tier {variation.approval_tier}",
@@ -236,65 +222,65 @@ class VariationService:
         return variation
 
     @staticmethod
-    def _appropriation_recheck_for_increase(variation) -> None:
-        """Verify the appropriation can absorb a positive variation.
+    def _resolve_appropriation(contract):
+        """Resolve the ACTIVE budget appropriation for a contract, or ``None``.
 
-        Mirrors the IPC-time appropriation gate in
-        ``IPCService._enforce_appropriation_gate`` so an over-budget
-        variation surfaces at approve-time, not three weeks later when
-        the first IPC against the new ceiling lands. Uses
-        ``check_policy`` / ``find_matching_appropriation`` for the
-        same engine the rest of the codebase uses.
-
-        Raises ``InvalidTransitionError`` when the check returns
-        blocked. Callers wrap this in try/except so the failure mode
-        is "log + warn"; downstream IPC approve will still catch it.
+        ``Contract.appropriation`` is intentionally unset; the budget line is
+        found dynamically by matching the appropriation's segment FKs to the
+        contract's MDA × (NCoA economic/fund) × fiscal year — the same match
+        the contract detail page makes via ``/budget/appropriations/``.
         """
-        from accounting.services.budget_check_rules import (
-            check_policy, find_matching_appropriation,
-        )
-        contract = variation.contract
+        from budget.models import Appropriation
         ncoa = getattr(contract, 'ncoa_code', None)
-        if ncoa is None:
-            return  # no NCoA → no check possible; let IPC gate handle
-        admin_seg = getattr(ncoa, 'administrative', None)
-        econ_seg = getattr(ncoa, 'economic', None)
-        fund_seg = getattr(ncoa, 'fund', None)
-        if not (admin_seg and econ_seg and fund_seg):
-            return
-        # ``find_matching_appropriation`` expects the legacy bridge
-        # objects (admin → legacy_mda, etc.) not the NCoA segments. The
-        # economic segment needs no bridge: it is the GL account.
-        admin = getattr(admin_seg, 'legacy_mda', None)
-        econ = econ_seg
-        fund = getattr(fund_seg, 'legacy_fund', None)
-        if not (admin and econ and fund):
-            return
-        appropriation = find_matching_appropriation(
-            mda=admin, fund=fund, account=econ,
-            fiscal_year=getattr(contract, 'fiscal_year_id', None),
+        if ncoa is None or contract.mda_id is None or contract.fiscal_year_id is None:
+            return None
+        econ_id = getattr(ncoa, 'economic_id', None)
+        fund_id = getattr(ncoa, 'fund_id', None)
+        if econ_id is None or fund_id is None:
+            return None
+        return (
+            Appropriation.objects
+            .filter(
+                administrative_id=contract.mda_id,
+                fund_id=fund_id,
+                economic_id=econ_id,
+                fiscal_year_id=contract.fiscal_year_id,
+                status='ACTIVE',
+            )
+            .order_by('-id')
+            .first()
         )
-        if appropriation is None:
-            return  # let IPC gate handle the no-appropriation case
-        result = check_policy(
-            account_code=getattr(econ, 'code', '') or '',
-            appropriation=appropriation,
-            requested_amount=variation.amount,
-            transaction_label=(
-                f'contract variation #{variation.pk} on '
-                f'{contract.contract_number}'
-            ),
-            account_name=getattr(econ, 'name', '') or '',
-        )
-        if result.blocked:
-            from contracts.services.exceptions import InvalidTransitionError
+
+    @classmethod
+    def appropriation_headroom(cls, contract):
+        """The available balance on the contract's appropriation (a Decimal),
+        or ``None`` when no appropriation resolves (cap not enforceable).
+
+        ``available_balance = amount_approved − committed − expended`` — the
+        budget still free to commit against this line.
+        """
+        appropriation = cls._resolve_appropriation(contract)
+        return appropriation.available_balance if appropriation is not None else None
+
+    @classmethod
+    def assert_increase_within_budget(cls, contract, delta) -> None:
+        """Hard cap: a positive write-up ``delta`` may not exceed the
+        appropriation's available balance. Raises ``InvalidTransitionError``
+        when it would. No-op for omissions/EOT (delta ≤ 0) or when no
+        appropriation resolves.
+        """
+        delta = Decimal(str(delta or 0))
+        if delta <= Decimal('0'):
+            return
+        headroom = cls.appropriation_headroom(contract)
+        if headroom is not None and delta > headroom:
             raise InvalidTransitionError(
-                f'Variation ceiling increase exceeds appropriation '
-                f'availability: {result.reason}',
+                f'Write-up of ₦{delta:,.2f} exceeds the budget available on '
+                f"this contract's appropriation (₦{headroom:,.2f} remaining). "
+                f'Reduce the write-up or raise a supplementary budget first.',
                 context={
-                    'variation_id': variation.pk,
-                    'variation_amount': str(variation.amount),
-                    'reason': result.reason,
+                    'requested': str(delta),
+                    'available': str(headroom),
                 },
             )
 

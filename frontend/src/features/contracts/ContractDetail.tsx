@@ -5,8 +5,8 @@
  * right sidebar layout with budget pulse / stakeholders / activity log.
  *
  * Preserves existing data wiring (useContract, useContractBalance,
- * useIPCs, useVariations) and existing business actions (activate /
- * close / edit / new IPC / new variation). Status mapping compresses
+ * useVariations) and existing business actions (activate / close /
+ * edit / new variation). Status mapping compresses
  * the 7-state backend lifecycle into a 5-step visual stepper:
  *   Draft → Activated → In Progress → Completion → Closed
  * where Completion encompasses PRACTICAL_COMPLETION / DEFECTS_LIABILITY
@@ -17,14 +17,13 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/utils/date';
 import {
   Popconfirm, Button, App as AntApp,
-  Modal, Form, Input, InputNumber, DatePicker,
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import {
     JournalHeaderStrip, JournalLinesTable,
     type JournalDetail,
 } from '../accounting/components/shared/JournalViewer';
-import dayjs from 'dayjs';
+import JournalDetailModal from '../accounting/components/JournalDetailModal';
 import apiClient from '../../api/client';
 import {
   ArrowLeft, ChevronRight, Tag as TagIcon, Hash, Check,
@@ -32,21 +31,22 @@ import {
 } from 'lucide-react';
 import { ListPageShell } from '../../components/layout';
 import LoadingScreen from '../../components/common/LoadingScreen';
+import JournalPreview from '../../components/JournalPreview';
 import {
-  useContract, useContractBalance,
+  useContract, useContractBalance, useContractActivity,
   useActivateContract, useCloseContract,
-  useCreateMilestone, useStartMilestone, useApproveMilestone,
-  useConvertMilestoneToIPC,
+  useStartMilestone, useApproveMilestone,
   useContractMobilization, useIssueMobilization,
-  useContractRetentionReleases, useCreateRetentionRelease,
+  useReleaseRetentionLien,
+  type MilestoneLine,
 } from './hooks/useContracts';
-import { useIPCs } from './hooks/useIPCs';
+import MilestoneCreateModal from './milestones/MilestoneCreateModal';
 import { useVariations } from './hooks/useVariations';
 import { useYearPlans, type ContractYearPlan } from './hooks/useYearPlans';
 import UnclearedAdvanceWarning from '../accounting/vendor-advance/UnclearedAdvanceWarning';
 import { useCurrency } from '../../context/CurrencyContext';
 import { formatServiceError } from './utils/errors';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 // ── Status mapping ──────────────────────────────────────────────────
 // 7 backend statuses → 5 visual phases for the compact stepper.
@@ -108,7 +108,7 @@ function currentPhaseIndex(status: ContractStatus): number {
 // ── Tab type ─────────────────────────────────────────────────────────
 // 'year-plans' is the multi-year contract tab — visible on every contract,
 // shows even single-year contracts (which auto-create one year_plan row).
-type TabKey = 'milestones' | 'ipcs' | 'variations' | 'year-plans' | 'mobilization';
+type TabKey = 'financials' | 'milestones' | 'variations' | 'year-plans' | 'mobilization';
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -129,14 +129,14 @@ const ContractDetail = () => {
   // else changes.
   const initialTab = ((): TabKey => {
     const raw = searchParams.get('tab');
-    const allowed: TabKey[] = ['milestones', 'ipcs', 'variations', 'year-plans', 'mobilization'];
-    return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'milestones';
+    const allowed: TabKey[] = ['financials', 'milestones', 'variations', 'year-plans', 'mobilization'];
+    return (allowed as string[]).includes(raw ?? '') ? (raw as TabKey) : 'financials';
   })();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
   const { data: contract, isLoading: loadingC } = useContract(cid);
   const { data: balance } = useContractBalance(cid);
-  const { data: ipcs } = useIPCs({ contract: cid });
+  const { data: activity } = useContractActivity(cid, 6);
   const { data: variations } = useVariations({ contract: cid });
   // Year plans drive the multi-year IPC posting boundary (Control 8).
   // Even single-year contracts have one row, so the tab is always
@@ -181,10 +181,20 @@ const ContractDetail = () => {
   const matchedAppropriation = (appropriationMatches && appropriationMatches[0]) || null;
   const apprApproved = parseFloat(String(matchedAppropriation?.amount_approved ?? 0)) || 0;
   const apprAvailable = parseFloat(String(matchedAppropriation?.available_balance ?? 0)) || 0;
+  // The contract's budget appropriation (resolved from its NCoA segments + FY —
+  // Contract.appropriation FK is intentionally unset). Passed READ-ONLY into the
+  // milestone coding grid so every milestone line draws against the same budget.
+  const contractAppropriation = matchedAppropriation
+    ? {
+        id: matchedAppropriation.id as number,
+        label: matchedAppropriation.economic_code
+          ? `${matchedAppropriation.economic_code}${matchedAppropriation.economic_name ? ' — ' + matchedAppropriation.economic_name : ''}`
+          : `Appropriation #${matchedAppropriation.id}`,
+      }
+    : null;
 
   const activateMut = useActivateContract();
   const closeMut = useCloseContract();
-  const createMilestoneMut = useCreateMilestone();
   const startMilestoneMut = useStartMilestone();
   const approveMilestoneMut = useApproveMilestone();
 
@@ -200,13 +210,12 @@ const ContractDetail = () => {
   const handleApproveMilestone = async (milestoneId: number) => {
     try {
       await approveMilestoneMut.mutateAsync({ id: milestoneId, contractId: cid });
-      message.success('Milestone approved — IPC can now be raised against it.');
+      message.success('Milestone approved and invoiced — now in the AP register.');
     } catch (e) {
       message.error(formatServiceError(e, 'Failed to approve milestone'));
     }
   };
 
-  const convertMilestoneMut = useConvertMilestoneToIPC();
   const { data: mobilizationPayment } = useContractMobilization(cid);
   const issueMobilizationMut = useIssueMobilization();
 
@@ -229,119 +238,44 @@ const ContractDetail = () => {
   // (releases 50%) or FINAL_COMPLETION (releases remaining 50%) qualify.
   // The button below maps to whichever release_type is currently
   // available; the gate is checked again server-side.
-  const { data: retentionReleases } = useContractRetentionReleases(cid);
-  const createReleaseMut = useCreateRetentionRelease();
-  const releasedTypes = new Set(
-    ((retentionReleases ?? []) as any[]).map((r) => r.release_type),
-  );
+  const releaseLienMut = useReleaseRetentionLien();
   const retentionHeld = Number(balance?.retention_held ?? 0);
   const retentionReleased = Number(balance?.retention_released ?? 0);
-  const retentionRemaining = Math.max(0, retentionHeld - retentionReleased);
-  // Decide which release type the button should attempt next.
-  const nextReleaseType: 'PRACTICAL_COMPLETION' | 'FINAL_COMPLETION' | null = (() => {
-    if (status === 'PRACTICAL_COMPLETION' && !releasedTypes.has('PRACTICAL_COMPLETION')) {
-      return 'PRACTICAL_COMPLETION';
-    }
-    if (status === 'FINAL_COMPLETION' && !releasedTypes.has('FINAL_COMPLETION')) {
-      return 'FINAL_COMPLETION';
-    }
-    return null;
-  })();
-  const canReleaseRetention = !!nextReleaseType && retentionRemaining > 0;
+  // Open per-invoice liens (the operative "release now" figure for the
+  // centralised-AP path). Distinct from the lump-sum retention_held reserve.
+  const retentionWithheldOpen = Number(balance?.retention_withheld_open ?? 0);
+  // Centralised-AP lien release (path B): release whatever liens are open —
+  // no 50%/remainder split and no completion-status gate.
+  const canReleaseRetention = retentionWithheldOpen > 0;
 
   const handleReleaseRetention = async () => {
-    if (!nextReleaseType) return;
+    if (retentionWithheldOpen <= 0) return;
     try {
-      const result = await createReleaseMut.mutateAsync({
-        contractId: cid, release_type: nextReleaseType,
-      });
-      const release = result.data;
-      const releasedAmount = parseFloat(String(release.amount || 0)) || 0;
+      const result = await releaseLienMut.mutateAsync({ contractId: cid });
+      const releasedAmount = parseFloat(String(result.data?.released || 0)) || 0;
       message.success(
-        `Retention release of ${formatCurrency(releasedAmount)} created. `
-        + `Now raise a Payment Voucher in Treasury to disburse to the contractor.`,
+        `Released ${formatCurrency(releasedAmount)} of held retention — `
+        + `now payable through the normal AP flow. No journal was posted.`,
       );
     } catch (e) {
-      message.error(formatServiceError(e, 'Failed to create retention release'));
+      message.error(formatServiceError(e, 'Failed to release retention'));
     }
   };
-  const handleConvertToIPC = async (milestoneId: number) => {
-    try {
-      const result = await convertMilestoneMut.mutateAsync({
-        milestoneId, contractId: cid,
-      });
-      const ipc = result.data;
-      message.success(
-        `IPC ${ipc.ipc_number} created — opening it now.`,
-      );
-      // Move the user straight to the IPC detail so they can progress
-      // it through certification → approval → voucher.
-      navigate(`/contracts/ipcs/${ipc.id}`);
-    } catch (e) {
-      message.error(formatServiceError(e, 'Failed to convert milestone to IPC'));
-    }
-  };
-
-  // Inline "New Milestone" modal — keeps the user in the contract
-  // detail context (no navigation away). Matches SAP's "schedule
-  // line" pattern where child rows are added via a slide-over panel
-  // rather than a separate page.
+  // Inline "New Milestone" modal — keeps the user in the contract detail
+  // context. See MilestoneCreateModal, which captures the milestone's GL/budget
+  // coding (adopted from the contract) so approving it posts to the AP register.
   const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
-  const [milestoneForm] = Form.useForm();
+  // Edit an existing (not-yet-invoiced) milestone's fields + GL/budget coding —
+  // e.g. to add coding to a milestone created before coding-at-creation.
+  const [editMilestone, setEditMilestone] = useState<MilestoneRow | null>(null);
+  // "Acct Doc" — the GL journal (accounting document) to show in a modal,
+  // opened from a milestone row (its invoice's accrual journal) or a payment
+  // sub-line (its disbursement journal).
+  const [viewJournalId, setViewJournalId] = useState<number | null>(null);
 
-  // ── Derived values (safe with undefined contract during loading) ──
-  // Computed BEFORE early returns so the hooks below can depend on
-  // them without violating the Rules of Hooks (hook count must be
-  // stable across renders).
+  // Contract ceiling — used by the milestones table footer + the create modal.
+  // Computed before the early returns so hook order stays stable.
   const ceiling = Number(contract?.contract_ceiling || 0);
-
-  // Aggregate caps — derived from the loaded contract + milestones.
-  // Used by both the table footer and the create-modal live preview
-  // so what we show always matches what the backend will accept.
-  const milestoneTotals = useMemo(() => {
-    const list = (contract?.milestones ?? []) as any[];
-    const totalValue = list.reduce(
-      (s, m) => s + (parseFloat(String(m.scheduled_value || 0)) || 0), 0,
-    );
-    const totalWeight = list.reduce(
-      (s, m) => s + (parseFloat(String(m.percentage_weight || 0)) || 0), 0,
-    );
-    return {
-      totalValue,
-      totalWeight,
-      remainingValue: Math.max(0, ceiling - totalValue),
-      remainingWeight: Math.max(0, 100 - totalWeight),
-    };
-  }, [contract?.milestones, ceiling]);
-
-  // Live-watch the modal form so the preview banner updates as the
-  // user types. ``Form.useWatch`` re-renders whenever the watched
-  // field changes, so the comparisons below always reflect what's
-  // currently in the inputs. Hoisted above early-returns to keep
-  // hook order stable.
-  const liveValue = Form.useWatch('scheduled_value', milestoneForm) || 0;
-  const liveWeight = Form.useWatch('percentage_weight', milestoneForm) || 0;
-
-  // ── Auto-populate Percentage Weight from Scheduled Value ──────────
-  // The "default" weight in a lump-sum contract is the milestone's
-  // share of the contract sum: weight = value / contract_sum * 100.
-  // Operators can still override it manually for risk-weighted
-  // milestones (e.g. mobilisation typically carries less weight than
-  // its raw value would suggest) — typing a new value just refreshes
-  // the auto-fill. Rounded to 3dp to match the model's
-  // ``decimal_places=3`` so what the user sees equals what the
-  // backend stores. The equality guard prevents an avoidable
-  // re-render loop when the computed weight matches the stored one.
-  useEffect(() => {
-    if (!milestoneModalOpen) return;
-    if (!Number.isFinite(ceiling) || ceiling <= 0) return;
-    const v = Number(liveValue || 0);
-    const computed = Math.round((v / ceiling) * 100000) / 1000; // 3dp
-    const current = milestoneForm.getFieldValue('percentage_weight');
-    if (Number(current ?? -1) !== computed) {
-      milestoneForm.setFieldValue('percentage_weight', computed);
-    }
-  }, [liveValue, ceiling, milestoneModalOpen, milestoneForm]);
 
   if (loadingC) return <LoadingScreen />;
   if (!contract) {
@@ -363,6 +297,10 @@ const ContractDetail = () => {
   const committed = Number(balance?.pending_voucher_amount ?? 0);
   const retentionPct = Number(contract.retention_rate ?? contract.retention_pct ?? 0);
   const mobilizationPct = Number(contract.mobilization_rate ?? contract.mobilization_pct ?? 0);
+  // Full contract sum (original award) — distinct from the retention-reduced
+  // ``ceiling`` (= original_sum − retention_reserve). The Contract Sum card and
+  // the financials breakdown show the FULL sum.
+  const fullSum = Number(contract.original_sum ?? ceiling);
   const phaseIdx = currentPhaseIndex(status);
   const tagColor = STATUS_TAG_COLOR[status] ?? STATUS_TAG_COLOR.DRAFT;
 
@@ -385,57 +323,6 @@ const ContractDetail = () => {
     }
   };
 
-  const projectedValue = milestoneTotals.totalValue + Number(liveValue || 0);
-  const projectedWeight = milestoneTotals.totalWeight + Number(liveWeight || 0);
-  const valueOverflow = projectedValue > ceiling;
-  const weightOverflow = projectedWeight > 100;
-
-  const handleSubmitMilestone = async () => {
-    try {
-      const values = await milestoneForm.validateFields();
-      // Client-side aggregate check — backend's
-      // ``MilestoneSchedule.clean`` enforces the same rule (defence
-      // in depth), but failing fast in the UI saves a round-trip
-      // and gives a more contextual error.
-      const v = Number(values.scheduled_value || 0);
-      const w = Number(values.percentage_weight || 0);
-      if (milestoneTotals.totalValue + v > ceiling && ceiling > 0) {
-        message.error(
-          `Total milestone value would be ${formatCurrency(milestoneTotals.totalValue + v)}, `
-          + `which exceeds the contract sum of ${formatCurrency(ceiling)}. `
-          + `Reduce the value or raise a contract write-up first.`,
-        );
-        return;
-      }
-      if (milestoneTotals.totalWeight + w > 100) {
-        message.error(
-          `Total milestone weight would be ${(milestoneTotals.totalWeight + w).toFixed(2)}% — `
-          + `over the 100% cap.`,
-        );
-        return;
-      }
-
-      const nextNumber = (contract.milestones?.length ?? 0) + 1;
-      await createMilestoneMut.mutateAsync({
-        contract: cid,
-        milestone_number: nextNumber,
-        description:       values.description,
-        scheduled_value:   values.scheduled_value,
-        percentage_weight: values.percentage_weight,
-        target_date:       values.target_date.format('YYYY-MM-DD'),
-        notes:             values.notes ?? '',
-      });
-      message.success(`Milestone #${nextNumber} added.`);
-      milestoneForm.resetFields();
-      setMilestoneModalOpen(false);
-    } catch (e) {
-      // ``validateFields`` rejects with an errorFields object — that's
-      // not a service error, it's just "fix the form". Service errors
-      // are real failures from the API call.
-      if ((e as { errorFields?: unknown })?.errorFields) return;
-      message.error(formatServiceError(e, 'Failed to add milestone'));
-    }
-  };
 
   const canRaiseIPC = status !== 'DRAFT' && status !== 'CLOSED';
   const canRaiseVariation = canRaiseIPC;
@@ -532,31 +419,16 @@ const ContractDetail = () => {
                   )}
                   {canReleaseRetention && (
                     <Popconfirm
-                      title={
-                        nextReleaseType === 'PRACTICAL_COMPLETION'
-                          ? `Release 50% retention (${formatCurrency(retentionHeld * 0.5)})?`
-                          : `Release remaining retention (${formatCurrency(retentionRemaining)})?`
-                      }
+                      title={`Release held retention (${formatCurrency(retentionWithheldOpen)})?`}
                       description={
                         <span>
-                          {nextReleaseType === 'PRACTICAL_COMPLETION' ? (
-                            <>
-                              At <strong>Practical Completion</strong>, half of the
-                              held retention is returned to the contractor. The
-                              remainder is released at Final Completion (after
-                              the defects-liability period).
-                            </>
-                          ) : (
-                            <>
-                              At <strong>Final Completion</strong>, the remaining
-                              retention is returned to the contractor.
-                            </>
-                          )}
+                          Lifts the retention lien on this contract's milestone
+                          invoices, making{' '}
+                          <strong>{formatCurrency(retentionWithheldOpen)}</strong>{' '}
+                          payable through the normal AP flow.
                           <br /><br />
-                          A PENDING RetentionRelease record will be created.
-                          Treasury then raises a Payment Voucher to disburse
-                          the cash. The retention liability GL is debited
-                          automatically when the PV posts.
+                          <strong>Posts no journal</strong> — retention was held as
+                          a lien, never booked; this only unfreezes it.
                         </span>
                       }
                       okText="Yes, release"
@@ -565,9 +437,9 @@ const ContractDetail = () => {
                     >
                       <button
                         style={releaseRetentionBtn}
-                        disabled={createReleaseMut.isPending}
+                        disabled={releaseLienMut.isPending}
                       >
-                        {createReleaseMut.isPending ? 'Releasing…' : '↩ Release Retention'}
+                        {releaseLienMut.isPending ? 'Releasing…' : '↩ Release Retention'}
                       </button>
                     </Popconfirm>
                   )}
@@ -681,17 +553,19 @@ const ContractDetail = () => {
             />
             <StatCard
               label="Contract Sum"
-              value={formatCurrency(ceiling)}
+              value={formatCurrency(fullSum)}
               footer={
-                // Show what fraction of the original budget this
-                // contract committed — gives the reader instant
-                // context ("75 % of the line") instead of just a
-                // big number. Falls back to the contract type when
-                // the appropriation lookup hasn't resolved yet.
-                matchedAppropriation && apprApproved > 0
+                // The full award. When retention applies, show the
+                // processable ceiling (sum − retention reserve) so the reader
+                // sees both figures; otherwise show the share of the budget.
+                retentionHeld > 0
                   ? <span style={statSubtle}>
-                      <strong style={{ color: '#0f172a' }}>
-                        {((ceiling / apprApproved) * 100).toFixed(1)}%
+                      Processable: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(ceiling)}</strong>
+                    </span>
+                  : matchedAppropriation && apprApproved > 0
+                  ? <span style={statSubtle}>
+                      <strong style={{ color: 'var(--color-text)' }}>
+                        {((fullSum / apprApproved) * 100).toFixed(1)}%
                       </strong>
                       {' '}of original budget
                     </span>
@@ -708,7 +582,13 @@ const ContractDetail = () => {
             <StatCard
               label="Retention"
               value={`${retentionPct.toFixed(2)}%`}
-              footer={<span style={statSubtle}>Standard retention policy</span>}
+              footer={
+                <span style={statSubtle}>
+                  Reserve {formatCurrency(retentionHeld)}
+                  {' · '}Withheld {formatCurrency(retentionWithheldOpen)}
+                  {' · '}Released {formatCurrency(retentionReleased)}
+                </span>
+              }
             />
             <StatCard
               label="Mobilization"
@@ -746,6 +626,7 @@ const ContractDetail = () => {
           {contract.vendor && (
             <UnclearedAdvanceWarning
               vendorId={contract.vendor}
+              contractId={cid}
               context={{
                 type: 'CONTRACT',
                 id: cid,
@@ -760,14 +641,14 @@ const ContractDetail = () => {
             <div style={tabsHeader}>
               <div style={{ display: 'flex', gap: '2rem' }}>
                 <TabButton
+                  active={activeTab === 'financials'}
+                  onClick={() => setActiveTab('financials')}
+                  label="Financials"
+                />
+                <TabButton
                   active={activeTab === 'milestones'}
                   onClick={() => setActiveTab('milestones')}
                   label={`Milestones (${contract.milestones?.length ?? 0})`}
-                />
-                <TabButton
-                  active={activeTab === 'ipcs'}
-                  onClick={() => setActiveTab('ipcs')}
-                  label={`IPCs (${ipcs?.count ?? 0})`}
                 />
                 <TabButton
                   active={activeTab === 'variations'}
@@ -798,18 +679,6 @@ const ContractDetail = () => {
                     <Plus size={14} /> NEW MILESTONE
                   </button>
                 )}
-                {activeTab === 'ipcs' && (
-                  // IPCs are now exclusively raised from approved
-                  // milestones — see ``MilestoneScheduleViewSet.convert_to_ipc``.
-                  // The button below stays as a label so the user
-                  // understands the new workflow at a glance.
-                  <span
-                    style={ipcOriginNote}
-                    title="IPCs are created from the Milestones tab — approve a milestone, then click Convert to IPC."
-                  >
-                    IPCs are raised from approved milestones
-                  </span>
-                )}
                 {activeTab === 'variations' && (
                   <button
                     onClick={() => navigate(`/contracts/${cid}/variations/new`)}
@@ -827,27 +696,38 @@ const ContractDetail = () => {
               </div>
             </div>
 
+            {activeTab === 'financials' && (
+              <FinancialsTab
+                fullSum={fullSum}
+                variations={Number(contract.approved_variations_total ?? 0)}
+                retentionReserve={Number(contract.retention_reserve ?? retentionHeld ?? 0)}
+                retentionPct={retentionPct}
+                mobilizationAmount={Number(contract.mobilization_amount ?? 0)}
+                mobilizationPct={mobilizationPct}
+                whtRate={Number(contract.withholding_tax_rate ?? 0)}
+                vatRate={Number(contract.vat_rate ?? 0)}
+                ceiling={ceiling}
+                milestones={contract.milestones ?? []}
+                mobilization={mobilizationPayment}
+                formatCurrency={formatCurrency}
+                onViewJournal={(id) => setViewJournalId(id)}
+              />
+            )}
             {activeTab === 'milestones' && (
               <MilestonesTab
                 milestones={contract.milestones ?? []}
                 contractCeiling={ceiling}
+                contractStatus={status}
                 formatCurrency={formatCurrency}
                 onStart={handleStartMilestone}
                 onApprove={handleApproveMilestone}
-                onConvertToIPC={handleConvertToIPC}
+                onEdit={(m) => setEditMilestone(m)}
                 onOpenIPC={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
+                onViewJournal={(id) => setViewJournalId(id)}
                 actionLoading={
                   startMilestoneMut.isPending
                   || approveMilestoneMut.isPending
-                  || convertMilestoneMut.isPending
                 }
-              />
-            )}
-            {activeTab === 'ipcs' && (
-              <IPCsTab
-                ipcs={ipcs?.results ?? []}
-                onOpen={(ipcId) => navigate(`/contracts/ipcs/${ipcId}`)}
-                formatCurrency={formatCurrency}
               />
             )}
             {activeTab === 'variations' && (
@@ -938,22 +818,20 @@ const ContractDetail = () => {
           <section>
             <h4 style={sidebarSectionTitle}>Recent Activity</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingLeft: '0.5rem' }}>
-              <ActivityItem
-                accent
-                title={status === 'DRAFT' ? 'Contract Drafted' : 'Contract Activated'}
-                meta={`Status: ${status.replace(/_/g, ' ')}`}
-              />
-              {contract.signed_date && (
-                <ActivityItem
-                  title="Contract Signed"
-                  meta={formatDate(contract.signed_date)}
-                />
-              )}
-              {contract.created_at && (
-                <ActivityItem
-                  title="Initial Setup"
-                  meta={formatDate(contract.created_at)}
-                />
+              {activity && activity.length > 0 ? (
+                activity.map((a, i) => (
+                  <ActivityItem
+                    key={a.id}
+                    accent={i === 0}
+                    title={`${actionLabel(a.action)} · ${prettyModel(a.model_name)}`}
+                    meta={a.new_status ? `Status: ${a.new_status}` : (a.object_repr || '')}
+                    actor={`${a.username || 'System'} · ${formatDate(a.timestamp)}`}
+                  />
+                ))
+              ) : (
+                <p style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>
+                  No activity recorded yet
+                </p>
               )}
             </div>
             <button
@@ -980,152 +858,42 @@ const ContractDetail = () => {
         </div>
       )}
 
-      {/* New Milestone modal — defined inline so the form state lives
-          beside the contract context. The next milestone_number is
-          computed at submit time from the current count, so the user
-          never has to think about numbering. */}
-      <Modal
-        title={`New Milestone — Contract ${contract.contract_number ?? `#${cid}`}`}
-        open={milestoneModalOpen}
-        onCancel={() => setMilestoneModalOpen(false)}
-        onOk={handleSubmitMilestone}
-        okText={`Add Milestone #${(contract.milestones?.length ?? 0) + 1}`}
-        okButtonProps={{ disabled: valueOverflow || weightOverflow }}
-        confirmLoading={createMilestoneMut.isPending}
-        destroyOnHidden
-        width={560}
-      >
-        <p style={{ color: '#64748b', fontSize: 12, marginBottom: 12 }}>
-          Milestones are physical contractual checkpoints (e.g. "Foundation laid",
-          "Roof complete"). When achieved, they trigger an IPC for payment.
-        </p>
+      {/* Acct Doc — GL journal viewer, opened from a milestone row or a
+          payment sub-line. Self-fetches the journal by id. */}
+      {viewJournalId != null && (
+        <JournalDetailModal id={viewJournalId} onClose={() => setViewJournalId(null)} />
+      )}
 
-        {/* Live aggregate preview — refreshes as the user types so they
-            never bump up against the backend's cap unexpectedly. */}
-        <div style={{
-          background: valueOverflow || weightOverflow ? '#fef2f2' : '#f0f9ff',
-          border: `1px solid ${valueOverflow || weightOverflow ? '#fecaca' : '#bae6fd'}`,
-          borderRadius: 8,
-          padding: '0.75rem 1rem',
-          marginBottom: 16,
-          fontSize: 12,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-            <span>
-              <strong>Existing milestones:</strong>{' '}
-              {formatCurrency(milestoneTotals.totalValue)} · {milestoneTotals.totalWeight.toFixed(1)}%
-            </span>
-            <span>
-              <strong>Remaining:</strong>{' '}
-              {formatCurrency(milestoneTotals.remainingValue)} · {milestoneTotals.remainingWeight.toFixed(1)}%
-            </span>
-          </div>
-          {(liveValue > 0 || liveWeight > 0) && (
-            <div style={{
-              paddingTop: 6, borderTop: `1px solid ${valueOverflow || weightOverflow ? '#fecaca' : '#bae6fd'}`,
-              color: valueOverflow || weightOverflow ? '#b91c1c' : '#0369a1',
-              fontWeight: 600,
-            }}>
-              <strong>After adding this milestone:</strong>{' '}
-              {formatCurrency(projectedValue)} ({((projectedValue / Math.max(ceiling, 1)) * 100).toFixed(1)}%)
-              {' · '}
-              Weight {projectedWeight.toFixed(1)}%
-              {valueOverflow && (
-                <div style={{ marginTop: 4, fontSize: 11 }}>
-                  ⚠ Exceeds contract sum {formatCurrency(ceiling)} by{' '}
-                  {formatCurrency(projectedValue - ceiling)}
-                </div>
-              )}
-              {weightOverflow && (
-                <div style={{ marginTop: 4, fontSize: 11 }}>
-                  ⚠ Exceeds 100% weight cap by {(projectedWeight - 100).toFixed(2)}%
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <Form form={milestoneForm} layout="vertical" preserve={false}>
-          <Form.Item
-            label="Description"
-            name="description"
-            rules={[{ required: true, message: 'Describe the milestone' }]}
-          >
-            <Input placeholder="e.g. Foundation work complete" />
-          </Form.Item>
-          <Form.Item
-            label="Scheduled Value (NGN)"
-            name="scheduled_value"
-            rules={[
-              { required: true, message: 'Scheduled value required' },
-              {
-                validator: (_, v) =>
-                  v && Number(v) > 0 ? Promise.resolve() : Promise.reject('Must be > 0'),
-              },
-            ]}
-            tooltip={`Of the ${formatCurrency(ceiling)} contract ceiling.`}
-          >
-            <InputNumber
-              min={0.01}
-              style={{ width: '100%' }}
-              step={1000}
-              formatter={(v) => (v != null ? `₦ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
-              parser={(v) => (v ? v.replace(/[^\d.]/g, '') : '') as unknown as 0.01}
-            />
-          </Form.Item>
-          <Form.Item
-            label="Percentage Weight"
-            name="percentage_weight"
-            rules={[
-              { required: true, message: 'Weight required' },
-              { type: 'number', min: 0, max: 100, message: '0–100%' },
-            ]}
-            tooltip={
-              ceiling > 0
-                ? `Auto-calculated as Scheduled Value ÷ Contract Sum (${formatCurrency(ceiling)}) × 100. Override manually for risk-weighted milestones.`
-                : 'What share of the total project this milestone represents.'
-            }
-            extra={
-              ceiling > 0
-                ? 'Auto-filled from Scheduled Value — edit if this milestone carries a different risk weight.'
-                : undefined
-            }
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              style={{ width: '100%' }}
-              step={1}
-              addonAfter="%"
-            />
-          </Form.Item>
-          <Form.Item
-            label="Target Date"
-            name="target_date"
-            rules={[{ required: true, message: 'Target date required' }]}
-          >
-            <DatePicker
-              style={{ width: '100%' }}
-              format="DD/MM/YYYY"
-              disabledDate={(d) => {
-                if (!d) return false;
-                const start = contract.contract_start_date
-                  ? dayjs(contract.contract_start_date)
-                  : null;
-                const end = contract.contract_end_date
-                  ? dayjs(contract.contract_end_date)
-                  : null;
-                if (start && d.isBefore(start, 'day')) return true;
-                if (end && d.isAfter(end, 'day')) return true;
-                return false;
-              }}
-            />
-          </Form.Item>
-          <Form.Item label="Notes (optional)" name="notes">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {/* New Milestone — captures the milestone's GL/budget coding at creation
+          (adopted from the contract) so approving it posts to the AP register.
+          See MilestoneCreateModal (invoice-style coding grid). */}
+      {milestoneModalOpen && (
+        <MilestoneCreateModal
+          contract={contract}
+          contractId={cid}
+          ceiling={ceiling}
+          milestones={contract.milestones ?? []}
+          contractAppropriation={contractAppropriation}
+          formatCurrency={formatCurrency}
+          onClose={() => setMilestoneModalOpen(false)}
+          onCreated={(n) =>
+            message.success(`Milestone #${n} added — approve it to post to the AP register.`)
+          }
+        />
+      )}
+      {editMilestone && (
+        <MilestoneCreateModal
+          contract={contract}
+          contractId={cid}
+          ceiling={ceiling}
+          milestones={contract.milestones ?? []}
+          contractAppropriation={contractAppropriation}
+          editMilestone={editMilestone}
+          formatCurrency={formatCurrency}
+          onClose={() => setEditMilestone(null)}
+          onCreated={(n) => message.success(`Milestone #${n} saved.`)}
+        />
+      )}
     </ListPageShell>
   );
 };
@@ -1171,8 +939,8 @@ function StatCard({ label, value, footer, accent }: StatCardProps) {
 }
 
 const statCardIndigo: React.CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(238, 242, 255, 0.55) 0%, rgba(255, 255, 255, 1) 60%)',
-  borderColor: '#c7d2fe',
+  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.14) 0%, var(--color-surface) 65%)',
+  borderColor: 'rgba(99, 102, 241, 0.5)',
 };
 
 
@@ -1199,6 +967,317 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
 }
 
 
+// ── Contract financials breakdown ─────────────────────────────────────
+// The full contract sum and every deduction as line items (like an invoice),
+// shown before the milestone tabs. Retention is HELD (released at completion);
+// mobilization is an ADVANCE (recovered from IPCs); WHT/VAT are estimates
+// (withheld & remitted per payment at the vendor's rates).
+interface ContractFinancialsProps {
+  fullSum: number;
+  variations: number;
+  retentionReserve: number;
+  retentionPct: number;
+  mobilizationAmount: number;
+  mobilizationPct: number;
+  whtRate: number;
+  vatRate: number;
+  ceiling: number;
+  formatCurrency: (n: number) => string;
+}
+function ContractFinancials({
+  fullSum, variations, retentionReserve, retentionPct,
+  mobilizationAmount, mobilizationPct, whtRate, vatRate, ceiling, formatCurrency,
+}: ContractFinancialsProps) {
+  const adjusted = fullSum + variations;                    // gross entitlement
+  const whtEst = adjusted * (whtRate || 0) / 100;
+  const vatEst = adjusted * (vatRate || 0) / 100;
+  const netToContractor = adjusted - retentionReserve - mobilizationAmount - whtEst - vatEst;
+
+  const row = (
+    label: React.ReactNode, amount: number,
+    opts?: { deduct?: boolean; strong?: boolean; note?: string; sub?: boolean },
+  ) => (
+    <tr style={opts?.sub ? cfSubRow : undefined}>
+      <td style={{ ...cfCell, fontWeight: opts?.strong ? 700 : 400, color: opts?.strong ? 'var(--color-text)' : 'var(--color-text-secondary)' }}>
+        {label}
+        {opts?.note && <span style={cfNote}>{opts.note}</span>}
+      </td>
+      <td style={{
+        ...cfCell, textAlign: 'right', fontFamily: 'monospace',
+        fontWeight: opts?.strong ? 800 : 600,
+        color: opts?.deduct ? '#dc2626' : (opts?.strong ? 'var(--color-text)' : 'var(--color-text-secondary)'),
+      }}>
+        {opts?.deduct ? '− ' : ''}{formatCurrency(amount)}
+      </td>
+    </tr>
+  );
+
+  return (
+    <div style={card({ pad: 0 })}>
+      <div style={cfHeader}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>Contract Financials</span>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>Full sum less deductions</span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <tbody>
+          {row('Contract Sum', fullSum, { strong: variations === 0 })}
+          {variations > 0 && row('+ Approved variations', variations, { sub: true })}
+          {variations > 0 && row('Adjusted contract value', adjusted, { strong: true })}
+          {retentionReserve > 0 && row(`Retention held (${retentionPct.toFixed(2)}%)`, retentionReserve, { deduct: true, note: 'released at completion' })}
+          {mobilizationAmount > 0 && row(`Mobilization advance (${mobilizationPct.toFixed(2)}%)`, mobilizationAmount, { deduct: true, note: 'advance — recovered from IPCs' })}
+          {whtEst > 0 && row(`WHT (${Number(whtRate).toFixed(2)}% est.)`, whtEst, { deduct: true, note: 'withheld & remitted (estimate)' })}
+          {vatEst > 0 && row(`VAT (${Number(vatRate).toFixed(2)}% est.)`, vatEst, { deduct: true, note: 'withheld & remitted (estimate)' })}
+        </tbody>
+        <tfoot>
+          <tr style={cfFootRow}>
+            <td style={{ ...cfCell, fontWeight: 800, color: 'var(--color-text)' }}>
+              Net to contractor <span style={cfNote}>estimate</span>
+            </td>
+            <td style={{ ...cfCell, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#047857' }}>
+              {formatCurrency(netToContractor)}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ ...cfCell, fontSize: 11, color: '#64748b' }}>
+              Processable / certifiable (sum − retention)
+            </td>
+            <td style={{ ...cfCell, textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
+              {formatCurrency(ceiling)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+const cfHeader: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+  padding: '0.85rem 1rem', borderBottom: '1px solid var(--color-border, #e2e8f0)',
+};
+const cfCell: React.CSSProperties = {
+  padding: '0.5rem 1rem', fontSize: 13, borderBottom: '1px solid var(--color-border-light)',
+};
+const cfSubRow: React.CSSProperties = { background: 'rgba(148,163,184,0.08)' };
+const cfNote: React.CSSProperties = {
+  marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-subtle)',
+  fontStyle: 'italic',
+};
+const cfFootRow: React.CSSProperties = {
+  borderTop: '2px solid var(--color-border)', background: 'rgba(16,185,129,0.08)',
+};
+
+
+// ── Financials tab ────────────────────────────────────────────────────
+// The contract's financial statement: the deduction summary (ContractFinancials)
+// plus a movements ledger of every certified invoice (a CREDIT — value owed to
+// the contractor) and every disbursement incl. the mobilization advance (a
+// DEBIT — cash paid), in date order with a running outstanding balance. Each row
+// links to its actual GL journal via "Acct Doc".
+interface LedgerMovement {
+  key: string;
+  date: string | null;
+  label: string;
+  ref: string;
+  debit: number;
+  credit: number;
+  journalId: number | null;
+}
+
+interface FinancialsTabProps {
+  fullSum: number;
+  variations: number;
+  retentionReserve: number;
+  retentionPct: number;
+  mobilizationAmount: number;
+  mobilizationPct: number;
+  whtRate: number;
+  vatRate: number;
+  ceiling: number;
+  milestones: MilestoneRow[];
+  mobilization: MobilizationRecord | null | undefined;
+  formatCurrency: (n: number) => string;
+  onViewJournal: (journalId: number) => void;
+}
+
+function FinancialsTab({
+  fullSum, variations, retentionReserve, retentionPct,
+  mobilizationAmount, mobilizationPct, whtRate, vatRate, ceiling,
+  milestones, mobilization, formatCurrency, onViewJournal,
+}: FinancialsTabProps) {
+  const movements = useMemo<Array<LedgerMovement & { balance: number }>>(() => {
+    const rows: LedgerMovement[] = [];
+    for (const m of milestones) {
+      const inv = m.invoice;
+      if (inv) {
+        rows.push({
+          key: `inv-${inv.id}`,
+          date: inv.invoice_date ?? m.actual_completion_date ?? null,
+          label: `Milestone ${m.milestone_number} invoice`,
+          ref: inv.invoice_number,
+          debit: 0,
+          credit: Number(inv.total_amount || 0),
+          journalId: inv.journal_entry_id ?? null,
+        });
+      }
+      for (const p of m.payments ?? []) {
+        rows.push({
+          key: `pay-${p.payment_id}-m${m.id}`,
+          date: p.payment_date,
+          label: p.is_advance ? 'Advance payment' : 'Payment',
+          ref: p.payment_number,
+          debit: Number(p.amount || 0),
+          credit: 0,
+          journalId: p.journal_entry_id ?? null,
+        });
+      }
+    }
+    // Mobilization advance — cash paid ahead of certification (recovered from
+    // certificates). Skip if a milestone payment already carries its journal.
+    if (mobilization && Number(mobilization.amount) > 0) {
+      const jid = mobilization.disbursement_journal_id
+        ?? mobilization.payment_voucher_journal_id ?? null;
+      const dup = jid != null && rows.some((r) => r.journalId === jid);
+      if (!dup) {
+        rows.push({
+          key: `mob-${mobilization.id}`,
+          // Advances often predate any certificate; fall back to created_at so
+          // the row dates and sorts before the milestone invoices it precedes.
+          date: mobilization.payment_date ?? mobilization.created_at ?? null,
+          label: 'Mobilization advance',
+          ref: mobilization.payment_voucher_number ?? '—',
+          debit: Number(mobilization.amount || 0),
+          credit: 0,
+          journalId: jid,
+        });
+      }
+    }
+    // Date order; undated rows sort last, ties keep insertion order (stable).
+    rows.sort((a, b) => {
+      const ad = a.date ?? '9999-12-31';
+      const bd = b.date ?? '9999-12-31';
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+    // Running balance = Σcredit − Σdebit (outstanding certified value payable).
+    let bal = 0;
+    return rows.map((r) => {
+      bal += r.credit - r.debit;
+      return { ...r, balance: bal };
+    });
+  }, [milestones, mobilization]);
+
+  const totalDebit = movements.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = movements.reduce((s, r) => s + r.credit, 0);
+  const outstanding = totalCredit - totalDebit;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <ContractFinancials
+        fullSum={fullSum}
+        variations={variations}
+        retentionReserve={retentionReserve}
+        retentionPct={retentionPct}
+        mobilizationAmount={mobilizationAmount}
+        mobilizationPct={mobilizationPct}
+        whtRate={whtRate}
+        vatRate={vatRate}
+        ceiling={ceiling}
+        formatCurrency={formatCurrency}
+      />
+
+      <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
+        <div style={cfHeader}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>Movements</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            Invoices credit · payments debit · balance = outstanding to contractor
+          </span>
+        </div>
+        {movements.length === 0 ? (
+          <div style={{ padding: '1.25rem 1rem', fontSize: 12.5, color: '#94a3b8' }}>
+            No financial movements yet — approve a milestone or issue a mobilization advance.
+          </div>
+        ) : (
+          <table style={dataTable} data-no-sort>
+            <thead>
+              <tr style={tableHeadRow}>
+                <th style={th}>Date</th>
+                <th style={th}>Movement</th>
+                <th style={th}>Reference</th>
+                <th style={{ ...th, textAlign: 'right' }}>Debit</th>
+                <th style={{ ...th, textAlign: 'right' }}>Credit</th>
+                <th style={{ ...th, textAlign: 'right' }}>Balance</th>
+                <th style={{ ...th, textAlign: 'right' }}>Doc</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.map((r) => (
+                <tr key={r.key} style={tableRow}>
+                  <td style={td}>{r.date ? formatDate(r.date) : '—'}</td>
+                  <td style={{ ...td, maxWidth: 170 }}>{r.label}</td>
+                  <td style={{ ...td, fontFamily: 'monospace', color: '#475569', maxWidth: 180 }}>{r.ref}</td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c' }}>
+                    {r.debit ? formatCurrency(r.debit) : '—'}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: '#047857' }}>
+                    {r.credit ? formatCurrency(r.credit) : '—'}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: r.balance < 0 ? '#b45309' : '#0f172a' }}>
+                    {formatCurrency(r.balance)}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    {r.journalId != null && (
+                      <button
+                        type="button"
+                        onClick={() => onViewJournal(r.journalId as number)}
+                        style={acctDocLink}
+                        title="View the GL journal posted for this movement"
+                      >
+                        Acct Doc
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={milestoneFootRow}>
+                <td style={{ ...td, fontWeight: 800, color: 'var(--color-text)' }} colSpan={3}>
+                  Totals ({movements.length} movement{movements.length === 1 ? '' : 's'})
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#b91c1c' }}>
+                  {formatCurrency(totalDebit)}
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: '#047857' }}>
+                  {formatCurrency(totalCredit)}
+                </td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: outstanding < 0 ? '#b45309' : '#0f172a' }}>
+                  {formatCurrency(outstanding)}
+                </td>
+                <td style={td} />
+              </tr>
+            </tfoot>
+          </table>
+        )}
+        <div style={{ padding: '0.5rem 1rem 0.85rem', fontSize: 11, color: '#94a3b8' }}>
+          A positive balance is outstanding certified value payable to the contractor; a negative
+          balance means cash paid to date (including the mobilization advance) exceeds certified work.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+interface MilestonePaymentRow {
+  payment_id: number;
+  payment_number: string;
+  payment_date: string | null;
+  amount: string;         // amount applied to this milestone invoice
+  status: string;         // always 'Posted' (backend filters to settled)
+  is_advance: boolean;
+  journal_entry_id?: number | null;  // disbursement journal (Acct Doc)
+}
+
 interface MilestoneRow {
   id: number;
   milestone_number: number;
@@ -1213,22 +1292,48 @@ interface MilestoneRow {
   // MilestoneScheduleSerializer.get_ipc / get_ipc_number).
   ipc: number | null;
   ipc_number: string | null;
+  // Milestone-as-invoice → payment history. Populated on the contract
+  // DETAIL payload only (MilestoneScheduleSerializer.invoice / payments);
+  // null/empty on list views. Drives the nested payment sub-lines.
+  invoice?: {
+    id: number;
+    invoice_number: string;
+    status: string;
+    total_amount: string;
+    paid_amount: string;
+    payable_now: string;
+    invoice_date?: string | null;      // posting date of the accrual
+    journal_entry_id?: number | null;  // accrual journal (Acct Doc)
+  } | null;
+  payments?: MilestonePaymentRow[];
+  // Budget-appropriation coding lines (centralised-AP). Present on the detail
+  // payload (MilestoneScheduleSerializer.lines); the Post Invoice modal
+  // manages them via the milestone-lines CRUD.
+  lines?: MilestoneLine[];
 }
 
 interface MilestonesTabProps {
   milestones: MilestoneRow[];
   contractCeiling: number;
+  /** Contract lifecycle status — Approve posts to AP and needs the balance
+   *  ledger, which only exists once the contract is ACTIVATED. */
+  contractStatus: string;
   formatCurrency: (n: number) => string;
   onStart: (id: number) => void;
   onApprove: (id: number) => void;
-  onConvertToIPC: (id: number) => void;
+  onEdit: (milestone: MilestoneRow) => void;
   onOpenIPC: (ipcId: number) => void;
+  onViewJournal: (journalId: number) => void;
   actionLoading: boolean;
 }
 function MilestonesTab({
-  milestones, contractCeiling, formatCurrency,
-  onStart, onApprove, onConvertToIPC, onOpenIPC, actionLoading,
+  milestones, contractCeiling, contractStatus, formatCurrency,
+  onStart, onApprove, onEdit, onOpenIPC, onViewJournal, actionLoading,
 }: MilestonesTabProps) {
+  // Milestones post their invoice into the AP register against the contract's
+  // balance ledger, which is materialised on activation. Before that (DRAFT)
+  // Approve cannot succeed, so it is disabled with a hint rather than failing.
+  const isDraft = contractStatus === 'DRAFT';
   // Aggregate totals — surfaced in the table footer so the user
   // always sees how much of the contract sum + 100% weight pool
   // they've allocated. The same numbers drive the model-level
@@ -1257,27 +1362,27 @@ function MilestonesTab({
     );
   }
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
             <th style={th}>#</th>
             <th style={th}>Description</th>
-            <th style={{ ...th, textAlign: 'right' }}>Scheduled Value</th>
-            <th style={{ ...th, textAlign: 'right' }}>Weight</th>
-            <th style={th}>Target</th>
-            <th style={th}>Completed</th>
+            <th style={{ ...th, textAlign: 'right' }}>Amount</th>
+            <th style={{ ...th, textAlign: 'right' }}>Percentage</th>
+            <th style={th}>Date</th>
             <th style={{ ...th, textAlign: 'center' }}>Status</th>
             <th style={{ ...th, textAlign: 'right' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {milestones.map((m) => (
-            <tr key={m.id} style={tableRow}>
+            <Fragment key={m.id}>
+            <tr style={tableRow}>
               <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>
                 {m.milestone_number}
               </td>
-              <td style={td}>{m.description}</td>
+              <td style={{ ...td, maxWidth: 200 }}>{m.description}</td>
               <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
                 {formatCurrency(Number(m.scheduled_value || 0))}
               </td>
@@ -1287,20 +1392,26 @@ function MilestonesTab({
                   ? formatDate(m.target_date)
                   : '—'}
               </td>
-              <td style={{ ...td, color: m.actual_completion_date ? '#0f172a' : '#94a3b8' }}>
-                {m.actual_completion_date
-                  ? formatDate(m.actual_completion_date)
-                  : '—'}
-              </td>
               <td style={{ ...td, textAlign: 'center' }}>
                 <span style={statusBadge(m.status)}>{m.status}</span>
               </td>
               <td style={{ ...td, textAlign: 'right' }}>
                 <div style={milestoneActionsCell}>
+                  {m.status !== 'INVOICED' && !m.ipc && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(m)}
+                      disabled={actionLoading}
+                      style={milestoneEditBtn}
+                      title="Edit fields & GL/budget coding"
+                    >
+                      <Edit2 size={12} /> Edit
+                    </button>
+                  )}
                   {m.status === 'PENDING' && (
                     <Popconfirm
                       title="Mark this milestone as in progress?"
-                      description="This signals that site work has begun. The milestone still needs to be approved before an IPC can be raised."
+                      description="This signals that site work has begun. The milestone still needs to be approved before it can be invoiced."
                       okText="Mark in progress"
                       onConfirm={() => onStart(m.id)}
                     >
@@ -1309,50 +1420,39 @@ function MilestonesTab({
                       </button>
                     </Popconfirm>
                   )}
-                  {(m.status === 'PENDING' || m.status === 'IN_PROGRESS') && (
-                    <Popconfirm
-                      title="Approve this milestone as complete?"
-                      description={
-                        <span>
-                          This certifies the work as physically complete and unlocks
-                          IPC submission against this milestone. Today's date will be
-                          recorded as the completion date.
-                          <br /><br />
-                          <strong>This is the milestone "approval" step.</strong>
-                        </span>
-                      }
-                      okText="Yes, approve"
-                      cancelText="Cancel"
-                      onConfirm={() => onApprove(m.id)}
-                    >
-                      <button style={milestoneApproveBtn} disabled={actionLoading}>
+                  {(m.status === 'PENDING' || m.status === 'IN_PROGRESS' || m.status === 'COMPLETED') && !m.ipc && (
+                    isDraft ? (
+                      <button
+                        type="button"
+                        disabled
+                        style={{ ...milestoneApproveBtn, background: '#cbd5e1', boxShadow: 'none', cursor: 'not-allowed' }}
+                        title="Activate the contract first — approving posts the milestone into the AP register against the contract's balance ledger, which is created on activation."
+                      >
                         ✓ Approve
                       </button>
-                    </Popconfirm>
-                  )}
-                  {m.status === 'COMPLETED' && !m.ipc && (
-                    <Popconfirm
-                      title="Convert this milestone to an IPC?"
-                      description={
-                        <span>
-                          An Interim Payment Certificate (IPC) of
-                          <strong> {formatCurrency(Number(m.scheduled_value || 0))}</strong>
-                          {' '}will be raised against this milestone. The IPC follows
-                          the standard certification → approval → payment-voucher
-                          flow. Tax + Withholding Tax default from the vendor master.
-                          <br /><br />
-                          <strong>IPCs cannot be created manually — they always
-                          originate from an approved milestone.</strong>
-                        </span>
-                      }
-                      okText="Yes, create IPC"
-                      cancelText="Cancel"
-                      onConfirm={() => onConvertToIPC(m.id)}
-                    >
-                      <button style={milestoneConvertBtn} disabled={actionLoading}>
-                        Convert to IPC
-                      </button>
-                    </Popconfirm>
+                    ) : (
+                      <Popconfirm
+                        title="Approve & post this milestone to AP?"
+                        description={
+                          <JournalPreview
+                            intro="Certifies the work and posts the milestone as a vendor invoice"
+                            lines={[
+                              { drcr: 'DR', account: 'Expense (coding lines)', amount: formatCurrency(Number(m.scheduled_value || 0)) },
+                              { drcr: 'CR', account: 'Vendor AP', amount: formatCurrency(Number(m.scheduled_value || 0)), indent: true },
+                            ]}
+                            info="Into the AP register, payable right away · today's date is recorded as the completion date."
+                            note="Requires the coding lines added when the milestone was created."
+                          />
+                        }
+                        okText="Approve & post"
+                        cancelText="Cancel"
+                        onConfirm={() => onApprove(m.id)}
+                      >
+                        <button style={milestoneApproveBtn} disabled={actionLoading}>
+                          ✓ Approve
+                        </button>
+                      </Popconfirm>
+                    )
                   )}
                   {m.status === 'COMPLETED' && m.ipc && (
                     <button
@@ -1365,20 +1465,91 @@ function MilestonesTab({
                         cursor: 'pointer',
                         padding: '4px 10px',
                         textDecoration: 'underline',
+                        maxWidth: '100%',
                       }}
                       title={`Open IPC ${m.ipc_number ?? ''}`.trim()}
                     >
-                      {m.ipc_number ? `IPC ${m.ipc_number}` : 'IPC raised'}
+                      {m.ipc_number
+                        ? `IPC ${String(m.ipc_number).split('/').pop()}`
+                        : 'IPC raised'}
                     </button>
                   )}
                 </div>
               </td>
             </tr>
+            {m.status === 'INVOICED' && m.invoice && (
+              <>
+                {/* Invoice accrual row — cells aligned to the milestone columns
+                    (amount under Amount, badge under Status), and the
+                    Acct Doc link in the Actions column like every other row. */}
+                <tr style={subRowStyle}>
+                  <td style={subIndentTd}>↳</td>
+                  <td style={{ ...subTd, maxWidth: 200 }}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)' }}>{m.invoice.invoice_number}</span>
+                    {(!m.payments || m.payments.length === 0) && (
+                      <span style={{ marginLeft: 8, color: '#94a3b8', fontStyle: 'italic' }}>— awaiting payment</span>
+                    )}
+                  </td>
+                  <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatCurrency(Number(m.invoice.paid_amount || 0))} / {formatCurrency(Number(m.invoice.total_amount || 0))}
+                  </td>
+                  <td style={subTd} />
+                  <td style={subTd} />
+                  <td style={{ ...subTd, textAlign: 'center' }}>
+                    <span style={statusBadge(m.invoice.status)}>{m.invoice.status}</span>
+                  </td>
+                  <td style={{ ...subTd, textAlign: 'right' }}>
+                    {m.invoice.journal_entry_id != null && (
+                      <button
+                        type="button"
+                        onClick={() => onViewJournal(m.invoice?.journal_entry_id as number)}
+                        style={acctDocLink}
+                        title="View the accrual journal (DR expense / CR AP) posted for this milestone invoice"
+                      >
+                        Acct Doc
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {/* One aligned row per posted payment. */}
+                {m.payments?.map((p) => (
+                  <tr key={p.payment_id} style={subRowStyle}>
+                    <td style={subIndentTd}>↳</td>
+                    <td style={{ ...subTd, maxWidth: 200 }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)' }}>{p.payment_number}</span>
+                      <span style={{ marginLeft: 8, color: '#64748b' }}>{p.payment_date ? formatDate(p.payment_date) : '—'}</span>
+                      {p.is_advance && <span style={{ marginLeft: 8, fontSize: 10, color: '#b45309' }}>advance</span>}
+                    </td>
+                    <td style={{ ...subTd, textAlign: 'right', fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>
+                      {formatCurrency(Number(p.amount || 0))}
+                    </td>
+                    <td style={subTd} />
+                    <td style={subTd} />
+                    <td style={{ ...subTd, textAlign: 'center' }}>
+                      <span style={statusBadge(p.status)}>{p.status}</span>
+                    </td>
+                    <td style={{ ...subTd, textAlign: 'right' }}>
+                      {p.journal_entry_id != null && (
+                        <button
+                          type="button"
+                          onClick={() => onViewJournal(p.journal_entry_id as number)}
+                          style={acctDocLink}
+                          title="View the disbursement journal (DR AP / CR deductions / CR bank) posted for this payment"
+                        >
+                          Acct Doc
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </>
+            )}
+            </Fragment>
           ))}
         </tbody>
         <tfoot>
           <tr style={milestoneFootRow}>
-            <td style={{ ...td, fontWeight: 800, color: '#0f172a' }} colSpan={2}>
+            <td style={{ ...td, fontWeight: 800, color: 'var(--color-text)' }} colSpan={2}>
               Total ({milestones.length} milestone{milestones.length === 1 ? '' : 's'})
             </td>
             <td style={{
@@ -1394,7 +1565,7 @@ function MilestonesTab({
             }}>
               {totalWeight.toFixed(1)}%
             </td>
-            <td style={{ ...td, fontSize: 10, color: '#64748b' }} colSpan={4}>
+            <td style={{ ...td, fontSize: 10, color: '#64748b' }} colSpan={3}>
               {overValue ? (
                 <span style={{ color: '#b91c1c', fontWeight: 700 }}>
                   ⚠ Exceeds contract sum by {formatCurrency(totalScheduled - contractCeiling)}
@@ -1405,9 +1576,9 @@ function MilestonesTab({
                 </span>
               ) : (
                 <span>
-                  Remaining value: <strong style={{ color: '#0f172a' }}>{formatCurrency(remainingValue)}</strong>
+                  Remaining value: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(remainingValue)}</strong>
                   {' · '}
-                  Remaining weight: <strong style={{ color: '#0f172a' }}>{remainingWeight.toFixed(1)}%</strong>
+                  Remaining weight: <strong style={{ color: 'var(--color-text)' }}>{remainingWeight.toFixed(1)}%</strong>
                 </span>
               )}
             </td>
@@ -1425,13 +1596,38 @@ const milestoneFootRow: React.CSSProperties = {
 };
 
 const milestoneActionsCell: React.CSSProperties = {
-  display: 'inline-flex', gap: 6, justifyContent: 'flex-end',
+  display: 'flex', gap: 6, justifyContent: 'flex-end',
+  flexWrap: 'wrap', alignItems: 'center',
+};
+// Small "Acct Doc" link that opens the GL journal modal from a milestone
+// invoice line or a payment sub-line.
+const acctDocLink: React.CSSProperties = {
+  background: 'none', border: '1px solid #c7d2fe', borderRadius: 4,
+  color: '#4f46e5', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+  padding: '1px 6px', letterSpacing: '0.02em',
+};
+// Nested invoice/payment rows under an INVOICED milestone — cells align to the
+// milestone table columns so amounts/status/actions line up with the row above.
+const subTd: React.CSSProperties = {
+  padding: '5px 14px', fontSize: 12, color: '#64748b',
+  borderBottom: '1px solid var(--color-border)',
+};
+const subRowStyle: React.CSSProperties = { background: '#f8fafc' };
+const subIndentTd: React.CSSProperties = {
+  ...subTd, textAlign: 'center', color: '#94a3b8',
 };
 const milestoneStartBtn: React.CSSProperties = {
   padding: '4px 10px',
   fontSize: 11, fontWeight: 700,
   background: '#fff', color: '#4f46e5',
   border: '1px solid #c7d2fe', borderRadius: 6,
+  cursor: 'pointer',
+};
+const milestoneEditBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '4px 8px', fontSize: 11, fontWeight: 600,
+  background: '#fff', color: '#64748b',
+  border: '1px solid #e2e8f0', borderRadius: 6,
   cursor: 'pointer',
 };
 const milestoneApproveBtn: React.CSSProperties = {
@@ -1450,14 +1646,6 @@ const milestoneApprovedTag: React.CSSProperties = {
   borderRadius: 999,
   textTransform: 'uppercase', letterSpacing: '0.05em',
 };
-const milestoneConvertBtn: React.CSSProperties = {
-  padding: '4px 12px',
-  fontSize: 11, fontWeight: 700,
-  background: '#4f46e5', color: '#fff',
-  border: 'none', borderRadius: 6,
-  cursor: 'pointer',
-  boxShadow: '0 2px 6px rgba(79, 70, 229, 0.25)',
-};
 const milestoneIPCLink: React.CSSProperties = {
   display: 'inline-block',
   padding: '2px 10px',
@@ -1465,6 +1653,7 @@ const milestoneIPCLink: React.CSSProperties = {
   background: '#dbeafe', color: '#1d4ed8',
   borderRadius: 999,
   textTransform: 'uppercase', letterSpacing: '0.05em',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 
 
@@ -1483,6 +1672,9 @@ interface MobilizationRecord {
   payment_voucher_number?: string;
   payment_voucher_status?: string;
   payment_voucher_journal_id?: number | null;
+  // Disbursement journal resolved wherever it posted (PV or the central Payment
+  // that funded it) — the PV's own journal is null under central payment posting.
+  disbursement_journal_id?: number | null;
   payment_date?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -1511,7 +1703,8 @@ function MobilizationTab({
   // as the Revenue Collection detail page — the journal endpoint
   // returns lines with account_code / account_name pre-expanded so
   // we don't need a second lookup for the GL display.
-  const journalId = payment?.payment_voucher_journal_id ?? null;
+  const journalId = payment?.disbursement_journal_id
+    ?? payment?.payment_voucher_journal_id ?? null;
   const { data: journal, isLoading: journalLoading } = useQuery<JournalDetail>({
     queryKey: ['mobilization-journal', journalId],
     queryFn: async () => {
@@ -1721,54 +1914,6 @@ function MobilizationTab({
 }
 
 
-interface IPCsTabProps {
-  ipcs: any[];
-  onOpen: (id: number) => void;
-  formatCurrency: (n: number) => string;
-}
-function IPCsTab({ ipcs, onOpen, formatCurrency }: IPCsTabProps) {
-  if (!ipcs.length) {
-    return (
-      <EmptyState
-        title="No IPCs Raised Yet"
-        description="Interim Payment Certificates capture each progress payment. Raise the first one once site work begins."
-        iconKey="receipt"
-      />
-    );
-  }
-  return (
-    <div style={card({ pad: 0 })}>
-      <table style={dataTable}>
-        <thead>
-          <tr style={tableHeadRow}>
-            <th style={th}>IPC #</th>
-            <th style={{ ...th, textAlign: 'right' }}>Gross</th>
-            <th style={{ ...th, textAlign: 'center' }}>Status</th>
-            <th style={{ ...th, textAlign: 'right' }}>Open</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ipcs.map((i: any) => (
-            <tr key={i.id} style={{ ...tableRow, cursor: 'pointer' }} onClick={() => onOpen(i.id)}>
-              <td style={{ ...td, fontFamily: 'monospace', color: '#4f46e5', fontWeight: 700 }}>
-                {i.ipc_number}
-              </td>
-              <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCurrency(Number(i.this_certificate_gross))}
-              </td>
-              <td style={{ ...td, textAlign: 'center' }}>
-                <span style={statusBadge(i.status)}>{i.status}</span>
-              </td>
-              <td style={{ ...td, textAlign: 'right', color: '#4f46e5' }}>›</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-
 interface VariationsTabProps {
   variations: any[];
   onOpen: (id: number) => void;
@@ -1785,7 +1930,7 @@ function VariationsTab({ variations, onOpen, formatCurrency }: VariationsTabProp
     );
   }
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
@@ -1856,7 +2001,7 @@ function YearPlansTab({ yearPlans, originalSum, formatCurrency }: YearPlansTabPr
   const reconciles = Math.abs(totalPlanned - originalSum) < 0.01;
 
   return (
-    <div style={card({ pad: 0 })}>
+    <div style={{ ...card({ pad: 0 }), overflowX: 'auto' }}>
       <table style={dataTable}>
         <thead>
           <tr style={tableHeadRow}>
@@ -1948,7 +2093,7 @@ function EmptyState({ title, description, action }: EmptyStateProps) {
       <div style={emptyIconBox}>
         <Plus size={28} color="#a5b4fc" />
       </div>
-      <h3 style={{ color: '#0f172a', fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.95rem' }}>
+      <h3 style={{ color: 'var(--color-text)', fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.95rem' }}>
         {title}
       </h3>
       <p style={{ color: '#94a3b8', fontSize: '0.75rem', maxWidth: 320, lineHeight: 1.6, margin: 0 }}>
@@ -1990,16 +2135,31 @@ function StakeholderRow({ initials, name, role, online, muted, rightSlot }: Stak
 }
 
 
-interface ActivityItemProps { title: string; meta: string; accent?: boolean; }
-function ActivityItem({ title, meta, accent }: ActivityItemProps) {
+interface ActivityItemProps { title: string; meta: string; actor?: string; accent?: boolean; }
+function ActivityItem({ title, meta, actor, accent }: ActivityItemProps) {
   return (
     <div style={activityItem}>
       <div style={accent ? activityDotActive : activityDot} />
       <p style={accent ? activityTitleActive : activityTitle}>{title}</p>
-      <p style={activityMeta}>{meta}</p>
+      {meta && <p style={activityMeta}>{meta}</p>}
+      {actor && <p style={activityActor}>{actor}</p>}
     </div>
   );
 }
+
+// Friendly labels for core.AuditLog action codes shown in Recent Activity.
+const ACTION_LABELS: Record<string, string> = {
+  CREATE: 'Created', UPDATE: 'Updated', DELETE: 'Deleted',
+  POST: 'Posted', UNPOST: 'Unposted', APPROVE: 'Approved', REJECT: 'Rejected',
+  CANCEL: 'Cancelled', VOID: 'Voided', CLOSE: 'Closed', OPEN: 'Opened',
+  LOCK: 'Locked', UNLOCK: 'Unlocked', EXPORT: 'Exported', IMPORT: 'Imported',
+};
+const actionLabel = (a: string) => ACTION_LABELS[a] ?? a;
+const prettyModel = (m: string) =>
+  ({ contract: 'Contract', milestoneschedule: 'Milestone',
+     interimpaymentcertificate: 'IPC', contractvariation: 'Variation',
+     mobilizationpayment: 'Mobilization', retentionrelease: 'Retention Release',
+     contractyearplan: 'Year Plan' } as Record<string, string>)[m] || (m || 'Record');
 
 
 // ──────────────────────────────────────────────────────────────────────
@@ -2246,13 +2406,6 @@ const primaryDarkBtnDisabled: React.CSSProperties = {
   ...primaryDarkBtn,
   background: '#cbd5e1', cursor: 'not-allowed', boxShadow: 'none',
 };
-const ipcOriginNote: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600,
-  color: '#475569', fontStyle: 'italic',
-  padding: '0.4rem 0.8rem',
-  background: '#f1f5f9', borderRadius: 6,
-};
-
 // Tables
 const dataTable: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem',
@@ -2327,7 +2480,7 @@ const emptyIconBox: React.CSSProperties = {
 // Right sidebar
 const rightSidebar: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: '2rem',
-  background: '#fff', border: '1px solid #e2e8f0',
+  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
   borderRadius: 16, padding: '1.5rem',
   position: 'sticky', top: 16,
 };
@@ -2340,8 +2493,8 @@ const sidebarSectionRow: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 };
 const pulseCard: React.CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #f1f5f9',
+  background: 'var(--color-surface-hover)',
+  border: '1px solid var(--color-border-light)',
   borderRadius: 16,
   padding: '1rem',
   display: 'flex', flexDirection: 'column', gap: '1rem',
@@ -2354,7 +2507,7 @@ const pulseHeaderRow: React.CSSProperties = {
 };
 const pulseBar: React.CSSProperties = {
   height: 8, width: '100%',
-  background: '#e2e8f0', borderRadius: 999,
+  background: 'var(--color-border)', borderRadius: 999,
   overflow: 'hidden',
 };
 const pulseBarFill: React.CSSProperties = {
@@ -2364,7 +2517,7 @@ const pulseBarFill: React.CSSProperties = {
 };
 const pulseSplit: React.CSSProperties = {
   paddingTop: '1rem',
-  borderTop: '1px solid #e2e8f0',
+  borderTop: '1px solid var(--color-border)',
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
   gap: '1rem',
@@ -2374,15 +2527,15 @@ const pulseSplitLabel: React.CSSProperties = {
   textTransform: 'uppercase', margin: '0 0 2px',
 };
 const pulseSplitValue: React.CSSProperties = {
-  fontSize: 13, fontWeight: 700, color: '#0f172a', margin: 0,
+  fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0,
 };
 
 // Stakeholders
 const stakeholderRow: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '0.75rem',
   padding: '0.75rem',
-  background: '#fff',
-  border: '1px solid #f1f5f9',
+  background: 'var(--color-surface)',
+  border: '1px solid var(--color-border-light)',
   borderRadius: 12,
   boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
 };
@@ -2398,7 +2551,7 @@ const stakeholderAvatarMuted: React.CSSProperties = {
   background: '#f1f5f9', color: '#475569',
 };
 const stakeholderName: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: '#0f172a',
+  fontSize: 11, fontWeight: 700, color: 'var(--color-text)',
   textTransform: 'uppercase', margin: 0,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
@@ -2427,10 +2580,14 @@ const activityTitle: React.CSSProperties = {
   margin: '0 0 2px', lineHeight: 1.3,
 };
 const activityTitleActive: React.CSSProperties = {
-  ...activityTitle, color: '#0f172a',
+  ...activityTitle, color: 'var(--color-text)',
 };
 const activityMeta: React.CSSProperties = {
   fontSize: 10, color: '#94a3b8', fontWeight: 500, margin: 0,
+};
+// "who · when" line under an activity item.
+const activityActor: React.CSSProperties = {
+  fontSize: 10, color: '#4f46e5', fontWeight: 600, margin: '2px 0 0',
 };
 
 const viewAuditBtn: React.CSSProperties = {

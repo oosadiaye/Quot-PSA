@@ -65,7 +65,7 @@ function Section({ label, accent, section }: SectionProps) {
 
     return (
         <div style={{
-            background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1',
+            background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
             padding: '24px', marginBottom: '20px',
         }}>
             <div style={{
@@ -88,7 +88,7 @@ function Section({ label, accent, section }: SectionProps) {
                             display: 'flex', justifyContent: 'space-between',
                             padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc',
                         }}>
-                            <span style={{ fontSize: '13px', color: '#1e293b' }}>{prettify(k)}</span>
+                            <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>{prettify(k)}</span>
                             <span style={{
                                 fontSize: '13px', fontWeight: 600, fontFamily: 'monospace',
                             }}>
@@ -112,10 +112,10 @@ function Section({ label, accent, section }: SectionProps) {
                             display: 'flex', justifyContent: 'space-between',
                             padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc',
                         }}>
-                            <span style={{ fontSize: '13px', color: '#1e293b' }}>{prettify(k)}</span>
+                            <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>{prettify(k)}</span>
                             <span style={{
                                 fontSize: '13px', fontWeight: 600, fontFamily: 'monospace',
-                                color: '#64748b',
+                                color: 'var(--color-text-muted)',
                             }}>
                                 ({fmtNGN(v)})
                             </span>
@@ -160,7 +160,7 @@ export default function CashFlowStatementReport() {
     });
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <style>{`
                 @media print {
                     aside, nav, .no-print { display: none !important; }
@@ -180,10 +180,10 @@ export default function CashFlowStatementReport() {
                     marginBottom: '24px',
                 }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Cash Flow Statement
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             IPSAS 2 — Direct Method (Operating / Investing / Financing)
                         </p>
                     </div>
@@ -193,7 +193,7 @@ export default function CashFlowStatementReport() {
                             onChange={e => setFy(parseInt(e.target.value))}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             {[2024, 2025, 2026, 2027].map(y => (
@@ -205,7 +205,7 @@ export default function CashFlowStatementReport() {
                             onChange={e => setPeriod(e.target.value)}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             <option value="">Full year</option>
@@ -218,7 +218,7 @@ export default function CashFlowStatementReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -233,7 +233,7 @@ export default function CashFlowStatementReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                         Loading...
                     </div>
                 ) : error ? (
@@ -246,7 +246,7 @@ export default function CashFlowStatementReport() {
 
                         {/* Summary reconciliation */}
                         <div style={{
-                            background: '#fff', borderRadius: '12px',
+                            background: 'var(--color-surface)', borderRadius: '12px',
                             border: `2px solid ${data.reconciliation?.reconciles ? '#22c55e' : '#ef4444'}`,
                             padding: '24px',
                         }}>
@@ -281,7 +281,7 @@ export default function CashFlowStatementReport() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: '11px',
+                    color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
                     Quot PSE IFMIS — IPSAS 2 Compliant
                 </div>
@@ -303,14 +303,14 @@ function ReconRow({ label, value, bold, borderTop }: ReconRowProps) {
             <td style={{
                 padding: '10px 0', fontSize: '14px',
                 fontWeight: bold ? 800 : 500,
-                color: '#1e293b',
+                color: 'var(--color-text)',
             }}>
                 {label}
             </td>
             <td style={{
                 padding: '10px 0', textAlign: 'right', fontFamily: 'monospace',
                 fontSize: '14px', fontWeight: bold ? 800 : 600,
-                color: parseFloat(String(value)) < 0 ? '#dc2626' : '#1e293b',
+                color: parseFloat(String(value)) < 0 ? '#dc2626' : 'var(--color-text)',
             }}>
                 {fmtNGN(value)}
             </td>

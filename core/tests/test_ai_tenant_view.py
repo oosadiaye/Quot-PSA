@@ -95,10 +95,43 @@ class StatusFieldExposureTests(SimpleTestCase):
             assert needed in self.fields, needed
 
     def test_everything_is_read_only(self):
-        # There is no tenant-side enable. Writes would have to go through
-        # this serializer, so it declares the whole surface read-only
-        # rather than relying on the view staying GET-only forever.
+        # Enable and disable are their own POST views; they never write
+        # through this serializer. It declares the whole surface read-only
+        # so the status read can't become a mutation path if a field turns
+        # writable later.
         assert set(TenantAIStatusSerializer.Meta.read_only_fields) == self.fields
+
+
+class EnableEndpointWiringTests(SimpleTestCase):
+    """The one write a tenant may make is guarded like the reads are.
+
+    ``ai_enable`` re-enables an already-provisioned capability — the only
+    mutating tenant endpoint. It must stay POST and admin-only; a GET or an
+    unauthenticated caller flipping ``is_active`` would be the same
+    horizontal hole the read scoping guards against. Pinned here so a later
+    refactor can't quietly widen it, in the spirit of the read-only check
+    above.
+    """
+
+    def test_enable_requires_authenticated_tenant_admin(self):
+        from rest_framework.permissions import IsAuthenticated
+
+        from core.permissions import IsTenantAdmin
+        from core.views.ai import ai_enable
+
+        classes = set(ai_enable.cls.permission_classes)
+        assert IsTenantAdmin in classes
+        assert IsAuthenticated in classes
+
+    def test_enable_is_post_only(self):
+        from core.views.ai import ai_enable
+
+        # @api_view(["POST"]) installs a post handler and no get handler, so
+        # a GET can never reach the is_active flip — it 405s before the view
+        # body runs.
+        view = ai_enable.cls
+        assert hasattr(view, "post")
+        assert not hasattr(view, "get")
 
 
 class CallLogFieldExposureTests(SimpleTestCase):

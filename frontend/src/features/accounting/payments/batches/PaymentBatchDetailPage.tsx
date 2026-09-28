@@ -22,11 +22,11 @@ function formatDate(iso: string | null): string {
 }
 
 const th: React.CSSProperties = {
-    padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b',
+    padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)',
     fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em',
-    borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
 };
-const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: '#334155' };
+const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: 'var(--color-text-secondary)' };
 
 const btnBase: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: '6px',
@@ -34,7 +34,7 @@ const btnBase: React.CSSProperties = {
     cursor: 'pointer', fontFamily: 'inherit', border: 'none',
 };
 const ghostBtn: React.CSSProperties = {
-    ...btnBase, border: '1px solid #e2e8f0', background: '#fff', color: '#334155',
+    ...btnBase, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)',
 };
 
 export default function PaymentBatchDetailPage() {
@@ -54,7 +54,7 @@ export default function PaymentBatchDetailPage() {
         return (
             <AccountingLayout>
                 <PageHeader title="Payment Batch" subtitle="Treasury · Bank Payment Letter" />
-                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                     Loading batch…
                 </div>
             </AccountingLayout>
@@ -100,7 +100,7 @@ export default function PaymentBatchDetailPage() {
 
             {/* Header card: status + totals + actions */}
             <div style={{
-                background: '#fff', borderRadius: '12px', padding: '20px',
+                background: 'var(--color-surface)', borderRadius: '12px', padding: '20px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
             }}>
                 <div style={{
@@ -111,7 +111,7 @@ export default function PaymentBatchDetailPage() {
                     <div style={{ flex: 1 }} />
                     <div style={{ textAlign: 'right' }}>
                         <div style={{
-                            fontSize: '11px', fontWeight: 700, color: '#94a3b8',
+                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)',
                             textTransform: 'uppercase', letterSpacing: '0.05em',
                         }}>Total</div>
                         <div style={{ fontSize: '24px', fontWeight: 800, color: '#dc2626' }}>
@@ -122,16 +122,16 @@ export default function PaymentBatchDetailPage() {
 
                 <div style={{
                     display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))',
-                    gap: '14px', paddingTop: '16px', borderTop: '1px solid #f1f5f9',
+                    gap: '14px', paddingTop: '16px', borderTop: '1px solid var(--color-border-light)',
                 }}>
                     {meta.map((m) => (
                         <div key={m.label}>
                             <div style={{
-                                fontSize: '11px', fontWeight: 700, color: '#94a3b8',
+                                fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)',
                                 textTransform: 'uppercase', letterSpacing: '0.05em',
                             }}>{m.label}</div>
                             <div style={{
-                                fontSize: '14px', color: '#0f172a', fontWeight: 600,
+                                fontSize: '14px', color: 'var(--color-text)', fontWeight: 600,
                                 marginTop: '3px',
                                 fontFamily: m.mono ? 'monospace' : 'inherit',
                             }}>{m.value}</div>
@@ -141,7 +141,7 @@ export default function PaymentBatchDetailPage() {
 
                 <div style={{
                     display: 'flex', gap: '10px', flexWrap: 'wrap',
-                    paddingTop: '18px', marginTop: '16px', borderTop: '1px solid #f1f5f9',
+                    paddingTop: '18px', marginTop: '16px', borderTop: '1px solid var(--color-border-light)',
                 }}>
                     <button
                         style={ghostBtn}
@@ -187,21 +187,21 @@ export default function PaymentBatchDetailPage() {
 
             {/* Lines */}
             <div style={{
-                background: '#fff', borderRadius: '12px',
+                background: 'var(--color-surface)', borderRadius: '12px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', overflow: 'hidden',
             }}>
                 <div style={{ padding: '18px 20px' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                         Letter Lines
                     </h3>
-                    <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+                    <p style={{ margin: '3px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                         Payee details are frozen as at the moment each payment was added
                     </p>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {['S/N', 'Vendor Name', 'Bank', 'Account', 'Purpose', 'Amount']
                                     .map(h => (
                                         <th key={h} style={{
@@ -214,15 +214,15 @@ export default function PaymentBatchDetailPage() {
                         <tbody>
                             {lines.length === 0 && (
                                 <tr><td colSpan={isDraft ? 7 : 6} style={{
-                                    ...td, textAlign: 'center', padding: '36px', color: '#94a3b8',
+                                    ...td, textAlign: 'center', padding: '36px', color: 'var(--color-text-subtle)',
                                 }}>No lines on this batch.</td></tr>
                             )}
                             {lines.map((line: PaymentBatchLine) => (
-                                <tr key={line.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ ...td, width: '56px', color: '#94a3b8' }}>
+                                <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                    <td style={{ ...td, width: '56px', color: 'var(--color-text-subtle)' }}>
                                         {line.sequence}
                                     </td>
-                                    <td style={{ ...td, fontWeight: 600, color: '#0f172a' }}>
+                                    <td style={{ ...td, fontWeight: 600, color: 'var(--color-text)' }}>
                                         {line.payee_name}
                                     </td>
                                     <td style={td}>{line.payee_bank}</td>
@@ -259,9 +259,9 @@ export default function PaymentBatchDetailPage() {
                         </tbody>
                         {lines.length > 0 && (
                             <tfoot>
-                                <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderTop: '2px solid var(--color-border)' }}>
                                     <td colSpan={5} style={{
-                                        ...td, fontWeight: 700, color: '#0f172a',
+                                        ...td, fontWeight: 700, color: 'var(--color-text)',
                                     }}>Total</td>
                                     <td style={{
                                         ...td, textAlign: 'right', fontWeight: 800, color: '#dc2626',

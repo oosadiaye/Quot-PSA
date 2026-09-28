@@ -1,8 +1,13 @@
-import { App as AntApp, Button, Card, Form, Input, Typography } from 'antd';
+import { App as AntApp, Button, Card, Form, Input } from 'antd';
 import { useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { FileText } from 'lucide-react';
 import apiClient from '../../api/client';
 import { useBankLetterSettings } from '../accounting/hooks/usePaymentBatches';
+import SettingsLayout from './SettingsLayout';
+
+const SUBTITLE =
+  'Letterhead and signatories for the bank payment/confirmation letter. These are separate from the warrant printout settings.';
 
 export default function BankLetterSettingsPage() {
   const [form] = Form.useForm();
@@ -22,16 +27,24 @@ export default function BankLetterSettingsPage() {
     onError: () => message.error('Could not save settings'),
   });
 
-  if (isLoading) return <div style={{ padding: 24 }}>Loading…</div>;
+  const layoutProps = {
+    title: 'Bank Letter Settings',
+    breadcrumb: 'Bank Letter',
+    subtitle: SUBTITLE,
+    icon: <FileText size={22} color="white" />,
+    maxWidth: '760px',
+  } as const;
+
+  if (isLoading) {
+    return (
+      <SettingsLayout {...layoutProps}>
+        <div style={{ padding: 24, color: 'var(--color-text-muted)' }}>Loading…</div>
+      </SettingsLayout>
+    );
+  }
 
   return (
-    <div style={{ padding: 24, maxWidth: 760 }}>
-      <Typography.Title level={3}>Bank Letter Settings</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Letterhead and signatories for the bank payment/confirmation letter.
-        These are separate from the warrant printout settings.
-      </Typography.Paragraph>
-
+    <SettingsLayout {...layoutProps}>
       <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
         <Card size="small" title="Letterhead" style={{ marginBottom: 16 }}>
           <Form.Item name="ministry_name" label="Ministry"><Input /></Form.Item>
@@ -56,6 +69,6 @@ export default function BankLetterSettingsPage() {
 
         <Button type="primary" htmlType="submit" loading={save.isPending}>Save settings</Button>
       </Form>
-    </div>
+    </SettingsLayout>
   );
 }

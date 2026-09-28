@@ -16,7 +16,7 @@ from .views.organization import (
     sync_from_ncoa,
 )
 from .views.audit import AuditLogListView
-from .views.ai import ai_status, ai_calls, ai_disable_all
+from .views.ai import ai_status, ai_calls, ai_disable_all, ai_enable
 from .views.gateway import gateway_status, gateway_enable, gateway_disable_all
 from .views.notifications import NotificationViewSet
 # S6-04 — MFA endpoints.
@@ -110,6 +110,7 @@ urlpatterns = [
     path('ai/status/', ai_status, name='tenant-ai-status'),
     path('ai/calls/', ai_calls, name='tenant-ai-calls'),
     path('ai/disable-all/', ai_disable_all, name='tenant-ai-disable-all'),
+    path('ai/enable/', ai_enable, name='tenant-ai-enable'),
     # E-payment (gateway) — tenant enable/status/disable. Collections
     # (gateways/collect) are deferred to a later sub-project.
     path('gateways/status/', gateway_status, name='tenant-gateway-status'),

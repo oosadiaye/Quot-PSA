@@ -88,7 +88,7 @@ export default function FiscalYearAdminPage() {
     };
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
@@ -97,12 +97,12 @@ export default function FiscalYearAdminPage() {
                 }}>
                     <div>
                         <h1 style={{
-                            fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
+                            fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0,
                             display: 'flex', alignItems: 'center', gap: 10,
                         }}>
                             <Calendar size={22} /> Fiscal Years
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                             Create, review, and close fiscal years. Closing posts the
                             year-end journal and locks all child periods.
                         </p>
@@ -122,11 +122,11 @@ export default function FiscalYearAdminPage() {
 
                 {creating && (
                     <div style={{
-                        background: '#fff', borderRadius: 12, padding: 20,
-                        border: '1px solid #e8ecf1', marginBottom: 20,
+                        background: 'var(--color-surface)', borderRadius: 12, padding: 20,
+                        border: '1px solid var(--color-border)', marginBottom: 20,
                     }}>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                            <label style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
                                 Year:
                             </label>
                             <input
@@ -135,7 +135,7 @@ export default function FiscalYearAdminPage() {
                                 onChange={e => setYear(parseInt(e.target.value) || 0)}
                                 style={{
                                     padding: '6px 12px', borderRadius: 6,
-                                    border: '1px solid #e2e8f0', fontSize: 14, width: 120,
+                                    border: '1px solid var(--color-border)', fontSize: 14, width: 120,
                                 }}
                             />
                             <button
@@ -153,8 +153,8 @@ export default function FiscalYearAdminPage() {
                                 onClick={() => setCreating(false)}
                                 style={{
                                     padding: '6px 16px', borderRadius: 6,
-                                    border: '1px solid #e2e8f0',
-                                    background: '#fff', color: '#64748b', cursor: 'pointer',
+                                    border: '1px solid var(--color-border)',
+                                    background: 'var(--color-surface)', color: 'var(--color-text-muted)', cursor: 'pointer',
                                     fontSize: 13,
                                 }}
                             >
@@ -170,25 +170,25 @@ export default function FiscalYearAdminPage() {
                 )}
 
                 <div style={{
-                    background: '#fff', borderRadius: 12,
-                    border: '1px solid #e8ecf1', overflow: 'hidden',
+                    background: 'var(--color-surface)', borderRadius: 12,
+                    border: '1px solid var(--color-border)', overflow: 'hidden',
                 }}>
                     {isLoading ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             Loading…
                         </div>
                     ) : !data || data.length === 0 ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             No fiscal years yet. Click "New Fiscal Year" to create one.
                         </div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['Year', 'Name', 'Period', 'Status', 'Active', 'Closed', 'Actions'].map(h => (
                                         <th key={h} style={{
                                             padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                            fontWeight: 700, color: '#64748b',
+                                            fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>{h}</th>
                                     ))}
@@ -199,10 +199,10 @@ export default function FiscalYearAdminPage() {
                                     .slice()
                                     .sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
                                     .map(fy => (
-                                    <tr key={fy.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={fy.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 15,
-                                            fontWeight: 800, color: '#1e293b',
+                                            fontWeight: 800, color: 'var(--color-text)',
                                         }}>
                                             {fy.year}
                                         </td>
@@ -211,7 +211,7 @@ export default function FiscalYearAdminPage() {
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 12,
-                                            color: '#64748b', fontFamily: 'monospace',
+                                            color: 'var(--color-text-muted)', fontFamily: 'monospace',
                                         }}>
                                             {formatDate(fy.start_date)} → {formatDate(fy.end_date)}
                                         </td>
@@ -223,7 +223,7 @@ export default function FiscalYearAdminPage() {
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 12,
-                                            color: '#64748b', fontFamily: 'monospace',
+                                            color: 'var(--color-text-muted)', fontFamily: 'monospace',
                                         }}>
                                             {fy.closed_date
                                                 ? formatDate(fy.closed_date)
@@ -266,7 +266,7 @@ export default function FiscalYearAdminPage() {
                                                 </button>
                                             ) : (
                                                 <span style={{
-                                                    fontSize: 11, color: '#94a3b8',
+                                                    fontSize: 11, color: 'var(--color-text-subtle)',
                                                     fontStyle: 'italic',
                                                 }}>
                                                     Locked
@@ -302,7 +302,7 @@ function StatusPill({ status }: { status: string }) {
     const meta: Record<string, { bg: string; border: string; color: string }> = {
         Open:   { bg: '#f0fdf4', border: '#86efac', color: '#166534' },
         Closed: { bg: '#fffbeb', border: '#fcd34d', color: '#92400e' },
-        Locked: { bg: '#f1f5f9', border: '#cbd5e1', color: '#64748b' },
+        Locked: { bg: 'var(--color-surface-hover)', border: '#cbd5e1', color: 'var(--color-text-muted)' },
     };
     const m = meta[status] ?? meta.Open;
     return (

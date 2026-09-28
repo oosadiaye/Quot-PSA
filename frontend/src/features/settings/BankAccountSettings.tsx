@@ -43,20 +43,20 @@ const initialFormData: BankAccountFormData = {
 
 // ── Design-system style tokens ──────────────────────────────────
 const cardStyle: React.CSSProperties = {
-    background: 'white',
+    background: 'var(--color-surface)',
     borderRadius: '20px',
     padding: '28px 32px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--color-border)',
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
 const inp: React.CSSProperties = {
     width: '100%',
     padding: '10px 14px',
-    border: '1.5px solid #e2e8f0',
+    border: '1.5px solid var(--color-border)',
     borderRadius: '12px',
-    background: '#f8fafc',
-    color: '#0f172a',
+    background: 'var(--color-surface-hover)',
+    color: 'var(--color-text)',
     fontSize: '14px',
     fontFamily: 'inherit',
     outline: 'none',
@@ -87,9 +87,9 @@ const btnOutline: React.CSSProperties = {
     alignItems: 'center',
     gap: '6px',
     padding: '10px 20px',
-    background: 'white',
-    color: '#374151',
-    border: '1.5px solid #e2e8f0',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text)',
+    border: '1.5px solid var(--color-border)',
     borderRadius: '12px',
     fontSize: '14px',
     fontWeight: 600,
@@ -226,7 +226,7 @@ export default function BankAccountSettings() {
                 <div style={{ position: 'relative', flex: 1, maxWidth: '300px' }}>
                     <Search size={15} style={{
                         position: 'absolute', left: '14px', top: '50%',
-                        transform: 'translateY(-50%)', color: '#94a3b8',
+                        transform: 'translateY(-50%)', color: 'var(--color-text-subtle)',
                         pointerEvents: 'none',
                     }} />
                     <input
@@ -240,7 +240,7 @@ export default function BankAccountSettings() {
 
                 {/* Filter */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Filter size={15} style={{ color: '#94a3b8' }} />
+                    <Filter size={15} style={{ color: 'var(--color-text-subtle)' }} />
                     <select
                         style={{ ...selectStyle, width: 'auto', minWidth: '180px' }}
                         value={filterType}
@@ -264,14 +264,14 @@ export default function BankAccountSettings() {
             <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr style={{ borderBottom: '1.5px solid #e2e8f0' }}>
+                        <tr style={{ borderBottom: '1.5px solid var(--color-border)' }}>
                             {['Account', 'Type', 'GL Account', 'Currency', 'Opening Balance', 'Status', 'Actions'].map((h, i) => (
                                 <th key={h} style={{
                                     padding: '14px 20px',
                                     fontSize: '11px', fontWeight: 700,
                                     textTransform: 'uppercase', letterSpacing: '0.6px',
-                                    color: '#64748b',
-                                    background: '#f8fafc',
+                                    color: 'var(--color-text-muted)',
+                                    background: 'var(--color-surface-hover)',
                                     textAlign: i === 4 ? 'right' : i === 6 ? 'center' : 'left',
                                 }}>{h}</th>
                             ))}
@@ -280,35 +280,35 @@ export default function BankAccountSettings() {
                     <tbody>
                         {filteredAccounts.length === 0 ? (
                             <tr>
-                                <td colSpan={7} style={{ padding: '56px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                                <td colSpan={7} style={{ padding: '56px 20px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                                     <CreditCard size={40} style={{ margin: '0 auto 12px', opacity: 0.25, display: 'block' }} />
-                                    <p style={{ fontWeight: 500, margin: '0 0 4px', color: '#64748b' }}>No bank accounts found.</p>
-                                    <p style={{ fontSize: '12px', margin: 0, color: '#94a3b8' }}>Click "Add Account" to create one.</p>
+                                    <p style={{ fontWeight: 500, margin: '0 0 4px', color: 'var(--color-text-muted)' }}>No bank accounts found.</p>
+                                    <p style={{ fontSize: '12px', margin: 0, color: 'var(--color-text-subtle)' }}>Click "Add Account" to create one.</p>
                                 </td>
                             </tr>
                         ) : filteredAccounts.map((account: any) => (
                             <tr
                                 key={account.id}
-                                style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}
-                                onMouseOver={e => (e.currentTarget.style.background = '#f8fafc')}
+                                style={{ borderBottom: '1px solid var(--color-border-light)', transition: 'background 0.15s' }}
+                                onMouseOver={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                 onMouseOut={e => (e.currentTarget.style.background = '')}
                             >
                                 <td style={{ padding: '14px 20px' }}>
-                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px' }}>{account.name}</div>
-                                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{account.account_number}</div>
+                                    <div style={{ fontWeight: 600, color: 'var(--color-text)', fontSize: '14px' }}>{account.name}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>{account.account_number}</div>
                                 </td>
                                 <td style={{ padding: '14px 20px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: '#475569' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
                                         {getAccountTypeIcon(account.account_type)}
                                         {account.account_type}
                                     </div>
                                 </td>
                                 <td style={{ padding: '14px 20px' }}>
-                                    <div style={{ fontFamily: 'monospace', fontSize: '14px', color: '#0f172a' }}>{account.gl_account_code}</div>
-                                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{account.gl_account_name}</div>
+                                    <div style={{ fontFamily: 'monospace', fontSize: '14px', color: 'var(--color-text)' }}>{account.gl_account_code}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', marginTop: '2px' }}>{account.gl_account_name}</div>
                                 </td>
-                                <td style={{ padding: '14px 20px', fontSize: '14px', color: '#475569' }}>{account.currency_code}</td>
-                                <td style={{ padding: '14px 20px', textAlign: 'right', fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
+                                <td style={{ padding: '14px 20px', fontSize: '14px', color: 'var(--color-text-secondary)' }}>{account.currency_code}</td>
+                                <td style={{ padding: '14px 20px', textAlign: 'right', fontWeight: 600, fontSize: '14px', color: 'var(--color-text)' }}>
                                     {parseFloat(account.opening_balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
                                 <td style={{ padding: '14px 20px' }}>
@@ -316,7 +316,7 @@ export default function BankAccountSettings() {
                                         padding: '4px 10px', borderRadius: '20px',
                                         fontSize: '11px', fontWeight: 600,
                                         background: account.is_active ? 'rgba(22,163,74,0.1)' : 'rgba(107,114,128,0.1)',
-                                        color: account.is_active ? '#16a34a' : '#94a3b8',
+                                        color: account.is_active ? '#16a34a' : 'var(--color-text-subtle)',
                                     }}>
                                         {account.is_active ? 'Active' : 'Inactive'}
                                     </span>
@@ -333,11 +333,11 @@ export default function BankAccountSettings() {
                                         onClick={() => handleOpenDrawer(account)}
                                         style={{
                                             background: 'none', border: 'none', cursor: 'pointer',
-                                            color: '#94a3b8', padding: '6px', borderRadius: '8px',
+                                            color: 'var(--color-text-subtle)', padding: '6px', borderRadius: '8px',
                                             marginRight: '4px', transition: 'color 0.15s, background 0.15s',
                                         }}
                                         onMouseOver={e => { e.currentTarget.style.color = '#6366f1'; e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; }}
-                                        onMouseOut={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = 'var(--color-text-subtle)'; e.currentTarget.style.background = 'none'; }}
                                         title="Edit"
                                     >
                                         <Pencil size={15} />
@@ -346,11 +346,11 @@ export default function BankAccountSettings() {
                                         onClick={() => handleDelete(account.id)}
                                         style={{
                                             background: 'none', border: 'none', cursor: 'pointer',
-                                            color: '#94a3b8', padding: '6px', borderRadius: '8px',
+                                            color: 'var(--color-text-subtle)', padding: '6px', borderRadius: '8px',
                                             transition: 'color 0.15s, background 0.15s',
                                         }}
                                         onMouseOver={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
-                                        onMouseOut={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.background = 'none'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = 'var(--color-text-subtle)'; e.currentTarget.style.background = 'none'; }}
                                         title="Delete"
                                     >
                                         <Trash2 size={15} />
@@ -383,7 +383,7 @@ export default function BankAccountSettings() {
                     {/* Drawer panel */}
                     <div style={{
                         width: '540px',
-                        background: 'white',
+                        background: 'var(--color-surface)',
                         boxShadow: '-12px 0 48px rgba(0,0,0,0.12)',
                         display: 'flex',
                         flexDirection: 'column',
@@ -392,7 +392,7 @@ export default function BankAccountSettings() {
                         {/* Drawer header */}
                         <div style={{
                             padding: '24px 28px',
-                            borderBottom: '1px solid #e2e8f0',
+                            borderBottom: '1px solid var(--color-border)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -408,10 +408,10 @@ export default function BankAccountSettings() {
                                     <CreditCard size={18} style={{ color: 'white' }} />
                                 </div>
                                 <div>
-                                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
                                         {editingId ? 'Edit Bank Account' : 'Add Bank Account'}
                                     </h3>
-                                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--color-text-subtle)' }}>
                                         {editingId ? 'Update account details below' : 'Fill in the details to create a new account'}
                                     </p>
                                 </div>
@@ -419,13 +419,13 @@ export default function BankAccountSettings() {
                             <button
                                 onClick={handleCloseDrawer}
                                 style={{
-                                    background: '#f1f5f9', border: 'none', cursor: 'pointer',
-                                    color: '#64748b', padding: '8px', borderRadius: '10px',
+                                    background: 'var(--color-surface-hover)', border: 'none', cursor: 'pointer',
+                                    color: 'var(--color-text-muted)', padding: '8px', borderRadius: '10px',
                                     display: 'flex', alignItems: 'center',
                                     transition: 'background 0.15s',
                                 }}
-                                onMouseOver={e => (e.currentTarget.style.background = '#e2e8f0')}
-                                onMouseOut={e => (e.currentTarget.style.background = '#f1f5f9')}
+                                onMouseOver={e => (e.currentTarget.style.background = 'var(--color-border)')}
+                                onMouseOut={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                             >
                                 <X size={18} />
                             </button>
@@ -452,7 +452,7 @@ export default function BankAccountSettings() {
 
                                 {/* Section: Core Info */}
                                 <p style={{
-                                    fontSize: '10px', fontWeight: 700, color: '#94a3b8',
+                                    fontSize: '10px', fontWeight: 700, color: 'var(--color-text-subtle)',
                                     textTransform: 'uppercase', letterSpacing: '0.8px',
                                     marginBottom: '16px', marginTop: 0,
                                 }}>
@@ -549,11 +549,11 @@ export default function BankAccountSettings() {
                                 </div>
 
                                 {/* Divider */}
-                                <div style={{ borderTop: '1px solid #e2e8f0', margin: '4px 0 20px' }} />
+                                <div style={{ borderTop: '1px solid var(--color-border)', margin: '4px 0 20px' }} />
 
                                 {/* Section: Bank Details */}
                                 <p style={{
-                                    fontSize: '10px', fontWeight: 700, color: '#94a3b8',
+                                    fontSize: '10px', fontWeight: 700, color: 'var(--color-text-subtle)',
                                     textTransform: 'uppercase', letterSpacing: '0.8px',
                                     marginBottom: '16px', marginTop: 0,
                                 }}>
@@ -617,9 +617,9 @@ export default function BankAccountSettings() {
                                 }}>
                                     <label style={{
                                         display: 'flex', alignItems: 'center', gap: '10px',
-                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: '#0f172a',
+                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--color-text)',
                                         padding: '12px 16px', borderRadius: '12px',
-                                        background: '#f8fafc', border: '1px solid #e2e8f0',
+                                        background: 'var(--color-surface-hover)', border: '1px solid var(--color-border)',
                                     }}>
                                         <input type="checkbox" checked={formData.is_active}
                                             onChange={e => setFormData({ ...formData, is_active: e.target.checked })} />
@@ -627,9 +627,9 @@ export default function BankAccountSettings() {
                                     </label>
                                     <label style={{
                                         display: 'flex', alignItems: 'center', gap: '10px',
-                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: '#0f172a',
+                                        cursor: 'pointer', fontSize: '14px', fontWeight: 500, color: 'var(--color-text)',
                                         padding: '12px 16px', borderRadius: '12px',
-                                        background: '#f8fafc', border: '1px solid #e2e8f0',
+                                        background: 'var(--color-surface-hover)', border: '1px solid var(--color-border)',
                                     }}>
                                         <input type="checkbox" checked={formData.is_default}
                                             onChange={e => setFormData({ ...formData, is_default: e.target.checked })} />
@@ -642,10 +642,10 @@ export default function BankAccountSettings() {
                             {/* Drawer footer */}
                             <div style={{
                                 padding: '16px 28px',
-                                borderTop: '1px solid #e2e8f0',
+                                borderTop: '1px solid var(--color-border)',
                                 display: 'flex', gap: '10px', justifyContent: 'flex-end',
                                 flexShrink: 0,
-                                background: 'white',
+                                background: 'var(--color-surface)',
                             }}>
                                 <button type="button" onClick={handleCloseDrawer} style={btnOutline}>
                                     Cancel

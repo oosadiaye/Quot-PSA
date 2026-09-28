@@ -127,7 +127,7 @@ const IPCList = () => {
                                 fontFamily: 'inherit',
                                 outline: 'none',
                                 minWidth: 200,
-                                color: status ? '#0b1320' : '#94a3b8',
+                                color: status ? 'var(--color-text)' : '#94a3b8',
                             }}
                         >
                             <option value="">All statuses</option>
@@ -175,8 +175,8 @@ const IPCList = () => {
                             color: '#64748b',
                         }}
                     >
-                        Showing <strong style={{ color: '#0b1320' }}>{rows.length}</strong> of{' '}
-                        <strong style={{ color: '#0b1320' }}>{data.count}</strong> IPCs
+                        Showing <strong style={{ color: 'var(--color-text)' }}>{rows.length}</strong> of{' '}
+                        <strong style={{ color: 'var(--color-text)' }}>{data.count}</strong> IPCs
                     </div>
                 )}
             </SectionCard>

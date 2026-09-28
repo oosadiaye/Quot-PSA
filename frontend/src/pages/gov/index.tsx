@@ -504,13 +504,13 @@ export const AppropriationList = () => {
     // semantic tint so an auditor can scan the column at a glance.
     const statusStyle = (s: string): { bg: string; fg: string } => {
         const k = (s || '').toUpperCase();
-        if (k === 'DRAFT') return { bg: '#f1f5f9', fg: '#475569' };
+        if (k === 'DRAFT') return { bg: 'var(--color-surface-hover)', fg: '#475569' };
         if (k === 'PENDING') return { bg: '#fef3c7', fg: '#92400e' };
         if (k === 'APPROVED') return { bg: '#dbeafe', fg: '#1e40af' };
         if (k === 'ACTIVE') return { bg: '#dcfce7', fg: '#166534' };
         if (k === 'CLOSED') return { bg: '#fee2e2', fg: '#991b1b' };
         if (k === 'REVISED') return { bg: '#ede9fe', fg: '#5b21b6' };
-        return { bg: '#f1f5f9', fg: '#475569' };
+        return { bg: 'var(--color-surface-hover)', fg: '#475569' };
     };
 
     // Download the CSV template from the backend (single source of truth —
@@ -636,12 +636,12 @@ export const AppropriationList = () => {
                 }}>
                     <div style={{ flex: '1 1 320px', minWidth: 280 }}>
                         <h1 style={{
-                            fontSize: 22, fontWeight: 700, color: '#0f172a',
+                            fontSize: 22, fontWeight: 700, color: 'var(--color-text)',
                             margin: 0, lineHeight: 1.2,
                         }}>
                             {pageTitle}
                         </h1>
-                        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+                        <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--color-text-muted)' }}>
                             {pageSubtitle}
                         </p>
                     </div>
@@ -664,7 +664,7 @@ export const AppropriationList = () => {
 
                 {/* ── Filter strip ──────────────────────────────── */}
                 <div style={{
-                    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10,
+                    background: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', borderRadius: 10,
                     padding: '14px 18px', marginBottom: 18,
                     display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end',
                 }}>
@@ -707,7 +707,7 @@ export const AppropriationList = () => {
                                 width: '100%', padding: '0.55rem 0.75rem',
                                 border: '1px solid #cbd5e1', borderRadius: 8,
                                 fontSize: 13, fontFamily: 'var(--font-mono, monospace)',
-                                background: '#fff', color: '#0f172a',
+                                background: 'var(--color-surface)', color: 'var(--color-text)',
                             }}
                         />
                     </div>
@@ -718,8 +718,8 @@ export const AppropriationList = () => {
                         data-testid="budget-code-go"
                         style={{
                             padding: '0.55rem 1rem',
-                            background: budgetCodeQuery.trim() ? '#4f46e5' : '#fff',
-                            color: budgetCodeQuery.trim() ? '#fff' : '#94a3b8',
+                            background: budgetCodeQuery.trim() ? '#4f46e5' : 'var(--color-surface)',
+                            color: budgetCodeQuery.trim() ? '#fff' : 'var(--color-text-subtle)',
                             border: `1px solid ${budgetCodeQuery.trim() ? '#4f46e5' : '#cbd5e1'}`,
                             borderRadius: 8, fontSize: 13, fontWeight: 600,
                             cursor: budgetCodeQuery.trim() ? 'pointer' : 'not-allowed',
@@ -733,7 +733,7 @@ export const AppropriationList = () => {
                             onClick={() => setFilterMdaId('')}
                             style={{
                                 padding: '0.55rem 1rem',
-                                background: '#fff', color: '#475569',
+                                background: 'var(--color-surface)', color: 'var(--color-text-secondary)',
                                 border: '1px solid #cbd5e1', borderRadius: 8,
                                 fontSize: 13, fontWeight: 600, cursor: 'pointer',
                             }}
@@ -763,13 +763,13 @@ export const AppropriationList = () => {
                     a tooltip explaining why. */}
                 {selectedRollupIds.size > 0 && (
                     <div style={{
-                        background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8,
+                        background: 'var(--color-surface-hover)', border: '1px solid #cbd5e1', borderRadius: 8,
                         padding: '10px 14px', marginBottom: 12,
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap',
                     }}>
-                        <span style={{ fontSize: 13, color: '#0f172a', fontWeight: 600 }}>
+                        <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
                             {selectedRollupIds.size} MDA budget{selectedRollupIds.size === 1 ? '' : 's'} selected
-                            <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>
+                            <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', marginLeft: 8 }}>
                                 ({selectedDraftIds.length} Draft · {selectedApprovableIds.length} Approvable · {selectedActivatableIds.length} Activatable)
                             </span>
                         </span>
@@ -788,8 +788,8 @@ export const AppropriationList = () => {
                                     : `Approve ${selectedApprovableIds.length} line${selectedApprovableIds.length === 1 ? '' : 's'}`}
                                 style={{
                                     ...toolbarBtnStyle, padding: '0.4rem 0.8rem',
-                                    background: selectedApprovableIds.length === 0 ? '#e2e8f0' : '#2563eb',
-                                    color: selectedApprovableIds.length === 0 ? '#94a3b8' : '#fff',
+                                    background: selectedApprovableIds.length === 0 ? 'var(--color-border)' : '#2563eb',
+                                    color: selectedApprovableIds.length === 0 ? 'var(--color-text-subtle)' : '#fff',
                                     border: 'none',
                                     cursor: selectedApprovableIds.length === 0 ? 'not-allowed' : 'pointer',
                                 }}
@@ -804,8 +804,8 @@ export const AppropriationList = () => {
                                     : `Activate ${selectedActivatableIds.length} line${selectedActivatableIds.length === 1 ? '' : 's'}`}
                                 style={{
                                     ...toolbarBtnStyle, padding: '0.4rem 0.8rem',
-                                    background: selectedActivatableIds.length === 0 ? '#e2e8f0' : '#15803d',
-                                    color: selectedActivatableIds.length === 0 ? '#94a3b8' : '#fff',
+                                    background: selectedActivatableIds.length === 0 ? 'var(--color-border)' : '#15803d',
+                                    color: selectedActivatableIds.length === 0 ? 'var(--color-text-subtle)' : '#fff',
                                     border: 'none',
                                     cursor: selectedActivatableIds.length === 0 ? 'not-allowed' : 'pointer',
                                 }}
@@ -820,8 +820,8 @@ export const AppropriationList = () => {
                                     : `Delete ${selectedDraftIds.length} draft line${selectedDraftIds.length === 1 ? '' : 's'}`}
                                 style={{
                                     ...toolbarBtnStyle, padding: '0.4rem 0.8rem',
-                                    background: selectedDraftIds.length === 0 ? '#e2e8f0' : '#dc2626',
-                                    color: selectedDraftIds.length === 0 ? '#94a3b8' : '#fff',
+                                    background: selectedDraftIds.length === 0 ? 'var(--color-border)' : '#dc2626',
+                                    color: selectedDraftIds.length === 0 ? 'var(--color-text-subtle)' : '#fff',
                                     border: 'none',
                                     cursor: selectedDraftIds.length === 0 ? 'not-allowed' : 'pointer',
                                 }}
@@ -834,15 +834,15 @@ export const AppropriationList = () => {
 
                 {/* ── Rollup table card ───────────────────────── */}
                 <div style={{
-                    background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                    background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10,
                     overflow: 'hidden', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                 }}>
                     <div style={{
-                        padding: '14px 18px', borderBottom: '1px solid #e2e8f0',
-                        background: '#fff', fontSize: 14, fontWeight: 600, color: '#0f172a',
+                        padding: '14px 18px', borderBottom: '1px solid var(--color-border)',
+                        background: 'var(--color-surface)', fontSize: 14, fontWeight: 600, color: 'var(--color-text)',
                     }}>
                         Budget by MDA
-                        <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400, marginLeft: 8 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 400, marginLeft: 8 }}>
                             ({rollupRows.length} {rollupRows.length === 1 ? 'MDA' : 'MDAs'})
                         </span>
                     </div>
@@ -850,7 +850,7 @@ export const AppropriationList = () => {
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '1px solid var(--color-border)' }}>
                                     <th style={{ ...thStyle, width: 36 }}>
                                         <input
                                             type="checkbox"
@@ -881,10 +881,10 @@ export const AppropriationList = () => {
                             </thead>
                             <tbody>
                                 {isLoading && (
-                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>Loading…</td></tr>
+                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading…</td></tr>
                                 )}
                                 {!isLoading && rollupRows.length === 0 && (
-                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                         No appropriations found for the selected fiscal year.
                                     </td></tr>
                                 )}
@@ -910,13 +910,13 @@ export const AppropriationList = () => {
                                             key={r.id}
                                             onClick={() => onRollupRowClick(r)}
                                             style={{
-                                                borderBottom: '1px solid #f1f5f9',
+                                                borderBottom: '1px solid var(--color-border-light)',
                                                 cursor: 'pointer',
-                                                background: isSelected ? '#fef2f2' : '#fff',
+                                                background: isSelected ? '#fef2f2' : 'var(--color-surface)',
                                                 transition: 'background 80ms ease',
                                             }}
-                                            onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#f8fafc'; }}
-                                            onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#fff'; }}
+                                            onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--color-surface-hover)'; }}
+                                            onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--color-surface)'; }}
                                         >
                                             <td style={{ ...tdStyle, width: 36 }} onClick={(e) => e.stopPropagation()}>
                                                 <input
@@ -935,22 +935,22 @@ export const AppropriationList = () => {
                                                 <span style={{ color: '#1e40af', fontWeight: 600 }}>{r.mda_code || '—'}</span>
                                             </td>
                                             <td style={tdStyle}>{r.mda_name || '—'}</td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#475569' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)' }}>
                                                 {r.appropriation_count}
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#0f172a', fontWeight: 600 }}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text)', fontWeight: 600 }}>
                                                 {fmtNaira(approved)}
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: committed > 0 ? '#d97706' : '#94a3b8' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: committed > 0 ? '#d97706' : 'var(--color-text-subtle)' }}>
                                                 {fmtNaira(committed)}
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: expended > 0 ? '#dc2626' : '#94a3b8' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: expended > 0 ? '#dc2626' : 'var(--color-text-subtle)' }}>
                                                 {fmtNaira(expended)}
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d', fontWeight: 600 }}>
                                                 {fmtNaira(available)}
                                             </td>
-                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#475569' }}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)' }}>
                                                 {exec.toFixed(1)}%
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'center' }}>
@@ -979,38 +979,38 @@ export const AppropriationList = () => {
 const toolbarBtnStyle: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     padding: '0.55rem 1.1rem',
-    background: '#fff', color: '#0f172a',
+    background: 'var(--color-surface)', color: 'var(--color-text)',
     border: '1px solid #cbd5e1', borderRadius: 8,
     fontSize: 13, fontWeight: 600, cursor: 'pointer',
     boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
 };
 const filterLabelStyle: React.CSSProperties = {
     display: 'block', fontSize: 11, fontWeight: 700,
-    color: '#64748b', textTransform: 'uppercase',
+    color: 'var(--color-text-muted)', textTransform: 'uppercase',
     letterSpacing: '0.05em', marginBottom: 6,
 };
 const thStyle: React.CSSProperties = {
     padding: '11px 12px', textAlign: 'left',
     fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
-    textTransform: 'uppercase', color: '#475569',
+    textTransform: 'uppercase', color: 'var(--color-text-secondary)',
     whiteSpace: 'nowrap',
 };
 const tdStyle: React.CSSProperties = {
     padding: '10px 12px', verticalAlign: 'top',
-    color: '#0f172a',
+    color: 'var(--color-text)',
 };
 
 function KpiCard({ label, value, accent }: { label: string; value: string; accent: string }) {
     return (
         <div style={{
-            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+            background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10,
             padding: '12px 16px',
             borderLeft: `3px solid ${accent}`,
         }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 {label}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                 {value}
             </div>
         </div>
@@ -1162,8 +1162,8 @@ export const WarrantList = () => {
     const tabStrip = (
         <div style={{
             display: 'flex', gap: 4,
-            borderBottom: '1px solid #e2e8f0',
-            background: '#fff',
+            borderBottom: '1px solid var(--color-border)',
+            background: 'var(--color-surface)',
             borderRadius: '10px 10px 0 0',
             padding: '0 4px',
             overflowX: 'auto',
@@ -1181,7 +1181,7 @@ export const WarrantList = () => {
                             border: 'none',
                             borderBottom: active ? `2.5px solid ${t.tone}` : '2.5px solid transparent',
                             background: 'transparent',
-                            color: active ? t.tone : '#64748b',
+                            color: active ? t.tone : 'var(--color-text-muted)',
                             fontSize: 13,
                             fontWeight: active ? 700 : 500,
                             cursor: 'pointer',

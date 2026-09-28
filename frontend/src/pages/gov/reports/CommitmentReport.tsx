@@ -80,7 +80,7 @@ export default function CommitmentReport() {
     }, [rows]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
@@ -88,10 +88,10 @@ export default function CommitmentReport() {
                     marginBottom: '24px',
                 }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Budget Commitment Report
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             Purchase Order encumbrances against appropriations (IPSAS 24 disclosure)
                         </p>
                     </div>
@@ -101,7 +101,7 @@ export default function CommitmentReport() {
                             onChange={e => setStatusFilter(e.target.value)}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             {STATUS_OPTIONS.map(s => (
@@ -113,7 +113,7 @@ export default function CommitmentReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -155,7 +155,7 @@ export default function CommitmentReport() {
 
                     {Object.entries(byStatus).map(([st, agg]) => (
                         <div key={st} style={{
-                            background: '#fff', borderRadius: '12px', padding: '20px',
+                            background: 'var(--color-surface)', borderRadius: '12px', padding: '20px',
                             border: `1px solid ${STATUS_COLORS[st] ?? '#e8ecf1'}33`,
                         }}>
                             <div style={{
@@ -166,11 +166,11 @@ export default function CommitmentReport() {
                             </div>
                             <div style={{
                                 fontSize: '20px', fontWeight: 800, fontFamily: 'monospace',
-                                color: '#1e293b', marginTop: '6px',
+                                color: 'var(--color-text)', marginTop: '6px',
                             }}>
                                 {fmtNGN(agg.amount)}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
                                 {agg.count} PO{agg.count === 1 ? '' : 's'}
                             </div>
                         </div>
@@ -179,18 +179,18 @@ export default function CommitmentReport() {
 
                 {/* Table */}
                 <div style={{
-                    background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
                     overflow: 'hidden',
                 }}>
                     {isLoading ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                             Loading commitments...
                         </div>
                     ) : error ? (
                         <ReportError error={error} endpoint="/budget/commitment-report/" />
                     ) : rows.length === 0 ? (
                         <div style={{
-                            textAlign: 'center', padding: '60px 20px', color: '#94a3b8',
+                            textAlign: 'center', padding: '60px 20px', color: 'var(--color-text-subtle)',
                         }}>
                             <FileText size={40} style={{ opacity: 0.35, marginBottom: 12 }} />
                             <div style={{ fontSize: 14 }}>
@@ -200,12 +200,12 @@ export default function CommitmentReport() {
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['PO Reference', 'MDA', 'Economic Code', 'Date', 'Committed', 'Appro. Balance', 'Status'].map((h, i) => (
                                         <th key={h} style={{
                                             padding: '12px 14px',
                                             textAlign: i >= 4 ? 'right' : 'left',
-                                            fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>
                                             {h}
@@ -215,7 +215,7 @@ export default function CommitmentReport() {
                             </thead>
                             <tbody>
                                 {rows.map(row => (
-                                    <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                         <td style={{
                                             padding: '10px 14px', fontSize: '13px',
                                             fontFamily: 'monospace', fontWeight: 600,
@@ -229,7 +229,7 @@ export default function CommitmentReport() {
                                                     <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
                                                         {row.account_code}
                                                     </span>
-                                                    <span style={{ marginLeft: 6, color: '#1e293b' }}>
+                                                    <span style={{ marginLeft: 6, color: 'var(--color-text)' }}>
                                                         — {row.account_name || row.account}
                                                     </span>
                                                 </>
@@ -238,7 +238,7 @@ export default function CommitmentReport() {
                                             )}
                                         </td>
                                         <td style={{
-                                            padding: '10px 14px', fontSize: '13px', color: '#64748b',
+                                            padding: '10px 14px', fontSize: '13px', color: 'var(--color-text-muted)',
                                         }}>
                                             {row.committed_at ? row.committed_at.split('T')[0] : '—'}
                                         </td>
@@ -250,7 +250,7 @@ export default function CommitmentReport() {
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: '13px',
-                                            textAlign: 'right', fontFamily: 'monospace', color: '#64748b',
+                                            textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)',
                                         }}>
                                             {fmtNGN(row.appropriation_balance)}
                                         </td>
@@ -270,7 +270,7 @@ export default function CommitmentReport() {
                             </tbody>
                             {data?.total_committed && (
                                 <tfoot>
-                                    <tr style={{ background: '#f0f4f8', borderTop: '2px solid #1e293b' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderTop: '2px solid #1e293b' }}>
                                         <td colSpan={4} style={{
                                             padding: '12px 14px', fontWeight: 800, fontSize: '14px',
                                         }}>
@@ -291,7 +291,7 @@ export default function CommitmentReport() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: '11px',
+                    color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
                     Quot PSE IFMIS — Commitment Register (IPSAS 24 Disclosure)
                 </div>

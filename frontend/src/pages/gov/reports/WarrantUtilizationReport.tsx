@@ -19,8 +19,8 @@ import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
 
 const card: React.CSSProperties = {
-    background: '#fff', borderRadius: 12,
-    border: '1px solid #e8ecf1', padding: 24, marginBottom: 20,
+    background: 'var(--color-surface)', borderRadius: 12,
+    border: '1px solid var(--color-border)', padding: 24, marginBottom: 20,
 };
 
 const fmtNGN = (v: number | string | null | undefined): string => {
@@ -127,7 +127,7 @@ export default function WarrantUtilizationReport() {
     }, [data, statusFilter]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: 260, padding: 32 }}>
                 <div style={{
@@ -135,10 +135,10 @@ export default function WarrantUtilizationReport() {
                     alignItems: 'center', marginBottom: 24,
                 }}>
                     <div>
-                        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Warrant Utilization Report
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                             Warrants released vs. actual consumption per appropriation — surfaces
                             over-drawn and exhausted lines that need a supplementary warrant.
                         </p>
@@ -147,7 +147,7 @@ export default function WarrantUtilizationReport() {
                         <select
                             value={fy}
                             onChange={(e) => setFy(e.target.value ? parseInt(e.target.value) : '')}
-                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
+                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 14 }}
                         >
                             <option value="">All Fiscal Years</option>
                             {[2024, 2025, 2026, 2027].map((y) => (
@@ -159,7 +159,7 @@ export default function WarrantUtilizationReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: '8px 16px', borderRadius: 8,
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: 14,
                             }}
                         >
@@ -174,7 +174,7 @@ export default function WarrantUtilizationReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: 40 }}>Loading...</div>
+                    <div style={{ color: 'var(--color-text-subtle)', textAlign: 'center', padding: 40 }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/budget/warrant-utilization/" />
                 ) : data ? (
@@ -238,9 +238,9 @@ export default function WarrantUtilizationReport() {
                                         onClick={() => setStatusFilter(s as RowStatus | '')}
                                         style={{
                                             padding: '6px 14px', borderRadius: 999,
-                                            border: `1px solid ${active ? '#2471a3' : '#e2e8f0'}`,
-                                            background: active ? '#2471a3' : '#fff',
-                                            color: active ? '#fff' : '#1e293b',
+                                            border: `1px solid ${active ? '#2471a3' : 'var(--color-border)'}`,
+                                            background: active ? '#2471a3' : 'var(--color-surface)',
+                                            color: active ? '#fff' : 'var(--color-text)',
                                             fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                         }}
                                     >
@@ -257,7 +257,7 @@ export default function WarrantUtilizationReport() {
                                     width: '100%', borderCollapse: 'collapse', minWidth: 1100,
                                 }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                                        <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                                             {[
                                                 { label: 'MDA', align: 'left' },
                                                 { label: 'Economic Code', align: 'left' },
@@ -275,7 +275,7 @@ export default function WarrantUtilizationReport() {
                                                     fontWeight: 700,
                                                     textTransform: 'uppercase',
                                                     letterSpacing: '0.04em',
-                                                    color: '#475569',
+                                                    color: 'var(--color-text-secondary)',
                                                     textAlign: h.align as 'left' | 'right' | 'center',
                                                 }}>
                                                     {h.label}
@@ -288,17 +288,17 @@ export default function WarrantUtilizationReport() {
                                             const variance = parseFloat(row.variance);
                                             return (
                                                 <tr key={row.appropriation_id} style={{
-                                                    borderBottom: '1px solid #f1f5f9',
+                                                    borderBottom: '1px solid var(--color-border-light)',
                                                 }}>
                                                     <td style={{ padding: '10px 14px', fontSize: 13 }}>
-                                                        <div style={{ fontWeight: 600, color: '#1e293b' }}>{row.mda}</div>
-                                                        <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace' }}>{row.mda_code}</div>
+                                                        <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{row.mda}</div>
+                                                        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>{row.mda_code}</div>
                                                     </td>
                                                     <td style={{ padding: '10px 14px', fontSize: 13 }}>
                                                         <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>{row.account_code}</div>
-                                                        <div style={{ fontSize: 11, color: '#64748b' }}>{row.account_name}</div>
+                                                        <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{row.account_name}</div>
                                                     </td>
-                                                    <td style={{ padding: '10px 14px', fontSize: 13, color: '#64748b' }}>
+                                                    <td style={{ padding: '10px 14px', fontSize: 13, color: 'var(--color-text-muted)' }}>
                                                         {row.fund}
                                                     </td>
                                                     <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: 13, fontFamily: 'monospace' }}>
@@ -332,7 +332,7 @@ export default function WarrantUtilizationReport() {
                                             <tr>
                                                 <td colSpan={9} style={{
                                                     padding: 48, textAlign: 'center',
-                                                    color: '#94a3b8', fontSize: 14,
+                                                    color: 'var(--color-text-subtle)', fontSize: 14,
                                                 }}>
                                                     No appropriations match the current filter.
                                                 </td>
@@ -341,7 +341,7 @@ export default function WarrantUtilizationReport() {
                                     </tbody>
                                     {filtered.length > 0 && (
                                         <tfoot>
-                                            <tr style={{ borderTop: '2px solid #cbd5e1', background: '#f8fafc' }}>
+                                            <tr style={{ borderTop: '2px solid #cbd5e1', background: 'var(--color-surface-hover)' }}>
                                                 <td style={{ padding: '12px 14px', fontWeight: 700 }} colSpan={3}>
                                                     Totals ({filtered.length} row{filtered.length === 1 ? '' : 's'})
                                                 </td>
@@ -389,10 +389,10 @@ interface KpiCardProps {
 function KpiCard({ icon, label, value, subtitle, accent = '#2471a3' }: KpiCardProps) {
     return (
         <div style={{
-            padding: 20, background: '#fff',
+            padding: 20, background: 'var(--color-surface)',
             borderLeft: `4px solid ${accent}`,
             borderRadius: 10,
-            border: '1px solid #e8ecf1',
+            border: '1px solid var(--color-border)',
             display: 'flex', flexDirection: 'column', gap: 6,
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accent }}>
@@ -401,11 +401,11 @@ function KpiCard({ icon, label, value, subtitle, accent = '#2471a3' }: KpiCardPr
                     {label}
                 </span>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.2 }}>
                 {value}
             </div>
             {subtitle && (
-                <div style={{ fontSize: 11, color: '#64748b' }}>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                     {subtitle}
                 </div>
             )}

@@ -68,7 +68,7 @@ export default function ReportError({ error, endpoint }: ReportErrorProps) {
 
     return (
         <div style={{
-            background: '#fff',
+            background: 'var(--color-surface)',
             border: `2px solid ${color}33`,
             borderRadius: 12,
             padding: '32px 28px',
@@ -81,23 +81,23 @@ export default function ReportError({ error, endpoint }: ReportErrorProps) {
             <Icon size={40} style={{ color, flexShrink: 0, marginTop: 2 }} />
             <div style={{ flex: 1 }}>
                 <div style={{
-                    fontSize: 18, fontWeight: 800, color: '#1e293b',
+                    fontSize: 18, fontWeight: 800, color: 'var(--color-text)',
                     marginBottom: 4,
                 }}>
                     {title}
                 </div>
-                <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
                     {hint}
                 </div>
                 <div style={{
                     marginTop: 14,
                     padding: '10px 12px',
-                    background: '#f8fafc',
+                    background: 'var(--color-surface-hover)',
                     borderRadius: 6,
                     fontSize: 12,
                     fontFamily: 'monospace',
-                    color: '#64748b',
-                    border: '1px solid #e8ecf1',
+                    color: 'var(--color-text-muted)',
+                    border: '1px solid var(--color-border)',
                 }}>
                     <div><strong>Endpoint:</strong> <code>{endpoint}</code></div>
                     {status !== undefined && (

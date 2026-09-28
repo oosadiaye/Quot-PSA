@@ -594,7 +594,7 @@ function InvoiceViewModal({ invoice, onClose, formatCurrency }: InvoiceViewModal
                                     <BookOpen size={13} />
                                     {bannerLabel}
                                     {journal?.reference_number && (
-                                        <span style={{ fontFamily: 'monospace', background: 'white', padding: '2px 8px', borderRadius: '4px', marginLeft: '0.3rem' }}>
+                                        <span style={{ fontFamily: 'monospace', background: 'var(--color-surface)', padding: '2px 8px', borderRadius: '4px', marginLeft: '0.3rem' }}>
                                             {journal.reference_number}
                                         </span>
                                     )}

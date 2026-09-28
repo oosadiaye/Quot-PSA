@@ -23,7 +23,7 @@ const fmtNGN = (v: number | string | undefined): string => {
 };
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-    DRAFT:     { color: '#64748b', bg: '#f1f5f9', label: 'Draft' },
+    DRAFT:     { color: 'var(--color-text-muted)', bg: 'var(--color-surface-hover)', label: 'Draft' },
     SUBMITTED: { color: '#1e40af', bg: '#dbeafe', label: 'Submitted' },
     APPROVED:  { color: '#6b21a8', bg: '#f3e8ff', label: 'Approved' },
     ENACTED:   { color: '#166534', bg: '#dcfce7', label: 'Enacted' },
@@ -75,7 +75,7 @@ const filterLabelStyle: React.CSSProperties = {
 const filterInputStyle: React.CSSProperties = {
     width: '100%', boxSizing: 'border-box',
     padding: '0.45rem 0.6rem',
-    background: '#fff',
+    background: 'var(--color-surface)',
     // 3px slate-400 border so the four filter controls (Economic Code,
     // Functional, Programme, Fund) read as obvious interactive fields
     // against the white panel even on high-DPI Windows displays where
@@ -612,8 +612,8 @@ export default function AppropriationDetail() {
                                         style={{
                                             display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                                             padding: '0.4rem 0.8rem',
-                                            background: filteredLines.length === 0 ? '#e2e8f0' : '#fff',
-                                            color: filteredLines.length === 0 ? '#94a3b8' : '#0f172a',
+                                            background: filteredLines.length === 0 ? 'var(--color-border)' : 'var(--color-surface)',
+                                            color: filteredLines.length === 0 ? 'var(--color-text-subtle)' : 'var(--color-text)',
                                             border: '1px solid #cbd5e1', borderRadius: '8px',
                                             fontSize: '0.75rem', fontWeight: 600,
                                             cursor: filteredLines.length === 0 ? 'not-allowed' : 'pointer',
@@ -640,7 +640,7 @@ export default function AppropriationDetail() {
                                 <div>
                                     <label style={filterLabelStyle}>Budget Code</label>
                                     <div style={{ position: 'relative' }}>
-                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                         <input
                                             type="text"
                                             value={codeQuery}
@@ -653,7 +653,7 @@ export default function AppropriationDetail() {
                                 <div>
                                     <label style={filterLabelStyle}>Economic Code / Description</label>
                                     <div style={{ position: 'relative' }}>
-                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                         <input
                                             type="text"
                                             value={econQuery}
@@ -669,7 +669,7 @@ export default function AppropriationDetail() {
                                 <div>
                                     <label style={filterLabelStyle}>Functional</label>
                                     <div style={{ position: 'relative' }}>
-                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                         <input
                                             type="text"
                                             list="ad-functional-options"
@@ -693,7 +693,7 @@ export default function AppropriationDetail() {
                                 <div>
                                     <label style={filterLabelStyle}>Programme</label>
                                     <div style={{ position: 'relative' }}>
-                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                         <input
                                             type="text"
                                             list="ad-programme-options"
@@ -717,7 +717,7 @@ export default function AppropriationDetail() {
                                 <div>
                                     <label style={filterLabelStyle}>Fund</label>
                                     <div style={{ position: 'relative' }}>
-                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                        <Search size={12} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                         <input
                                             type="text"
                                             list="ad-fund-options"
@@ -746,7 +746,7 @@ export default function AppropriationDetail() {
                                         style={{
                                             display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                                             padding: '0.45rem 0.7rem',
-                                            background: '#fff', color: '#475569',
+                                            background: 'var(--color-surface)', color: 'var(--color-text-secondary)',
                                             border: '1px solid #cbd5e1', borderRadius: '6px',
                                             fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer',
                                             height: 'fit-content',
@@ -804,7 +804,7 @@ export default function AppropriationDetail() {
                                             const isCurrentLine = String(line.id) === String(id);
                                             const lineSc = STATUS_CONFIG[line.status] || STATUS_CONFIG.DRAFT;
                                             const baseBg = isCurrentLine ? 'rgba(79,70,229,0.06)' : 'transparent';
-                                            const hoverBg = isCurrentLine ? 'rgba(79,70,229,0.12)' : '#f1f5f9';
+                                            const hoverBg = isCurrentLine ? 'rgba(79,70,229,0.12)' : 'var(--color-surface-hover)';
                                             return (
                                                 <tr key={line.id}
                                                     // Click anywhere on the row to drill into that line's

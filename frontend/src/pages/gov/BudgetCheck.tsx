@@ -33,7 +33,7 @@ const fmtNGN = (v: number | string | undefined | null): string => {
 };
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-    DRAFT: { color: '#64748b', bg: '#f1f5f9', label: 'Draft' },
+    DRAFT: { color: 'var(--color-text-muted)', bg: 'var(--color-surface-hover)', label: 'Draft' },
     SUBMITTED: { color: '#1e40af', bg: '#dbeafe', label: 'Submitted' },
     APPROVED: { color: '#6b21a8', bg: '#f3e8ff', label: 'Approved' },
     ENACTED: { color: '#166534', bg: '#dcfce7', label: 'Enacted' },
@@ -47,7 +47,7 @@ const labelStyle: React.CSSProperties = {
     fontWeight: 700,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
-    color: '#64748b',
+    color: 'var(--color-text-muted)',
     marginBottom: '0.3rem',
 };
 
@@ -55,15 +55,15 @@ const controlStyle: React.CSSProperties = {
     width: '100%',
     padding: '0.45rem 0.6rem',
     fontSize: '0.8rem',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--color-border)',
     borderRadius: '6px',
-    background: '#fff',
-    color: '#1e293b',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text)',
 };
 
 const card: React.CSSProperties = {
-    background: '#fff',
-    border: '1px solid #e2e8f0',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
     borderRadius: '10px',
     padding: '1rem 1.1rem',
     marginBottom: '1rem',
@@ -72,7 +72,7 @@ const card: React.CSSProperties = {
 const txTd: React.CSSProperties = {
     padding: '0.45rem 0.6rem',
     borderBottom: '1px solid #f8fafc',
-    color: '#1e293b',
+    color: 'var(--color-text)',
 };
 
 type Line = Record<string, any>;
@@ -317,7 +317,7 @@ const BudgetCheck = () => {
     const sc = selected ? (STATUS_CONFIG[selected.status] || STATUS_CONFIG.DRAFT) : null;
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', background: '#f1f5f9' }}>
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-surface-hover)' }}>
             <Sidebar />
             {/* The sidebar is position:fixed at 260px, so content must be
                 offset by the same amount — matching every other page here.
@@ -341,7 +341,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-code">Budget Code</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-code"
                                         type="text"
@@ -361,7 +361,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-desc">GL Code / Description</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-desc"
                                         type="text"
@@ -382,7 +382,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-fy">Fiscal Year</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-fy"
                                         type="text"
@@ -406,7 +406,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-mda">MDA</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-mda"
                                         type="text"
@@ -427,7 +427,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-econ">GL Account</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-econ"
                                         type="text"
@@ -448,7 +448,7 @@ const BudgetCheck = () => {
                             <div>
                                 <label style={labelStyle} htmlFor="bc-fund">Fund</label>
                                 <div style={{ position: 'relative' }}>
-                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                    <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                                     <input
                                         id="bc-fund"
                                         type="text"
@@ -483,7 +483,7 @@ const BudgetCheck = () => {
                                         style={{
                                             ...controlStyle, cursor: 'pointer', fontWeight: 600,
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
-                                            color: '#475569',
+                                            color: 'var(--color-text-secondary)',
                                         }}
                                     >
                                         <X size={13} /> Clear
@@ -496,10 +496,10 @@ const BudgetCheck = () => {
                     {/* ── Matches ─────────────────────────────────────── */}
                     <div style={card} data-testid="budget-check-results">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.6rem' }}>
-                            <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                            <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
                                 Matching budget lines
                             </h2>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                                 {!hasFilter
                                     ? `${lines.length} budget line${lines.length === 1 ? '' : 's'} to search`
                                     : isLoading ? 'Loading…' : `${filtered.length} of ${lines.length}`}
@@ -511,17 +511,17 @@ const BudgetCheck = () => {
                                 Could not load budget lines: {String((error as any)?.message || 'unknown error')}
                             </div>
                         ) : isLoading ? (
-                            <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading…</div>
+                            <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading…</div>
                         ) : !hasFilter ? (
                             <div style={{
-                                color: '#64748b', fontSize: '0.82rem', padding: '1.6rem 1.2rem',
+                                color: 'var(--color-text-muted)', fontSize: '0.82rem', padding: '1.6rem 1.2rem',
                                 textAlign: 'center', lineHeight: 1.6,
                             }}>
                                 <Search size={18} style={{ color: '#cbd5e1' }} />
                                 <div style={{ marginTop: '0.4rem' }}>
                                     Enter a budget code, or use any filter above, to find a budget line.
                                 </div>
-                                <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                                <div style={{ fontSize: '0.74rem', color: 'var(--color-text-subtle)', marginTop: '0.2rem' }}>
                                     {/* Saying nothing has been searched for is not the same as
                                         saying nothing was found, and the difference matters on a
                                         screen whose whole job is answering "is there budget?" */}
@@ -529,22 +529,22 @@ const BudgetCheck = () => {
                                 </div>
                             </div>
                         ) : filtered.length === 0 ? (
-                            <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
+                            <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
                                 {lines.length === 0
                                     ? 'No budget lines in this fiscal year.'
                                     : 'No budget line matches these filters.'}
                             </div>
                         ) : (
-                            <div style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: '6px' }}>
+                            <div style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid var(--color-border-light)', borderRadius: '6px' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                                    <thead style={{ position: 'sticky', top: 0, background: 'var(--color-surface-hover)', zIndex: 1 }}>
                                         <tr>
                                             {['Budget Code', 'FY', 'GL Account', 'Description', 'Fund', 'Status', 'Approved', 'Expended', 'Available'].map((h, i) => (
                                                 <th key={h} style={{
                                                     padding: '0.5rem 0.6rem', textAlign: i >= 6 ? 'right' : 'left',  // Approved / Expended / Available
                                                     fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
-                                                    letterSpacing: '0.03em', color: '#64748b',
-                                                    borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                                                    letterSpacing: '0.03em', color: 'var(--color-text-muted)',
+                                                    borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
                                                 }}>{h}</th>
                                             ))}
                                         </tr>
@@ -564,9 +564,9 @@ const BudgetCheck = () => {
                                                     }}
                                                 >
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', fontWeight: 600, borderBottom: '1px solid #f8fafc' }}>
-                                                        {l.budget_code || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontFamily: 'inherit' }}>not set</span>}
+                                                        {l.budget_code || <span style={{ color: 'var(--color-text-subtle)', fontStyle: 'italic', fontFamily: 'inherit' }}>not set</span>}
                                                     </td>
-                                                    <td style={{ padding: '0.45rem 0.6rem', color: '#64748b', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{l.fiscal_year_label}</td>
+                                                    <td style={{ padding: '0.45rem 0.6rem', color: 'var(--color-text-muted)', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{l.fiscal_year_label}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', color: '#4f46e5', fontWeight: 600, borderBottom: '1px solid #f8fafc' }}>{l.economic_code}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', borderBottom: '1px solid #f8fafc', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.economic_name}</td>
                                                     <td style={{ padding: '0.45rem 0.6rem', fontFamily: 'monospace', borderBottom: '1px solid #f8fafc' }}>{l.fund_code}</td>
@@ -590,13 +590,13 @@ const BudgetCheck = () => {
                         <div style={card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.9rem' }}>
                                 <div>
-                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748b' }}>
+                                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
                                         Budget Code
                                     </div>
-                                    <div style={{ fontSize: '1.15rem', fontWeight: 800, fontFamily: 'monospace', color: '#1e293b' }}>
-                                        {selected.budget_code || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontFamily: 'inherit', fontWeight: 600 }}>not set</span>}
+                                    <div style={{ fontSize: '1.15rem', fontWeight: 800, fontFamily: 'monospace', color: 'var(--color-text)' }}>
+                                        {selected.budget_code || <span style={{ color: 'var(--color-text-subtle)', fontStyle: 'italic', fontFamily: 'inherit', fontWeight: 600 }}>not set</span>}
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '0.15rem' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '0.15rem' }}>
                                         {selected.economic_code} — {selected.economic_name}
                                     </div>
                                 </div>
@@ -610,25 +610,25 @@ const BudgetCheck = () => {
                             {/* Money */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.7rem', marginBottom: '1rem' }}>
                                 {[
-                                    { label: 'Approved', value: selected.amount_approved, color: '#1e293b' },
+                                    { label: 'Approved', value: selected.amount_approved, color: 'var(--color-text)' },
                                     { label: 'Warrants Released', value: selected.total_warrants_released, color: '#b45309' },
                                     { label: 'Committed', value: selected.total_all_committed ?? selected.total_committed, color: '#d97706' },
                                     { label: 'Expended', value: selected.total_expended, color: '#dc2626' },
                                     { label: 'Available', value: selected.available_balance, color: '#047857' },
                                 ].map((m) => (
-                                    <div key={m.label} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.6rem 0.7rem' }}>
-                                        <div style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#64748b' }}>{m.label}</div>
+                                    <div key={m.label} style={{ border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.6rem 0.7rem' }}>
+                                        <div style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)' }}>{m.label}</div>
                                         <div style={{ fontSize: '0.95rem', fontWeight: 800, color: m.color, marginTop: '0.2rem' }}>{fmtNGN(m.value)}</div>
                                     </div>
                                 ))}
                             </div>
 
                             <div style={{ marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '0.25rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>
                                     <span>Execution rate</span>
                                     <span style={{ fontWeight: 700 }}>{Number(selected.execution_rate || 0).toFixed(1)}%</span>
                                 </div>
-                                <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                                <div style={{ height: '6px', background: 'var(--color-surface-hover)', borderRadius: '999px', overflow: 'hidden' }}>
                                     <div style={{
                                         width: `${Math.min(100, Math.max(0, Number(selected.execution_rate || 0)))}%`,
                                         height: '100%', background: '#4f46e5',
@@ -637,7 +637,7 @@ const BudgetCheck = () => {
                             </div>
 
                             {/* The six NCoA segments — what identifies the line structurally */}
-                            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748b', marginBottom: '0.45rem' }}>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: '0.45rem' }}>
                                 NCoA Classification
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.55rem', marginBottom: '0.9rem' }}>
@@ -649,12 +649,12 @@ const BudgetCheck = () => {
                                     ['Fund', selected.fund_code, selected.fund_name],
                                     ['Geographic', selected.geographic_code, selected.geographic_name],
                                 ].map(([label, code, name]) => (
-                                    <div key={String(label)} style={{ borderLeft: '2px solid #e2e8f0', paddingLeft: '0.55rem' }}>
-                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
-                                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem', color: '#1e293b' }}>
+                                    <div key={String(label)} style={{ borderLeft: '2px solid var(--color-border)', paddingLeft: '0.55rem' }}>
+                                        <div style={{ fontSize: '0.62rem', color: 'var(--color-text-subtle)', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+                                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem', color: 'var(--color-text)' }}>
                                             {code || <span style={{ color: '#cbd5e1', fontFamily: 'inherit' }}>—</span>}
                                         </div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{name || ''}</div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{name || ''}</div>
                                     </div>
                                 ))}
                             </div>
@@ -667,14 +667,14 @@ const BudgetCheck = () => {
                                     ['Description', selected.description],
                                 ].map(([label, value]) => (
                                     <div key={String(label)}>
-                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
-                                        <div style={{ fontSize: '0.8rem', color: '#1e293b' }}>{value || <span style={{ color: '#cbd5e1' }}>—</span>}</div>
+                                        <div style={{ fontSize: '0.62rem', color: 'var(--color-text-subtle)', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--color-text)' }}>{value || <span style={{ color: '#cbd5e1' }}>—</span>}</div>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     ) : (
-                        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: '0.55rem', color: '#64748b', fontSize: '0.82rem' }}>
+                        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: '0.55rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
                             <Info size={15} />
                             Select a budget line above to see its current position.
                         </div>
@@ -684,10 +684,10 @@ const BudgetCheck = () => {
                     {selected && (
                         <div style={card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.6rem' }}>
-                                <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
                                     Transactions recorded against this line
                                 </h2>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                                     {drillLoading ? 'Loading...' : `${txns.length} transaction${txns.length === 1 ? '' : 's'}`}
                                 </span>
                             </div>
@@ -711,22 +711,22 @@ const BudgetCheck = () => {
                                     Could not load the transactions for this line.
                                 </div>
                             ) : drillLoading ? (
-                                <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading...</div>
+                                <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.8rem', padding: '1rem', textAlign: 'center' }}>Loading...</div>
                             ) : txns.length === 0 ? (
-                                <div style={{ color: '#94a3b8', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
+                                <div style={{ color: 'var(--color-text-subtle)', fontSize: '0.8rem', padding: '1.2rem', textAlign: 'center' }}>
                                     Nothing has been committed or spent against this line yet.
                                 </div>
                             ) : (
-                                <div style={{ overflowX: 'auto', border: '1px solid #f1f5f9', borderRadius: '6px' }}>
+                                <div style={{ overflowX: 'auto', border: '1px solid var(--color-border-light)', borderRadius: '6px' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                        <thead style={{ background: '#f8fafc' }}>
+                                        <thead style={{ background: 'var(--color-surface-hover)' }}>
                                             <tr>
                                                 {['Date', 'Type', 'Reference', 'Party', 'Description', 'Status', 'Amount'].map((h, i) => (
                                                     <th key={h} style={{
                                                         padding: '0.5rem 0.6rem', textAlign: i === 6 ? 'right' : 'left',
                                                         fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
-                                                        letterSpacing: '0.03em', color: '#64748b',
-                                                        borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap',
+                                                        letterSpacing: '0.03em', color: 'var(--color-text-muted)',
+                                                        borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap',
                                                     }}>{h}</th>
                                                 ))}
                                             </tr>
@@ -746,7 +746,7 @@ const BudgetCheck = () => {
                                                             }}>
                                                                 {isExpended ? 'Expended' : 'Committed'}
                                                             </span>
-                                                            <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '0.1rem' }}>{t.type}</div>
+                                                            <div style={{ fontSize: '0.62rem', color: 'var(--color-text-subtle)', marginTop: '0.1rem' }}>{t.type}</div>
                                                         </td>
                                                         <td style={{ ...txTd, fontFamily: 'monospace' }}>{t.reference || '\u2014'}</td>
                                                         <td style={txTd}>{t.party || '\u2014'}</td>
@@ -787,11 +787,11 @@ const BudgetCheck = () => {
                                                     </tr>
                                                 </>
                                             )}
-                                            <tr style={{ background: '#f1f5f9' }}>
-                                                <td colSpan={6} style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: '#1e293b', borderTop: '2px solid #cbd5e1' }}>
+                                            <tr style={{ background: 'var(--color-surface-hover)' }}>
+                                                <td colSpan={6} style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: 'var(--color-text)', borderTop: '2px solid #cbd5e1' }}>
                                                     Total of listed transactions
                                                 </td>
-                                                <td style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: '#1e293b', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }}>
+                                                <td style={{ ...txTd, textAlign: 'right', fontWeight: 800, color: 'var(--color-text)', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }}>
                                                     {fmtNGN(txnTotal)}
                                                 </td>
                                             </tr>
@@ -823,10 +823,10 @@ const BudgetCheck = () => {
                                                 return (
                                                     <>
                                                         <tr>
-                                                            <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: '#64748b', fontWeight: 600 }}>
+                                                            <td colSpan={6} style={{ ...txTd, textAlign: 'right', color: 'var(--color-text-muted)', fontWeight: 600 }}>
                                                                 This line&rsquo;s own consumed figure
                                                             </td>
-                                                            <td style={{ ...txTd, textAlign: 'right', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                                            <td style={{ ...txTd, textAlign: 'right', fontWeight: 700, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                                                                 {fmtNGN(consumed)}
                                                             </td>
                                                         </tr>

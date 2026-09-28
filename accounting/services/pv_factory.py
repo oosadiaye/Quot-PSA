@@ -45,7 +45,8 @@ def create_draft_voucher_from_invoice(
 
     Pre-fills:
       • payee_*       ← invoice.vendor (vendor master)
-      • gross_amount  ← invoice.balance_due (handles partial payments)
+      • gross_amount  ← invoice.payable_now (balance_due minus any
+                        retention lien — never disburse held retention)
       • narration     ← "Payment for invoice <num> (<vendor>)"
       • source_document / invoice_number ← invoice number
       • invoice_date  ← invoice.invoice_date
@@ -125,13 +126,19 @@ def create_draft_voucher_from_invoice(
         "payment_voucher", prefix="PV-",
     )
 
-    balance_due = invoice.balance_due
-    if balance_due is None or Decimal(balance_due) <= 0:
-        # Fall back to total_amount when balance_due is zero/None — a
+    # Payable-now = balance_due − retention lien. A contract milestone
+    # invoice is booked GROSS with a ``retention_withheld`` lien frozen
+    # from disbursement until released; raising the PV for balance_due
+    # would pull that frozen retention into a payable. payable_now keeps
+    # the lien intact — and equals balance_due when there is no lien, so
+    # plain AP invoices are unaffected.
+    payable = invoice.payable_now
+    if payable is None or Decimal(payable) <= 0:
+        # Fall back to total_amount when payable_now is zero/None — a
         # zero-balance invoice still needs a voucher in some workflows
-        # (e.g. recording a $0 retainer adjustment); the operator can
+        # (e.g. recording a ₦0 retainer adjustment); the operator can
         # set the gross to the right number on the PV form.
-        balance_due = invoice.total_amount or Decimal("0")
+        payable = invoice.total_amount or Decimal("0")
 
     # Build a narration that surfaces the MDA — useful for treasury
     # operators scanning the PV list to know which ministry owns the
@@ -156,7 +163,7 @@ def create_draft_voucher_from_invoice(
         payee_name=getattr(vendor, "name", "") or invoice.invoice_number,
         payee_account=getattr(vendor, "bank_account_number", "") or "",
         payee_bank=getattr(vendor, "bank_name", "") or "",
-        gross_amount=balance_due,
+        gross_amount=payable,
         wht_amount=Decimal("0"),
         narration=narration,
         tsa_account=tsa,

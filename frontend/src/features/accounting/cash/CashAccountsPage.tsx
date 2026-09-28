@@ -32,9 +32,9 @@ const TYPE_STYLE: Record<string, { bg: string; color: string; border: string }> 
 
 // ─── shared styles ────────────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', border: '2px solid #e2e8f0',
+    width: '100%', padding: '8px 12px', border: '2px solid var(--color-border)',
     borderRadius: '8px', fontSize: '14px', outline: 'none',
-    background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box',
+    background: 'var(--color-surface)', color: 'var(--color-text)', boxSizing: 'border-box',
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
@@ -64,11 +64,11 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 }) {
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '14px', padding: '28px 32px', width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>{title}</h3>
-                <p style={{ margin: '0 0 24px', fontSize: '14px', color: '#64748b', lineHeight: 1.5 }}>{message}</p>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '14px', padding: '28px 32px', width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '17px', fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+                <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>{message}</p>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button onClick={onCancel} style={{ padding: '8px 18px', border: '1.5px solid #d1d5db', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                    <button onClick={onCancel} style={{ padding: '8px 18px', border: '1.5px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                     <button onClick={onConfirm} style={{ padding: '8px 18px', border: 'none', borderRadius: '8px', background: confirmColor, color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>{confirmLabel}</button>
                 </div>
             </div>
@@ -84,10 +84,10 @@ function FundHealthBar({ current, float: floatAmt, minimum }: { current: number;
     return (
         <div style={{ marginTop: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fund Health</span>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fund Health</span>
                 <span style={{ fontSize: '11px', fontWeight: 700, color }}>{pct.toFixed(0)}%</span>
             </div>
-            <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+            <div style={{ height: '6px', background: 'var(--color-surface-hover)', borderRadius: '999px', overflow: 'hidden' }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '999px', transition: 'width 0.4s ease' }} />
             </div>
             {isLow && (
@@ -277,16 +277,16 @@ export default function CashAccountsPage() {
     // ─── Summary card ──────────────────────────────────────────────────────────
     const SumCard = ({ label, value, sub, accent, icon }: any) => (
         <div style={{
-            background: '#fff', borderRadius: '14px', padding: '20px 22px',
-            border: '1px solid #f1f5f9', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            background: 'var(--color-surface)', borderRadius: '14px', padding: '20px 22px',
+            border: '1px solid var(--color-border-light)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
             borderLeft: `4px solid ${accent}`,
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 {icon}
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
             </div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: '#1e293b', letterSpacing: '-0.5px' }}>{value}</div>
-            {sub && <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{sub}</div>}
+            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.5px' }}>{value}</div>
+            {sub && <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>{sub}</div>}
         </div>
     );
 
@@ -295,12 +295,12 @@ export default function CashAccountsPage() {
     const setAF = (k: string, v: string) => setAccountForm(p => ({ ...p, [k]: v }));
     const accountFormModal = showAccountForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '32px', width: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 38, height: 38, borderRadius: '10px', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <DollarSign size={18} color="#16a34a" />
                     </div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>New Cash Account</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>New Cash Account</h3>
                     <button onClick={() => setShowAccountForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleCreateAccount(accountForm); }}>
@@ -359,12 +359,12 @@ export default function CashAccountsPage() {
     const pettyCashBankAccounts = cashBankAccounts.filter(a => a.account_type === 'Petty Cash');
     const fundFormModal = showFundForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '32px', width: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 38, height: 38, borderRadius: '10px', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Wallet size={18} color="#d97706" />
                     </div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{editFund ? 'Edit Fund' : 'New Petty Cash Fund'}</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>{editFund ? 'Edit Fund' : 'New Petty Cash Fund'}</h3>
                     <button onClick={() => { setShowFundForm(false); setEditFund(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleSaveFund(fundForm); }}>
@@ -418,12 +418,12 @@ export default function CashAccountsPage() {
     const expenseAccounts = (glAccounts as any[] || []).filter((a: any) => a.account_type === 'Expense');
     const voucherFormModal = showVoucherForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 500, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '32px', width: 500, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 38, height: 38, borderRadius: '10px', background: '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Banknote size={18} color="#b45309" />
                     </div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>New Petty Cash Voucher</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>New Petty Cash Voucher</h3>
                     <button onClick={() => setShowVoucherForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => { e.preventDefault(); handleCreateVoucher({ ...voucherForm, petty_cash_fund: Number(voucherForm.petty_cash_fund), account: Number(voucherForm.account) }); }}>
@@ -479,12 +479,12 @@ export default function CashAccountsPage() {
     const setRF = (k: string, v: string) => setReplenForm(p => ({ ...p, [k]: v }));
     const replenFormModal = showReplenForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', width: 460, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '32px', width: 460, boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: 38, height: 38, borderRadius: '10px', background: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <RotateCcw size={18} color="#0284c7" />
                     </div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>New Replenishment</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>New Replenishment</h3>
                     <button onClick={() => setShowReplenForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#94a3b8" /></button>
                 </div>
                 <form onSubmit={e => {
@@ -540,7 +540,7 @@ export default function CashAccountsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
                 <div style={{ display: 'flex', gap: '10px', flex: 1, maxWidth: '480px' }}>
                     <div style={{ position: 'relative', flex: 1 }}>
-                        <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                         <input style={{ ...inp, paddingLeft: '32px' }} placeholder="Search accounts…" value={search} onChange={e => setSearch(e.target.value)} />
                     </div>
                     <select style={{ ...sel, width: '160px' }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
@@ -558,11 +558,11 @@ export default function CashAccountsPage() {
             </div>
 
             {loadingAccounts ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading…</div>
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading…</div>
             ) : !filtered.length ? (
-                <div style={{ textAlign: 'center', padding: '60px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                <div style={{ textAlign: 'center', padding: '60px', background: 'var(--color-surface-hover)', borderRadius: '12px', border: '2px dashed var(--color-border)' }}>
                     <DollarSign size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No cash accounts found. Create one above.</p>
+                    <p style={{ color: 'var(--color-text-subtle)', fontSize: '14px', margin: 0 }}>No cash accounts found. Create one above.</p>
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
@@ -570,7 +570,7 @@ export default function CashAccountsPage() {
                         const ts = TYPE_STYLE[acct.account_type] || { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
                         return (
                             <div key={acct.id} style={{
-                                background: '#fff', borderRadius: '14px', padding: '20px',
+                                background: 'var(--color-surface)', borderRadius: '14px', padding: '20px',
                                 border: `1px solid ${ts.border}`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
                                 transition: 'box-shadow 0.15s, transform 0.15s',
                             }}
@@ -579,23 +579,23 @@ export default function CashAccountsPage() {
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
                                     <div>
-                                        <div style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b', marginBottom: '4px' }}>{acct.name}</div>
-                                        <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace' }}>{acct.account_number}</div>
+                                        <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--color-text)', marginBottom: '4px' }}>{acct.name}</div>
+                                        <div style={{ fontSize: '12px', color: 'var(--color-text-subtle)', fontFamily: 'monospace' }}>{acct.account_number}</div>
                                     </div>
                                     <span style={{ ...ts, padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, border: `1px solid ${ts.border}` }}>
                                         {acct.account_type}
                                     </span>
                                 </div>
-                                <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '12px 14px' }}>
+                                <div style={{ background: 'var(--color-surface-hover)', borderRadius: '10px', padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '12px', color: '#64748b' }}>Current Balance</span>
-                                        <span style={{ fontSize: '18px', fontWeight: 800, color: '#1e293b', letterSpacing: '-0.5px' }}>
+                                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Current Balance</span>
+                                        <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.5px' }}>
                                             {formatCurrency(parseFloat(acct.current_balance || '0'))}
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Currency</span>
-                                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>{acct.currency_code || acct.currency || '—'}</span>
+                                        <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>Currency</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text)' }}>{acct.currency_code || acct.currency || '—'}</span>
                                     </div>
                                 </div>
                             </div>
@@ -613,18 +613,18 @@ export default function CashAccountsPage() {
                 {/* Fund list */}
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>Funds</span>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-text)' }}>Funds</span>
                         <button onClick={() => { setEditFund(null); setFundForm({ name: '', code: '', bank_account: '', float_amount: '', minimum_balance: '' }); setShowFundForm(true); }}
                             style={{ padding: '5px 12px', border: 'none', borderRadius: '7px', background: '#d97706', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <Plus size={12} /> New
                         </button>
                     </div>
                     {loadingFunds ? (
-                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading…</div>
+                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading…</div>
                     ) : !funds.length ? (
-                        <div style={{ padding: '24px', textAlign: 'center', background: '#fafbfc', borderRadius: '10px', border: '2px dashed #e2e8f0' }}>
+                        <div style={{ padding: '24px', textAlign: 'center', background: 'var(--color-surface)', borderRadius: '10px', border: '2px dashed var(--color-border)' }}>
                             <Wallet size={28} color="#cbd5e1" style={{ marginBottom: '8px' }} />
-                            <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>No funds yet.</p>
+                            <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-subtle)' }}>No funds yet.</p>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -638,19 +638,19 @@ export default function CashAccountsPage() {
                                     <div key={fund.id}
                                         onClick={() => setSelectedFund(isSelected ? null : fund)}
                                         style={{
-                                            background: isSelected ? '#fffbeb' : '#fff',
-                                            border: `1.5px solid ${isSelected ? '#fcd34d' : isLow ? '#fca5a5' : '#e2e8f0'}`,
+                                            background: isSelected ? '#fffbeb' : 'var(--color-surface)',
+                                            border: `1.5px solid ${isSelected ? '#fcd34d' : isLow ? '#fca5a5' : 'var(--color-border)'}`,
                                             borderRadius: '10px', padding: '14px', cursor: 'pointer',
                                             transition: 'all 0.15s',
                                         }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                             <div>
-                                                <div style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b' }}>{fund.name}</div>
-                                                <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>{fund.code}</div>
+                                                <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text)' }}>{fund.name}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--color-text-subtle)', fontFamily: 'monospace', marginTop: '2px' }}>{fund.code}</div>
                                                 {fund.gl_account_code && (
-                                                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', color: '#475569', fontSize: '10px' }}>{fund.gl_account_code}</span>
-                                                        <span style={{ color: '#94a3b8', fontSize: '10px' }}>{fund.gl_account_name}</span>
+                                                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <span style={{ fontFamily: 'monospace', background: 'var(--color-surface-hover)', padding: '1px 5px', borderRadius: '4px', color: 'var(--color-text-secondary)', fontSize: '10px' }}>{fund.gl_account_code}</span>
+                                                        <span style={{ color: 'var(--color-text-subtle)', fontSize: '10px' }}>{fund.gl_account_name}</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -663,8 +663,8 @@ export default function CashAccountsPage() {
                                             </div>
                                         </div>
                                         <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ fontSize: '12px', color: '#64748b' }}>Balance</span>
-                                            <span style={{ fontSize: '13px', fontWeight: 700, color: isLow ? '#dc2626' : '#1e293b' }}>{formatCurrency(current)}</span>
+                                            <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Balance</span>
+                                            <span style={{ fontSize: '13px', fontWeight: 700, color: isLow ? '#dc2626' : 'var(--color-text)' }}>{formatCurrency(current)}</span>
                                         </div>
                                         <FundHealthBar current={current} float={floatAmt} minimum={minimum} />
                                     </div>
@@ -675,14 +675,14 @@ export default function CashAccountsPage() {
                 </div>
 
                 {/* Vouchers panel */}
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
-                    <div style={{ padding: '16px 20px', background: '#fafbfc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                            <span style={{ fontWeight: 700, fontSize: '14px', color: '#1e293b' }}>
+                            <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-text)' }}>
                                 {selectedFund ? `Vouchers — ${selectedFund.name}` : 'Vouchers — Select a fund'}
                             </span>
                             {selectedFund && (
-                                <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '10px' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginLeft: '10px' }}>
                                     Balance: <strong>{formatCurrency(selectedFund.current_balance)}</strong> / Float: {formatCurrency(selectedFund.float_amount)}
                                 </span>
                             )}
@@ -694,33 +694,33 @@ export default function CashAccountsPage() {
                     </div>
 
                     {!selectedFund ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             <TrendingDown size={36} color="#e2e8f0" style={{ marginBottom: '12px' }} />
                             <p style={{ margin: 0, fontSize: '13px' }}>Select a fund on the left to view its vouchers.</p>
                         </div>
                     ) : loadingVouchers ? (
-                        <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading vouchers…</div>
+                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading vouchers…</div>
                     ) : !voucherList.length ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             <p style={{ margin: 0, fontSize: '13px' }}>No vouchers for this fund yet.</p>
                         </div>
                     ) : (
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                                 <thead>
-                                    <tr style={{ background: '#f8fafc' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)' }}>
                                         {['Voucher #', 'Date', 'Payee', 'Description', 'Amount', 'Status', 'Actions'].map(h => (
-                                            <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                            <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{h}</th>
                                         ))}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {voucherList.map((v: any) => (
-                                        <tr key={v.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b', fontFamily: 'monospace', fontSize: '12px' }}>{v.voucher_number}</td>
-                                            <td style={{ padding: '10px 14px', color: '#374151' }}>{v.voucher_date}</td>
-                                            <td style={{ padding: '10px 14px', color: '#374151', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.payee}</td>
-                                            <td style={{ padding: '10px 14px', color: '#64748b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.description}</td>
+                                        <tr key={v.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                            <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'monospace', fontSize: '12px' }}>{v.voucher_number}</td>
+                                            <td style={{ padding: '10px 14px', color: 'var(--color-text)' }}>{v.voucher_date}</td>
+                                            <td style={{ padding: '10px 14px', color: 'var(--color-text)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.payee}</td>
+                                            <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.description}</td>
                                             <td style={{ padding: '10px 14px', fontWeight: 700, color: '#b45309' }}>{formatCurrency(parseFloat(v.amount))}</td>
                                             <td style={{ padding: '10px 14px' }}><VoucherStatus status={v.approval_status} /></td>
                                             <td style={{ padding: '10px 14px' }}>
@@ -755,8 +755,8 @@ export default function CashAccountsPage() {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Petty Cash Replenishments</h3>
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>Restore petty cash fund balances from main bank accounts — posts Dr Petty Cash / Cr Bank</p>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>Petty Cash Replenishments</h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>Restore petty cash fund balances from main bank accounts — posts Dr Petty Cash / Cr Bank</p>
                 </div>
                 <button onClick={() => setShowReplenForm(true)}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', border: 'none', borderRadius: '9px', background: '#0284c7', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
@@ -779,29 +779,29 @@ export default function CashAccountsPage() {
             ))}
 
             {loadingReplenishments ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Loading…</div>
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>Loading…</div>
             ) : !replenList.length ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--color-surface-hover)', borderRadius: '12px', border: '2px dashed var(--color-border)' }}>
                     <RotateCcw size={40} color="#cbd5e1" style={{ marginBottom: '12px' }} />
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>No replenishments yet.</p>
+                    <p style={{ color: 'var(--color-text-subtle)', fontSize: '14px', margin: 0 }}>No replenishments yet.</p>
                 </div>
             ) : (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
-                            <tr style={{ background: '#f8fafc' }}>
+                            <tr style={{ background: 'var(--color-surface-hover)' }}>
                                 {['Ref #', 'Fund', 'Date', 'Vouchers Total', 'Reimbursement', 'Status', 'Actions'].map(h => (
-                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {replenList.map((r: any) => (
-                                <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#1e293b', fontFamily: 'monospace', fontSize: '12px' }}>{r.replenishment_number}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{funds.find(f => f.id === r.petty_cash_fund)?.name || `Fund #${r.petty_cash_fund}`}</td>
-                                    <td style={{ padding: '11px 14px', color: '#374151' }}>{r.replenishment_date}</td>
-                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: '#374151' }}>{formatCurrency(parseFloat(r.vouchers_total || '0'))}</td>
+                                <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'monospace', fontSize: '12px' }}>{r.replenishment_number}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{funds.find(f => f.id === r.petty_cash_fund)?.name || `Fund #${r.petty_cash_fund}`}</td>
+                                    <td style={{ padding: '11px 14px', color: 'var(--color-text)' }}>{r.replenishment_date}</td>
+                                    <td style={{ padding: '11px 14px', fontWeight: 600, color: 'var(--color-text)' }}>{formatCurrency(parseFloat(r.vouchers_total || '0'))}</td>
                                     <td style={{ padding: '11px 14px', fontWeight: 700, color: '#0284c7' }}>{formatCurrency(parseFloat(r.reimbursement_amount || '0'))}</td>
                                     <td style={{ padding: '11px 14px' }}><StatusBadge status={r.status} /></td>
                                     <td style={{ padding: '11px 14px' }}>
@@ -844,8 +844,8 @@ export default function CashAccountsPage() {
             {notification && <InlineAlert msg={notification.msg} type={notification.type} onClose={() => setNotification(null)} />}
 
             {/* Tabs */}
-            <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 6px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-                <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', border: '1px solid var(--color-border)', boxShadow: '0 1px 6px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-hover)' }}>
                     {([
                         { key: 'accounts',     label: 'Cash Accounts',  icon: <DollarSign size={14} /> },
                         { key: 'petty-cash',   label: 'Petty Cash',     icon: <Wallet size={14} /> },
@@ -855,7 +855,7 @@ export default function CashAccountsPage() {
                             display: 'flex', alignItems: 'center', gap: '6px',
                             padding: '13px 20px', border: 'none', cursor: 'pointer', fontSize: '13px',
                             fontWeight: activeTab === tab.key ? 700 : 500,
-                            color: activeTab === tab.key ? '#15803d' : '#64748b',
+                            color: activeTab === tab.key ? '#15803d' : 'var(--color-text-muted)',
                             background: 'none',
                             borderBottom: activeTab === tab.key ? '2.5px solid #15803d' : '2.5px solid transparent',
                             transition: 'all 0.15s',

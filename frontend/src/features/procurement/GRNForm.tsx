@@ -341,7 +341,7 @@ const GRNForm = () => {
                                             <span style={{
                                                 marginLeft: '0.4rem', display: 'inline-flex',
                                                 alignItems: 'center', gap: '0.2rem',
-                                                fontSize: '10px', color: '#64748b', fontWeight: 500,
+                                                fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 500,
                                             }}>
                                                 <Lock size={10} /> locked
                                             </span>
@@ -350,12 +350,12 @@ const GRNForm = () => {
                                             ...inputStyle,
                                             display: 'flex', alignItems: 'center', gap: '0.5rem',
                                             background: 'rgba(79, 70, 229, 0.04)',
-                                            borderColor: poMdaId ? 'rgba(79, 70, 229, 0.25)' : '#e2e8f0',
+                                            borderColor: poMdaId ? 'rgba(79, 70, 229, 0.25)' : 'var(--color-border)',
                                             cursor: 'not-allowed',
-                                            color: poMdaId ? 'var(--color-text, #1e293b)' : '#94a3b8',
+                                            color: poMdaId ? 'var(--color-text, #1e293b)' : 'var(--color-text-subtle)',
                                             minHeight: '36px',
                                         }}>
-                                            <Building2 size={14} color={poMdaId ? '#4f46e5' : '#94a3b8'} />
+                                            <Building2 size={14} color={poMdaId ? '#4f46e5' : 'var(--color-text-subtle)'} />
                                             {poMdaId ? (
                                                 <span>
                                                     <strong>{poMdaCode || `#${poMdaId}`}</strong>

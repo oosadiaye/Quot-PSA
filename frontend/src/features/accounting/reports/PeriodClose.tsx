@@ -48,7 +48,7 @@ function CheckCard({ label, count, description }: CheckCardProps) {
             }}>
                 {label}
             </div>
-            <div style={{ fontSize: '11px', color: '#64748b', lineHeight: '1.4' }}>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', lineHeight: '1.4' }}>
                 {description}
             </div>
         </div>
@@ -107,18 +107,18 @@ export default function PeriodClose() {
             {/* Filters — horizontal */}
             <div style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
-                background: '#fff', borderRadius: '12px', padding: '10px 20px',
+                background: 'var(--color-surface)', borderRadius: '12px', padding: '10px 20px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.06)', marginBottom: '20px',
             }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                     Fiscal Period
                 </span>
                 <select
                     value={selectedPeriodId ?? ''}
                     onChange={e => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
                     style={{
-                        flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0',
-                        borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: '#1e293b',
+                        flex: 1, padding: '6px 10px', border: '1px solid var(--color-border)',
+                        borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--color-text)',
                         maxWidth: '320px',
                     }}
                 >
@@ -129,8 +129,8 @@ export default function PeriodClose() {
                 </select>
                 <button onClick={() => refetch()} style={{
                     display: 'inline-flex', alignItems: 'center', gap: '5px',
-                    padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
-                    background: '#f8fafc', fontSize: '13px', fontWeight: 600, color: '#475569',
+                    padding: '6px 12px', border: '1px solid var(--color-border)', borderRadius: '8px',
+                    background: 'var(--color-surface-hover)', fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)',
                     cursor: 'pointer', whiteSpace: 'nowrap',
                 }}>
                     <RefreshCw size={14} /> Refresh
@@ -139,16 +139,16 @@ export default function PeriodClose() {
 
             {isLoading ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Running pre-flight checks…
                 </div>
             ) : !checklist ? (
                 <div style={{
-                    background: '#fff', borderRadius: '12px', padding: '48px',
-                    textAlign: 'center', color: '#94a3b8',
+                    background: 'var(--color-surface)', borderRadius: '12px', padding: '48px',
+                    textAlign: 'center', color: 'var(--color-text-subtle)',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                 }}>
                     Select a period to run the checklist.
@@ -177,7 +177,7 @@ export default function PeriodClose() {
                                     : `${totalIssues} issue${totalIssues !== 1 ? 's' : ''} must be resolved before closing`}
                             </div>
                             {checklist.period_name && (
-                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                                     Period: {checklist.period_name}
                                 </div>
                             )}

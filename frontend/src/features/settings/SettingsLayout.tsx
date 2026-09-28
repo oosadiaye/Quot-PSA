@@ -28,14 +28,14 @@ export default function SettingsLayout({
             <Sidebar />
             <div style={{
                 flex: 1, marginLeft: '260px', minHeight: '100vh',
-                background: '#f8fafc',
+                background: 'var(--color-background)',
                 fontFamily: "'Inter', -apple-system, sans-serif",
             }}>
                 {/* Page Header */}
                 <div style={{
                     padding: '24px 40px 20px',
-                    borderBottom: '1px solid #e2e8f0',
-                    background: 'white',
+                    borderBottom: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
                 }}>
                     <BackButton />
                     <div style={{
@@ -52,14 +52,14 @@ export default function SettingsLayout({
                         </div>
                         <div>
                             <h1 style={{
-                                fontSize: '22px', fontWeight: 800, color: '#0f172a',
+                                fontSize: '22px', fontWeight: 800, color: 'var(--color-text)',
                                 margin: 0, letterSpacing: '-0.3px',
                             }}>
                                 {title}
                             </h1>
                             {subtitle && (
                                 <p style={{
-                                    fontSize: '13px', color: '#94a3b8', margin: '2px 0 0',
+                                    fontSize: '13px', color: 'var(--color-text-muted)', margin: '2px 0 0',
                                     maxWidth: '500px',
                                 }}>
                                     {subtitle}
@@ -67,11 +67,11 @@ export default function SettingsLayout({
                             )}
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '4px',
-                                fontSize: '13px', color: '#94a3b8', marginTop: '2px',
+                                fontSize: '13px', color: 'var(--color-text-muted)', marginTop: '2px',
                             }}>
                                 <span>Settings</span>
                                 <ChevronRight size={12} />
-                                <span style={{ color: '#64748b', fontWeight: 500 }}>{breadcrumb}</span>
+                                <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>{breadcrumb}</span>
                             </div>
                         </div>
                     </div>

@@ -8,6 +8,7 @@ from contracts.models.contract import (  # noqa: F401
     ContractType,
     MilestoneSchedule,
     MilestoneStatus,
+    MilestoneInvoiceLine,
     ProcurementMethod,
 )
 from contracts.models.variation import (  # noqa: F401
@@ -51,6 +52,7 @@ __all__ = [
     "ContractType",
     "MilestoneSchedule",
     "MilestoneStatus",
+    "MilestoneInvoiceLine",
     "ProcurementMethod",
     # variation.py
     "ContractVariation",

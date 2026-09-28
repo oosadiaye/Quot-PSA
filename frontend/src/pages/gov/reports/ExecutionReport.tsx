@@ -78,7 +78,7 @@ export default function ExecutionReport() {
     }, [rows]);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             {/* Note: this page's <main> doesn't carry the .ipsas-report
                 class so the print rule targets <main> directly via the
                 aside/nav hide. Same effective layout as the other
@@ -102,10 +102,10 @@ export default function ExecutionReport() {
                     marginBottom: '24px',
                 }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Budget Execution Report
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             Appropriation lifecycle — Approved → Committed → Expended → Available
                         </p>
                     </div>
@@ -115,7 +115,7 @@ export default function ExecutionReport() {
                             onChange={e => setFyId(e.target.value)}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             <option value="">All fiscal years</option>
@@ -128,7 +128,7 @@ export default function ExecutionReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -173,7 +173,7 @@ export default function ExecutionReport() {
                     <SummaryCard label="Available" amount={totals.available} accent="#3b82f6" />
 
                     <div style={{
-                        background: '#fff', borderRadius: '12px', padding: '20px',
+                        background: 'var(--color-surface)', borderRadius: '12px', padding: '20px',
                         border: `2px solid ${pctColor(totals.overall)}`,
                     }}>
                         <div style={{
@@ -194,28 +194,28 @@ export default function ExecutionReport() {
 
                 {/* Table */}
                 <div style={{
-                    background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
                     overflow: 'hidden',
                 }}>
                     {isLoading ? (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                             Loading execution data...
                         </div>
                     ) : error ? (
                         <ReportError error={error} endpoint="/budget/execution-report/" />
                     ) : !rows || rows.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--color-text-subtle)' }}>
                             No active appropriations to display.
                         </div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['MDA', 'Economic Code', 'Fund', 'Approved', 'Committed', 'Expended', 'Available', 'Execution'].map((h, i) => (
                                         <th key={h} style={{
                                             padding: '12px 14px',
                                             textAlign: i >= 3 ? 'right' : 'left',
-                                            fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
                                         }}>
                                             {h}
@@ -228,11 +228,11 @@ export default function ExecutionReport() {
                                     const p = pct(row.execution_pct);
                                     const c = pctColor(p);
                                     return (
-                                        <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                             <td style={{ padding: '10px 14px', fontSize: '13px' }}>{row.mda}</td>
                                             <td style={{ padding: '10px 14px', fontSize: '13px' }}>{row.account}</td>
                                             <td style={{
-                                                padding: '10px 14px', fontSize: '13px', color: '#64748b',
+                                                padding: '10px 14px', fontSize: '13px', color: 'var(--color-text-muted)',
                                             }}>
                                                 {row.fund}
                                             </td>
@@ -257,7 +257,7 @@ export default function ExecutionReport() {
                                             <td style={{
                                                 padding: '10px 14px', fontSize: '13px',
                                                 textAlign: 'right', fontFamily: 'monospace',
-                                                color: parseFloat(row.available) < 0 ? '#dc2626' : '#1e293b',
+                                                color: parseFloat(row.available) < 0 ? '#dc2626' : 'var(--color-text)',
                                                 fontWeight: 600,
                                             }}>
                                                 {fmtNGN(row.available)}
@@ -270,7 +270,7 @@ export default function ExecutionReport() {
                                                 }}>
                                                     <div style={{
                                                         flex: 1, height: 6, borderRadius: 3,
-                                                        background: '#eef2f7', overflow: 'hidden',
+                                                        background: 'var(--color-surface-hover)', overflow: 'hidden',
                                                     }}>
                                                         <div style={{
                                                             width: `${Math.min(100, Math.max(0, p))}%`,
@@ -292,7 +292,7 @@ export default function ExecutionReport() {
                                 })}
                             </tbody>
                             <tfoot>
-                                <tr style={{ background: '#f0f4f8', borderTop: '2px solid #1e293b' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderTop: '2px solid #1e293b' }}>
                                     <td colSpan={3} style={{
                                         padding: '12px 14px', fontWeight: 800, fontSize: '14px',
                                     }}>
@@ -337,7 +337,7 @@ export default function ExecutionReport() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: '11px',
+                    color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
                     Quot PSE IFMIS — Budget Execution (IPSAS 24 Disclosure)
                 </div>
@@ -355,7 +355,7 @@ interface SummaryCardProps {
 function SummaryCard({ label, amount, accent }: SummaryCardProps) {
     return (
         <div style={{
-            background: '#fff', borderRadius: '12px', padding: '20px',
+            background: 'var(--color-surface)', borderRadius: '12px', padding: '20px',
             border: `1px solid ${accent}33`,
         }}>
             <div style={{
@@ -366,7 +366,7 @@ function SummaryCard({ label, amount, accent }: SummaryCardProps) {
             </div>
             <div style={{
                 fontSize: '22px', fontWeight: 800, fontFamily: 'monospace',
-                color: '#1e293b', marginTop: '6px',
+                color: 'var(--color-text)', marginTop: '6px',
             }}>
                 {fmtNGN(amount)}
             </div>

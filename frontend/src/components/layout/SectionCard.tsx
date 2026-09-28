@@ -36,8 +36,8 @@ const SectionCard = ({
     return (
         <section
             style={{
-                background: '#ffffff',
-                border: '1px solid rgba(26,35,126,0.08)',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
                 borderRadius: 14,
                 boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
                 overflow: 'hidden',
@@ -53,8 +53,8 @@ const SectionCard = ({
                         justifyContent: 'space-between',
                         gap: 12,
                         padding: `${space.card - 4}px ${space.card}px`,
-                        borderBottom: '1px solid #eef2f7',
-                        background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                        borderBottom: '1px solid var(--color-border)',
+                        background: 'var(--color-surface-hover)',
                     }}
                 >
                     <div style={{ minWidth: 0 }}>
@@ -63,7 +63,7 @@ const SectionCard = ({
                                 style={{
                                     fontSize: 14,
                                     fontWeight: 700,
-                                    color: '#0b1320',
+                                    color: 'var(--color-text)',
                                     letterSpacing: '-0.005em',
                                 }}
                             >
@@ -71,7 +71,7 @@ const SectionCard = ({
                             </div>
                         )}
                         {subtitle && (
-                            <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
+                            <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginTop: 2 }}>
                                 {subtitle}
                             </div>
                         )}

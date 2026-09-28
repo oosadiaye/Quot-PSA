@@ -10,10 +10,10 @@ import {
 // ─── Card style constant ─────────────────────────────────────────────────────
 
 const CARD_STYLE: React.CSSProperties = {
-    background: 'white',
+    background: 'var(--color-surface)',
     borderRadius: '20px',
     padding: '28px 32px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--color-border)',
     boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.02)',
 };
 
@@ -73,18 +73,18 @@ function SettingRow({
         <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
             padding: indent ? '16px 20px 16px 40px' : '20px',
-            borderBottom: '1px solid #e2e8f0',
-            background: indent ? '#f8fafc' : undefined,
+            borderBottom: '1px solid var(--color-border)',
+            background: indent ? 'var(--color-surface-hover)' : undefined,
             opacity: disabled ? 0.55 : 1,
             transition: 'opacity 0.2s',
             gap: '24px',
         }}>
             <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: description ? '3px' : 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--color-text)', marginBottom: description ? '3px' : 0 }}>
                     {label}
                 </div>
                 {description && (
-                    <div style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: '13px', color: 'var(--color-text-subtle)', lineHeight: 1.5 }}>
                         {description}
                     </div>
                 )}
@@ -184,7 +184,7 @@ export default function InventorySettingsPage() {
             <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                     <SectionBadge icon={<Zap size={16} color="white" />} color="#059669" />
-                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>Automation</h2>
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--color-text)' }}>Automation</h2>
                 </div>
 
                 <div style={{ ...CARD_STYLE, padding: 0, overflow: 'hidden' }}>
@@ -213,7 +213,7 @@ export default function InventorySettingsPage() {
             <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                     <SectionBadge icon={<ShoppingCart size={16} color="white" />} color="#3b82f6" />
-                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>How Auto PO Works</h2>
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--color-text)' }}>How Auto PO Works</h2>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -250,8 +250,8 @@ export default function InventorySettingsPage() {
                                 border: `2px solid ${color}30`,
                             }}>{step}</div>
                             <div>
-                                <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>{title}</div>
-                                <div style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6 }}>{body}</div>
+                                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--color-text)', marginBottom: '4px' }}>{title}</div>
+                                <div style={{ fontSize: '13px', color: 'var(--color-text-subtle)', lineHeight: 1.6 }}>{body}</div>
                             </div>
                         </div>
                     ))}
@@ -262,7 +262,7 @@ export default function InventorySettingsPage() {
             <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                     <SectionBadge icon={<Info size={16} color="white" />} color="#f59e0b" />
-                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>Item Requirements</h2>
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--color-text)' }}>Item Requirements</h2>
                 </div>
 
                 <div style={{
@@ -284,12 +284,12 @@ export default function InventorySettingsPage() {
                             ['Expense Account', 'The GL account for the PO line (set on the product)'],
                         ].map(([field, desc]) => (
                             <div key={field} style={{ display: 'flex', gap: '12px', fontSize: '14px' }}>
-                                <span style={{ fontWeight: 600, minWidth: '140px', flexShrink: 0, color: '#0f172a' }}>{field}</span>
-                                <span style={{ color: '#94a3b8' }}>{desc}</span>
+                                <span style={{ fontWeight: 600, minWidth: '140px', flexShrink: 0, color: 'var(--color-text)' }}>{field}</span>
+                                <span style={{ color: 'var(--color-text-subtle)' }}>{desc}</span>
                             </div>
                         ))}
                     </div>
-                    <div style={{ marginTop: '16px', fontSize: '13px', color: '#94a3b8' }}>
+                    <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--color-text-subtle)' }}>
                         Items missing any of these fields will be skipped — a log entry is recorded for each skipped item.
                     </div>
                 </div>

@@ -39,9 +39,9 @@ const ListPageShell = ({ children, maxWidth, title, subtitle }: ListPageShellPro
     return (
         <div
             style={{
-                background: '#f1f5f9',
+                background: 'var(--color-background)',
                 minHeight: '100vh',
-                color: '#0b1320',
+                color: 'var(--color-text)',
             }}
         >
             <Sidebar />

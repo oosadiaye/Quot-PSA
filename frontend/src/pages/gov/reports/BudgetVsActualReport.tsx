@@ -90,7 +90,7 @@ export default function BudgetVsActualReport() {
     });
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div style={{
@@ -98,10 +98,10 @@ export default function BudgetVsActualReport() {
                     marginBottom: '24px',
                 }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Budget vs Actual Comparison
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             IPSAS 24 — Statement of Comparison of Budget and Actual Amounts
                         </p>
                     </div>
@@ -111,7 +111,7 @@ export default function BudgetVsActualReport() {
                             onChange={e => setFyId(e.target.value)}
                             style={{
                                 padding: '8px 12px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', fontSize: '14px',
+                                border: '1px solid var(--color-border)', fontSize: '14px',
                             }}
                         >
                             {(!fiscalYears || fiscalYears.length === 0) && (
@@ -126,7 +126,7 @@ export default function BudgetVsActualReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -141,31 +141,31 @@ export default function BudgetVsActualReport() {
                 </div>
 
                 {!fyId ? (
-                    <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '60px', color: 'var(--color-text-subtle)' }}>
                         {fiscalYears && fiscalYears.length === 0
                             ? 'No Fiscal Year records found in this tenant. Create one under Fiscal Year settings, then reload this page.'
                             : 'Loading fiscal years...'}
                     </div>
                 ) : isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                         Loading...
                     </div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/budget-vs-actual/" />
                 ) : data ? (
                     <div style={{
-                        background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1',
+                        background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
                         overflow: 'hidden',
                     }}>
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                                 <thead>
-                                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                         {['MDA', 'Economic Code', 'Fund', 'Original Budget', 'Final Budget', 'Warrants', 'Actual', 'Variance', '% Exec'].map((h, i) => (
                                             <th key={h} style={{
                                                 padding: '12px 14px',
                                                 textAlign: i >= 3 ? 'right' : 'left',
-                                                fontSize: '11px', fontWeight: 700, color: '#64748b',
+                                                fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase', letterSpacing: '0.5px',
                                             }}>
                                                 {h}
@@ -178,7 +178,7 @@ export default function BudgetVsActualReport() {
                                         const variance = parseFloat(String(item.variance || '0'));
                                         const pct = Number(item.execution_percentage ?? 0);
                                         return (
-                                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                            <tr key={idx} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                                 <td style={{ padding: '10px 14px', fontSize: '13px', fontWeight: 500 }}>
                                                     {item.mda}
                                                 </td>
@@ -189,7 +189,7 @@ export default function BudgetVsActualReport() {
                                                                 {item.account_code}
                                                             </span>
                                                             {item.account && (
-                                                                <span style={{ marginLeft: 6, color: '#1e293b' }}>
+                                                                <span style={{ marginLeft: 6, color: 'var(--color-text)' }}>
                                                                     — {item.account}
                                                                 </span>
                                                             )}
@@ -198,7 +198,7 @@ export default function BudgetVsActualReport() {
                                                         item.account
                                                     )}
                                                 </td>
-                                                <td style={{ padding: '10px 14px', fontSize: '12px', color: '#64748b' }}>
+                                                <td style={{ padding: '10px 14px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
                                                     {item.fund}
                                                 </td>
                                                 <td style={{
@@ -215,7 +215,7 @@ export default function BudgetVsActualReport() {
                                                 </td>
                                                 <td style={{
                                                     padding: '10px 14px', fontSize: '13px',
-                                                    textAlign: 'right', fontFamily: 'monospace', color: '#64748b',
+                                                    textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)',
                                                 }}>
                                                     {fmtNGN(item.warrants_released)}
                                                 </td>
@@ -246,7 +246,7 @@ export default function BudgetVsActualReport() {
                                 </tbody>
                                 {data.totals && (
                                     <tfoot>
-                                        <tr style={{ background: '#f0f4f8', borderTop: '2px solid #1e293b' }}>
+                                        <tr style={{ background: 'var(--color-surface-hover)', borderTop: '2px solid #1e293b' }}>
                                             <td colSpan={3} style={{
                                                 padding: '12px 14px', fontWeight: 800, fontSize: '14px',
                                             }}>
@@ -284,7 +284,7 @@ export default function BudgetVsActualReport() {
                             </table>
                         </div>
                         {(!data.items || data.items.length === 0) && (
-                            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-subtle)' }}>
                                 No active appropriations for this fiscal year.
                             </div>
                         )}

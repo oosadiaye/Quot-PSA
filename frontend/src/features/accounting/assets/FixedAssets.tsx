@@ -9,6 +9,7 @@ import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useCurrency } from '../../../context/CurrencyContext';
 import { useDialog } from '../../../hooks/useDialog';
 import logger from '../../../utils/logger';
+import { formatDate } from '@/utils/date';
 import '../styles/glassmorphism.css';
 
 type SortKey = 'asset_number' | 'name' | 'asset_category' | 'acquisition_date' | 'acquisition_cost' | 'accumulated_depreciation' | 'status';
@@ -231,7 +232,7 @@ export default function FixedAssets() {
 
     const resultStatusBadge = (s: string) => {
         if (s === 'success') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: 'var(--text-xs)', fontWeight: 600, background: 'rgba(34,197,94,0.1)', color: '#16a34a' }}><CheckCircle size={12} /> Success</span>;
-        if (s === 'already_posted') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: 'var(--text-xs)', fontWeight: 600, background: 'rgba(148,163,184,0.15)', color: '#64748b' }}><Clock size={12} /> Already Posted</span>;
+        if (s === 'already_posted') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: 'var(--text-xs)', fontWeight: 600, background: 'rgba(148,163,184,0.15)', color: 'var(--color-text-muted)' }}><Clock size={12} /> Already Posted</span>;
         return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: 'var(--text-xs)', fontWeight: 600, background: 'rgba(245,158,11,0.1)', color: '#d97706' }}><AlertTriangle size={12} /> Skipped</span>;
     };
 
@@ -281,16 +282,16 @@ export default function FixedAssets() {
                     alignItems: 'end',
                 }}>
                     <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
                             <Clock size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
                             Monthly Auto Depreciation
                         </div>
-                        <div style={{ fontSize: 13, color: '#1e293b', lineHeight: 1.4 }}>
+                        <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.4 }}>
                             {schedule ? (
                                 <>
-                                    Next run: <b>{schedule.next_run_date || '—'}</b>
+                                    Next run: <b>{formatDate(schedule.next_run_date)}</b>
                                     {schedule.last_run_period_date && (
-                                        <> · Last: <b>{schedule.last_run_period_date}</b>
+                                        <> · Last: <b>{formatDate(schedule.last_run_period_date)}</b>
                                         (posted {schedule.last_run_assets_posted}, total ₦
                                         {Number(schedule.last_run_total_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })})</>
                                     )}
@@ -301,7 +302,7 @@ export default function FixedAssets() {
                         </div>
                     </div>
                     <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Day of Month (1–28)</label>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Day of Month (1–28)</label>
                         <input
                             type="number" min={1} max={28}
                             value={scheduleDay}
@@ -310,7 +311,7 @@ export default function FixedAssets() {
                         />
                     </div>
                     <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Active</label>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Active</label>
                         <input
                             type="checkbox"
                             checked={scheduleActive}
@@ -548,7 +549,7 @@ export default function FixedAssets() {
                                                         {asset.asset_category}
                                                     </span>
                                                 </td>
-                                                <td style={tdStyle}>{asset.acquisition_date}</td>
+                                                <td style={tdStyle}>{formatDate(asset.acquisition_date)}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 500 }}>{formatCurrency(parseFloat(asset.acquisition_cost || 0))}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-error)' }}>{formatCurrency(parseFloat(asset.accumulated_depreciation || 0))}</td>
                                                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-cta)' }}>{formatCurrency(nbv)}</td>

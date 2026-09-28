@@ -17,7 +17,7 @@ export default function BankLetterPrintPreview() {
   }
 
   return (
-    <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '16px 0' }}>
+    <div style={{ background: 'var(--color-background)', minHeight: '100vh', padding: '16px 0' }}>
       <div className="no-print" style={{ textAlign: 'center', marginBottom: 12 }}>
         <button
           onClick={() => window.print()}

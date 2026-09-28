@@ -60,9 +60,9 @@ function PermBadge({ active, label }: { active: boolean; label: string }) {
                 display: 'inline-flex', alignItems: 'center', gap: 3,
                 padding: '2px 8px', borderRadius: 999,
                 fontSize: 11, fontWeight: 600,
-                background: active ? '#ecfdf5' : '#f1f5f9',
-                color: active ? '#047857' : '#94a3b8',
-                border: `1px solid ${active ? '#a7f3d0' : '#e2e8f0'}`,
+                background: active ? '#ecfdf5' : 'var(--color-surface-hover)',
+                color: active ? '#047857' : 'var(--color-text-subtle)',
+                border: `1px solid ${active ? '#a7f3d0' : 'var(--color-border)'}`,
             }}
         >
             {active ? <Check size={11} /> : <X size={11} />}
@@ -126,12 +126,12 @@ export default function RolesAndPermissionsPage() {
                 }}>
                     <div>
                         <h1 style={{
-                            fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
+                            fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0,
                             display: 'flex', alignItems: 'center', gap: 10,
                         }}>
                             <ShieldCheck size={22} /> Roles & Permissions
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                             Tenant-local authorisation catalogue with Segregation-of-Duties matrix
                         </p>
                     </div>
@@ -141,7 +141,7 @@ export default function RolesAndPermissionsPage() {
                             onChange={e => setModuleFilter(e.target.value)}
                             style={{
                                 padding: '8px 12px', borderRadius: 8,
-                                border: '1px solid #e2e8f0', fontSize: 14,
+                                border: '1px solid var(--color-border)', fontSize: 14,
                             }}
                         >
                             <option value="">All modules</option>
@@ -157,7 +157,7 @@ export default function RolesAndPermissionsPage() {
                 {/* Tab strip */}
                 <div style={{
                     display: 'flex', gap: 4, marginBottom: 20,
-                    borderBottom: '1px solid #e8ecf1',
+                    borderBottom: '1px solid var(--color-border)',
                 }}>
                     {([
                         { key: 'catalogue' as TabKey, label: 'Role Catalogue' },
@@ -172,7 +172,7 @@ export default function RolesAndPermissionsPage() {
                                 background: 'transparent', cursor: 'pointer',
                                 fontSize: 14,
                                 fontWeight: tab === t.key ? 700 : 500,
-                                color: tab === t.key ? '#1e40af' : '#64748b',
+                                color: tab === t.key ? '#1e40af' : 'var(--color-text-muted)',
                                 borderBottom: `2px solid ${
                                     tab === t.key ? '#1e40af' : 'transparent'
                                 }`,
@@ -186,8 +186,8 @@ export default function RolesAndPermissionsPage() {
 
                 {tab === 'users' && (
                     <div style={{
-                        background: '#fff', borderRadius: 12,
-                        border: '1px solid #e8ecf1', padding: 24, marginBottom: 24,
+                        background: 'var(--color-surface)', borderRadius: 12,
+                        border: '1px solid var(--color-border)', padding: 24, marginBottom: 24,
                     }}>
                         <UserRoleAssignments />
                     </div>
@@ -197,25 +197,25 @@ export default function RolesAndPermissionsPage() {
                     <>
                 {/* Role catalogue */}
                 <div style={{
-                    background: '#fff', borderRadius: 12,
-                    border: '1px solid #e8ecf1', padding: 24, marginBottom: 24,
+                    background: 'var(--color-surface)', borderRadius: 12,
+                    border: '1px solid var(--color-border)', padding: 24, marginBottom: 24,
                 }}>
                     <h2 style={{
-                        margin: 0, fontSize: 16, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)',
                         display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
                     }}>
                         <UsersIcon size={18} /> Role Catalogue
                         <span style={{
-                            fontSize: 12, color: '#64748b', fontWeight: 500,
+                            fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500,
                         }}>
                             ({filteredRoles.length} role{filteredRoles.length === 1 ? '' : 's'})
                         </span>
                     </h2>
 
                     {rolesLoading ? (
-                        <div style={{ color: '#94a3b8', padding: 20 }}>Loading…</div>
+                        <div style={{ color: 'var(--color-text-subtle)', padding: 20 }}>Loading…</div>
                     ) : filteredRoles.length === 0 ? (
-                        <div style={{ color: '#94a3b8', padding: 20 }}>
+                        <div style={{ color: 'var(--color-text-subtle)', padding: 20 }}>
                             No roles. Run <code>python manage.py tenant_command seed_baseline_roles</code>.
                         </div>
                     ) : (
@@ -230,46 +230,46 @@ export default function RolesAndPermissionsPage() {
                 {/* SOD matrix */}
                 {tab === 'sod' && (
                 <div style={{
-                    background: '#fff', borderRadius: 12,
-                    border: '1px solid #e8ecf1', padding: 24,
+                    background: 'var(--color-surface)', borderRadius: 12,
+                    border: '1px solid var(--color-border)', padding: 24,
                 }}>
                     <h2 style={{
-                        margin: 0, fontSize: 16, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)',
                         display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
                     }}>
                         <AlertTriangle size={18} /> Segregation-of-Duties Matrix
                     </h2>
                     <p style={{
-                        margin: 0, fontSize: 13, color: '#64748b', marginBottom: 16,
+                        margin: 0, fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16,
                     }}>
                         Role combinations that must not be held by the same user. Derived from the ICAN
                         public-sector manual, IPSAS conceptual framework, and the Nigerian Public Procurement Act.
                     </p>
 
                     {!sodMatrix ? (
-                        <div style={{ color: '#94a3b8', padding: 20 }}>Loading…</div>
+                        <div style={{ color: 'var(--color-text-subtle)', padding: 20 }}>Loading…</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     <th style={{
                                         padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                        fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                        fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                         letterSpacing: '0.5px',
                                     }}>Role A</th>
                                     <th style={{
                                         padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                        fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                        fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                         letterSpacing: '0.5px',
                                     }}>Role B</th>
                                     <th style={{
                                         padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                        fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                        fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                         letterSpacing: '0.5px',
                                     }}>Severity</th>
                                     <th style={{
                                         padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                        fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                        fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                         letterSpacing: '0.5px',
                                     }}>Reason</th>
                                 </tr>
@@ -280,19 +280,19 @@ export default function RolesAndPermissionsPage() {
                                     const a = roleByCode.get(rule.role_a);
                                     const b = roleByCode.get(rule.role_b);
                                     return (
-                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr key={idx} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                             <td style={{
                                                 padding: '10px 14px', fontSize: 13, fontWeight: 600,
                                             }}>
                                                 {a?.name ?? rule.role_a}
                                                 <div style={{
-                                                    fontSize: 11, color: '#94a3b8', fontFamily: 'monospace',
+                                                    fontSize: 11, color: 'var(--color-text-subtle)', fontFamily: 'monospace',
                                                 }}>{rule.role_a}</div>
                                             </td>
                                             <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600 }}>
                                                 {b?.name ?? rule.role_b}
                                                 <div style={{
-                                                    fontSize: 11, color: '#94a3b8', fontFamily: 'monospace',
+                                                    fontSize: 11, color: 'var(--color-text-subtle)', fontFamily: 'monospace',
                                                 }}>{rule.role_b}</div>
                                             </td>
                                             <td style={{ padding: '10px 14px' }}>
@@ -309,7 +309,7 @@ export default function RolesAndPermissionsPage() {
                                             </td>
                                             <td style={{
                                                 padding: '10px 14px', fontSize: 13,
-                                                color: '#475569', lineHeight: 1.5,
+                                                color: 'var(--color-text-secondary)', lineHeight: 1.5,
                                             }}>
                                                 {rule.reason}
                                             </td>
@@ -324,7 +324,7 @@ export default function RolesAndPermissionsPage() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: 11,
+                    color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
                     Quot PSE IFMIS — Role & Permission Management
                 </div>
@@ -342,7 +342,7 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
         <div style={{ marginBottom: 20 }}>
             <h3 style={{
                 margin: '0 0 10px', fontSize: 13, fontWeight: 700,
-                color: '#64748b', textTransform: 'uppercase',
+                color: 'var(--color-text-muted)', textTransform: 'uppercase',
                 letterSpacing: '0.5px',
             }}>
                 {module}
@@ -354,8 +354,8 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
             }}>
                 {roles.map(role => (
                     <div key={role.id} style={{
-                        border: '1px solid #e8ecf1', borderRadius: 10,
-                        padding: 14, background: role.is_active ? '#fff' : '#f8fafc',
+                        border: '1px solid var(--color-border)', borderRadius: 10,
+                        padding: 14, background: role.is_active ? 'var(--color-surface)' : 'var(--color-surface-hover)',
                     }}>
                         <div style={{
                             display: 'flex', justifyContent: 'space-between',
@@ -363,7 +363,7 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
                         }}>
                             <div>
                                 <div style={{
-                                    fontSize: 15, fontWeight: 800, color: '#1e293b',
+                                    fontSize: 15, fontWeight: 800, color: 'var(--color-text)',
                                     display: 'flex', alignItems: 'center', gap: 6,
                                 }}>
                                     {role.role_type === 'manager'
@@ -372,7 +372,7 @@ function ModuleSection({ module, roles }: ModuleSectionProps) {
                                     {role.name}
                                 </div>
                                 <div style={{
-                                    fontSize: 11, color: '#94a3b8', fontFamily: 'monospace',
+                                    fontSize: 11, color: 'var(--color-text-subtle)', fontFamily: 'monospace',
                                     marginTop: 2,
                                 }}>
                                     {role.code}

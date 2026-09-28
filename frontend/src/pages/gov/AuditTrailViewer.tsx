@@ -20,11 +20,11 @@ const ACTION_COLORS: Record<string, { bg: string; color: string }> = {
     APPROVE: { bg: '#dcfce7', color: '#166534' },
     REJECT:  { bg: '#fef2f2', color: '#dc2626' },
     CANCEL:  { bg: '#ffedd5', color: '#c2410c' },
-    LOGIN:   { bg: '#f1f5f9', color: '#64748b' },
-    LOGOUT:  { bg: '#f1f5f9', color: '#64748b' },
+    LOGIN:   { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' },
+    LOGOUT:  { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' },
     VOID:    { bg: '#fef2f2', color: '#dc2626' },
     IMPORT:  { bg: '#dbeafe', color: '#1e40af' },
-    EXPORT:  { bg: '#f1f5f9', color: '#64748b' },
+    EXPORT:  { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' },
 };
 
 const ALL_ACTIONS = [
@@ -92,30 +92,30 @@ export default function AuditTrailViewer() {
     const totalPages = Math.ceil(totalCount / pageSize);
 
     const inputStyle: React.CSSProperties = {
-        padding: '8px 10px', borderRadius: '7px', border: '1.5px solid #e2e8f0',
-        background: '#fff', color: '#1e293b', fontSize: '13px', outline: 'none',
+        padding: '8px 10px', borderRadius: '7px', border: '1.5px solid var(--color-border)',
+        background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: '13px', outline: 'none',
     };
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <Sidebar />
             <main style={{ marginLeft: '260px', padding: '28px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <Shield size={22} color="#4338ca" />
-                    <h1 style={{ fontSize: '22px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Audit Trail</h1>
+                    <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Audit Trail</h1>
                 </div>
-                <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginBottom: 20 }}>
                     Complete log of all system changes — {totalCount.toLocaleString()} entries
                 </p>
 
                 {/* Filters */}
                 <div style={{
-                    background: '#fff', borderRadius: 10, border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: 10, border: '1px solid var(--color-border)',
                     padding: '14px 16px', marginBottom: 16,
                     display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
                 }}>
                     <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-                        <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-subtle)' }} />
                         <input
                             style={{ ...inputStyle, width: '100%', paddingLeft: 32 }}
                             placeholder="Search entries..."
@@ -135,34 +135,34 @@ export default function AuditTrailViewer() {
                     <input type="date" style={{ ...inputStyle, width: 140 }} value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} placeholder="To" />
                     {(search || actionFilter || dateFrom || dateTo) && (
                         <button onClick={() => { setSearch(''); setActionFilter(''); setDateFrom(''); setDateTo(''); setPage(1); }}
-                            style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#64748b' }}>
+                            style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
                             Clear
                         </button>
                     )}
                 </div>
 
                 {/* Table */}
-                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1', overflow: 'hidden' }}>
+                <div style={{ background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
                     {isLoading ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Loading audit trail...</div>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading audit trail...</div>
                     ) : entries.length === 0 ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>No audit entries found.</div>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>No audit entries found.</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <thead>
-                                <tr style={{ borderBottom: '2px solid #e8ecf1', background: '#fafbfc' }}>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 30 }}></th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 160 }}>Timestamp</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 90 }}>Action</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 110 }}>User</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 100 }}>Module</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Description</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', width: 100 }}>Amount</th>
+                                <tr style={{ borderBottom: '2px solid var(--color-border)', background: 'var(--color-surface)' }}>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 30 }}></th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 160 }}>Timestamp</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 90 }}>Action</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 110 }}>User</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 100 }}>Module</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Description</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', width: 100 }}>Amount</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {entries.map(entry => {
-                                    const ac = ACTION_COLORS[entry.action] || { bg: '#f1f5f9', color: '#64748b' };
+                                    const ac = ACTION_COLORS[entry.action] || { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' };
                                     const isExpanded = expandedId === entry.id;
                                     const hasChanges = Object.keys(entry.changes || {}).length > 0
                                         || Object.keys(entry.previous_values || {}).length > 0
@@ -173,17 +173,17 @@ export default function AuditTrailViewer() {
                                             <tr key={entry.id}
                                                 onClick={() => hasChanges && setExpandedId(isExpanded ? null : entry.id)}
                                                 style={{
-                                                    borderBottom: '1px solid #f1f5f9',
+                                                    borderBottom: '1px solid var(--color-border-light)',
                                                     cursor: hasChanges ? 'pointer' : 'default',
                                                     background: isExpanded ? '#fafaff' : '',
                                                 }}
-                                                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = '#fafbfc'; }}
+                                                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'var(--color-surface)'; }}
                                                 onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = ''; }}
                                             >
-                                                <td style={{ padding: '8px 10px', color: '#94a3b8' }}>
+                                                <td style={{ padding: '8px 10px', color: 'var(--color-text-subtle)' }}>
                                                     {hasChanges && (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>
+                                                <td style={{ padding: '8px 12px', fontSize: 12, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                                         <Clock size={11} /> {fmtDate(entry.timestamp)}
                                                     </div>
@@ -194,14 +194,14 @@ export default function AuditTrailViewer() {
                                                         fontSize: 10, fontWeight: 700, background: ac.bg, color: ac.color,
                                                     }}>{entry.action}</span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontWeight: 500, color: '#1e293b' }}>{entry.username}</td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8' }}>{entry.model_name}</td>
-                                                <td style={{ padding: '8px 12px', color: '#1e293b' }}>
+                                                <td style={{ padding: '8px 12px', fontWeight: 500, color: 'var(--color-text)' }}>{entry.username}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--color-text-subtle)' }}>{entry.model_name}</td>
+                                                <td style={{ padding: '8px 12px', color: 'var(--color-text)' }}>
                                                     <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 400 }}>
                                                         {entry.object_repr || entry.description || entry.reference || '—'}
                                                     </div>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#1e293b' }}>
+                                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--color-text)' }}>
                                                     {fmtNGN(entry.amount)}
                                                 </td>
                                             </tr>
@@ -209,13 +209,13 @@ export default function AuditTrailViewer() {
                                                 <tr key={`${entry.id}-detail`}>
                                                     <td colSpan={7} style={{ padding: '0 12px 12px 44px', background: '#fafaff' }}>
                                                         <div style={{
-                                                            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                                                            background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8,
                                                             padding: 14, fontSize: 12,
                                                         }}>
                                                             {/* Status change */}
                                                             {(entry.old_status || entry.new_status) && (
                                                                 <div style={{ marginBottom: 10 }}>
-                                                                    <strong style={{ color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Status Change:</strong>
+                                                                    <strong style={{ color: 'var(--color-text-muted)', fontSize: 10, textTransform: 'uppercase' }}>Status Change:</strong>
                                                                     <div style={{ marginTop: 4 }}>
                                                                         <span style={{ color: '#ef4444' }}>{entry.old_status || '(none)'}</span>
                                                                         {' → '}
@@ -227,19 +227,19 @@ export default function AuditTrailViewer() {
                                                             {/* Field changes */}
                                                             {Object.keys(entry.changes || {}).length > 0 && (
                                                                 <div>
-                                                                    <strong style={{ color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Field Changes:</strong>
+                                                                    <strong style={{ color: 'var(--color-text-muted)', fontSize: 10, textTransform: 'uppercase' }}>Field Changes:</strong>
                                                                     <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6 }}>
                                                                         <thead>
-                                                                            <tr style={{ borderBottom: '1px solid #e8ecf1' }}>
-                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>Field</th>
-                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>Old Value</th>
-                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>New Value</th>
+                                                                            <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: 'var(--color-text-subtle)', fontWeight: 600 }}>Field</th>
+                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: 'var(--color-text-subtle)', fontWeight: 600 }}>Old Value</th>
+                                                                                <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, color: 'var(--color-text-subtle)', fontWeight: 600 }}>New Value</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody>
                                                                             {Object.entries(entry.changes).map(([field, val]) => (
                                                                                 <tr key={field} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                                                    <td style={{ padding: '4px 8px', fontWeight: 600, color: '#1e293b' }}>{field}</td>
+                                                                                    <td style={{ padding: '4px 8px', fontWeight: 600, color: 'var(--color-text)' }}>{field}</td>
                                                                                     <td style={{ padding: '4px 8px', color: '#ef4444' }}>
                                                                                         {entry.previous_values?.[field] !== undefined ? String(entry.previous_values[field]) : '—'}
                                                                                     </td>
@@ -254,7 +254,7 @@ export default function AuditTrailViewer() {
                                                             )}
 
                                                             {/* Metadata */}
-                                                            <div style={{ marginTop: 10, display: 'flex', gap: 20, color: '#94a3b8', fontSize: 11 }}>
+                                                            <div style={{ marginTop: 10, display: 'flex', gap: 20, color: 'var(--color-text-subtle)', fontSize: 11 }}>
                                                                 {entry.ip_address && <span>IP: {entry.ip_address}</span>}
                                                                 {entry.reference && <span>Ref: {entry.reference}</span>}
                                                                 {entry.object_key && <span>Key: {entry.object_key}</span>}
@@ -274,18 +274,18 @@ export default function AuditTrailViewer() {
                     {totalPages > 1 && (
                         <div style={{
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '10px 14px', borderTop: '1px solid #e8ecf1',
+                            padding: '10px 14px', borderTop: '1px solid var(--color-border)',
                         }}>
-                            <span style={{ fontSize: 12, color: '#64748b' }}>
+                            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
                                 Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalCount)} of {totalCount.toLocaleString()}
                             </span>
                             <div style={{ display: 'flex', gap: 4 }}>
                                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                                    style={{ padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 5, fontSize: 12, cursor: 'pointer', background: page === 1 ? '#f1f5f9' : '#fff', color: page === 1 ? '#94a3b8' : '#1e293b' }}>
+                                    style={{ padding: '5px 10px', border: '1px solid var(--color-border)', borderRadius: 5, fontSize: 12, cursor: 'pointer', background: page === 1 ? 'var(--color-surface-hover)' : 'var(--color-surface)', color: page === 1 ? 'var(--color-text-subtle)' : 'var(--color-text)' }}>
                                     Previous
                                 </button>
                                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                                    style={{ padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 5, fontSize: 12, cursor: 'pointer', background: page >= totalPages ? '#f1f5f9' : '#fff', color: page >= totalPages ? '#94a3b8' : '#1e293b' }}>
+                                    style={{ padding: '5px 10px', border: '1px solid var(--color-border)', borderRadius: 5, fontSize: 12, cursor: 'pointer', background: page >= totalPages ? 'var(--color-surface-hover)' : 'var(--color-surface)', color: page >= totalPages ? 'var(--color-text-subtle)' : 'var(--color-text)' }}>
                                     Next
                                 </button>
                             </div>
@@ -293,7 +293,7 @@ export default function AuditTrailViewer() {
                     )}
                 </div>
 
-                <div style={{ textAlign: 'center', padding: '16px 0', color: '#94a3b8', fontSize: 10 }}>
+                <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--color-text-subtle)', fontSize: 10 }}>
                     Quot PSE IFMIS — Audit Trail
                 </div>
             </main>

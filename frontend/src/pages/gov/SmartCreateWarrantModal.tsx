@@ -353,10 +353,10 @@ export default function SmartCreateWarrantModal({
                             <Sparkles size={16} color="white" />
                         </div>
                         <div>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                                 Smart Create Warrants
                             </div>
-                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 1 }}>
                                 Step {step} of 2 · {step === 1 ? 'MDA + batch settings' : 'Per-line details'}
                             </div>
                         </div>
@@ -512,7 +512,7 @@ function Step1({
                 background: batchMode
                     ? 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)'
                     : '#f8fafc',
-                border: `2px solid ${batchMode ? '#6366f1' : '#e2e8f0'}`,
+                border: `2px solid ${batchMode ? '#6366f1' : 'var(--color-border)'}`,
                 borderRadius: 12, padding: 14,
                 display: 'flex', alignItems: 'center', gap: 14,
                 transition: 'background 200ms',
@@ -526,10 +526,10 @@ function Step1({
                     {batchMode ? <Layers size={18} /> : <Files size={18} />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>
                         {batchMode ? 'Batch mode — merged printout' : 'Separate mode — individual printouts'}
                     </div>
-                    <div style={{ fontSize: 11, color: '#475569', marginTop: 2, lineHeight: 1.45 }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2, lineHeight: 1.45 }}>
                         {batchMode
                             ? 'All lines share one Authority Reference and print as a single composite warrant document for this MDA.'
                             : 'Each line gets its own Authority Reference and prints as a separate warrant from the list.'}
@@ -554,7 +554,7 @@ function Step1({
                         position: 'absolute',
                         top: 3, left: batchMode ? 25 : 3,
                         width: 22, height: 22, borderRadius: '50%',
-                        background: 'white',
+                        background: 'var(--color-surface)',
                         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
                         transition: 'left 200ms',
                     }} />
@@ -580,7 +580,7 @@ function Step1({
                     ))}
                 </select>
                 {mdaCode && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
                         {apprsForMda.length} budget line{apprsForMda.length === 1 ? '' : 's'} available on this MDA
                     </div>
                 )}
@@ -601,7 +601,7 @@ function Step1({
                         onChange={e => setCount(parseInt(e.target.value, 10) || 1)}
                         style={input}
                     />
-                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-subtle)', marginTop: 3 }}>
                         Max {Math.min(MAX_LINES, apprsForMda.length || MAX_LINES)}
                     </div>
                 </div>
@@ -659,8 +659,8 @@ function Step1({
                                 style={{
                                     padding: '6px 12px', borderRadius: 6,
                                     border: active ? '2px solid #4f46e5' : '1px solid #cbd5e1',
-                                    background: active ? '#eef2ff' : '#fff',
-                                    color: active ? '#4338ca' : '#1e293b',
+                                    background: active ? '#eef2ff' : 'var(--color-surface)',
+                                    color: active ? '#4338ca' : 'var(--color-text)',
                                     fontSize: 11, fontWeight: 600, cursor: 'pointer',
                                 }}
                             >
@@ -694,7 +694,7 @@ function Step2({
     return (
         <div>
             <div style={{
-                fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 1.5,
+                fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, lineHeight: 1.5,
             }}>
                 {batchMode
                     ? 'Each row becomes a Warrant row in the database; all of them share one Authority Reference and one printout document.'
@@ -702,11 +702,11 @@ function Step2({
             </div>
 
             <div style={{
-                border: '1px solid #e2e8f0', borderRadius: 8,
+                border: '1px solid var(--color-border)', borderRadius: 8,
                 overflow: 'hidden', overflowX: 'auto',
             }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead style={{ background: '#f8fafc' }}>
+                    <thead style={{ background: 'var(--color-surface-hover)' }}>
                         <tr>
                             <th style={th}>#</th>
                             <th style={{ ...th, textAlign: 'left', minWidth: 280 }}>Economic code</th>
@@ -724,10 +724,10 @@ function Step2({
                             const dup = duplicateIds.has(l.appropriation_id);
                             return (
                                 <tr key={idx} style={{
-                                    borderTop: '1px solid #e2e8f0',
+                                    borderTop: '1px solid var(--color-border)',
                                     background: dup ? '#fef2f2' : 'white',
                                 }}>
-                                    <td style={{ ...td, fontWeight: 700, color: '#475569' }}>
+                                    <td style={{ ...td, fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                                         {idx + 1}
                                     </td>
                                     <td style={td}>
@@ -752,7 +752,7 @@ function Step2({
                                             </div>
                                         )}
                                     </td>
-                                    <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                                    <td style={{ ...td, textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>
                                         {apr ? fmtNGN(apr.available_balance) : '—'}
                                     </td>
                                     <td style={td}>
@@ -767,7 +767,7 @@ function Step2({
                                                 textAlign: 'right',
                                                 fontFamily: 'monospace',
                                                 borderColor: exceeds ? '#ef4444' : undefined,
-                                                background: l.appropriation_id ? 'white' : '#f1f5f9',
+                                                background: l.appropriation_id ? 'var(--color-surface)' : 'var(--color-surface-hover)',
                                             }}
                                         />
                                         {exceeds && (
@@ -818,7 +818,7 @@ const backdrop: React.CSSProperties = {
     padding: 24, animation: 'smart-modal-in 120ms ease-out',
 };
 const shell: React.CSSProperties = {
-    background: 'white', borderRadius: 12,
+    background: 'var(--color-surface)', borderRadius: 12,
     width: '100%', maxWidth: 1100,
     maxHeight: 'calc(100vh - 48px)',
     display: 'flex', flexDirection: 'column',
@@ -827,7 +827,7 @@ const shell: React.CSSProperties = {
 };
 const header: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 18px', borderBottom: '1px solid #e2e8f0',
+    padding: '14px 18px', borderBottom: '1px solid var(--color-border)',
     flexShrink: 0,
 };
 const iconBadge: React.CSSProperties = {
@@ -837,8 +837,8 @@ const iconBadge: React.CSSProperties = {
 };
 const closeBtn: React.CSSProperties = {
     width: 32, height: 32, borderRadius: 8,
-    background: '#f1f5f9', border: '1px solid #cbd5e1',
-    cursor: 'pointer', color: '#1e293b',
+    background: 'var(--color-surface-hover)', border: '1px solid #cbd5e1',
+    cursor: 'pointer', color: 'var(--color-text)',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 const body: React.CSSProperties = {
@@ -846,29 +846,29 @@ const body: React.CSSProperties = {
 };
 const footer: React.CSSProperties = {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '12px 18px', borderTop: '1px solid #e2e8f0',
-    background: '#f8fafc', flexShrink: 0, gap: 10,
+    padding: '12px 18px', borderTop: '1px solid var(--color-border)',
+    background: 'var(--color-surface-hover)', flexShrink: 0, gap: 10,
 };
 const lbl: React.CSSProperties = {
     display: 'block', fontSize: 11, fontWeight: 700,
-    color: '#475569', textTransform: 'uppercase',
+    color: 'var(--color-text-secondary)', textTransform: 'uppercase',
     letterSpacing: 0.5, marginBottom: 5,
 };
 const input: React.CSSProperties = {
     width: '100%', padding: '7px 10px', borderRadius: 6,
-    border: '1.5px solid #cbd5e1', background: 'white',
-    color: '#0f172a', fontSize: 12, fontFamily: 'inherit',
+    border: '1.5px solid #cbd5e1', background: 'var(--color-surface)',
+    color: 'var(--color-text)', fontSize: 12, fontFamily: 'inherit',
     outline: 'none', boxSizing: 'border-box',
 };
 const th: React.CSSProperties = {
     padding: '8px 10px', fontSize: 10,
     fontWeight: 700, letterSpacing: 0.5,
-    textTransform: 'uppercase', color: '#475569',
-    borderBottom: '1px solid #e2e8f0', textAlign: 'center',
+    textTransform: 'uppercase', color: 'var(--color-text-secondary)',
+    borderBottom: '1px solid var(--color-border)', textAlign: 'center',
 };
 const td: React.CSSProperties = {
     padding: '8px 10px', fontSize: 12,
-    color: '#0f172a', verticalAlign: 'middle',
+    color: 'var(--color-text)', verticalAlign: 'middle',
 };
 const errBanner: React.CSSProperties = {
     padding: '10px 14px', borderRadius: 8, marginBottom: 14,
@@ -887,7 +887,7 @@ const btnPrimary: React.CSSProperties = {
 const btnGhost: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     padding: '9px 14px', borderRadius: 8,
-    background: 'white', border: '1px solid #cbd5e1',
-    color: '#1e293b', fontSize: 13, fontWeight: 600,
+    background: 'var(--color-surface)', border: '1px solid #cbd5e1',
+    color: 'var(--color-text)', fontSize: 13, fontWeight: 600,
     cursor: 'pointer',
 };

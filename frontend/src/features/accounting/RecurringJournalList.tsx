@@ -29,7 +29,7 @@ const FREQ_COLOR: Record<string, { bg: string; color: string }> = {
 };
 
 const freqBadge = (freq: string) => {
-    const c = FREQ_COLOR[freq] || { bg: '#f1f5f9', color: '#64748b' };
+    const c = FREQ_COLOR[freq] || { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' };
     return (
         <span style={{ background: c.bg, color: c.color, padding: '2px 8px', borderRadius: '99px', fontSize: '11px', fontWeight: 700 }}>
             {FREQ_LABELS[freq] || freq}
@@ -43,7 +43,7 @@ const statusBadge = (status: string) => {
         Generated: { bg: '#fef9c3', color: '#ca8a04', label: 'Pending' },
         Failed:    { bg: '#fee2e2', color: '#dc2626', label: 'Failed' },
     };
-    const s = map[status] || { bg: '#f1f5f9', color: '#64748b', label: status };
+    const s = map[status] || { bg: 'var(--color-surface-hover)', color: 'var(--color-text-muted)', label: status };
     return (
         <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: '99px', fontSize: '11px', fontWeight: 700 }}>
             {s.label}
@@ -53,10 +53,10 @@ const statusBadge = (status: string) => {
 
 // ─── Stat card ───────────────────────────────────────────────────────────────
 const Stat = ({ label, value, color, icon }: { label: string; value: number | string; color?: string; icon?: React.ReactNode }) => (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {icon && <div style={{ width: 38, height: 38, borderRadius: '10px', background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{icon}</div>}
         <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{label}</div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{label}</div>
             <div style={{ fontSize: '22px', fontWeight: 800, color: color || '#1e293b', lineHeight: 1 }}>{value}</div>
         </div>
     </div>
@@ -65,16 +65,16 @@ const Stat = ({ label, value, color, icon }: { label: string; value: number | st
 // ─── table styles ────────────────────────────────────────────────────────────
 const th: React.CSSProperties = {
     padding: '10px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 700,
-    color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em',
-    borderBottom: '1.5px solid #e2e8f0', whiteSpace: 'nowrap', background: '#f8fafc',
+    color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em',
+    borderBottom: '1.5px solid var(--color-border)', whiteSpace: 'nowrap', background: 'var(--color-surface-hover)',
 };
 const td: React.CSSProperties = {
     padding: '11px 14px', fontSize: '13px', color: '#374151',
-    borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap', verticalAlign: 'middle',
+    borderBottom: '1px solid var(--color-border-light)', whiteSpace: 'nowrap', verticalAlign: 'middle',
 };
 const numCell = (val: number, color?: string): React.CSSProperties => ({
     ...td, textAlign: 'right', fontWeight: val > 0 ? 700 : 400,
-    color: val > 0 ? (color || '#1e293b') : '#94a3b8',
+    color: val > 0 ? (color || 'var(--color-text)') : 'var(--color-text-subtle)',
 });
 
 type ConfirmModal =
@@ -171,8 +171,8 @@ const RecurringJournalList = () => {
         <button key={key} onClick={() => setTab(key)} style={{
             padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer',
             fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px',
-            background: tab === key ? '#4f46e5' : '#f1f5f9',
-            color: tab === key ? '#fff' : '#64748b',
+            background: tab === key ? '#4f46e5' : 'var(--color-surface-hover)',
+            color: tab === key ? '#fff' : 'var(--color-text-muted)',
             transition: 'all 0.15s',
         }}>
             {icon}{label}
@@ -180,8 +180,8 @@ const RecurringJournalList = () => {
     );
 
     const selStyle: React.CSSProperties = {
-        padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px',
-        fontSize: '12px', background: '#fff', color: '#374151', cursor: 'pointer',
+        padding: '7px 10px', border: '1.5px solid var(--color-border)', borderRadius: '8px',
+        fontSize: '12px', background: 'var(--color-surface)', color: '#374151', cursor: 'pointer',
     };
 
     return (
@@ -210,9 +210,9 @@ const RecurringJournalList = () => {
                         <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'rgba(79,70,229,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Repeat size={18} color="#4f46e5" />
                         </div>
-                        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#1e293b' }}>Recurring Journals</h1>
+                        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: 'var(--color-text)' }}>Recurring Journals</h1>
                     </div>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', paddingLeft: '46px' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-subtle)', paddingLeft: '46px' }}>
                         Manage templates and track automated posting activity
                     </p>
                 </div>
@@ -226,15 +226,15 @@ const RecurringJournalList = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '24px' }}>
                 <Stat label="Templates" value={journals.length} color="#4f46e5" icon={<Repeat size={16} color="#4f46e5" />} />
                 <Stat label="Active" value={activeCount} color="#16a34a" icon={<CheckCircle size={16} color="#16a34a" />} />
-                <Stat label="Inactive" value={journals.length - activeCount} color="#94a3b8" icon={<Clock size={16} color="#94a3b8" />} />
-                <Stat label="Total Runs" value={runs.length} color="#1e293b" icon={<TrendingUp size={16} color="#1e293b" />} />
+                <Stat label="Inactive" value={journals.length - activeCount} color="var(--color-text-subtle)" icon={<Clock size={16} color="var(--color-text-subtle)" />} />
+                <Stat label="Total Runs" value={runs.length} color="var(--color-text)" icon={<TrendingUp size={16} color="var(--color-text)" />} />
                 <Stat label="Auto-Posted" value={totalPosted} color="#16a34a" icon={<CheckCircle2 size={16} color="#16a34a" />} />
                 <Stat label="Pending / Failed" value={`${totalPending} / ${totalFailed}`} color={totalFailed > 0 ? '#dc2626' : '#d97706'} icon={<AlertCircle size={16} color={totalFailed > 0 ? '#dc2626' : '#d97706'} />} />
             </div>
 
             {/* ─── Tab bar ────────────────────────────────────────────────── */}
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
-                <div style={{ padding: '14px 20px', background: '#fafbfc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px' }}>
                         {tabBtn('templates', `Templates (${journals.length})`, <Repeat size={13} />)}
                         {tabBtn('report', 'Run Report', <BarChart2 size={13} />)}
@@ -261,7 +261,7 @@ const RecurringJournalList = () => {
                 ══════════════════════════════════════════════════════════ */}
                 {tab === 'templates' && (
                     filteredJournals.length === 0 ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             <Repeat size={40} color="#e2e8f0" style={{ display: 'block', margin: '0 auto 12px' }} />
                             <p style={{ margin: 0, fontSize: '13px' }}>No templates found.</p>
                             <button onClick={() => navigate('/accounting/recurring-journals/new')}
@@ -274,58 +274,58 @@ const RecurringJournalList = () => {
                             {filteredJournals.map((j: any) => {
                                 const s = getStats(j.id);
                                 return (
-                                    <div key={j.id} style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', transition: 'background 0.1s' }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = '#fafbfc')}
+                                    <div key={j.id} style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border-light)', transition: 'background 0.1s' }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface)')}
                                         onMouseLeave={e => (e.currentTarget.style.background = '')}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                                                    <span style={{ fontFamily: 'monospace', fontSize: '11px', background: j.is_active ? '#dcfce7' : '#f1f5f9', color: j.is_active ? '#16a34a' : '#94a3b8', padding: '2px 7px', borderRadius: '5px', fontWeight: 700 }}>{j.code}</span>
-                                                    <span style={{ fontWeight: 700, fontSize: '14px', color: '#1e293b' }}>{j.name}</span>
+                                                    <span style={{ fontFamily: 'monospace', fontSize: '11px', background: j.is_active ? '#dcfce7' : 'var(--color-surface-hover)', color: j.is_active ? '#16a34a' : 'var(--color-text-subtle)', padding: '2px 7px', borderRadius: '5px', fontWeight: 700 }}>{j.code}</span>
+                                                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-text)' }}>{j.name}</span>
                                                     {freqBadge(j.frequency)}
                                                     {j.auto_post && <span style={{ background: 'rgba(79,70,229,0.1)', color: '#4f46e5', padding: '2px 7px', borderRadius: '5px', fontSize: '11px', fontWeight: 700 }}>Auto-Post</span>}
                                                 </div>
-                                                <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: '#64748b', flexWrap: 'wrap' }}>
+                                                <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: 'var(--color-text-muted)', flexWrap: 'wrap' }}>
                                                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> Start: {formatDate(j.start_date)}</span>
                                                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><RefreshCw size={12} /> Next: <strong>{j.next_run_date || '—'}</strong></span>
                                                     {j.end_date && <span>End: {formatDate(j.end_date)}</span>}
-                                                    <span style={{ color: '#94a3b8' }}>{j.description || 'No description'}</span>
+                                                    <span style={{ color: 'var(--color-text-subtle)' }}>{j.description || 'No description'}</span>
                                                 </div>
                                             </div>
                                             {/* Mini run summary */}
                                             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
                                                 <div style={{ textAlign: 'center', minWidth: '36px' }}>
-                                                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#1e293b' }}>{s.total}</div>
-                                                    <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>RUNS</div>
+                                                    <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-text)' }}>{s.total}</div>
+                                                    <div style={{ fontSize: '10px', color: 'var(--color-text-subtle)', fontWeight: 600 }}>RUNS</div>
                                                 </div>
                                                 <div style={{ width: '1px', height: '28px', background: '#e2e8f0' }} />
                                                 <div style={{ textAlign: 'center', minWidth: '36px' }}>
                                                     <div style={{ fontSize: '16px', fontWeight: 800, color: '#16a34a' }}>{s.posted}</div>
-                                                    <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>POSTED</div>
+                                                    <div style={{ fontSize: '10px', color: 'var(--color-text-subtle)', fontWeight: 600 }}>POSTED</div>
                                                 </div>
                                                 <div style={{ textAlign: 'center', minWidth: '36px' }}>
-                                                    <div style={{ fontSize: '16px', fontWeight: 800, color: s.pending > 0 ? '#d97706' : '#94a3b8' }}>{s.pending}</div>
-                                                    <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>PENDING</div>
+                                                    <div style={{ fontSize: '16px', fontWeight: 800, color: s.pending > 0 ? '#d97706' : 'var(--color-text-subtle)' }}>{s.pending}</div>
+                                                    <div style={{ fontSize: '10px', color: 'var(--color-text-subtle)', fontWeight: 600 }}>PENDING</div>
                                                 </div>
                                                 {s.failed > 0 && (
                                                     <div style={{ textAlign: 'center', minWidth: '36px' }}>
                                                         <div style={{ fontSize: '16px', fontWeight: 800, color: '#dc2626' }}>{s.failed}</div>
-                                                        <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600 }}>FAILED</div>
+                                                        <div style={{ fontSize: '10px', color: 'var(--color-text-subtle)', fontWeight: 600 }}>FAILED</div>
                                                     </div>
                                                 )}
                                                 <div style={{ width: '1px', height: '28px', background: '#e2e8f0' }} />
                                                 <div style={{ display: 'flex', gap: '4px' }}>
                                                     <button title="Generate Now" disabled={!j.is_active || isPending}
                                                         onClick={() => setConfirmModal({ type: 'generate', id: j.id, name: j.name })}
-                                                        style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: '7px', padding: '5px 8px', cursor: j.is_active ? 'pointer' : 'not-allowed', color: j.is_active ? '#16a34a' : '#cbd5e1', display: 'flex', alignItems: 'center' }}>
+                                                        style={{ background: 'none', border: '1.5px solid var(--color-border)', borderRadius: '7px', padding: '5px 8px', cursor: j.is_active ? 'pointer' : 'not-allowed', color: j.is_active ? '#16a34a' : '#cbd5e1', display: 'flex', alignItems: 'center' }}>
                                                         <Play size={14} />
                                                     </button>
                                                     <button title="Edit" onClick={() => navigate(`/accounting/recurring-journals/${j.id}`)}
-                                                        style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: '7px', padding: '5px 8px', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+                                                        style={{ background: 'none', border: '1.5px solid var(--color-border)', borderRadius: '7px', padding: '5px 8px', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center' }}>
                                                         <Edit2 size={14} />
                                                     </button>
                                                     <button title="Delete" onClick={() => setConfirmModal({ type: 'delete', id: j.id, name: j.name })}
-                                                        style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: '7px', padding: '5px 8px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}>
+                                                        style={{ background: 'none', border: '1.5px solid var(--color-border)', borderRadius: '7px', padding: '5px 8px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center' }}>
                                                         <Trash2 size={14} />
                                                     </button>
                                                 </div>
@@ -343,9 +343,9 @@ const RecurringJournalList = () => {
                 ══════════════════════════════════════════════════════════ */}
                 {tab === 'report' && (
                     rLoading ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>Loading run data…</div>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading run data…</div>
                     ) : journals.length === 0 ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>No templates yet.</div>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>No templates yet.</div>
                     ) : (
                         <>
                             <div style={{ overflowX: 'auto' }}>
@@ -365,13 +365,13 @@ const RecurringJournalList = () => {
                                             return (
                                                 <Fragment key={j.id}>
                                                     <tr
-                                                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                                         onMouseLeave={e => (e.currentTarget.style.background = isExpanded ? '#fffbeb' : '')}>
                                                         {/* Expand toggle */}
                                                         <td style={{ ...td, width: '36px', paddingRight: 0 }}>
                                                             {s.total > 0 && (
                                                                 <button onClick={() => setExpandedId(isExpanded ? null : j.id)}
-                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--color-text-subtle)', display: 'flex', alignItems: 'center' }}>
                                                                     {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                                                                 </button>
                                                             )}
@@ -379,25 +379,25 @@ const RecurringJournalList = () => {
                                                         {/* Template */}
                                                         <td style={td}>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                                                                <span style={{ fontFamily: 'monospace', fontSize: '10px', background: j.is_active ? '#dcfce7' : '#f1f5f9', color: j.is_active ? '#16a34a' : '#94a3b8', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>{j.code}</span>
-                                                                <span style={{ fontWeight: 600, color: '#1e293b', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</span>
+                                                                <span style={{ fontFamily: 'monospace', fontSize: '10px', background: j.is_active ? '#dcfce7' : 'var(--color-surface-hover)', color: j.is_active ? '#16a34a' : 'var(--color-text-subtle)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>{j.code}</span>
+                                                                <span style={{ fontWeight: 600, color: 'var(--color-text)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</span>
                                                             </div>
                                                         </td>
                                                         <td style={td}>{freqBadge(j.frequency)}</td>
-                                                        <td style={{ ...td, color: '#94a3b8', fontSize: '12px' }}>{j.created_at ? j.created_at.slice(0, 10) : '—'}</td>
+                                                        <td style={{ ...td, color: 'var(--color-text-subtle)', fontSize: '12px' }}>{j.created_at ? j.created_at.slice(0, 10) : '—'}</td>
                                                         <td style={td}>{formatDate(j.start_date)}</td>
-                                                        <td style={{ ...td, color: j.end_date ? '#1e293b' : '#94a3b8' }}>{j.end_date ? formatDate(j.end_date) : 'No end'}</td>
-                                                        <td style={{ ...td, color: j.next_run_date ? '#4f46e5' : '#94a3b8', fontWeight: j.next_run_date ? 600 : 400 }}>{j.next_run_date || '—'}</td>
+                                                        <td style={{ ...td, color: j.end_date ? 'var(--color-text)' : 'var(--color-text-subtle)' }}>{j.end_date ? formatDate(j.end_date) : 'No end'}</td>
+                                                        <td style={{ ...td, color: j.next_run_date ? '#4f46e5' : 'var(--color-text-subtle)', fontWeight: j.next_run_date ? 600 : 400 }}>{j.next_run_date || '—'}</td>
                                                         <td style={td}>
                                                             {j.auto_post
                                                                 ? <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px' }}><CheckCircle size={13} /> Yes</span>
-                                                                : <span style={{ color: '#94a3b8', fontSize: '11px' }}>Manual</span>}
+                                                                : <span style={{ color: 'var(--color-text-subtle)', fontSize: '11px' }}>Manual</span>}
                                                         </td>
                                                         <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{s.total || <span style={{ color: '#cbd5e1' }}>0</span>}</td>
                                                         <td style={numCell(s.posted, '#16a34a')}>{s.posted || <span style={{ color: '#cbd5e1' }}>0</span>}</td>
                                                         <td style={numCell(s.pending, '#d97706')}>{s.pending || <span style={{ color: '#cbd5e1' }}>0</span>}</td>
                                                         <td style={numCell(s.failed, '#dc2626')}>{s.failed || <span style={{ color: '#cbd5e1' }}>0</span>}</td>
-                                                        <td style={{ ...td, color: '#94a3b8', fontSize: '12px' }}>
+                                                        <td style={{ ...td, color: 'var(--color-text-subtle)', fontSize: '12px' }}>
                                                             {s.lastRun ? (
                                                                 <div>
                                                                     <div style={{ color: '#374151' }}>{s.lastRun.run_date}</div>
@@ -412,10 +412,10 @@ const RecurringJournalList = () => {
                                                         <tr>
                                                             <td colSpan={14} style={{ padding: 0, background: '#fffbeb', borderBottom: '2px solid #fcd34d' }}>
                                                                 <div style={{ padding: '0 20px 16px 20px' }}>
-                                                                    <div style={{ padding: '10px 0 8px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                                    <div style={{ padding: '10px 0 8px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                                                         Run History — {j.name}
                                                                     </div>
-                                                                    <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #fde68a' }}>
+                                                                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--color-surface)', borderRadius: '8px', overflow: 'hidden', border: '1px solid #fde68a' }}>
                                                                         <thead>
                                                                             <tr style={{ background: '#fef9c3' }}>
                                                                                 {['Run Date', 'Journal #', 'Status', 'Error'].map(h => (
@@ -433,11 +433,11 @@ const RecurringJournalList = () => {
                                                                                         onMouseLeave={e => (e.currentTarget.style.background = '')}>
                                                                                         <td style={{ ...td, fontSize: '12px' }}>{run.run_date}</td>
                                                                                         <td style={{ ...td, fontFamily: 'monospace', fontSize: '12px', color: '#4f46e5' }}>
-                                                                                            {run.journal_number || <span style={{ color: '#94a3b8' }}>—</span>}
+                                                                                            {run.journal_number || <span style={{ color: 'var(--color-text-subtle)' }}>—</span>}
                                                                                         </td>
                                                                                         <td style={td}>{statusBadge(run.status)}</td>
                                                                                         <td style={{ ...td, fontSize: '11px', color: '#dc2626', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                                            {run.error_message || <span style={{ color: '#94a3b8' }}>—</span>}
+                                                                                            {run.error_message || <span style={{ color: 'var(--color-text-subtle)' }}>—</span>}
                                                                                         </td>
                                                                                     </tr>
                                                                                 ))}
@@ -455,12 +455,12 @@ const RecurringJournalList = () => {
                             </div>
 
                             {/* Report footer */}
-                            <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '24px', fontSize: '12px', color: '#64748b', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <div style={{ padding: '12px 20px', background: 'var(--color-surface-hover)', borderTop: '1px solid var(--color-border)', display: 'flex', gap: '24px', fontSize: '12px', color: 'var(--color-text-muted)', flexWrap: 'wrap', alignItems: 'center' }}>
                                 <span>{journals.length} templates</span>
                                 <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ {totalPosted} posted</span>
                                 <span style={{ color: '#d97706', fontWeight: totalPending > 0 ? 700 : 400 }}>⏳ {totalPending} pending</span>
                                 {totalFailed > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}>✗ {totalFailed} failed</span>}
-                                <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{runs.length} total runs across all templates</span>
+                                <span style={{ marginLeft: 'auto', color: 'var(--color-text-subtle)' }}>{runs.length} total runs across all templates</span>
                             </div>
                         </>
                     )
@@ -470,18 +470,18 @@ const RecurringJournalList = () => {
             {/* ─── Confirm modal ──────────────────────────────────────────── */}
             {confirmModal && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '420px', boxShadow: '0 25px 60px rgba(0,0,0,0.2)' }}>
-                        <h3 style={{ margin: '0 0 10px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '420px', boxShadow: '0 25px 60px rgba(0,0,0,0.2)' }}>
+                        <h3 style={{ margin: '0 0 10px', fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>
                             {confirmModal.type === 'generate' ? 'Generate Journal Now?' : 'Delete Template?'}
                         </h3>
-                        <p style={{ margin: '0 0 24px', fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>
+                        <p style={{ margin: '0 0 24px', fontSize: '13px', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
                             {confirmModal.type === 'generate'
                                 ? `Immediately generate a journal entry from template "${confirmModal.name}".`
                                 : `Permanently delete template "${confirmModal.name}" and all its run history. This cannot be undone.`}
                         </p>
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                             <button onClick={() => setConfirmModal(null)}
-                                style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                                style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #d1d5db', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
                                 Cancel
                             </button>
                             <button onClick={handleConfirm} disabled={isPending} style={{

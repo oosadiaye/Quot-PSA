@@ -478,7 +478,7 @@ export default function PurchaseRequisitions() {
                                                             <button onClick={() => handleConfirmedAction(req.id, confirmAction!.action)}
                                                                 style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>Yes</button>
                                                             <button onClick={() => setConfirmAction(null)}
-                                                                style={{ background: '#e2e8f0', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
+                                                                style={{ background: 'var(--color-border)', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}>No</button>
                                                         </div>
                                                     )}
                                                     {/* Draft → Submit for Approval (Draft → Pending transition). */}

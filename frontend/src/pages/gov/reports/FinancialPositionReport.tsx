@@ -12,8 +12,8 @@ import ExportExcelButton from './ExportExcelButton';
 import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 
 const fmtNGN = (v: number) => 'NGN ' + (v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-const card: React.CSSProperties = { background: '#fff', borderRadius: '12px', border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px' };
-const hdr: React.CSSProperties = { fontSize: '13px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '8px 0', borderBottom: '2px solid #e8ecf1' };
+const card: React.CSSProperties = { background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px' };
+const hdr: React.CSSProperties = { fontSize: '13px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '8px 0', borderBottom: '2px solid var(--color-border)' };
 
 export default function FinancialPositionReport() {
     const [fy, setFy] = useState(new Date().getFullYear());
@@ -37,7 +37,7 @@ export default function FinancialPositionReport() {
             const postedToHeader = i.is_header && Number(i.direct_amount || 0) !== 0;
             return (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 6px 20px', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: postedToHeader ? '#92400e' : '#1e293b' }}>
+                    <span style={{ fontSize: '13px', color: postedToHeader ? '#92400e' : 'var(--color-text)' }}>
                         {i.code} — {i.name}
                         {postedToHeader && (
                             <span
@@ -87,7 +87,7 @@ export default function FinancialPositionReport() {
     );
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             {/* Print-only stylesheet: hide the sidebar + screen header,
                 show the BrandedPrintHeader + report cards. The
                 ``.print-only`` block is invisible on screen but appears
@@ -108,21 +108,21 @@ export default function FinancialPositionReport() {
             <main className="ipsas-report" style={{ marginLeft: '260px', padding: '32px' }}>
                 <div className="print-only" style={{ marginBottom: 16 }}>
                     <BrandedPrintHeader subtitle="Statement of Financial Position · IPSAS 1" />
-                    <div style={{ marginTop: 8, fontSize: 11, color: '#475569', textAlign: 'center' }}>
+                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-secondary)', textAlign: 'center' }}>
                         Fiscal Year: <strong>FY {fy}</strong>
                     </div>
                 </div>
 
                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>Statement of Financial Position</h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>IPSAS 1 — Balance Sheet</p>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>Statement of Financial Position</h1>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>IPSAS 1 — Balance Sheet</p>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}>
+                        <select value={fy} onChange={e => setFy(parseInt(e.target.value))} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', fontSize: '14px' }}>
                             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>FY {y}</option>)}
                         </select>
-                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+                        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '14px' }}>
                             <Printer size={16} /> Print
                         </button>
                         <ExportExcelButton
@@ -134,7 +134,7 @@ export default function FinancialPositionReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Loading...</div>
+                    <div style={{ color: 'var(--color-text-subtle)', textAlign: 'center', padding: '40px' }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/financial-position/" />
                 ) : data ? (
@@ -194,14 +194,14 @@ export default function FinancialPositionReport() {
                             <div style={{ fontSize: '14px', fontWeight: 700, color: data.balance_check?.is_balanced ? '#16a34a' : '#dc2626' }}>
                                 {data.balance_check?.is_balanced ? 'BALANCED' : 'NOT BALANCED'}
                             </div>
-                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
                                 Assets: {fmtNGN(data.balance_check?.assets)} = Liabilities + Net Assets: {fmtNGN(data.balance_check?.liabilities_plus_net_assets)}
                             </div>
                         </div>
                     </div>
                 ) : null}
 
-                <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '11px' }}>
+                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-subtle)', fontSize: '11px' }}>
                     Quot PSE IFMIS — IPSAS 1 Compliant
                 </div>
             </main>

@@ -123,12 +123,12 @@ export default function AppropriationAdminPage() {
                 }}>
                     <div>
                         <h1 style={{
-                            fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
+                            fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0,
                             display: 'flex', alignItems: 'center', gap: 10,
                         }}>
                             <Award size={22} /> Budget Appropriations
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                             Full appropriation register — create, review, and activate
                             budget allocations across all six NCoA dimensions.
                         </p>
@@ -148,22 +148,22 @@ export default function AppropriationAdminPage() {
 
                 {/* Filter bar */}
                 <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
                     padding: '10px 16px', marginBottom: 16,
                     display: 'flex', alignItems: 'center', gap: 10,
                 }}>
-                    <Search size={16} style={{ color: '#94a3b8' }} />
+                    <Search size={16} style={{ color: 'var(--color-text-subtle)' }} />
                     <input
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
                         placeholder="Filter by MDA / economic / programme / geographic / status…"
                         style={{
                             flex: 1, padding: '8px 10px',
-                            border: '1px solid #e2e8f0', borderRadius: 8,
+                            border: '1px solid var(--color-border)', borderRadius: 8,
                             fontSize: 14, outline: 'none',
                         }}
                     />
-                    <div style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                         {rows.length > 0
                             ? `${filtered.length} of ${rows.length}`
                             : ''}
@@ -172,27 +172,27 @@ export default function AppropriationAdminPage() {
 
                 {/* Table */}
                 <div style={{
-                    background: '#fff', borderRadius: 12, border: '1px solid #e8ecf1',
+                    background: 'var(--color-surface)', borderRadius: 12, border: '1px solid var(--color-border)',
                     overflow: 'hidden',
                 }}>
                     {isLoading ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             Loading…
                         </div>
                     ) : filtered.length === 0 ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             {filter ? `No appropriations match "${filter}".` : 'No appropriations yet.'}
                         </div>
                     ) : (
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
                                 <thead>
-                                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                         {['FY', 'MDA', 'Economic', 'Functional', 'Programme', 'Fund', 'Geographic', 'Approved', 'Committed', 'Expended', 'Status'].map((h, i) => (
                                             <th key={h} style={{
                                                 padding: '10px 12px',
                                                 textAlign: i >= 7 && i !== 10 ? 'right' : 'left',
-                                                fontSize: 11, fontWeight: 700, color: '#64748b',
+                                                fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase', letterSpacing: '0.5px',
                                                 whiteSpace: 'nowrap',
                                             }}>{h}</th>
@@ -201,10 +201,10 @@ export default function AppropriationAdminPage() {
                                 </thead>
                                 <tbody>
                                     {filtered.map(r => (
-                                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                             <td style={{
                                                 padding: '10px 12px', fontSize: 13,
-                                                fontWeight: 700, color: '#1e293b',
+                                                fontWeight: 700, color: 'var(--color-text)',
                                             }}>
                                                 {r.fiscal_year_label || r.fiscal_year}
                                             </td>
@@ -262,7 +262,7 @@ export default function AppropriationAdminPage() {
                                                         return (
                                                             <div style={{
                                                                 fontSize: 9,
-                                                                color: '#94a3b8',
+                                                                color: 'var(--color-text-subtle)',
                                                                 marginTop: 2,
                                                                 fontWeight: 500,
                                                                 lineHeight: 1.3,
@@ -275,7 +275,7 @@ export default function AppropriationAdminPage() {
                                                         return (
                                                             <div style={{
                                                                 fontSize: 9,
-                                                                color: '#94a3b8',
+                                                                color: 'var(--color-text-subtle)',
                                                                 marginTop: 2,
                                                                 fontWeight: 500,
                                                             }}>
@@ -287,7 +287,7 @@ export default function AppropriationAdminPage() {
                                                         return (
                                                             <div style={{
                                                                 fontSize: 9,
-                                                                color: '#94a3b8',
+                                                                color: 'var(--color-text-subtle)',
                                                                 marginTop: 2,
                                                                 fontWeight: 500,
                                                             }}>
@@ -340,12 +340,12 @@ export default function AppropriationAdminPage() {
 }
 
 function CellBrief({ code, name }: { code: string | null; name: string | null }) {
-    if (!code && !name) return <td style={{ padding: '10px 12px', color: '#94a3b8' }}>—</td>;
+    if (!code && !name) return <td style={{ padding: '10px 12px', color: 'var(--color-text-subtle)' }}>—</td>;
     return (
         <td style={{ padding: '10px 12px', fontSize: 13, minWidth: 140 }}>
-            <div style={{ fontWeight: 500, color: '#1e293b' }}>{name}</div>
+            <div style={{ fontWeight: 500, color: 'var(--color-text)' }}>{name}</div>
             <div style={{
-                fontSize: 10, color: '#94a3b8', fontFamily: 'monospace',
+                fontSize: 10, color: 'var(--color-text-subtle)', fontFamily: 'monospace',
                 marginTop: 1,
             }}>
                 {code}
@@ -448,7 +448,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
 
     const selectStyle: React.CSSProperties = {
         width: '100%', padding: '8px 10px', borderRadius: 6,
-        border: '1px solid #e2e8f0', fontSize: 13,
+        border: '1px solid var(--color-border)', fontSize: 13,
     };
 
     return (
@@ -457,7 +457,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
             display: 'flex', justifyContent: 'flex-end', zIndex: 9998,
         }}>
             <div style={{
-                width: 560, maxWidth: '100%', background: '#fff', overflow: 'auto',
+                width: 560, maxWidth: '100%', background: 'var(--color-surface)', overflow: 'auto',
                 boxShadow: '-4px 0 20px rgba(0,0,0,0.15)', padding: '24px 28px',
             }}>
                 <div style={{
@@ -465,7 +465,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                     alignItems: 'center', marginBottom: 20,
                 }}>
                     <h3 style={{
-                        margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--color-text)',
                     }}>
                         New Appropriation
                     </h3>
@@ -473,7 +473,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                         onClick={onClose}
                         style={{
                             padding: 6, border: 'none', background: 'transparent',
-                            cursor: 'pointer', color: '#64748b',
+                            cursor: 'pointer', color: 'var(--color-text-muted)',
                         }}
                     >
                         <X size={20} />
@@ -533,7 +533,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                     </LabeledSelect>
 
                     <div>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>
                             Amount Approved (NGN) *
                         </label>
                         <input
@@ -545,7 +545,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                     </div>
 
                     <div>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>
                             Budget Code (optional)
                         </label>
                         <input
@@ -556,7 +556,7 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                             aria-label="Budget code"
                             style={{ ...selectStyle, fontFamily: 'var(--font-mono, monospace)' }}
                         />
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                        <div style={{ fontSize: 11, color: 'var(--color-text-subtle)', marginTop: 4 }}>
                             Your reference from the appropriation book. Need not be
                             unique — several rows may share one code.
                         </div>
@@ -605,8 +605,8 @@ function CreateDrawer({ onClose, onCreated }: CreateDrawerProps) {
                             onClick={onClose}
                             style={{
                                 padding: '10px 16px', borderRadius: 8,
-                                border: '1px solid #e2e8f0',
-                                background: '#fff', color: '#64748b',
+                                border: '1px solid var(--color-border)',
+                                background: 'var(--color-surface)', color: 'var(--color-text-muted)',
                                 cursor: 'pointer', fontSize: 14,
                             }}
                         >
@@ -630,7 +630,7 @@ function LabeledSelect({ label, value, onChange, children }: LabeledSelectProps)
     return (
         <div>
             <label style={{
-                fontSize: 12, fontWeight: 600, color: '#64748b',
+                fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)',
                 display: 'block', marginBottom: 4,
             }}>
                 {label}
@@ -640,7 +640,7 @@ function LabeledSelect({ label, value, onChange, children }: LabeledSelectProps)
                 onChange={e => onChange(e.target.value)}
                 style={{
                     width: '100%', padding: '8px 10px', borderRadius: 6,
-                    border: '1px solid #e2e8f0', fontSize: 13, background: '#fff',
+                    border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-surface)',
                 }}
             >
                 {children}

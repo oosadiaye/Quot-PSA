@@ -124,32 +124,32 @@ export default function UserRoleAssignments() {
                 alignItems: 'center', marginBottom: 16,
             }}>
                 <h2 style={{
-                    margin: 0, fontSize: 16, fontWeight: 800, color: '#1e293b',
+                    margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)',
                     display: 'flex', alignItems: 'center', gap: 8,
                 }}>
                     <UsersIcon size={18} /> User Assignments
-                    <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500 }}>
                         ({byUser?.count ?? 0} user{byUser?.count === 1 ? '' : 's'})
                     </span>
                 </h2>
             </div>
 
             {isLoading ? (
-                <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
+                <div style={{ padding: 40, color: 'var(--color-text-subtle)', textAlign: 'center' }}>
                     Loading…
                 </div>
             ) : !byUser || byUser.rows.length === 0 ? (
-                <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
+                <div style={{ padding: 40, color: 'var(--color-text-subtle)', textAlign: 'center' }}>
                     No users with assigned roles yet.
                 </div>
             ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                        <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                             {['User', 'Roles', 'SOD Status', ''].map(h => (
                                 <th key={h} style={{
                                     padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                    fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                    fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                     letterSpacing: '0.5px',
                                 }}>{h}</th>
                             ))}
@@ -159,9 +159,9 @@ export default function UserRoleAssignments() {
                         {byUser.rows.map(row => {
                             const colours = SEV_COLOR[row.highest_severity] ?? SEV_COLOR.none;
                             return (
-                                <tr key={row.user_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <tr key={row.user_id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                     <td style={{ padding: '10px 14px', fontSize: 13 }}>
-                                        <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                        <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
                                             {row.username}
                                             {row.is_superuser && (
                                                 <span style={{
@@ -172,7 +172,7 @@ export default function UserRoleAssignments() {
                                                 }}>SUPER</span>
                                             )}
                                         </div>
-                                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                                             {row.full_name || '—'} · {row.email || '—'}
                                         </div>
                                     </td>
@@ -210,7 +210,7 @@ export default function UserRoleAssignments() {
                                             {row.highest_severity === 'none' ? 'clean' : row.highest_severity}
                                         </span>
                                         {(row.sod_conflicts.length > 0 || (row.rule_driven_violations?.length || 0) > 0) && (
-                                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
                                                 {/* Both engine counts surface here so admins can tell
                                                     whether a flag came from the legacy hardcoded
                                                     role-pair matrix, the tenant-defined SoDRule table,
@@ -236,8 +236,8 @@ export default function UserRoleAssignments() {
                                             onClick={() => setActiveUser(row)}
                                             style={{
                                                 padding: '6px 12px', borderRadius: 8,
-                                                border: '1px solid #e2e8f0', background: '#fff',
-                                                color: '#1e293b', fontSize: 12, fontWeight: 600,
+                                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                                                color: 'var(--color-text)', fontSize: 12, fontWeight: 600,
                                                 cursor: 'pointer',
                                             }}
                                         >
@@ -384,7 +384,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
             display: 'flex', justifyContent: 'flex-end', zIndex: 9998,
         }}>
             <div style={{
-                width: 560, maxWidth: '100%', background: '#fff', overflow: 'auto',
+                width: 560, maxWidth: '100%', background: 'var(--color-surface)', overflow: 'auto',
                 boxShadow: '-4px 0 20px rgba(0,0,0,0.15)', padding: '24px 28px',
             }}>
                 <div style={{
@@ -393,11 +393,11 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                 }}>
                     <div>
                         <h3 style={{
-                            margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b',
+                            margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--color-text)',
                         }}>
                             Manage roles — {user.username}
                         </h3>
-                        <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                        <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
                             {user.full_name || '(no full name)'}
                         </div>
                     </div>
@@ -405,7 +405,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                         onClick={onClose}
                         style={{
                             padding: 6, border: 'none', background: 'transparent',
-                            cursor: 'pointer', color: '#64748b',
+                            cursor: 'pointer', color: 'var(--color-text-muted)',
                         }}
                     >
                         <X size={20} />
@@ -447,7 +447,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                             if (!preview) return null;
                             if (!hasAnyConflict) {
                                 return (
-                                    <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
                                         No conflicts for the current role combination.
                                     </div>
                                 );
@@ -458,7 +458,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                     {preview.conflicts.length > 0 && (
                                         <>
                                             <div style={{
-                                                fontSize: 11, fontWeight: 700, color: '#475569',
+                                                fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)',
                                                 textTransform: 'uppercase', letterSpacing: '0.4px',
                                                 marginBottom: 4,
                                             }}>
@@ -466,7 +466,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                             </div>
                                             <ul style={{
                                                 margin: '0 0 8px 0', paddingLeft: 16,
-                                                fontSize: 12, color: '#475569', lineHeight: 1.5,
+                                                fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5,
                                             }}>
                                                 {preview.conflicts.map((c, i) => {
                                                     const a = roleByCode.get(c.role_a);
@@ -489,7 +489,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                     {ruleViolations.length > 0 && (
                                         <>
                                             <div style={{
-                                                fontSize: 11, fontWeight: 700, color: '#475569',
+                                                fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)',
                                                 textTransform: 'uppercase', letterSpacing: '0.4px',
                                                 marginBottom: 4,
                                             }}>
@@ -497,7 +497,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                             </div>
                                             <ul style={{
                                                 margin: 0, paddingLeft: 16,
-                                                fontSize: 12, color: '#475569', lineHeight: 1.5,
+                                                fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5,
                                             }}>
                                                 {ruleViolations.map((v, i) => (
                                                     <li key={i}>
@@ -520,7 +520,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                                         {v.reason}
                                                         <div style={{
                                                             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-                                                            fontSize: 10, color: '#94a3b8', marginTop: 2,
+                                                            fontSize: 10, color: 'var(--color-text-subtle)', marginTop: 2,
                                                         }}>
                                                             {v.permission_a} ⨯ {v.permission_b}
                                                         </div>
@@ -584,7 +584,7 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                     <div key={mod} style={{ marginBottom: 20 }}>
                         <h4 style={{
                             margin: '0 0 8px', fontSize: 12, fontWeight: 700,
-                            color: '#64748b', textTransform: 'uppercase',
+                            color: 'var(--color-text-muted)', textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                         }}>
                             {mod}
@@ -600,20 +600,20 @@ function AssignmentDrawer({ user, roles, onClose, onChanged }: AssignmentDrawerP
                                         style={{
                                             display: 'flex', alignItems: 'center', gap: 10,
                                             padding: '10px 12px', borderRadius: 8,
-                                            border: `1px solid ${isAssigned ? '#10b981' : '#e2e8f0'}`,
-                                            background: isAssigned ? '#ecfdf5' : '#fff',
+                                            border: `1px solid ${isAssigned ? '#10b981' : 'var(--color-border)'}`,
+                                            background: isAssigned ? '#ecfdf5' : 'var(--color-surface)',
                                             cursor: 'pointer',
                                             textAlign: 'left',
                                         }}
                                     >
                                         {isAssigned
                                             ? <Trash2 size={14} style={{ color: '#047857' }} />
-                                            : <Plus size={14} style={{ color: '#64748b' }} />}
+                                            : <Plus size={14} style={{ color: 'var(--color-text-muted)' }} />}
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
                                                 {role.name}
                                             </div>
-                                            <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--color-text-subtle)', fontFamily: 'monospace' }}>
                                                 {role.code} · {role.role_type}
                                             </div>
                                         </div>

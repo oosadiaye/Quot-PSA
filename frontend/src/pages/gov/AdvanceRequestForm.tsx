@@ -33,11 +33,11 @@ interface Segment { id: number; code: string; name: string; }
 const FIORI = {
     blue: '#0a6ed1',
     blueDark: '#0854a0',
-    bg: '#f5f6f7',
-    card: '#ffffff',
-    border: '#e5e5e5',
-    label: '#6a6d70',
-    text: '#32363a',
+    bg: 'var(--color-background)',
+    card: 'var(--color-surface)',
+    border: 'var(--color-border)',
+    label: 'var(--color-text-muted)',
+    text: 'var(--color-text)',
     green: '#107e3e',
     amber: '#e9730c',
 };
@@ -48,11 +48,11 @@ const fioriLabel: React.CSSProperties = {
 };
 const fioriInput: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.65rem', fontSize: '0.875rem',
-    color: FIORI.text, background: '#fff',
-    border: `1px solid #b3b3b3`, borderRadius: '4px', outline: 'none',
+    color: FIORI.text, background: 'var(--color-surface)',
+    border: `1px solid var(--color-border)`, borderRadius: '4px', outline: 'none',
 };
 const fioriReadonly: React.CSSProperties = {
-    ...fioriInput, background: '#f2f2f2', color: FIORI.label, borderColor: FIORI.border,
+    ...fioriInput, background: 'var(--color-surface-hover)', color: FIORI.label, borderColor: FIORI.border,
 };
 const sectionCard: React.CSSProperties = {
     background: FIORI.card, border: `1px solid ${FIORI.border}`,
@@ -180,7 +180,7 @@ export default function AdvanceRequestForm() {
             <Sidebar />
             <main style={{ flex: 1, marginLeft: '260px', background: FIORI.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
                 {/* Fiori object header */}
-                <div style={{ background: '#fff', borderBottom: `1px solid ${FIORI.border}`, padding: '1.1rem 2rem' }}>
+                <div style={{ background: 'var(--color-surface)', borderBottom: `1px solid ${FIORI.border}`, padding: '1.1rem 2rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
                         <div>
                             <div style={{ fontSize: '0.72rem', color: FIORI.label, marginBottom: '0.15rem' }}>Vendor Payments</div>
@@ -367,7 +367,7 @@ export default function AdvanceRequestForm() {
 
                 {/* Fiori footer action bar */}
                 <div style={{
-                    position: 'sticky', bottom: 0, background: '#fff',
+                    position: 'sticky', bottom: 0, background: 'var(--color-surface)',
                     borderTop: `1px solid ${FIORI.border}`, padding: '0.7rem 2rem',
                     display: 'flex', justifyContent: 'flex-end', gap: '0.6rem',
                     boxShadow: '0 -1px 4px rgba(0,0,0,0.06)',
@@ -375,7 +375,7 @@ export default function AdvanceRequestForm() {
                     <button type="button" onClick={() => navigate(-1)}
                         style={{
                             padding: '0.5rem 1.1rem', fontSize: '0.85rem', fontWeight: 600,
-                            background: '#fff', color: FIORI.blue, border: `1px solid ${FIORI.blue}`,
+                            background: 'var(--color-surface)', color: FIORI.blue, border: `1px solid ${FIORI.blue}`,
                             borderRadius: '4px', cursor: 'pointer',
                         }}>
                         Cancel

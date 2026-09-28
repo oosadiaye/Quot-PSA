@@ -576,10 +576,10 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                         borderRadius: 8,
                         background: 'rgba(148, 163, 184, 0.10)',
                         border: '1px solid rgba(148, 163, 184, 0.25)',
-                        fontSize: 'var(--text-xs)', color: '#475569',
+                        fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)',
                         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                     }}>
-                        <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--color-text)' }}>
                             Ledger view — Posted only.
                         </span>
                         <span>
@@ -653,7 +653,7 @@ const VendorHistoryModal = ({ vendor, onClose }: Props) => {
                                 disabled={selected.size === 0 || availableCredit <= 0 || clearMutation.isPending}
                                 style={{
                                     padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid #4f46e5',
-                                    background: '#fff', color: '#4f46e5',
+                                    background: 'var(--color-surface)', color: '#4f46e5',
                                     cursor: (selected.size === 0 || availableCredit <= 0 || clearMutation.isPending) ? 'not-allowed' : 'pointer',
                                     fontWeight: 600, fontSize: 'var(--text-sm)',
                                     display: 'flex', alignItems: 'center', gap: '0.35rem',

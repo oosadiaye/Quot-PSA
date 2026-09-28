@@ -56,7 +56,7 @@ const deferralTypeBadge = (type: string) =>
 const ProgressBar = ({ current, total }: { current: number; total: number }) => {
     const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
     return (
-        <div style={{ background: '#f1f5f9', borderRadius: '4px', height: '5px', width: '80px', overflow: 'hidden', display: 'inline-block', verticalAlign: 'middle', marginLeft: '6px' }}>
+        <div style={{ background: 'var(--color-surface-hover)', borderRadius: '4px', height: '5px', width: '80px', overflow: 'hidden', display: 'inline-block', verticalAlign: 'middle', marginLeft: '6px' }}>
             <div style={{ width: `${pct}%`, height: '100%', background: pct >= 100 ? '#94a3b8' : '#4f46e5', borderRadius: '4px', transition: 'width 0.3s' }} />
         </div>
     );
@@ -64,21 +64,21 @@ const ProgressBar = ({ current, total }: { current: number; total: number }) => 
 
 // ─── Stat card ──────────────────────────────────────────────────────────────
 const Stat = ({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) => (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px 20px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>{label}</div>
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '16px 20px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>{label}</div>
         <div style={{ fontSize: '22px', fontWeight: 800, color: color || '#1e293b', lineHeight: 1 }}>{value}</div>
-        {sub && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{sub}</div>}
+        {sub && <div style={{ fontSize: '11px', color: 'var(--color-text-subtle)', marginTop: '4px' }}>{sub}</div>}
     </div>
 );
 
 // ─── Table styles ────────────────────────────────────────────────────────────
 const th: React.CSSProperties = {
     padding: '10px 14px', textAlign: 'left', fontSize: '11px', fontWeight: 700,
-    color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em',
-    borderBottom: '1.5px solid #e2e8f0', whiteSpace: 'nowrap', background: '#f8fafc',
+    color: 'var(--color-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em',
+    borderBottom: '1.5px solid var(--color-border)', whiteSpace: 'nowrap', background: 'var(--color-surface-hover)',
 };
-const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
-const iconBtn = (color = '#94a3b8'): React.CSSProperties => ({
+const td: React.CSSProperties = { padding: '11px 14px', fontSize: '13px', color: '#374151', borderBottom: '1px solid var(--color-border-light)', whiteSpace: 'nowrap' };
+const iconBtn = (color = 'var(--color-text-subtle)'): React.CSSProperties => ({
     background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
     borderRadius: '6px', color, display: 'inline-flex', alignItems: 'center',
 });
@@ -306,13 +306,13 @@ const AccrualDeferralList = () => {
     const tabBtn = (key: 'accruals' | 'deferrals', label: string) => (
         <button key={key} onClick={() => { setTab(key); setTypeFilter('all'); setStatusFilter('all'); }} style={{
             padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            background: tab === key ? '#4f46e5' : '#f1f5f9',
-            color: tab === key ? '#fff' : '#64748b',
+            background: tab === key ? '#4f46e5' : 'var(--color-surface-hover)',
+            color: tab === key ? '#fff' : 'var(--color-text-muted)',
             transition: 'all 0.15s',
         }}>{label}</button>
     );
 
-    const selStyle: React.CSSProperties = { padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', background: '#fff', color: '#374151', cursor: 'pointer' };
+    const selStyle: React.CSSProperties = { padding: '7px 10px', border: '1.5px solid var(--color-border)', borderRadius: '8px', fontSize: '12px', background: 'var(--color-surface)', color: '#374151', cursor: 'pointer' };
 
     return (
         <AccountingLayout>
@@ -339,9 +339,9 @@ const AccrualDeferralList = () => {
                         <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'rgba(79,70,229,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Clock size={18} color="#4f46e5" />
                         </div>
-                        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#1e293b' }}>Accruals & Deferrals</h1>
+                        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: 'var(--color-text)' }}>Accruals & Deferrals</h1>
                     </div>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', paddingLeft: '46px' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-subtle)', paddingLeft: '46px' }}>
                         Manage expense/revenue accruals and prepaid deferrals with auto-reversal
                     </p>
                 </div>
@@ -349,7 +349,7 @@ const AccrualDeferralList = () => {
                     {/* Actions Dropdown */}
                     <div ref={actionsRef} style={{ position: 'relative' }}>
                         <button onClick={() => setActionsOpen(!actionsOpen)} style={{
-                            padding: '10px 16px', border: '1.5px solid #e2e8f0', borderRadius: '10px', background: '#fff',
+                            padding: '10px 16px', border: '1.5px solid var(--color-border)', borderRadius: '10px', background: 'var(--color-surface)',
                             color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
                             display: 'flex', alignItems: 'center', gap: '6px',
                         }}>
@@ -358,51 +358,51 @@ const AccrualDeferralList = () => {
                         {actionsOpen && (
                             <div style={{
                                 position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: '230px',
-                                background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0',
+                                background: 'var(--color-surface)', borderRadius: '10px', border: '1px solid var(--color-border)',
                                 boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 50, overflow: 'hidden',
                             }}>
                                 <button onClick={handleDownloadTemplate} style={{
                                     width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                     padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                    fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                    fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                 }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                     <FileSpreadsheet size={15} color="#4f46e5" />
                                     <div style={{ textAlign: 'left' }}>
                                         <span style={{ fontWeight: 600, display: 'block' }}>Download Template</span>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>CSV for bulk {tab} import</span>
+                                        <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>CSV for bulk {tab} import</span>
                                     </div>
                                 </button>
                                 <div style={{ height: '1px', background: '#e2e8f0' }} />
                                 <button onClick={() => { setActionsOpen(false); fileInputRef.current?.click(); }} disabled={importing} style={{
                                     width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                     padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                    fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                    fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                     opacity: importing ? 0.5 : 1,
                                 }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                     <Upload size={15} color="#4f46e5" />
                                     <div style={{ textAlign: 'left' }}>
                                         <span style={{ fontWeight: 600, display: 'block' }}>{importing ? 'Importing…' : 'Import CSV'}</span>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Bulk create {tab} from file</span>
+                                        <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>Bulk create {tab} from file</span>
                                     </div>
                                 </button>
                                 <div style={{ height: '1px', background: '#e2e8f0' }} />
                                 <button onClick={handleExport} style={{
                                     width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
                                     padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
-                                    fontSize: '13px', color: '#1e293b', transition: 'background 0.15s',
+                                    fontSize: '13px', color: 'var(--color-text)', transition: 'background 0.15s',
                                     opacity: (tab === 'accruals' ? accruals : deferrals).length ? 1 : 0.5,
                                     pointerEvents: (tab === 'accruals' ? accruals : deferrals).length ? 'auto' : 'none',
                                 }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                     <Download size={15} color="#4f46e5" />
                                     <div style={{ textAlign: 'left' }}>
                                         <span style={{ fontWeight: 600, display: 'block' }}>Export {tab === 'accruals' ? 'Accruals' : 'Deferrals'}</span>
-                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Download as CSV</span>
+                                        <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>Download as CSV</span>
                                     </div>
                                 </button>
                             </div>
@@ -420,15 +420,15 @@ const AccrualDeferralList = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '24px' }}>
                 <Stat label="Total Accruals" value={accruals.length} sub={fmt(totalAccrualAmt)} />
                 <Stat label="Posted" value={postedCount} color="#16a34a" />
-                <Stat label="Pending Reversal" value={pendingReversal} color={pendingReversal > 0 ? '#d97706' : '#94a3b8'} />
+                <Stat label="Pending Reversal" value={pendingReversal} color={pendingReversal > 0 ? '#d97706' : 'var(--color-text-subtle)'} />
                 <Stat label="Active Deferrals" value={activeDeferrals} color="#4f46e5" />
                 <Stat label="Remaining Balance" value={fmt(totalDeferralRemaining)} sub={`across ${deferrals.length} deferral${deferrals.length !== 1 ? 's' : ''}`} />
             </div>
 
             {/* ─── Tabs ───────────────────────────────────────────────────── */}
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '14px', overflow: 'hidden' }}>
                 {/* Tab bar + filters */}
-                <div style={{ padding: '16px 20px', background: '#fafbfc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ padding: '16px 20px', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px' }}>
                         {tabBtn('accruals', `Accruals (${accruals.length})`)}
                         {tabBtn('deferrals', `Deferrals (${deferrals.length})`)}
@@ -470,9 +470,9 @@ const AccrualDeferralList = () => {
                 {/* ─── Accruals tab ─────────────────────────────────────── */}
                 {tab === 'accruals' && (
                     aLoading ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>Loading accruals…</div>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading accruals…</div>
                     ) : filteredAccruals.length === 0 ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             <TrendingUp size={40} color="#e2e8f0" style={{ marginBottom: '12px', display: 'block', margin: '0 auto 12px' }} />
                             <p style={{ margin: 0, fontSize: '13px' }}>No accruals found. <button onClick={() => navigate('/accounting/accruals-deferrals/new/accrual')} style={{ background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>Create one <ChevronRight size={12} style={{ verticalAlign: 'middle' }} /></button></p>
                         </div>
@@ -489,13 +489,13 @@ const AccrualDeferralList = () => {
                                 <tbody>
                                     {filteredAccruals.map((a: any) => (
                                         <tr key={a.id} style={{ transition: 'background 0.1s' }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                                            <td style={td}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#64748b' }}>{a.code}</span></td>
-                                            <td style={{ ...td, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: '#1e293b' }}>{a.name}</td>
+                                            <td style={td}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-muted)' }}>{a.code}</span></td>
+                                            <td style={{ ...td, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: 'var(--color-text)' }}>{a.name}</td>
                                             <td style={td}>{accrualTypeBadge(a.accrual_type)}</td>
                                             <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{fmt(parseFloat(a.amount || '0'))}</td>
-                                            <td style={{ ...td, fontSize: '11px', color: '#64748b' }}>
+                                            <td style={{ ...td, fontSize: '11px', color: 'var(--color-text-muted)' }}>
                                                 {a.account_code ? <span><span style={{ fontFamily: 'monospace' }}>{a.account_code}</span> {a.account_name}</span> : '—'}
                                             </td>
                                             <td style={td}>{formatDate(a.posting_date)}</td>
@@ -539,9 +539,9 @@ const AccrualDeferralList = () => {
                 {/* ─── Deferrals tab ────────────────────────────────────── */}
                 {tab === 'deferrals' && (
                     dLoading ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>Loading deferrals…</div>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>Loading deferrals…</div>
                     ) : filteredDeferrals.length === 0 ? (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                             <TrendingDown size={40} color="#e2e8f0" style={{ marginBottom: '12px', display: 'block', margin: '0 auto 12px' }} />
                             <p style={{ margin: 0, fontSize: '13px' }}>No deferrals found. <button onClick={() => navigate('/accounting/accruals-deferrals/new/deferral')} style={{ background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>Create one <ChevronRight size={12} style={{ verticalAlign: 'middle' }} /></button></p>
                         </div>
@@ -563,18 +563,18 @@ const AccrualDeferralList = () => {
                                         const pct = original > 0 ? Math.round((recognized / original) * 100) : 0;
                                         return (
                                             <tr key={d.id}
-                                                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-surface-hover)')}
                                                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                                                <td style={td}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#64748b' }}>{d.code}</span></td>
-                                                <td style={{ ...td, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: '#1e293b' }}>{d.name}</td>
+                                                <td style={td}><span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-muted)' }}>{d.code}</span></td>
+                                                <td style={{ ...td, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: 'var(--color-text)' }}>{d.name}</td>
                                                 <td style={td}>{deferralTypeBadge(d.deferral_type)}</td>
                                                 <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{fmt(original)}</td>
-                                                <td style={{ ...td, textAlign: 'right', color: remaining > 0 ? '#1e293b' : '#94a3b8' }}>{fmt(remaining)}</td>
+                                                <td style={{ ...td, textAlign: 'right', color: remaining > 0 ? 'var(--color-text)' : 'var(--color-text-subtle)' }}>{fmt(remaining)}</td>
                                                 <td style={td}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, minWidth: '32px' }}>{pct}%</span>
+                                                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, minWidth: '32px' }}>{pct}%</span>
                                                         <ProgressBar current={d.current_period} total={d.recognition_periods} />
-                                                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{d.current_period}/{d.recognition_periods}</span>
+                                                        <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)' }}>{d.current_period}/{d.recognition_periods}</span>
                                                     </div>
                                                 </td>
                                                 <td style={td}>{formatDate(d.start_date)}</td>
@@ -607,11 +607,11 @@ const AccrualDeferralList = () => {
                             </table>
 
                             {/* Deferral recognitions summary footer */}
-                            <div style={{ padding: '12px 20px', background: '#fafbfc', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '20px', fontSize: '12px', color: '#64748b' }}>
+                            <div style={{ padding: '12px 20px', background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', display: 'flex', gap: '20px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Layers size={13} />{deferrals.length} total</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#16a34a' }}><CheckCircle2 size={13} />{deferrals.filter(d => d.is_fully_recognized).length} complete</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4f46e5' }}><Clock size={13} />{activeDeferrals} active</div>
-                                <div style={{ marginLeft: 'auto', fontWeight: 700, color: '#1e293b' }}>
+                                <div style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--color-text)' }}>
                                     Total remaining: {fmt(totalDeferralRemaining)}
                                 </div>
                             </div>
@@ -623,11 +623,11 @@ const AccrualDeferralList = () => {
             {/* ─── Confirm modal ──────────────────────────────────────────── */}
             {confirm && confirmConfig && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '420px', boxShadow: '0 25px 60px rgba(0,0,0,0.2)' }}>
-                        <h3 style={{ margin: '0 0 10px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{confirmConfig.title}</h3>
-                        <p style={{ margin: '0 0 24px', fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>{confirmConfig.body}</p>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '420px', boxShadow: '0 25px 60px rgba(0,0,0,0.2)' }}>
+                        <h3 style={{ margin: '0 0 10px', fontSize: '16px', fontWeight: 700, color: 'var(--color-text)' }}>{confirmConfig.title}</h3>
+                        <p style={{ margin: '0 0 24px', fontSize: '13px', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>{confirmConfig.body}</p>
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => setConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>Cancel</button>
+                            <button onClick={() => setConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #d1d5db', background: 'var(--color-surface)', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>Cancel</button>
                             <button onClick={handleConfirm} disabled={isPending} style={{
                                 padding: '9px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                                 background: confirmConfig.danger ? '#dc2626' : '#4f46e5', color: '#fff',

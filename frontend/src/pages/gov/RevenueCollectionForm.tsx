@@ -428,10 +428,10 @@ export default function RevenueCollectionForm() {
                     useMemo). The remaining 4 dimensions stay here. */}
                 <div className="card" style={{ marginBottom: '2rem' }}>
                     <h3 style={{ marginBottom: '1rem', fontSize: 'var(--text-base)' }}>
-                        NCoA Classification <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(Function / Programme / Fund / Geographic — all required)</span>
+                        NCoA Classification <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-subtle)' }}>(Function / Programme / Fund / Geographic — all required)</span>
                     </h3>
                     {segsLoading ? (
-                        <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading NCoA segments...</div>
+                        <div style={{ color: 'var(--color-text-subtle)', fontSize: 13 }}>Loading NCoA segments...</div>
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
                             <div>
@@ -487,7 +487,7 @@ export default function RevenueCollectionForm() {
                                     style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 240 }}
                                     title="Pick a Treasury Single Account to auto-resolve this row's GL Account to the TSA's underlying cash GL. Optional — leave blank for non-cash lines (e.g. the credit revenue leg)."
                                 >
-                                    TSA Account <span style={{ color: '#94a3b8', fontWeight: 400 }}>(cash leg)</span>
+                                    TSA Account <span style={{ color: 'var(--color-text-subtle)', fontWeight: 400 }}>(cash leg)</span>
                                 </th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)' }}>GL Account</th>
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: 150, textAlign: 'right' }}>Debit (NGN)</th>
@@ -546,7 +546,7 @@ export default function RevenueCollectionForm() {
                                                 : 'Pick a GL account directly. Use the TSA column to the left to auto-fill the cash GL.'}
                                             style={{
                                                 width: '100%',
-                                                background: tsaLocked ? '#f1f5f9' : '#fff',
+                                                background: tsaLocked ? 'var(--color-surface-hover)' : 'var(--color-surface)',
                                                 cursor: tsaLocked ? 'not-allowed' : 'pointer',
                                             }}
                                         >
@@ -565,7 +565,7 @@ export default function RevenueCollectionForm() {
                                             placeholder="0.00"
                                             style={{
                                                 width: '100%', textAlign: 'right',
-                                                background: line.debit ? '#f0fdf4' : '#fff',
+                                                background: line.debit ? '#f0fdf4' : 'var(--color-surface)',
                                                 fontWeight: 600,
                                             }}
                                         />
@@ -577,7 +577,7 @@ export default function RevenueCollectionForm() {
                                             placeholder="0.00"
                                             style={{
                                                 width: '100%', textAlign: 'right',
-                                                background: line.credit ? '#fef2f2' : '#fff',
+                                                background: line.credit ? '#fef2f2' : 'var(--color-surface)',
                                                 fontWeight: 600,
                                             }}
                                         />
@@ -607,7 +607,7 @@ export default function RevenueCollectionForm() {
                             })}
                         </tbody>
                         <tfoot>
-                            <tr style={{ borderTop: '2px solid var(--border)', background: '#f8fafc' }}>
+                            <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--color-surface-hover)' }}>
                                 {/* colSpan=2 because the table now has a leading
                                     TSA Account column before GL Account — the
                                     Add Line affordance spans both since neither
@@ -617,7 +617,7 @@ export default function RevenueCollectionForm() {
                                         style={{
                                             background: 'none', border: '1px dashed #94a3b8',
                                             borderRadius: 6, padding: '4px 10px', fontSize: 12,
-                                            color: '#64748b', cursor: 'pointer',
+                                            color: 'var(--color-text-muted)', cursor: 'pointer',
                                             display: 'inline-flex', alignItems: 'center', gap: 4,
                                         }}
                                     >
@@ -640,7 +640,7 @@ export default function RevenueCollectionForm() {
                                             Out of balance by {fmtNGN(Math.abs(totalDebit - totalCredit))}
                                         </span>
                                     ) : (
-                                        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                                        <span style={{ color: 'var(--color-text-subtle)', fontSize: 12 }}>
                                             Enter amounts above
                                         </span>
                                     )}
@@ -663,7 +663,7 @@ export default function RevenueCollectionForm() {
                     >
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                             <User size={16} /> Payer Details
-                            <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8' }}>(optional)</span>
+                            <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-subtle)' }}>(optional)</span>
                         </span>
                         {showPayer ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>

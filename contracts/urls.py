@@ -19,6 +19,7 @@ from contracts.views import (
     IPCViewSet,
     MeasurementBookViewSet,
     MilestoneScheduleViewSet,
+    MilestoneInvoiceLineViewSet,
     MobilizationPaymentViewSet,
     RetentionReleaseViewSet,
 )
@@ -28,6 +29,7 @@ app_name = "contracts"
 router = DefaultRouter()
 router.register(r"contracts",               ContractViewSet,              basename="contract")
 router.register(r"milestones",              MilestoneScheduleViewSet,     basename="milestone")
+router.register(r"milestone-lines",         MilestoneInvoiceLineViewSet,  basename="milestone-line")
 router.register(r"balances",                ContractBalanceViewSet,       basename="balance")
 router.register(r"year-plans",              ContractYearPlanViewSet,      basename="year-plan")
 router.register(r"measurement-books",       MeasurementBookViewSet,       basename="measurement-book")

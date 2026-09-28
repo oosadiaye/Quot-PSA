@@ -11,8 +11,8 @@ import '../styles/glassmorphism.css';
 
 const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 12px',
-    border: '2.5px solid #d1d5db', borderRadius: '8px',
-    fontSize: '14px', outline: 'none', background: '#fafbfc', color: '#1e293b',
+    border: '2.5px solid var(--color-border)', borderRadius: '8px',
+    fontSize: '14px', outline: 'none', background: 'var(--color-surface)', color: 'var(--color-text)',
     boxSizing: 'border-box',
 };
 
@@ -131,7 +131,7 @@ export default function BankCashDashboard() {
                 />
 
                 {/* Tab Nav */}
-                <div style={{ display: 'flex', gap: '4px', background: '#fff', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
+                <div style={{ display: 'flex', gap: '4px', background: 'var(--color-surface)', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
                     {[
                         { key: 'overview', label: 'Overview' },
                         { key: 'reconciliation', label: 'Bank Reconciliation' },
@@ -139,7 +139,7 @@ export default function BankCashDashboard() {
                         <button key={tab.key} onClick={() => setActiveTab(tab.key as any)} style={{
                             padding: '8px 16px', borderRadius: '8px', border: 'none',
                             background: activeTab === tab.key ? '#191e6a' : 'transparent',
-                            color: activeTab === tab.key ? '#fff' : '#64748b',
+                            color: activeTab === tab.key ? '#fff' : 'var(--color-text-muted)',
                             fontWeight: activeTab === tab.key ? 600 : 400,
                             fontSize: '14px', cursor: 'pointer', transition: 'all 0.15s ease',
                         }}>
@@ -371,34 +371,34 @@ export default function BankCashDashboard() {
                 {/* ── Reconciliation Tab ── */}
                 {activeTab === 'reconciliation' && (
                     <div>
-                        <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--color-surface)', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
-                                    <tr style={{ background: '#f4f7fb', borderBottom: '1px solid #e2e8f0' }}>
+                                    <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '1px solid var(--color-border)' }}>
                                         {['Bank Account', 'Statement Date', 'Statement Balance', 'Book Balance', 'Difference', 'Status', 'Actions'].map(h => (
-                                            <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                                            <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>{h}</th>
                                         ))}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(!reconciliations || reconciliations.length === 0) ? (
-                                        <tr><td colSpan={7} style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                                        <tr><td colSpan={7} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-subtle)' }}>
                                             No reconciliations yet. Click "New Reconciliation" to start one.
                                         </td></tr>
                                     ) : reconciliations.map((recon: any) => {
                                         const diff = Number(recon.difference ?? 0);
                                         return (
-                                            <tr key={recon.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                <td style={{ padding: '12px 16px', fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
+                                            <tr key={recon.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                                <td style={{ padding: '12px 16px', fontSize: '14px', fontWeight: 600, color: 'var(--color-text)' }}>
                                                     {recon.bank_account_name ?? recon.bank_account}
                                                 </td>
-                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>
+                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
                                                     {recon.statement_date}
                                                 </td>
-                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569', textAlign: 'right', fontFamily: 'monospace' }}>
+                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: 'var(--color-text-secondary)', textAlign: 'right', fontFamily: 'monospace' }}>
                                                     {Number(recon.statement_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                 </td>
-                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569', textAlign: 'right', fontFamily: 'monospace' }}>
+                                                <td style={{ padding: '12px 16px', fontSize: '13px', color: 'var(--color-text-secondary)', textAlign: 'right', fontFamily: 'monospace' }}>
                                                     {Number(recon.book_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                 </td>
                                                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600, textAlign: 'right', fontFamily: 'monospace', color: diff === 0 ? '#059669' : '#dc2626' }}>
@@ -430,11 +430,11 @@ export default function BankCashDashboard() {
             {/* ── New Reconciliation Modal ── */}
             {showNewReconModal && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '440px' }}>
-                        <h2 style={{ margin: '0 0 20px', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>New Bank Reconciliation</h2>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '440px' }}>
+                        <h2 style={{ margin: '0 0 20px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text)' }}>New Bank Reconciliation</h2>
                         <form onSubmit={handleCreateRecon}>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Bank Account *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Bank Account *</label>
                                 <select style={inputStyle} required value={reconForm.bank_account} onChange={e => setReconForm(f => ({ ...f, bank_account: e.target.value }))}>
                                     <option value="">Select bank account...</option>
                                     {bankAccounts?.filter((a: any) => a.account_type === 'Bank').map((a: any) => (
@@ -443,15 +443,15 @@ export default function BankCashDashboard() {
                                 </select>
                             </div>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Statement Date *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Statement Date *</label>
                                 <input style={inputStyle} type="date" required value={reconForm.statement_date} onChange={e => setReconForm(f => ({ ...f, statement_date: e.target.value }))} />
                             </div>
                             <div style={{ marginBottom: '24px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Statement Balance *</label>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Statement Balance *</label>
                                 <input style={inputStyle} type="number" step="0.01" required placeholder="0.00" value={reconForm.statement_balance} onChange={e => setReconForm(f => ({ ...f, statement_balance: e.target.value }))} />
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                                <button type="button" onClick={() => setShowNewReconModal(false)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                                <button type="button" onClick={() => setShowNewReconModal(false)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                                 <button type="submit" disabled={createRecon.isPending} style={{ padding: '9px 18px', borderRadius: '8px', border: 'none', background: '#191e6a', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
                                     {createRecon.isPending ? 'Creating...' : 'Create'}
                                 </button>
@@ -464,35 +464,35 @@ export default function BankCashDashboard() {
             {/* ── Reconcile Adjustments Modal ── */}
             {showReconcileModal && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '480px' }}>
-                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>Reconcile Account</h2>
-                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#64748b' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '480px' }}>
+                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text)' }}>Reconcile Account</h2>
+                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                             Statement Date: {showReconcileModal.statement_date} · Statement Balance: {Number(showReconcileModal.statement_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </p>
                         <form onSubmit={handleReconcile}>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>
                                     Deposits in Transit
-                                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginLeft: '8px' }}>Deposits recorded in books but not on statement</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)', fontWeight: 400, marginLeft: '8px' }}>Deposits recorded in books but not on statement</span>
                                 </label>
                                 <input style={inputStyle} type="number" step="0.01" value={adjustForm.deposits_in_transit} onChange={e => setAdjustForm(f => ({ ...f, deposits_in_transit: e.target.value }))} />
                             </div>
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>
                                     Outstanding Checks
-                                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginLeft: '8px' }}>Checks issued but not yet cleared</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)', fontWeight: 400, marginLeft: '8px' }}>Checks issued but not yet cleared</span>
                                 </label>
                                 <input style={inputStyle} type="number" step="0.01" value={adjustForm.outstanding_checks} onChange={e => setAdjustForm(f => ({ ...f, outstanding_checks: e.target.value }))} />
                             </div>
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>
                                     Bank Charges
-                                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginLeft: '8px' }}>Service fees on statement not in books</span>
+                                    <span style={{ fontSize: '11px', color: 'var(--color-text-subtle)', fontWeight: 400, marginLeft: '8px' }}>Service fees on statement not in books</span>
                                 </label>
                                 <input style={inputStyle} type="number" step="0.01" value={adjustForm.bank_charges} onChange={e => setAdjustForm(f => ({ ...f, bank_charges: e.target.value }))} />
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                                <button type="button" onClick={() => setShowReconcileModal(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                                <button type="button" onClick={() => setShowReconcileModal(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                                 <button type="submit" disabled={reconcileBank.isPending} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '8px', border: 'none', background: '#059669', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
                                     <CheckCircle2 size={14} />
                                     {reconcileBank.isPending ? 'Reconciling...' : 'Reconcile'}

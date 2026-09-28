@@ -75,18 +75,18 @@ export default function ApprovalRulesPage() {
         <ListPageShell>
                 <div style={{ marginBottom: 24 }}>
                     <h1 style={{
-                        fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
+                        fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0,
                         display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                         <CheckCircle2 size={22} /> Approval Rules
                     </h1>
-                    <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                    <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                         Document workflow matrix — who approves what, at which amount band
                     </p>
                 </div>
 
                 {isLoading ? (
-                    <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>
+                    <div style={{ padding: 40, color: 'var(--color-text-subtle)', textAlign: 'center' }}>
                         Loading approval rules…
                     </div>
                 ) : error ? (
@@ -99,19 +99,19 @@ export default function ApprovalRulesPage() {
                     </div>
                 ) : !data || data.groups.length === 0 ? (
                     <div style={{
-                        background: '#fff', borderRadius: 12,
-                        border: '1px solid #e8ecf1', padding: 40, textAlign: 'center',
+                        background: 'var(--color-surface)', borderRadius: 12,
+                        border: '1px solid var(--color-border)', padding: 40, textAlign: 'center',
                     }}>
                         <AlertTriangle size={28} style={{
                             color: '#d97706', marginBottom: 10,
                         }} />
-                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>
                             No approval rules configured
                         </div>
-                        <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+                        <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 6 }}>
                             Run&nbsp;
                             <code style={{
-                                background: '#f1f5f9', padding: '2px 6px', borderRadius: 4,
+                                background: 'var(--color-surface-hover)', padding: '2px 6px', borderRadius: 4,
                             }}>
                                 python manage.py tenant_command seed_approval_rules
                             </code>
@@ -144,7 +144,7 @@ export default function ApprovalRulesPage() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: 11,
+                    color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
                     Quot PSE IFMIS — Approval Workflow Matrix
                 </div>
@@ -161,7 +161,7 @@ interface SummaryCardProps {
 function SummaryCard({ label, value, accent }: SummaryCardProps) {
     return (
         <div style={{
-            background: '#fff', borderRadius: 12,
+            background: 'var(--color-surface)', borderRadius: 12,
             border: `1px solid ${accent}33`, padding: 16,
         }}>
             <div style={{
@@ -171,7 +171,7 @@ function SummaryCard({ label, value, accent }: SummaryCardProps) {
                 {label}
             </div>
             <div style={{
-                fontSize: 24, fontWeight: 800, color: '#1e293b', marginTop: 4,
+                fontSize: 24, fontWeight: 800, color: 'var(--color-text)', marginTop: 4,
                 fontFamily: 'monospace',
             }}>
                 {value}
@@ -190,8 +190,8 @@ function GroupCard({ group }: GroupCardProps) {
 
     return (
         <div style={{
-            background: '#fff', borderRadius: 12,
-            border: '1px solid #e8ecf1', padding: 20, marginBottom: 16,
+            background: 'var(--color-surface)', borderRadius: 12,
+            border: '1px solid var(--color-border)', padding: 20, marginBottom: 16,
         }}>
             <div style={{
                 display: 'flex', alignItems: 'center', gap: 10,
@@ -205,19 +205,19 @@ function GroupCard({ group }: GroupCardProps) {
                 </div>
                 <div>
                     <h2 style={{
-                        margin: 0, fontSize: 15, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 15, fontWeight: 800, color: 'var(--color-text)',
                     }}>
                         {group.document_type_display}
                         <span style={{
                             marginLeft: 8, fontSize: 11, fontWeight: 600,
-                            background: '#f1f5f9', color: '#64748b',
+                            background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)',
                             padding: '2px 8px', borderRadius: 999,
                             fontFamily: 'monospace',
                         }}>
                             {group.document_type}
                         </span>
                     </h2>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
                         {meta.description}
                     </div>
                 </div>
@@ -225,38 +225,38 @@ function GroupCard({ group }: GroupCardProps) {
 
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                    <tr style={{ borderBottom: '1px solid #e8ecf1' }}>
+                    <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                         <th style={{
                             padding: '8px 10px', textAlign: 'left', fontSize: 11,
-                            fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                            fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                         }}>Amount Band</th>
                         <th style={{
                             padding: '8px 10px', textAlign: 'left', fontSize: 11,
-                            fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                            fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                         }}>Approval Chain</th>
                         <th style={{
                             padding: '8px 10px', textAlign: 'right', fontSize: 11,
-                            fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                            fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                         }}>Levels</th>
                     </tr>
                 </thead>
                 <tbody>
                     {group.rules.map(rule => (
-                        <tr key={rule.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <tr key={rule.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                             <td style={{ padding: '10px', fontSize: 13 }}>
                                 <span style={{
-                                    fontFamily: 'monospace', fontWeight: 600, color: '#1e293b',
+                                    fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)',
                                 }}>
                                     {fmtNGN(rule.min_amount)}
                                 </span>
                                 {' '}
-                                <span style={{ color: '#94a3b8' }}>→</span>
+                                <span style={{ color: 'var(--color-text-subtle)' }}>→</span>
                                 {' '}
                                 <span style={{
-                                    fontFamily: 'monospace', fontWeight: 600, color: '#1e293b',
+                                    fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)',
                                 }}>
                                     {rule.max_amount === null ? 'unlimited' : fmtNGN(rule.max_amount)}
                                 </span>
@@ -268,7 +268,7 @@ function GroupCard({ group }: GroupCardProps) {
                                             display: 'inline-flex', alignItems: 'center', gap: 4,
                                         }}>
                                             {i > 0 && (
-                                                <ChevronRight size={14} style={{ color: '#94a3b8' }} />
+                                                <ChevronRight size={14} style={{ color: 'var(--color-text-subtle)' }} />
                                             )}
                                             <span style={{
                                                 padding: '4px 10px', borderRadius: 999,
@@ -279,7 +279,7 @@ function GroupCard({ group }: GroupCardProps) {
                                                 L{lvl.level}: {lvl.role_name ?? lvl.approver_value}
                                                 {lvl.min_approvers > 1 && (
                                                     <span style={{
-                                                        marginLeft: 4, fontSize: 10, color: '#64748b',
+                                                        marginLeft: 4, fontSize: 10, color: 'var(--color-text-muted)',
                                                     }}>
                                                         ×{lvl.min_approvers}
                                                     </span>
@@ -291,7 +291,7 @@ function GroupCard({ group }: GroupCardProps) {
                             </td>
                             <td style={{
                                 padding: '10px', textAlign: 'right', fontSize: 13,
-                                fontWeight: 700, color: '#1e293b',
+                                fontWeight: 700, color: 'var(--color-text)',
                             }}>
                                 {rule.levels.length}
                             </td>

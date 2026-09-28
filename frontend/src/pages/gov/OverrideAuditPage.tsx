@@ -73,12 +73,12 @@ export default function OverrideAuditPage() {
         <ListPageShell>
                 <div style={{ marginBottom: 20 }}>
                     <h1 style={{
-                        fontSize: 24, fontWeight: 800, color: '#1e293b', margin: 0,
+                        fontSize: 24, fontWeight: 800, color: 'var(--color-text)', margin: 0,
                         display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                         <ShieldAlert size={22} /> Override Audit
                     </h1>
-                    <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+                    <p style={{ color: 'var(--color-text-muted)', fontSize: 14, margin: '4px 0 0' }}>
                         Audit trail of SOD overrides and dual-control bypasses —
                         every authority concentration with its justification.
                     </p>
@@ -106,38 +106,38 @@ export default function OverrideAuditPage() {
 
                 {/* SOD overrides */}
                 <div style={{
-                    background: '#fff', borderRadius: 12,
-                    border: '1px solid #e8ecf1', padding: 24, marginBottom: 20,
+                    background: 'var(--color-surface)', borderRadius: 12,
+                    border: '1px solid var(--color-border)', padding: 24, marginBottom: 20,
                 }}>
                     <h2 style={{
-                        margin: 0, fontSize: 15, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 15, fontWeight: 800, color: 'var(--color-text)',
                         marginBottom: 14,
                     }}>
                         SOD-override role assignments
                     </h2>
 
                     {sodLoading ? (
-                        <div style={{ padding: 20, color: '#94a3b8' }}>Loading…</div>
+                        <div style={{ padding: 20, color: 'var(--color-text-subtle)' }}>Loading…</div>
                     ) : !sod || sod.rows.length === 0 ? (
                         <div style={{
-                            padding: 30, textAlign: 'center', color: '#64748b',
+                            padding: 30, textAlign: 'center', color: 'var(--color-text-muted)',
                         }}>
                             <CheckCircle2 size={24} style={{ color: '#16a34a', marginBottom: 8 }} />
                             <div style={{ fontSize: 14, fontWeight: 600 }}>
                                 No SOD overrides on record
                             </div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                            <div style={{ fontSize: 12, color: 'var(--color-text-subtle)', marginTop: 4 }}>
                                 All role assignments comply with the SOD matrix.
                             </div>
                         </div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['User', 'Role', 'Granted By', 'When', 'Active', 'Justification'].map(h => (
                                         <th key={h} style={{
                                             padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                            fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                            fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                             letterSpacing: '0.5px',
                                         }}>{h}</th>
                                     ))}
@@ -145,17 +145,17 @@ export default function OverrideAuditPage() {
                             </thead>
                             <tbody>
                                 {sod.rows.map(row => (
-                                    <tr key={row.assignment_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={row.assignment_id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                         <td style={{ padding: '10px 14px', fontSize: 13 }}>
                                             <div style={{
                                                 display: 'flex', alignItems: 'center', gap: 6,
-                                                fontWeight: 600, color: '#1e293b',
+                                                fontWeight: 600, color: 'var(--color-text)',
                                             }}>
-                                                <User size={12} style={{ color: '#94a3b8' }} />
+                                                <User size={12} style={{ color: 'var(--color-text-subtle)' }} />
                                                 {row.username}
                                             </div>
                                             {row.full_name && (
-                                                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                                <div style={{ fontSize: 11, color: 'var(--color-text-subtle)', marginTop: 2 }}>
                                                     {row.full_name}
                                                 </div>
                                             )}
@@ -164,7 +164,7 @@ export default function OverrideAuditPage() {
                                             <div style={{ fontSize: 13, fontWeight: 600 }}>
                                                 {row.role_name}
                                             </div>
-                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
                                                 {row.role_module} · {row.role_code}
                                             </div>
                                         </td>
@@ -173,15 +173,15 @@ export default function OverrideAuditPage() {
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 12,
-                                            color: '#64748b', fontFamily: 'monospace',
+                                            color: 'var(--color-text-muted)', fontFamily: 'monospace',
                                         }}>
                                             {new Date(row.assigned_at).toLocaleString('en-NG')}
                                         </td>
                                         <td style={{ padding: '10px 14px' }}>
                                             <span style={{
                                                 fontSize: 10, padding: '2px 8px', borderRadius: 999,
-                                                background: row.is_active ? '#f0fdf4' : '#f1f5f9',
-                                                color: row.is_active ? '#166534' : '#64748b',
+                                                background: row.is_active ? '#f0fdf4' : 'var(--color-surface-hover)',
+                                                color: row.is_active ? '#166534' : 'var(--color-text-muted)',
                                                 fontWeight: 700,
                                                 border: `1px solid ${row.is_active ? '#86efac' : '#cbd5e1'}`,
                                                 textTransform: 'uppercase',
@@ -190,7 +190,7 @@ export default function OverrideAuditPage() {
                                             </span>
                                         </td>
                                         <td style={{
-                                            padding: '10px 14px', fontSize: 12, color: '#475569',
+                                            padding: '10px 14px', fontSize: 12, color: 'var(--color-text-secondary)',
                                             maxWidth: 380,
                                             whiteSpace: 'pre-wrap',
                                             wordBreak: 'break-word',
@@ -206,21 +206,21 @@ export default function OverrideAuditPage() {
 
                 {/* Dual-control override feed (P4-T5) */}
                 <div style={{
-                    background: '#fff', borderRadius: 12,
-                    border: '1px solid #e8ecf1', padding: 24, marginBottom: 20,
+                    background: 'var(--color-surface)', borderRadius: 12,
+                    border: '1px solid var(--color-border)', padding: 24, marginBottom: 20,
                 }}>
                     <h2 style={{
-                        margin: 0, fontSize: 15, fontWeight: 800, color: '#1e293b',
+                        margin: 0, fontSize: 15, fontWeight: 800, color: 'var(--color-text)',
                         marginBottom: 14,
                     }}>
                         Dual-control overrides
                     </h2>
 
                     {dcLoading ? (
-                        <div style={{ padding: 20, color: '#94a3b8' }}>Loading…</div>
+                        <div style={{ padding: 20, color: 'var(--color-text-subtle)' }}>Loading…</div>
                     ) : !dualControl || dualControl.length === 0 ? (
                         <div style={{
-                            padding: 30, textAlign: 'center', color: '#64748b',
+                            padding: 30, textAlign: 'center', color: 'var(--color-text-muted)',
                         }}>
                             <CheckCircle2 size={24} style={{ color: '#16a34a', marginBottom: 8 }} />
                             <div style={{ fontSize: 14, fontWeight: 600 }}>
@@ -230,11 +230,11 @@ export default function OverrideAuditPage() {
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e8ecf1' }}>
+                                <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
                                     {['Document', 'Requested By', 'When', 'Reviewer', 'Status', 'Justification'].map(h => (
                                         <th key={h} style={{
                                             padding: '10px 14px', textAlign: 'left', fontSize: 11,
-                                            fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                                            fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase',
                                             letterSpacing: '0.5px',
                                         }}>{h}</th>
                                     ))}
@@ -242,29 +242,29 @@ export default function OverrideAuditPage() {
                             </thead>
                             <tbody>
                                 {dualControl.map(row => (
-                                    <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                         <td style={{ padding: '10px 14px', fontSize: 13 }}>
-                                            <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                            <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
                                                 {row.document_type}
                                             </div>
-                                            <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--color-text-subtle)', fontFamily: 'monospace' }}>
                                                 #{row.document_id}
                                             </div>
                                         </td>
                                         <td style={{ padding: '10px 14px', fontSize: 13 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <User size={12} style={{ color: '#94a3b8' }} />
+                                                <User size={12} style={{ color: 'var(--color-text-subtle)' }} />
                                                 {row.requested_by_username ?? '—'}
                                             </div>
                                             {row.ip_address && (
-                                                <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace', marginTop: 2 }}>
+                                                <div style={{ fontSize: 10, color: 'var(--color-text-subtle)', fontFamily: 'monospace', marginTop: 2 }}>
                                                     {row.ip_address}
                                                 </div>
                                             )}
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 12,
-                                            color: '#64748b', fontFamily: 'monospace',
+                                            color: 'var(--color-text-muted)', fontFamily: 'monospace',
                                         }}>
                                             {new Date(row.requested_at).toLocaleString('en-NG')}
                                         </td>
@@ -272,7 +272,7 @@ export default function OverrideAuditPage() {
                                             {row.approved_by_username ?? '—'}
                                             {row.approved_at && (
                                                 <div style={{
-                                                    fontSize: 10, color: '#94a3b8',
+                                                    fontSize: 10, color: 'var(--color-text-subtle)',
                                                     fontFamily: 'monospace', marginTop: 2,
                                                 }}>
                                                     {new Date(row.approved_at).toLocaleString('en-NG')}
@@ -284,7 +284,7 @@ export default function OverrideAuditPage() {
                                         </td>
                                         <td style={{
                                             padding: '10px 14px', fontSize: 12,
-                                            color: '#475569', maxWidth: 380,
+                                            color: 'var(--color-text-secondary)', maxWidth: 380,
                                             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                                         }}>
                                             {row.justification}
@@ -298,7 +298,7 @@ export default function OverrideAuditPage() {
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
-                    color: '#94a3b8', fontSize: 11,
+                    color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
                     Quot PSE IFMIS — Authorisation Override Audit
                 </div>
@@ -336,7 +336,7 @@ function SummaryCard({ label, value, accent, icon }: SummaryCardProps) {
     const Icon = icon;
     return (
         <div style={{
-            background: '#fff', borderRadius: 12,
+            background: 'var(--color-surface)', borderRadius: 12,
             border: `1px solid ${accent}33`, padding: 16,
             display: 'flex', alignItems: 'center', gap: 12,
         }}>
@@ -354,7 +354,7 @@ function SummaryCard({ label, value, accent, icon }: SummaryCardProps) {
                     {label}
                 </div>
                 <div style={{
-                    fontSize: 22, fontWeight: 800, color: '#1e293b',
+                    fontSize: 22, fontWeight: 800, color: 'var(--color-text)',
                     marginTop: 2, fontFamily: 'monospace',
                 }}>
                     {value}

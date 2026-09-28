@@ -28,8 +28,8 @@ const fmtPct = (v: number | string | null | undefined) => {
     return `${n.toFixed(1)}%`;
 };
 const card: React.CSSProperties = {
-    background: '#fff', borderRadius: '12px',
-    border: '1px solid #e8ecf1', padding: '24px', marginBottom: '20px',
+    background: 'var(--color-surface)', borderRadius: '12px',
+    border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px',
 };
 
 interface BPRLine {
@@ -79,22 +79,22 @@ function renderLine(label: string, group: BPRGroup | undefined, sectionColor: st
                     gridTemplateColumns: 'minmax(240px, 1.5fr) 1fr 1fr 1fr 70px',
                     gap: '12px',
                     padding: '6px 20px',
-                    borderBottom: '1px solid #f1f5f9',
+                    borderBottom: '1px solid var(--color-border-light)',
                     alignItems: 'center',
                 }}>
-                    <span style={{ fontSize: '13px', color: '#1e293b' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>
                         {item.code} — {item.name}
                     </span>
-                    <span style={{ fontSize: '13px', fontFamily: 'monospace', textAlign: 'right', color: '#1e293b' }}>
+                    <span style={{ fontSize: '13px', fontFamily: 'monospace', textAlign: 'right', color: 'var(--color-text)' }}>
                         {fmtNGN(item.final_budget)}
                     </span>
-                    <span style={{ fontSize: '13px', fontFamily: 'monospace', textAlign: 'right', color: '#1e293b' }}>
+                    <span style={{ fontSize: '13px', fontFamily: 'monospace', textAlign: 'right', color: 'var(--color-text)' }}>
                         {fmtNGN(item.actual)}
                     </span>
                     <span style={{ fontSize: '13px', textAlign: 'right' }}>
                         <VarianceCell value={item.variance} favourable={item.favourable} />
                     </span>
-                    <span style={{ fontSize: '11px', textAlign: 'right', color: '#64748b' }}>
+                    <span style={{ fontSize: '11px', textAlign: 'right', color: 'var(--color-text-muted)' }}>
                         {fmtPct(item.variance_pct)}
                     </span>
                 </div>
@@ -105,7 +105,7 @@ function renderLine(label: string, group: BPRGroup | undefined, sectionColor: st
                 gridTemplateColumns: 'minmax(240px, 1.5fr) 1fr 1fr 1fr 70px',
                 gap: '12px',
                 padding: '8px',
-                background: '#f8fafc',
+                background: 'var(--color-surface-hover)',
                 borderRadius: '4px',
                 marginTop: '4px',
                 fontWeight: 700,
@@ -121,7 +121,7 @@ function renderLine(label: string, group: BPRGroup | undefined, sectionColor: st
                 <span style={{ textAlign: 'right' }}>
                     <VarianceCell value={group.variance} favourable={group.favourable} />
                 </span>
-                <span style={{ fontSize: '11px', textAlign: 'right', color: '#64748b' }}>
+                <span style={{ fontSize: '11px', textAlign: 'right', color: 'var(--color-text-muted)' }}>
                     {fmtPct(group.variance_pct)}
                 </span>
             </div>
@@ -139,7 +139,7 @@ function renderHeaderRow() {
             marginBottom: '4px',
             fontSize: '11px',
             fontWeight: 700,
-            color: '#64748b',
+            color: 'var(--color-text-muted)',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
             borderBottom: '1px solid #cbd5e1',
@@ -171,7 +171,7 @@ export default function BudgetPerformanceReport() {
     const budgetSurplus = typeof surplus?.final_budget === 'string' ? parseFloat(surplus.final_budget) : (surplus?.final_budget ?? 0);
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh' }}>
+        <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
             <style>{`
                 @media print {
                     aside, nav, .no-print { display: none !important; }
@@ -188,10 +188,10 @@ export default function BudgetPerformanceReport() {
                 </div>
                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b', margin: 0 }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                             Budget Performance Statement
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '14px', margin: '4px 0 0' }}>
                             IPSAS 24 — Budget vs Actual in Income &amp; Expenditure layout
                         </p>
                     </div>
@@ -199,7 +199,7 @@ export default function BudgetPerformanceReport() {
                         <select
                             value={fy}
                             onChange={(e) => setFy(parseInt(e.target.value))}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }}
+                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--color-border)', fontSize: '14px' }}
                         >
                             {[2024, 2025, 2026, 2027].map((y) => (
                                 <option key={y} value={y}>FY {y}</option>
@@ -210,7 +210,7 @@ export default function BudgetPerformanceReport() {
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 padding: '8px 16px', borderRadius: '8px',
-                                border: '1px solid #e2e8f0', background: '#fff',
+                                border: '1px solid var(--color-border)', background: 'var(--color-surface)',
                                 cursor: 'pointer', fontSize: '14px',
                             }}
                         >
@@ -225,7 +225,7 @@ export default function BudgetPerformanceReport() {
                 </div>
 
                 {isLoading ? (
-                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Loading...</div>
+                    <div style={{ color: 'var(--color-text-subtle)', textAlign: 'center', padding: '40px' }}>Loading...</div>
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/budget-performance/" />
                 ) : data ? (
@@ -315,7 +315,7 @@ export default function BudgetPerformanceReport() {
                         }}>
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '8px',
-                                fontSize: '12px', fontWeight: 700, color: '#64748b',
+                                fontSize: '12px', fontWeight: 700, color: 'var(--color-text-muted)',
                                 textTransform: 'uppercase', marginBottom: '12px',
                             }}>
                                 <Scale size={14} /> Surplus / (Deficit) for the Period
@@ -325,7 +325,7 @@ export default function BudgetPerformanceReport() {
                                 gap: '16px',
                             }}>
                                 <div>
-                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                                         BUDGETED
                                     </div>
                                     <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'monospace', color: budgetSurplus >= 0 ? '#008751' : '#c0392b' }}>
@@ -333,7 +333,7 @@ export default function BudgetPerformanceReport() {
                                     </div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                                         ACTUAL
                                     </div>
                                     <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'monospace', color: actualSurplus >= 0 ? '#008751' : '#c0392b' }}>
@@ -341,7 +341,7 @@ export default function BudgetPerformanceReport() {
                                     </div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                                         VARIANCE ({fmtPct(surplus?.variance_pct)})
                                     </div>
                                     <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'monospace' }}>

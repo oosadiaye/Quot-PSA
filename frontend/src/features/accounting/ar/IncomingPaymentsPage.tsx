@@ -20,9 +20,9 @@ import '../styles/glassmorphism.css';
 
 // ─── styles ─────────────────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px', border: '2.5px solid #d1d5db',
+    width: '100%', padding: '8px 12px', border: '2.5px solid var(--color-border)',
     borderRadius: '8px', fontSize: '14px', outline: 'none',
-    background: '#fafbfc', color: '#1e293b', boxSizing: 'border-box',
+    background: 'var(--color-surface)', color: 'var(--color-text)', boxSizing: 'border-box',
 };
 const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
 
@@ -246,7 +246,7 @@ export default function IncomingPaymentsPage() {
                 </div>
 
                 {/* Tab Nav */}
-                <div style={{ display: 'flex', gap: '4px', background: '#fff', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
+                <div style={{ display: 'flex', gap: '4px', background: 'var(--color-surface)', padding: '6px', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', width: 'fit-content' }}>
                     {tabs.map(t => (
                         <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
                             display: 'flex', alignItems: 'center', gap: '6px',
@@ -396,31 +396,31 @@ export default function IncomingPaymentsPage() {
             {/* ── New Payment Modal ── */}
             {showPaymentForm && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '520px', maxHeight: '88vh', overflowY: 'auto' }}>
-                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>Record Incoming Payment</h2>
-                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#64748b' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '520px', maxHeight: '88vh', overflowY: 'auto' }}>
+                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text)' }}>Record Incoming Payment</h2>
+                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                             Record a customer payment received. Optionally link it to an open invoice.
                         </p>
                         <form onSubmit={handleSubmitPayment}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Customer *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Customer *</label>
                                     <select style={sel} required value={paymentForm.customer} onChange={e => setPaymentForm(f => ({ ...f, customer: e.target.value }))}>
                                         <option value="">Select customer...</option>
                                         {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Receipt Date *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Receipt Date *</label>
                                     <input style={inp} type="date" required value={paymentForm.receipt_date} onChange={e => setPaymentForm(f => ({ ...f, receipt_date: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Amount *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Amount *</label>
                                     <input style={inp} type="number" step="0.01" min="0.01" required placeholder="0.00"
                                         value={paymentForm.total_amount} onChange={e => setPaymentForm(f => ({ ...f, total_amount: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Payment Method *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Payment Method *</label>
                                     <select style={sel} required value={paymentForm.payment_method} onChange={e => setPaymentForm(f => ({ ...f, payment_method: e.target.value }))}>
                                         <option value="Cash">Cash</option>
                                         <option value="Check">Check</option>
@@ -429,15 +429,15 @@ export default function IncomingPaymentsPage() {
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Deposit to Bank Account</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Deposit to Bank Account</label>
                                     <select style={sel} value={paymentForm.bank_account} onChange={e => setPaymentForm(f => ({ ...f, bank_account: e.target.value }))}>
                                         <option value="">Select bank account...</option>
                                         {bankAccounts?.map((b: any) => <option key={b.id} value={b.id}>{b.name} — {b.account_number}</option>)}
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
-                                        Allocate to Invoice <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>
+                                        Allocate to Invoice <span style={{ fontWeight: 400, color: 'var(--color-text-subtle)' }}>(optional)</span>
                                     </label>
                                     <select style={sel} value={paymentForm.invoice} onChange={e => setPaymentForm(f => ({ ...f, invoice: e.target.value }))}>
                                         <option value="">— No invoice allocation —</option>
@@ -449,14 +449,14 @@ export default function IncomingPaymentsPage() {
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Reference / Cheque #</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Reference / Cheque #</label>
                                     <input style={inp} placeholder="Optional" value={paymentForm.reference_number}
                                         onChange={e => setPaymentForm(f => ({ ...f, reference_number: e.target.value }))} />
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                                 <button type="button" onClick={() => { setShowPaymentForm(false); setPaymentForm({ ...BLANK_RECEIPT }); }}
-                                    style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
+                                    style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>
                                     Cancel
                                 </button>
                                 <button type="submit" disabled={createReceipt.isPending || createAllocation.isPending}
@@ -473,38 +473,38 @@ export default function IncomingPaymentsPage() {
             {/* ── New Downpayment Modal ── */}
             {showAdvanceForm && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
-                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>Record Customer Downpayment</h2>
-                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#64748b' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '480px', maxHeight: '85vh', overflowY: 'auto' }}>
+                        <h2 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 700, color: 'var(--color-text)' }}>Record Customer Downpayment</h2>
+                        <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--color-text-muted)' }}>
                             Record an advance payment before an invoice is issued. Posts to the Customer Advances GL account.
                         </p>
                         <form onSubmit={handleSubmitAdvance}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Customer *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Customer *</label>
                                     <select style={sel} required value={advanceForm.customer} onChange={e => setAdvanceForm(f => ({ ...f, customer: e.target.value }))}>
                                         <option value="">Select customer...</option>
                                         {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Downpayment Type</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Downpayment Type</label>
                                     <select style={sel} value={advanceForm.advance_type} onChange={e => setAdvanceForm(f => ({ ...f, advance_type: e.target.value as any }))}>
                                         <option value="Customer Advance">Customer Advance</option>
                                         <option value="Customer Deposit">Customer Deposit</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Date *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Date *</label>
                                     <input style={inp} type="date" required value={advanceForm.receipt_date} onChange={e => setAdvanceForm(f => ({ ...f, receipt_date: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Amount *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Amount *</label>
                                     <input style={inp} type="number" step="0.01" required placeholder="0.00"
                                         value={advanceForm.total_amount} onChange={e => setAdvanceForm(f => ({ ...f, total_amount: e.target.value }))} />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Payment Method *</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Payment Method *</label>
                                     <select style={sel} required value={advanceForm.payment_method} onChange={e => setAdvanceForm(f => ({ ...f, payment_method: e.target.value }))}>
                                         <option value="Cash">Cash</option>
                                         <option value="Check">Check</option>
@@ -513,21 +513,21 @@ export default function IncomingPaymentsPage() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Bank Account</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Bank Account</label>
                                     <select style={sel} value={advanceForm.bank_account} onChange={e => setAdvanceForm(f => ({ ...f, bank_account: e.target.value }))}>
                                         <option value="">Select bank account...</option>
                                         {bankAccounts?.map((b: any) => <option key={b.id} value={b.id}>{b.name} — {b.account_number}</option>)}
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>Reference</label>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', display: 'block', marginBottom: '6px' }}>Reference</label>
                                     <input style={inp} placeholder="Optional reference / memo" value={advanceForm.reference_number}
                                         onChange={e => setAdvanceForm(f => ({ ...f, reference_number: e.target.value }))} />
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                                 <button type="button" onClick={() => { setShowAdvanceForm(false); setAdvanceForm({ ...BLANK_ADVANCE }); }}
-                                    style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
+                                    style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>
                                     Cancel
                                 </button>
                                 <button type="submit" disabled={createReceipt.isPending}
@@ -544,13 +544,13 @@ export default function IncomingPaymentsPage() {
             {/* ── Post Confirm Modal ── */}
             {postConfirm && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '420px' }}>
-                        <h2 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>Post to GL?</h2>
-                        <p style={{ margin: '0 0 24px', fontSize: '14px', color: '#64748b', lineHeight: 1.5 }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '420px' }}>
+                        <h2 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: 'var(--color-text)' }}>Post to GL?</h2>
+                        <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
                             This will post <strong>{postConfirm.number}</strong> to the general ledger, creating journal entries and updating account balances. This action cannot be undone.
                         </p>
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => setPostConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={() => setPostConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                             <button onClick={handlePost} disabled={postReceipt.isPending}
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '8px', border: 'none', background: '#059669', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
                                 <Play size={14} /> {postReceipt.isPending ? 'Posting...' : 'Post to GL'}
@@ -563,13 +563,13 @@ export default function IncomingPaymentsPage() {
             {/* ── Delete Confirm Modal ── */}
             {deleteConfirm && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', width: '420px' }}>
-                        <h2 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: '#1e293b' }}>Delete Receipt?</h2>
-                        <p style={{ margin: '0 0 24px', fontSize: '14px', color: '#64748b' }}>
+                    <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '28px', width: '420px' }}>
+                        <h2 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: 'var(--color-text)' }}>Delete Receipt?</h2>
+                        <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--color-text-muted)' }}>
                             Permanently delete <strong>{deleteConfirm.number}</strong>? This cannot be undone.
                         </p>
                         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => setDeleteConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={() => setDeleteConfirm(null)} style={{ padding: '9px 18px', borderRadius: '8px', border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                             <button onClick={handleDelete} disabled={deleteReceipt.isPending}
                                 style={{ padding: '9px 18px', borderRadius: '8px', border: 'none', background: '#dc2626', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
                                 {deleteReceipt.isPending ? 'Deleting...' : 'Delete'}

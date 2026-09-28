@@ -405,6 +405,11 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
     vendor_name    = serializers.CharField(source='vendor.name', read_only=True)
     vendor_code    = serializers.CharField(source='vendor.code', read_only=True, allow_null=True)
     balance_due    = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    # Retention lien + what can actually be disbursed. A contract milestone
+    # invoice is booked GROSS with ``retention_withheld`` frozen; ``payable_now``
+    # (= balance_due − retention) is what the Create-PV / payment flow may pay.
+    # For plain AP invoices retention is 0, so payable_now == balance_due.
+    payable_now    = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     currency_code  = serializers.CharField(source='currency.code', read_only=True, allow_null=True)
     mda_name       = serializers.CharField(source='mda.name', read_only=True, allow_null=True)
     account_code   = serializers.CharField(source='account.code', read_only=True, allow_null=True)
@@ -429,7 +434,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
             'mda', 'mda_name', 'fund', 'fund_name',
             'function', 'program', 'geo',
             'subtotal', 'tax_amount', 'total_amount',
-            'paid_amount', 'balance_due',
+            'paid_amount', 'balance_due', 'retention_withheld', 'payable_now',
             'currency', 'currency_code',
             'status', 'journal_entry', 'attachment',
             'document_number', 'document_type', 'lines',
@@ -437,7 +442,7 @@ class VendorInvoiceSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
         read_only_fields = [
-            'id', 'invoice_number', 'balance_due',
+            'id', 'invoice_number', 'balance_due', 'retention_withheld', 'payable_now',
             'payment_voucher_id', 'payment_voucher_number', 'payment_voucher_status',
             'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number',
         ]
@@ -690,6 +695,14 @@ class PaymentSerializer(serializers.ModelSerializer):
     # second lookup. Returns null for non-advance payments or
     # advance payments that haven't been posted yet.
     linked_vendor_advance_id = serializers.SerializerMethodField()
+    # Deduction breakdown carried by the linked PV (WHT/VAT/retention/handling…).
+    # The Payment stores NET as ``total_amount`` and back-links the PV; the
+    # deductions live on the PV, so surface them read-only for the Outgoing
+    # Payments row/detail (gross → each deduction → net cash). Null / empty
+    # for a plain direct settlement with no PV.
+    pv_gross_amount = serializers.SerializerMethodField()
+    pv_net_amount = serializers.SerializerMethodField()
+    pv_deductions = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
@@ -699,12 +712,37 @@ class PaymentSerializer(serializers.ModelSerializer):
             'status', 'journal_entry', 'bank_account', 'bank_account_name',
             'vendor', 'vendor_name', 'vendor_code', 'is_advance', 'advance_type', 'advance_remaining',
             'payment_voucher', 'payment_voucher_number',
+            'pv_gross_amount', 'pv_net_amount', 'pv_deductions',
             'cheque', 'cheque_number', 'cheque_collected_date',
             'linked_vendor_advance_id',
             'document_number', 'is_reconciled', 'bank_reconciliation',
             'created_at', 'updated_at', 'created_by', 'updated_by',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number', 'cheque_collected_date', 'vendor_code']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'document_number', 'is_reconciled', 'bank_reconciliation', 'linked_vendor_advance_id', 'cheque', 'cheque_number', 'cheque_collected_date', 'vendor_code', 'pv_gross_amount', 'pv_net_amount', 'pv_deductions']
+
+    def get_pv_gross_amount(self, obj):
+        pv = obj.payment_voucher
+        return str(pv.gross_amount) if pv else None
+
+    def get_pv_net_amount(self, obj):
+        pv = obj.payment_voucher
+        return str(pv.net_amount) if pv else None
+
+    def get_pv_deductions(self, obj):
+        pv = obj.payment_voucher
+        if not pv:
+            return []
+        return [
+            {
+                'deduction_type': d.deduction_type,
+                'description': d.description,
+                'rate': str(d.rate) if d.rate is not None else None,
+                'amount': str(d.amount),
+                'gl_account_code': getattr(d.gl_account, 'code', None),
+                'gl_account_name': getattr(d.gl_account, 'name', None),
+            }
+            for d in pv.deductions.all()
+        ]
 
     def get_linked_vendor_advance_id(self, obj):
         if not obj.is_advance:

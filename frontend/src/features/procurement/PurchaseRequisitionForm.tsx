@@ -587,7 +587,7 @@ const PurchaseRequisitionForm = () => {
                                                     <td style={{ padding: '0.35rem', textAlign: 'center' }}>
                                                         {lines.length > 1 && (
                                                             <button type="button" onClick={() => removeLine(idx)}
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}>
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-subtle)', padding: '4px' }}>
                                                                 <Trash2 size={16} />
                                                             </button>
                                                         )}

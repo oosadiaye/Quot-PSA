@@ -101,7 +101,7 @@ export default function BatchWarrantPrintPreview() {
 
     if (ids.length === 0) {
         return (
-            <div style={{ padding: 60, textAlign: 'center', color: '#64748b' }}>
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                 <p>No warrant IDs were specified in the URL.</p>
                 <button
                     onClick={() => navigate('/budget/warrants')}
@@ -115,7 +115,7 @@ export default function BatchWarrantPrintPreview() {
 
     if (!allLoaded || settingsLoading || !settings) {
         return (
-            <div style={{ padding: 60, textAlign: 'center', color: '#64748b' }}>
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                 Loading {ids.length} warrant{ids.length === 1 ? '' : 's'}…
             </div>
         );
@@ -207,7 +207,7 @@ export default function BatchWarrantPrintPreview() {
 
             <div className="print-page" style={{
                 maxWidth: 794, margin: '24px auto',
-                background: 'white',
+                background: 'var(--color-surface)',
                 boxShadow: '0 8px 32px rgba(15, 23, 42, 0.12)',
             }}>
                 <WarrantPrintLayout

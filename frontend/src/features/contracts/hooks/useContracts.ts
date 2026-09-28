@@ -69,6 +69,64 @@ export const useContractBalance = (id: number | null | undefined) => {
   });
 };
 
+/** The contract's resolved budget appropriation headroom — drives the write-up
+ *  cap. `available_balance`/`amount_approved` are decimal strings or null when
+ *  no appropriation resolves (`resolved: false`). */
+export interface ContractAppropriation {
+  resolved: boolean;
+  amount_approved: string | null;
+  available_balance: string | null;
+}
+
+export const useContractAppropriation = (id: number | null | undefined) => {
+  return useQuery<ContractAppropriation>({
+    queryKey: ['contract-appropriation', id],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${CONTRACTS_BASE}${id}/appropriation/`);
+      return data;
+    },
+    enabled: !!id,
+    staleTime: 30 * 1000,
+  });
+};
+
+/** One audit-log entry from GET /contracts/contracts/{id}/activity/. */
+export interface ContractActivityEntry {
+  id: number;
+  timestamp: string;
+  action: string;
+  username: string;
+  model_name: string;
+  object_repr: string;
+  object_id: number | null;
+  old_status?: string;
+  new_status?: string;
+  description?: string;
+}
+
+/**
+ * GET /contracts/contracts/{id}/activity/
+ * — full audit trail for the contract AND its sub-objects (milestones, IPCs,
+ * variations, mobilization, retention releases, year plans), newest-first,
+ * each with the actor (username). Aggregated server-side from core.AuditLog.
+ */
+export const useContractActivity = (
+  id: number | null | undefined,
+  pageSize = 6,
+) => {
+  return useQuery<ContractActivityEntry[]>({
+    queryKey: ['contract-activity', id, pageSize],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`${CONTRACTS_BASE}${id}/activity/`, {
+        params: { page_size: pageSize },
+      });
+      return Array.isArray(data) ? data : (data?.results ?? []);
+    },
+    enabled: !!id,
+    staleTime: 30 * 1000,
+  });
+};
+
 export const useCreateContract = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -173,6 +231,15 @@ export const useCreateMilestone = () => {
       percentage_weight: string | number;
       target_date: string;        // YYYY-MM-DD
       notes?: string;
+      // Nested GL/budget coding captured at creation (adopted from the
+      // contract). Materialised into MilestoneInvoiceLine rows server-side;
+      // Σ amount must equal scheduled_value.
+      lines?: Array<{
+        account: number;
+        appropriation?: number | null;
+        description?: string;
+        amount: string;
+      }>;
     }) => {
       const { data } = await apiClient.post('/contracts/milestones/', payload);
       return data;
@@ -187,13 +254,10 @@ export const useCreateMilestone = () => {
 /**
  * PATCH /contracts/milestones/{id}/ — partial update.
  *
- * Used to transition status (PENDING → IN_PROGRESS → COMPLETED), set
- * the ``actual_completion_date`` when marking a milestone done, or
- * edit the description / scheduled value while still PENDING.
- *
- * Note on lifecycle: this codebase has no separate "approval" step —
- * the engineer's certification IS the approval. Once a milestone is
- * COMPLETED, an IPC can be raised against it for payment.
+ * Used to edit a milestone before it is approved: its description /
+ * scheduled value / target date, and its GL/budget coding ``lines``
+ * (nested — replaces the set server-side, Σ must equal scheduled_value).
+ * Coding is locked (400) once the milestone is INVOICED.
  */
 export const useUpdateMilestone = () => {
   const qc = useQueryClient();
@@ -213,6 +277,12 @@ export const useUpdateMilestone = () => {
         percentage_weight: string | number;
         target_date: string;
         notes: string;
+        lines: Array<{
+          account: number;
+          appropriation?: number | null;
+          description?: string;
+          amount: string;
+        }>;
       }>;
     }) => {
       const { data } = await apiClient.patch(`/contracts/milestones/${id}/`, patch);
@@ -274,8 +344,11 @@ export const useApproveMilestone = () => {
       return { data, contractId };
     },
     onSuccess: ({ contractId }) => {
+      // Approve now posts the AP invoice (certified + retention change), so the
+      // contract balance must refresh too, not just the milestone list.
       qc.invalidateQueries({ queryKey: ['contract', contractId] });
       qc.invalidateQueries({ queryKey: ['contracts'] });
+      qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
     },
   });
 };
@@ -342,6 +415,20 @@ export const useConvertMilestoneToIPC = () => {
     },
   });
 };
+
+/** A milestone coding line (GET /contracts/milestone-lines/?milestone=). */
+export interface MilestoneLine {
+  id: number;
+  milestone: number;
+  account: number | null;
+  account_code?: string | null;
+  account_name?: string | null;
+  appropriation: number | null;
+  appropriation_code?: string | null;
+  appropriation_name?: string | null;
+  description: string;
+  amount: string;
+}
 
 /**
  * GET /contracts/mobilization-payments/?contract={id}
@@ -441,6 +528,33 @@ export const useCreateRetentionRelease = () => {
     },
     onSuccess: ({ contractId }) => {
       qc.invalidateQueries({ queryKey: ['contract-retention-releases', contractId] });
+      qc.invalidateQueries({ queryKey: ['contract', contractId] });
+    },
+  });
+};
+
+/**
+ * POST /contracts/{id}/release-retention/
+ *
+ * Centralised-AP lien release (path B). Unfreezes every milestone
+ * invoice's ``retention_withheld`` for the contract — the frozen slice
+ * becomes payable through the normal AP flow — and bumps
+ * ``ContractBalance.retention_released``. Posts NOTHING (retention was
+ * never journalled; this only lifts the lien). No 50%/remainder split
+ * and no completion-status gate: it releases whatever liens are open.
+ * Backend returns ``{ released, invoices_unfrozen }`` or ``{ error }``.
+ */
+export const useReleaseRetentionLien = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ contractId }: { contractId: number }) => {
+      const { data } = await apiClient.post(
+        `${CONTRACTS_BASE}${contractId}/release-retention/`,
+      );
+      return { data, contractId };
+    },
+    onSuccess: ({ contractId }) => {
+      qc.invalidateQueries({ queryKey: ['contract-balance', contractId] });
       qc.invalidateQueries({ queryKey: ['contract', contractId] });
     },
   });
