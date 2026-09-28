@@ -243,6 +243,27 @@ def seed_defaults(tenant_name='My Business'):
     if created:
         results['grir_clearing'] = 1
 
+    # ── 5b. Gateway Settlement Clearing (e-payment disbursement) ────
+    # A tenant that turns on e-payment posts gateway payouts to this
+    # parking liability (CR at post; DR → Bank when the PSP settlement
+    # webhook confirms). Without it, ``_clearing_account()`` raises
+    # "No Gateway Settlement Clearing GL account is configured". Seeded
+    # unconditionally (like GR/IR) so every tenant is ready to enable
+    # the toggle; ``get_or_create`` keyed on code keeps it idempotent.
+    # Code 41090001 sits in the NCoA Liability series (4xxxxxxx), next
+    # to GR/IR (41090000).
+    gw_clearing_code = gl.get('GATEWAY_SETTLEMENT_CLEARING', '41090001')
+    _, created = Account.objects.get_or_create(
+        code=gw_clearing_code,
+        defaults={
+            'name': 'Gateway Settlement Clearing',
+            'account_type': 'Liability',
+            'is_active': True,
+        },
+    )
+    if created:
+        results['gateway_settlement_clearing'] = 1
+
     # ── 6. Vendor Advance Special-GL recon account ──────────────────
     # Tagged with reconciliation_type='vendor_advance' so the popup
     # ("uncleared advance exists") and the clearance journal both

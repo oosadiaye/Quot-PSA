@@ -185,6 +185,9 @@ DEFAULT_CHART_OF_ACCOUNTS = [
     # GR/IR Clearing: 3-way match P2P workflow. DR at GRN (goods received, invoice pending);
     # cleared when vendor invoice is matched. Net balance = unmatched GRN value.
     {'code': '41090000', 'name': 'GR/IR Clearing Account',           'type': 'Liability'},
+    # Gateway Settlement Clearing: parks e-payment (gateway) disbursements
+    # between post (CR here, net) and PSP settlement (DR here / CR Bank).
+    {'code': '41090001', 'name': 'Gateway Settlement Clearing',      'type': 'Liability'},
     {'code': '20700000', 'name': 'Customer Deposits',                'type': 'Liability'},
     {'code': '20800000', 'name': 'Credit Notes Payable',             'type': 'Liability'},
 

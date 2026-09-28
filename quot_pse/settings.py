@@ -671,6 +671,13 @@ DEFAULT_GL_ACCOUNTS = {
     # tenants provisioned before this change pick up the corrected
     # code automatically.
     'GOODS_RECEIPT_CLEARING':     '41090000',   # GR/IR Clearing Account (Liability)
+    # GATEWAY_SETTLEMENT_CLEARING: parking liability for e-payment (gateway)
+    # disbursements. At post time the payout books CR here (net) instead of
+    # crediting Bank — the cash has NOT left yet. The PSP settlement webhook
+    # then moves it: success → DR here / CR Bank (cash out); failure → the
+    # clearing journal is reversed. Sits in the 4109xxxx clearing-liability
+    # subrange next to GR/IR (4xxxxxxx = Liability per the NCoA prefix rule).
+    'GATEWAY_SETTLEMENT_CLEARING': '41090001',   # Gateway Settlement Clearing (Liability)
 
     # ── Production Module ─────────────────────────────────────────────────────
     'RAW_MATERIALS':              '10301000',   # Inventory - Raw Materials
