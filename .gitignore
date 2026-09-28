@@ -77,3 +77,6 @@ htmlcov/
 
 # Playwright MCP session artifacts (page snapshots may capture form values incl. secrets)
 .playwright-mcp/
+
+# Dev-only gateway KEK (GATEWAY_KEK_HEX). Never commit — move to .env / secret manager for real use.
+.gateway_kek_dev.tmp
