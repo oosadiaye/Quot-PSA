@@ -19,6 +19,8 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
+from superadmin.gateway_webhook import gateway_webhook
+
 v1_patterns = [
     # ─── Quot PSE: Nigeria Government IFMIS API ───────────────────────
     path('accounting/', include('accounting.urls')),
@@ -33,6 +35,9 @@ v1_patterns = [
     path('superadmin/', include('superadmin.urls')),
     path('contracts/', include('contracts.urls', namespace='contracts')),
     path('', include('snapshots.urls')),
+    # Inbound PSP callback — pinned to the public schema by core.middleware
+    # (_GATEWAY_WEBHOOK_PREFIXES), HMAC-authenticated, no tenant resolution.
+    path('gateway/webhook/<str:gateway>/', gateway_webhook, name='gateway-webhook'),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3

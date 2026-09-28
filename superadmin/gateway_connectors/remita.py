@@ -131,6 +131,10 @@ class RemitaConnector:
         return self._to_event(provider, data, fallback_ref=gateway_reference)
 
     def verify_webhook(self, provider, raw_body: bytes, signature: str) -> bool:
+        # Fail-closed: an unset webhook_secret ("") is a publicly-known HMAC key,
+        # so anyone could forge a valid signature. Never verify without a secret.
+        if not provider.webhook_secret:
+            return False
         expected = hmac_sha256(provider.webhook_secret, raw_body)
         return signatures_equal(expected, signature)
 
