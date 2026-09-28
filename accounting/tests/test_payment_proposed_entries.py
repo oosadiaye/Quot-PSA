@@ -100,6 +100,74 @@ class TestProposedEntriesDraft:
 
 
 @pytest.mark.django_db(transaction=True)
+def test_preview_credits_clearing_when_gateway_active(
+    bank_account_for_batch, open_fiscal_period,
+):
+    """When the payment is gateway-eligible AND the tenant has an active usable
+    e-payment gateway, the net credit leg is Gateway Settlement Clearing, not
+    Bank — the preview shows exactly what post_payment will book (cash parked,
+    not gone). Uses the SAME active_disbursement_setting gate as the post."""
+    from django.db import connection
+    from accounting.models import Account
+    from accounting.models.receivables import VendorInvoice
+    from accounting.services.payment_preview import compute_payment_entries
+    from tenants.models import Client
+    from superadmin.gateway_models import PaymentGatewayProvider, TenantGatewaySetting
+
+    # An active, usable Remita gateway for the pytest tenant (public/shared).
+    prev = getattr(connection, "schema_name", "public")
+    connection.set_schema_to_public()
+    try:
+        tenant, _ = Client.objects.get_or_create(
+            schema_name="pytest_schema", defaults={"name": "PyTest Tenant"},
+        )
+        prov = PaymentGatewayProvider(
+            key=PaymentGatewayProvider.Key.REMITA, display_name="Remita",
+            base_url="https://sandbox.remita.test", is_enabled=True,
+            supports_disbursement=True, merchant_id="M1",
+            api_key_encrypted="gwv1:x", secret_key_encrypted="gwv1:x",
+        )
+        prov.save()
+        TenantGatewaySetting.objects.create(tenant=tenant, provider=prov, is_active=True)
+    finally:
+        connection.set_schema(prev)
+
+    # A gateway-eligible invoice payment: vendor WITH bank details.
+    vendor = _vendor()
+    vendor.bank_account_number = "0123456789"
+    vendor.save(update_fields=["bank_account_number"])
+    ap, wht_gl, _ = _accounts()
+    Account.objects.get_or_create(
+        code="41090001",
+        defaults={"name": "Gateway Settlement Clearing",
+                  "account_type": "Liability", "is_active": True},
+    )
+    inv_no = f"VINV-{uuid.uuid4().hex[:8]}"
+    VendorInvoice.objects.create(
+        invoice_number=inv_no, vendor=vendor,
+        total_amount=Decimal("100000.00"), status="Posted",
+    )
+    pv = _make_pv(invoice_number=inv_no, gross=Decimal("100000.00"), vendor=vendor)
+    _add_wht(pv, wht_gl, "10000.00")          # net = 90,000
+    payment = _provision(pv)
+    payment.bank_account = bank_account_for_batch
+    payment.save()
+
+    # Pin the real Client (TenantMainMiddleware does this in production) so
+    # active_disbursement_setting resolves the gateway.
+    connection.tenant = tenant
+    try:
+        lines = compute_payment_entries(payment)
+    finally:
+        connection.tenant = None
+
+    by_code = {l["account_code"]: l for l in lines}
+    assert Decimal(by_code["41090001"]["credit"]) == Decimal("90000.00")   # CR clearing (net)
+    assert Decimal(by_code[ap.code]["debit"]) == Decimal("100000.00")      # DR AP gross
+    assert bank_account_for_batch.gl_account.code not in by_code           # Bank NOT credited
+
+
+@pytest.mark.django_db(transaction=True)
 class TestProposedEntriesMatchesPosted:
 
     def test_posted_preview_returns_real_journal_lines(

@@ -18,8 +18,11 @@ The three shapes mirror ``post_payment`` exactly:
     (the ONLY branch that recognises an expense at payment, because
     nothing recognised it earlier)
 
-In every shape: CR each deduction G/L = its amount, CR Bank = net, and
-``Σdebit == Σcredit`` by construction (net = gross − Σdeductions).
+In every shape: CR each deduction G/L = its amount, then the net credit —
+CR Bank = net normally, or CR Gateway Settlement Clearing = net when the
+payment would post through an active e-payment gateway (the cash is parked,
+not gone, until the PSP settles). ``Σdebit == Σcredit`` by construction
+(net = gross − Σdeductions).
 """
 from __future__ import annotations
 
@@ -134,7 +137,36 @@ def compute_payment_entries(payment) -> list[dict]:
                 memo=f"{label} withheld" + (f" — {desc}" if desc else ""),
             ))
 
-    bank = _resolve_bank_account(payment)
-    lines.append(_line(bank, credit=net, memo="Bank / Cash — net cash out"))
+    # ── Net credit leg: Bank, OR Gateway Settlement Clearing when this
+    #    payment would post through an active e-payment gateway ──────────
+    # Mirrors post_payment's routing (same active_disbursement_setting +
+    # can_disburse_via_gateway gate), so the preview shows the clearing leg
+    # exactly when the real post will use it — the cash is parked, not gone,
+    # until the PSP settlement webhook moves it to Bank.
+    clearing = _gateway_clearing_if_routed(payment)
+    if clearing is not None:
+        lines.append(_line(
+            clearing, credit=net,
+            memo="Gateway Settlement Clearing — net parked; cash leaves on gateway settlement",
+        ))
+    else:
+        bank = _resolve_bank_account(payment)
+        lines.append(_line(bank, credit=net, memo="Bank / Cash — net cash out"))
 
     return lines
+
+
+def _gateway_clearing_if_routed(payment):
+    """The Gateway Settlement Clearing account IFF ``payment`` would post
+    through the gateway (eligible AND an active usable tenant gateway), else
+    None. Uses the SAME gates as ``post_payment`` so the preview cannot claim a
+    clearing leg the post would not book, or hide one it would."""
+    from accounting.services.gateway_disbursement import (
+        can_disburse_via_gateway, active_disbursement_setting,
+    )
+    if not can_disburse_via_gateway(payment):
+        return None
+    if active_disbursement_setting() is None:
+        return None
+    from accounting.services.base_posting import get_gl_account
+    return get_gl_account("GATEWAY_SETTLEMENT_CLEARING", "Liability", "Gateway Clearing")
