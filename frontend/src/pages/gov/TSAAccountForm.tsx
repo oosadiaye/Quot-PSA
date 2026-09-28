@@ -22,11 +22,7 @@ import {
 
 const ACCOUNT_TYPES = [
     ['MAIN_TSA', 'Main Account'],
-    ['CONSOLIDATED', 'Consolidated Revenue Fund'],
     ['SUB_ACCOUNT', 'Sub-Account'],
-    ['ZERO_BALANCE', 'Zero-Balance Account'],
-    ['HOLDING', 'Holding Account'],
-    ['REVENUE', 'Revenue Collection Account'],
 ];
 
 export default function TSAAccountForm() {
