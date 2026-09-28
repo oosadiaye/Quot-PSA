@@ -350,6 +350,9 @@ const menuItems: MenuItem[] = [
             // and where. Read-only apart from an off switch — enabling is
             // a platform decision, see features/settings/AISettings.tsx.
             { name: 'AI', path: '/settings/ai', icon: Sparkles },
+            // E-payment: which disbursement gateways are switched on for this
+            // organisation, and the clearing account their money flows through.
+            { name: 'Payment Gateways', path: '/settings/payment-gateways', icon: CreditCard },
         ],
     },
     {

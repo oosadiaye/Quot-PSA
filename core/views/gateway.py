@@ -86,6 +86,22 @@ def gateway_status(request):
         data["transactions"] = counts.get(setting.provider_id, 0)
         rows.append(data)
 
+    # The Gateway Settlement Clearing account — resolved EXACTLY as the
+    # disburse/settle path resolves it (accounting.services.base_posting.
+    # get_gl_account), so the page shows the account funds actually flow
+    # through, not a guess. Runs in the tenant schema (its Account table).
+    from accounting.services.base_posting import get_gl_account
+    clearing = get_gl_account(
+        "GATEWAY_SETTLEMENT_CLEARING", "Liability", "Gateway Clearing",
+    )
+    settlement_account = None
+    if clearing is not None:
+        settlement_account = {
+            "code": clearing.code,
+            "name": clearing.name,
+            "account_type": clearing.account_type,
+        }
+
     return Response({
         "tenant_name": tenant.name,
         "gateways": rows,
@@ -94,6 +110,7 @@ def gateway_status(request):
             "active": sum(1 for r in rows if r["is_active"]),
             "usable": sum(1 for r in rows if r["is_usable"]),
         },
+        "settlement_account": settlement_account,
     })
 
 
