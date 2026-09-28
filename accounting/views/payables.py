@@ -1884,6 +1884,54 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if pv is not None and not payment.allocations.exists():
             return self._post_direct_pv_payment(payment, request, pv, net)
 
+        # ── E-payment (gateway) branch — auto-fire real-time disbursement ──
+        # In the normal AP path (a real vendor payable: vendor with bank
+        # details, invoice-backed/allocated, not an advance, not a direct PV —
+        # see can_disburse_via_gateway), route the payout through the tenant's
+        # active payment gateway when one is configured. The journal books
+        # DR AP / CR deductions / CR Gateway Settlement Clearing (net) — the
+        # cash has NOT left yet; the PSP settlement webhook later moves the
+        # clearing balance to Bank (or auto-reverses on failure).
+        #
+        # Fail-closed: no active setting, or an unconfigured/disabled provider
+        # (``setting.is_usable`` False), falls through to the DR AP / CR Bank
+        # post below — the gateway never fires silently. ``connection.tenant``
+        # is the real Client in a tenant request (set by TenantMainMiddleware);
+        # on the public schema / an unresolved tenant its ``pk`` is None and
+        # the lookup is skipped, which is the safe bank path.
+        from accounting.services.gateway_disbursement import can_disburse_via_gateway
+        if can_disburse_via_gateway(payment):
+            from django.db import connection
+            tenant_pk = getattr(getattr(connection, 'tenant', None), 'pk', None)
+            if tenant_pk is not None:
+                from superadmin.gateway_client import GatewayRefused
+                from superadmin.gateway_models import TenantGatewaySetting
+                from accounting.services.gateway_disbursement import (
+                    dispatch_payment_via_gateway, GatewayDisbursementError,
+                )
+                gw_setting = (
+                    TenantGatewaySetting.objects
+                    .select_related('provider')
+                    .filter(
+                        tenant_id=tenant_pk, is_active=True,
+                        provider__is_enabled=True,
+                        provider__supports_disbursement=True,
+                    )
+                    .order_by('-is_default', 'provider__sort_order')
+                    .first()
+                )
+                if gw_setting is not None and gw_setting.is_usable:
+                    try:
+                        dispatch_payment_via_gateway(
+                            payment, gw_setting, actor=request.user,
+                        )
+                    except (GatewayRefused, GatewayDisbursementError) as exc:
+                        return Response(
+                            {"error": str(exc)},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    return Response(self.get_serializer(payment).data)
+
         # S1-06 — fiscal period gate on the payment_date.
         try:
             from accounting.services.base_posting import BasePostingService
