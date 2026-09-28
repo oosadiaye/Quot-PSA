@@ -80,3 +80,6 @@ htmlcov/
 
 # Dev-only gateway KEK (GATEWAY_KEK_HEX). Never commit — move to .env / secret manager for real use.
 .gateway_kek_dev.tmp
+
+# Session scratch (Playwright screenshots, smoke scripts) — never commit
+scratchpad/
