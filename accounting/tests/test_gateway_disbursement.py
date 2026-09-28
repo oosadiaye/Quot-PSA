@@ -25,9 +25,13 @@ def gw_accounts(db):
         defaults={"name": "Accounts Payable", "account_type": "Liability", "is_active": True,
                   "reconciliation_type": "accounts_payable"},
     )
+    # Seed at the REAL resolved code (DEFAULT_GL_ACCOUNTS['GATEWAY_SETTLEMENT_CLEARING']
+    # = 41090001, also seeded by migration 0143) so the fixture holds the SAME
+    # account get_gl_account() picks in production. Using an arbitrary code here
+    # (e.g. 20900000) silently diverges once the real account exists in the schema.
     clearing, _ = Account.objects.get_or_create(
-        code="20900000",
-        defaults={"name": "Gateway Clearing", "account_type": "Liability", "is_active": True},
+        code="41090001",
+        defaults={"name": "Gateway Settlement Clearing", "account_type": "Liability", "is_active": True},
     )
     bank, _ = Account.objects.get_or_create(
         code="10100000",
