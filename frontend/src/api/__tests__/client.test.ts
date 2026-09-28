@@ -117,14 +117,18 @@ describe('apiClient', () => {
       expect(result.headers['X-Tenant-Domain']).toBe('acme.localhost')
     })
 
-    it('skips auth headers for login endpoints', async () => {
+    it('skips auth headers for the login endpoint', async () => {
       vi.resetModules()
       await import('../client')
 
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'stale-token')
+      // sessionStorage, not localStorage: the interceptor reads the token
+      // from sessionStorage. Seeding localStorage (as this test used to) made
+      // the assertion vacuous — Authorization was always undefined, so the
+      // skip logic could be deleted and the test would still pass.
+      sessionStorage.setItem('authToken', 'stale-token')
 
       const config = {
         url: '/core/auth/login/',
@@ -133,6 +137,30 @@ describe('apiClient', () => {
       const result = requestInterceptor(config)
 
       expect(result.headers['Authorization']).toBeUndefined()
+    })
+
+    it('injects auth token for login-history (NOT treated as a login endpoint)', async () => {
+      // Regression: `/core/auth/login-history/` contains the substring
+      // `/auth/login`, which the old `.includes('/auth/login')` classifier
+      // matched — stripping the Authorization header from this authenticated
+      // call. DRF then returned 401 "credentials were not provided", and the
+      // response interceptor logged the user out the instant they opened
+      // Account » Activity. The endpoint match must be anchored.
+      vi.resetModules()
+      await import('../client')
+
+      const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
+        .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
+
+      sessionStorage.setItem('authToken', 'live-token-abc')
+
+      const config = {
+        url: '/core/auth/login-history/',
+        headers: {} as Record<string, string>,
+      }
+      const result = requestInterceptor(config)
+
+      expect(result.headers['Authorization']).toBe('Token live-token-abc')
     })
 
     it('does not inject tenant domain if value is null string', async () => {

@@ -28,9 +28,18 @@ const apiClient = axios.create({
 
 // Request interceptor — inject auth token & tenant header
 apiClient.interceptors.request.use((config) => {
-  // Skip auth headers for login/register endpoints to prevent stale tokens
-  // from interfering with authentication
-  const isAuthEndpoint = config.url?.includes('/auth/login') || config.url?.includes('/auth/register');
+  // Skip auth headers for the unauthenticated entry points (login, register)
+  // so a stale token can't 401 a fresh sign-in.
+  //
+  // The match MUST be anchored to the endpoint. A bare
+  // ``.includes('/auth/login')`` also matches ``/auth/login-history/`` — an
+  // authenticated call — and silently stripped its Authorization header,
+  // producing a 401 that logged the user out the moment they opened the
+  // Account » Activity tab. Anchor on the path (query string removed) so only
+  // the real login/register endpoints are treated as anonymous.
+  const requestPath = (config.url ?? '').split('?')[0];
+  const isAuthEndpoint =
+    /\/auth\/login\/?$/.test(requestPath) || /\/users\/register\/?$/.test(requestPath);
 
   if (!isAuthEndpoint) {
     // Authorization header path — still emitted for the migration
