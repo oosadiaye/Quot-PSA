@@ -172,6 +172,19 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
         help_text='PV that authorises this payment. Required when '
                   'require_pv_before_payment setting is True.',
     )
+    # Alternate source: a Payment Document (SAP F-53 style multi-line
+    # outgoing payment) that this Payment settles instead of a PV. Mutually
+    # exclusive with payment_voucher — see the
+    # ``payment_not_both_pv_and_document`` CheckConstraint below. PROTECT
+    # because the PD's own posted journal/balances depend on this Payment
+    # existing; the PD must be voided/unwound through its own workflow
+    # before the row can go away.
+    payment_document = models.ForeignKey(
+        'accounting.PaymentDocument', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='cash_payments',
+        help_text='Source Payment Document when this payment settles a PD '
+                  '(mutually exclusive with payment_voucher).',
+    )
     # The cheque covering this posted payment (Cheque Register). One cheque
     # may cover several posted payments (bulk). SET_NULL so voiding/deleting a
     # cheque just unlinks its payments rather than cascading.
@@ -215,6 +228,29 @@ class Payment(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
                     & models.Q(is_deleted=False)
                 ),
                 name='uniq_live_payment_per_pv',
+            ),
+            # A Payment is sourced from a PV OR a Payment Document, never
+            # both — the two disbursement paths (PV-driven Treasury workflow
+            # vs. the central Payment Document cash door) must not converge
+            # on one row.
+            models.CheckConstraint(
+                check=~(
+                    models.Q(payment_voucher__isnull=False)
+                    & models.Q(payment_document__isnull=False)
+                ),
+                name='payment_not_both_pv_and_document',
+            ),
+            # Mirrors uniq_live_payment_per_pv above for the Payment
+            # Document side: at most ONE live (non-Void, not soft-deleted)
+            # Payment per Payment Document.
+            models.UniqueConstraint(
+                fields=['payment_document'],
+                condition=(
+                    models.Q(payment_document__isnull=False)
+                    & ~models.Q(status='Void')
+                    & models.Q(is_deleted=False)
+                ),
+                name='uniq_live_payment_per_document',
             ),
         ]
 
