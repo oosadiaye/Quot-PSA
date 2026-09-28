@@ -1786,6 +1786,23 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if payment.status == 'Posted':
             return Response({"error": "Payment already posted."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # ── Payment Document source branch ───────────────────────────────
+        # A Payment sourced from a Payment Document posts the document's OWN
+        # balanced journal (DR settlement / CR bank), not the AP/deduction
+        # shape. The document must be Approved; posting flips it to Paid. This
+        # is the single cash-out event for a document-sourced proposal.
+        if payment.payment_document_id:
+            from accounting.services.document_payment_provisioning import post_document_sourced_payment
+            from accounting.services.payment_document_posting import PaymentDocumentError
+            from accounting.services.base_posting import TransactionPostingError
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                post_document_sourced_payment(payment, actor=request.user)
+            except (PaymentDocumentError, TransactionPostingError, DjangoValidationError) as exc:
+                messages = exc.messages if hasattr(exc, 'messages') else [str(exc)]
+                return Response({"error": " ".join(messages)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(self.get_serializer(payment).data)
+
         # ── Terminal-status precondition (double-pay guard) ──────────────
         # A voucher already PAID (or cancelled/reversed) must never be
         # disbursed again, even if a stray second draft Payment still
