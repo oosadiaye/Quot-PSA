@@ -60,14 +60,23 @@ def post_document_sourced_payment(payment, *, actor=None):
     extend (swap the bank-credit leg to a clearing GL + fire the gateway).
 
     Returns the payment. Raises ``PaymentDocumentError`` if the payment is not
-    document-sourced or the document is not ``Approved``.
+    document-sourced, already posted, or the document is not ``Approved``.
     """
+    from accounting.models.receivables import Payment
+    from accounting.models.payment_document import PaymentDocument
     from accounting.services.payment_document_posting import (
         post_document_journal, PaymentDocumentError,
     )
-    pd = payment.payment_document
-    if pd is None:
+    # Serialise concurrent posts of the SAME payment/document: re-read both rows
+    # under a row lock and re-check status, so two racing post_payment calls
+    # can't both build a journal (the view's unlocked ``status=='Posted'`` guard
+    # only stops a call that starts AFTER the first commits).
+    payment = Payment.objects.select_for_update().get(pk=payment.pk)
+    if payment.status == "Posted":
+        raise PaymentDocumentError("Payment is already posted.")
+    if payment.payment_document_id is None:
         raise PaymentDocumentError("Payment is not sourced from a payment document.")
+    pd = PaymentDocument.objects.select_for_update().get(pk=payment.payment_document_id)
     if pd.status != "Approved":
         raise PaymentDocumentError("The payment document is not approved.")
 

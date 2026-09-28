@@ -228,3 +228,58 @@ def test_dispatch_receiver_provisions_on_approval(pp_bank):
         sender=MagicMock(), approval=MagicMock(pk=1),
         model_name="paymentdocument", document=pd, action="approve")
     assert Payment.objects.filter(payment_document=pd).exclude(status="Void").count() == 1
+
+
+# ── Review fixes: delete guard, double-post guard, rejected mapping ───────────
+
+@pytest.mark.django_db
+def test_cannot_delete_in_flight_document(pp_bank, pp_api):
+    """A submitted (Pending Approval / Approved) document cannot be hard-deleted —
+    it would orphan its workflow Approval. Only Draft/Rejected are deletable."""
+    from accounting.models import PaymentDocument
+    client, _ = pp_api
+    pd = PaymentDocument.objects.create(document_number="PD-DEL-1", bank_account=pp_bank,
+                                        status="Pending Approval")
+    resp = client.delete(f"/api/v1/accounting/payment-documents/{pd.pk}/", HTTP_HOST="localhost")
+    assert resp.status_code == 400, resp.content
+    assert PaymentDocument.objects.filter(pk=pd.pk).exists()  # not deleted
+
+
+@pytest.mark.django_db(transaction=True)
+def test_double_post_document_payment_rejected(pp_bank, open_period_pp):
+    """Posting a document-sourced Payment twice is rejected — the second call
+    (after the first commits + locks) finds it already Posted."""
+    from django.db import transaction
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    from accounting.services.document_payment_provisioning import (
+        ensure_draft_payment_for_document, post_document_sourced_payment)
+    from accounting.services.payment_document_posting import PaymentDocumentError
+    pd = PaymentDocument.objects.create(document_number="PD-DP-1", bank_account=pp_bank,
+                                        reference_number="DP", status="Approved")
+    PaymentDocumentLine.objects.create(payment_document=pd, account=_pp_liability(), debit=Decimal("100.00"))
+    PaymentDocumentLine.objects.create(payment_document=pd, account=pp_bank.gl_account, credit=Decimal("100.00"))
+    with transaction.atomic():
+        pay = ensure_draft_payment_for_document(pd)
+    post_document_sourced_payment(pay, actor=None)
+    pay.refresh_from_db()
+    with pytest.raises(PaymentDocumentError):
+        post_document_sourced_payment(pay, actor=None)
+
+
+@pytest.mark.django_db
+def test_rejected_document_shows_under_void(pp_bank, pp_api):
+    from accounting.models import PaymentDocument
+    client, _ = pp_api
+    PaymentDocument.objects.create(document_number="PD-REJ-1", bank_account=pp_bank, status="Rejected")
+    resp = client.get("/api/v1/accounting/payment-proposals/?status=Void", HTTP_HOST="localhost")
+    assert resp.status_code == 200, resp.content
+    assert "PD-REJ-1" in {r["number"] for r in resp.json()["results"]}
+
+
+def test_proposals_endpoint_declares_model_for_rbac():
+    """The unified endpoint sets ``model`` so RBACPermission enforces
+    ``view_paymentdocument`` instead of its no-queryset SAFE_METHODS
+    blanket-allow (which would let ANY authenticated role read the register)."""
+    from accounting.views.payment_proposals import PaymentProposalsView
+    from accounting.models import PaymentDocument
+    assert PaymentProposalsView.model is PaymentDocument

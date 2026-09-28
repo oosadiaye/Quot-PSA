@@ -15,6 +15,8 @@ from decimal import Decimal
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounting.models import PaymentDocument
+
 # Native status → unified proposal status (used only for the register + tabs).
 PV_UNIFIED = {
     "DRAFT": "Proposed", "CHECKED": "Proposed", "AUDITED": "Proposed",
@@ -26,7 +28,7 @@ PD_UNIFIED = {
     "Draft": "Proposed", "Pending Approval": "Proposed",
     "Approved": "Approved",
     "Paid": "Paid",
-    "Void": "Void",
+    "Rejected": "Void", "Void": "Void",
 }
 
 
@@ -59,10 +61,16 @@ def _pd_row(pd):
 
 
 class PaymentProposalsView(APIView):
-    """GET /api/v1/accounting/payment-proposals/?status=<unified>&source=<pv|pd>"""
+    """GET /api/v1/accounting/payment-proposals/?status=<unified>&source=<pv|pd>
+
+    ``model`` is set so the project-global RBACPermission enforces
+    ``accounting.view_paymentdocument`` for this read (otherwise its
+    no-queryset fallback would allow GET for ANY authenticated role). A caller
+    who can view payment documents can view the whole proposal register.
+    """
+    model = PaymentDocument
 
     def get(self, request):
-        from accounting.models import PaymentDocument
         from accounting.models.treasury import PaymentVoucherGov
 
         want_status = request.query_params.get("status") or None   # unified value

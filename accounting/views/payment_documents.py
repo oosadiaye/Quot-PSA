@@ -183,6 +183,18 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return [ScopedRateThrottle()]
         return super().get_throttles()
 
+    def perform_destroy(self, instance):
+        # Only a Draft/Rejected document may be deleted. A submitted document
+        # (Pending Approval / Approved) has a live workflow Approval referencing
+        # it by GenericForeignKey (no DB FK), so a hard delete would orphan the
+        # approval audit trail; Paid/Void are terminal. Matches PaymentViewSet /
+        # VendorInvoiceViewSet.
+        if instance.status not in ("Draft", "Rejected"):
+            raise serializers.ValidationError(
+                "Only a Draft or Rejected payment document can be deleted."
+            )
+        super().perform_destroy(instance)
+
     @action(detail=True, methods=["post"], url_path="submit")
     def submit_for_approval(self, request, pk=None):
         """Submit a Draft/Rejected payment document for multi-level approval.
