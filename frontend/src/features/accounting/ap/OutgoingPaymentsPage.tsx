@@ -206,7 +206,7 @@ function PaymentFormModal({
     paymentVouchers = [],
     pvRequired = false,
     initialValues,
-    footerSlot = null,
+    footerSlot = undefined,
     onSubmit,
     onClose,
     isLoading,
@@ -229,7 +229,10 @@ function PaymentFormModal({
      * surface the proposed journal entries so the operator sees what
      * will hit the GL before committing.
      */
-    footerSlot?: React.ReactNode;
+    // Render-prop: receives the CURRENT form bank-account id so the footer
+    // (the proposed-entries simulation) can re-compute against the bank the
+    // operator has selected, not a stored/default one.
+    footerSlot?: (ctx: { bankAccountId: string }) => React.ReactNode;
     onSubmit: (form: typeof BLANK_PAYMENT) => void; onClose: () => void; isLoading: boolean;
 }) {
     // ``useState({...})`` evaluates the initial state ONCE on mount, so
@@ -580,7 +583,7 @@ function PaymentFormModal({
                     </div>
                     {footerSlot && (
                         <div style={{ marginTop: '20px' }}>
-                            {footerSlot}
+                            {footerSlot({ bankAccountId: form.bank_account })}
                         </div>
                     )}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '24px', justifyContent: 'flex-end' }}>
@@ -638,12 +641,19 @@ interface ProposedEntriesResponse {
     balanced: boolean;
 }
 
-function ProposedEntries({ paymentId }: { paymentId: number }) {
+function ProposedEntries({ paymentId, bankAccountId }: { paymentId: number; bankAccountId?: string }) {
     const { formatCurrency } = useCurrency();
+    // Re-simulate whenever the SELECTED bank account changes: the net credit
+    // leg follows that bank's GL (or the Gateway Settlement Clearing GL when
+    // the payment routes through an e-payment gateway), so the preview mirrors
+    // exactly what posting will book rather than a stored/default bank.
     const { data, isLoading, error } = useQuery<ProposedEntriesResponse>({
-        queryKey: ['payment-proposed-entries', paymentId],
+        queryKey: ['payment-proposed-entries', paymentId, bankAccountId || ''],
         queryFn: async () => {
-            const { data } = await apiClient.get(`/accounting/payments/${paymentId}/proposed_entries/`);
+            const { data } = await apiClient.get(
+                `/accounting/payments/${paymentId}/proposed_entries/`,
+                { params: bankAccountId ? { bank_account: bankAccountId } : undefined },
+            );
             return data;
         },
         enabled: !!paymentId,
@@ -1278,7 +1288,9 @@ export default function OutgoingPaymentsPage() {
                     // (editingPaymentId set) show the proposed journal entries
                     // so the operator sees what will hit the GL before
                     // confirming. Omitted for the create-new flow (no id yet).
-                    footerSlot={editingPaymentId ? <ProposedEntries paymentId={editingPaymentId} /> : null}
+                    footerSlot={editingPaymentId
+                        ? ({ bankAccountId }) => <ProposedEntries paymentId={editingPaymentId} bankAccountId={bankAccountId} />
+                        : undefined}
                     onSubmit={handleSubmitPayment}
                     // Clear prefill alongside closing so the next plain
                     // "+ New Payment" click opens a blank form again.

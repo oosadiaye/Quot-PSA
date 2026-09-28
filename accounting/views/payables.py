@@ -1746,6 +1746,16 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             posted = True
         else:
             from accounting.services.payment_preview import compute_payment_entries
+            # Optional bank-account override so the modal's live simulation
+            # credits the GL of the bank the operator has SELECTED (even before
+            # saving), instead of the payment's stored bank or a resolver
+            # default. The override is in-memory only — nothing is persisted.
+            override_bank_id = request.query_params.get('bank_account')
+            if override_bank_id:
+                from accounting.models import BankAccount
+                bank = BankAccount.objects.filter(pk=override_bank_id).first()
+                if bank is not None:
+                    payment.bank_account = bank
             entries = compute_payment_entries(payment)
             posted = False
 

@@ -24,13 +24,18 @@ from accounting.tests.test_central_payment_processing import (
 )
 
 
-def _proposed(payment, user):
-    """Drive PaymentViewSet.proposed_entries via a superuser DRF GET."""
+def _proposed(payment, user, bank_account=None):
+    """Drive PaymentViewSet.proposed_entries via a superuser DRF GET.
+
+    ``bank_account`` (optional) is sent as the ?bank_account= override the
+    modal uses to re-simulate against the bank the operator has selected.
+    """
     from rest_framework.test import APIRequestFactory, force_authenticate
     from accounting.views.payables import PaymentViewSet
     factory = APIRequestFactory()
+    params = {'bank_account': bank_account} if bank_account is not None else None
     request = factory.get(
-        f'/accounting/payments/{payment.pk}/proposed_entries/',
+        f'/accounting/payments/{payment.pk}/proposed_entries/', params,
     )
     force_authenticate(request, user=user)
     view = PaymentViewSet.as_view({'get': 'proposed_entries'})
@@ -76,6 +81,45 @@ class TestProposedEntriesDraft:
         assert Decimal(by_code[bank_code]['credit']) == Decimal('90000.00')
         # No line names an Expense/Expenditure account.
         assert all('Expenditure' not in e['memo'] for e in data['entries'])
+
+    def test_preview_bank_leg_follows_selected_bank_override(
+        self, superuser, cash_account, bank_account_for_batch,
+    ):
+        """The net credit leg follows the SELECTED bank (?bank_account=), not
+        the payment's stored bank — so the modal re-simulates when the operator
+        changes the Bank Account dropdown, instead of defaulting to one GL."""
+        from accounting.models import Account, BankAccount
+        from accounting.models.receivables import VendorInvoice
+        # A second bank account with a DISTINCT GL.
+        alt_gl, _ = Account.objects.get_or_create(
+            code='10105000',
+            defaults={'name': 'Cash in Bank - Alt', 'account_type': 'Asset', 'is_active': True},
+        )
+        alt_bank = BankAccount.objects.create(
+            name='Alt Treasury', account_number='0100070099', account_type='Bank',
+            gl_account=alt_gl, bank_name='Alt Bank', is_active=True, currency=None,
+        )
+        vendor = _vendor()
+        ap, wht_gl, _ = _accounts()
+        inv_no = f'VINV-{uuid.uuid4().hex[:8]}'
+        VendorInvoice.objects.create(
+            invoice_number=inv_no, vendor=vendor,
+            total_amount=Decimal('100000.00'), status='Posted',
+        )
+        pv = _make_pv(invoice_number=inv_no, gross=Decimal('100000.00'), vendor=vendor)
+        _add_wht(pv, wht_gl, '10000.00')          # net = 90,000
+        payment = _provision(pv)
+        payment.bank_account = bank_account_for_batch   # SAVED bank = the default
+        payment.save()
+
+        # No override → credits the SAVED bank's GL.
+        base = {e['account_code']: e for e in _proposed(payment, superuser).data['entries']}
+        assert Decimal(base[bank_account_for_batch.gl_account.code]['credit']) == Decimal('90000.00')
+
+        # Override → credits the SELECTED (alt) bank's GL, not the saved one.
+        over = {e['account_code']: e for e in _proposed(payment, superuser, bank_account=alt_bank.id).data['entries']}
+        assert Decimal(over[alt_gl.code]['credit']) == Decimal('90000.00')       # alt bank GL
+        assert bank_account_for_batch.gl_account.code not in over                # NOT the saved bank
 
     def test_advance_pv_preview_dr_recon_cr_bank(
         self, superuser, bank_account_for_batch,
