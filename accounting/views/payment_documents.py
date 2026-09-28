@@ -1,11 +1,10 @@
-"""Payment Document API — CRUD, approver+MFA-gated post, proposed-entries preview."""
+"""Payment Document API — CRUD, submit-for-approval, proposed-entries preview."""
 from __future__ import annotations
 
 import logging
 import os
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.http import FileResponse
 from rest_framework import serializers, status, viewsets
@@ -15,12 +14,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
-from accounting.services.base_posting import TransactionPostingError
-from accounting.services.payment_document_posting import (
-    PaymentDocumentError, _bank_credit, post_payment_document,
-)
+from accounting.services.payment_document_posting import _bank_credit
 from core.mixins import OrganizationFilterMixin
-from core.permissions import IsApprover
 
 logger = logging.getLogger(__name__)
 
@@ -134,8 +129,8 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
         # lines must never be edited. The ImmutableModelMixin only guards the
         # header ``save()``, which runs AFTER the line delete/recreate in
         # ``update()``, so the check lives here too.
-        if self.instance and self.instance.status != "Draft":
-            raise serializers.ValidationError("Only a Draft payment document can be modified.")
+        if self.instance and self.instance.status not in ("Draft", "Rejected"):
+            raise serializers.ValidationError("Only a Draft or Rejected payment document can be modified.")
         return attrs
 
     @transaction.atomic
@@ -173,14 +168,11 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     # UNIFIED mode (the default) applies no filter.
     org_filter_field = "mda"
 
-    def get_permissions(self):
-        # CRUD inherits the project-global RBACPermission (see settings
-        # DEFAULT_PERMISSION_CLASSES); only the cash-moving ``post`` action is
-        # gated by approval authority + MFA (both exempt superusers/admins).
-        from accounting.permissions import RequiresMFA
-        if self.action == "post":
-            return [IsApprover("post"), RequiresMFA()]
-        return super().get_permissions()
+    # CRUD + submit inherit the project-global RBACPermission (see settings
+    # DEFAULT_PERMISSION_CLASSES). There is no cash-moving action on this
+    # viewset anymore: a document is submitted for approval here, and the actual
+    # disbursement (IsApprover('post') + MFA) happens when the provisioned
+    # Outgoing Payment is posted (accounting/views/payables.py post_payment).
 
     def get_throttles(self):
         # Dedicated cheap-DoS cap on the file upload: the parser reads the whole
@@ -191,16 +183,52 @@ class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return [ScopedRateThrottle()]
         return super().get_throttles()
 
-    @action(detail=True, methods=["post"], url_path="post")
-    def post(self, request, pk=None):
+    @action(detail=True, methods=["post"], url_path="submit")
+    def submit_for_approval(self, request, pk=None):
+        """Submit a Draft/Rejected payment document for multi-level approval.
+
+        Routes through the shared workflow engine (``auto_route_approval``). If
+        approvals for the ``PaymentDocument`` module are Disabled/below-threshold
+        the engine auto-approves and we provision the draft Outgoing Payment HERE
+        (the completion signal does not fire in that path); otherwise the document
+        goes ``Pending Approval`` and the draft Payment is provisioned by the
+        approval-completion dispatch receiver. The document does NOT post any GL —
+        that happens only when the provisioned Payment is posted in Outgoing
+        Payments.
+        """
+        from workflow.views import auto_route_approval
+        from accounting.services.document_payment_provisioning import ensure_draft_payment_for_document
+        from accounting.services.payment_document_posting import (
+            _lines, _validate_lines_and_bank, PaymentDocumentError,
+        )
         doc = self.get_object()
+        if doc.status not in ("Draft", "Rejected"):
+            return Response({"error": "Only a Draft or Rejected payment document can be submitted."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # It must be a postable, balanced document before it enters approval.
         try:
-            post_payment_document(doc, actor=request.user)
-        except (PaymentDocumentError, TransactionPostingError, DjangoValidationError) as exc:
-            messages = exc.messages if hasattr(exc, "messages") else [str(exc)]
-            return Response({"error": " ".join(messages)}, status=status.HTTP_400_BAD_REQUEST)
+            _validate_lines_and_bank(doc, _lines(doc))
+        except PaymentDocumentError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            result = auto_route_approval(
+                doc, "paymentdocument", request,
+                title=f"PD-{doc.document_number}: {(doc.description or '')[:50]}",
+                amount=doc.net_amount,
+            )
+            if result.get("auto_approved"):
+                doc.status = "Approved"
+                doc.save(update_fields=["status", "updated_at"], _allow_status_change=True)
+                ensure_draft_payment_for_document(doc, actor=request.user)
+            else:
+                doc.status = "Pending Approval"
+                doc.save(update_fields=["status", "updated_at"], _allow_status_change=True)
+
         doc.refresh_from_db()
-        return Response(self.get_serializer(doc).data)
+        data = self.get_serializer(doc).data
+        data["approval_id"] = result.get("approval_id")
+        return Response(data)
 
     @action(detail=True, methods=["get"], url_path="proposed-entries")
     def proposed_entries(self, request, pk=None):

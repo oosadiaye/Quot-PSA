@@ -54,6 +54,7 @@ Idempotency:
 """
 import logging
 
+from django.db import transaction
 from django.dispatch import receiver
 
 logger = logging.getLogger(__name__)
@@ -340,6 +341,47 @@ if document_approval_completed is not None:
                         model_name,
                         getattr(document, 'pk', '?'),
                     )
+
+    # -----------------------------------------------------------------------
+    # Receiver 3b — PaymentDocument → provision draft Outgoing Payment
+    # -----------------------------------------------------------------------
+
+    @receiver(
+        document_approval_completed,
+        dispatch_uid='accounting.paymentdocument_auto_post',
+    )
+    def auto_post_paymentdocument_on_approval(
+        sender, approval, model_name, document, action, **kwargs,
+    ):
+        """Provision the draft Outgoing Payment for a PaymentDocument on approval.
+
+        Trigger: ``model_name == 'paymentdocument'`` + ``action == 'approve'``.
+        Mirrors the PaymentVoucherGov path: the document posts NO GL here — a
+        Draft Payment is provisioned (idempotently) and the GL/cash-out happen
+        only when that Payment is posted in Outgoing Payments. Log-only on
+        failure so a provisioning hiccup never rolls back the approval (the
+        operator can retry). ``ensure_draft_payment_for_document`` is idempotent
+        (one live Payment per document, DB-backed).
+        """
+        if action != 'approve' or model_name != 'paymentdocument':
+            return
+        if document is None:
+            return
+        # Idempotency: a document already paid/void has nothing to provision.
+        if getattr(document, 'status', None) in ('Paid', 'Void'):
+            return
+        try:
+            from accounting.services.document_payment_provisioning import (
+                ensure_draft_payment_for_document,
+            )
+            with transaction.atomic():
+                ensure_draft_payment_for_document(document)
+        except Exception as exc:  # noqa: BLE001 — log-only, mirrors PV policy
+            logger.warning(
+                'Workflow-approved PaymentDocument %s draft-payment '
+                'provisioning failed (retry manually): %s',
+                getattr(document, 'pk', '?'), exc,
+            )
 
     # -----------------------------------------------------------------------
     # Receiver 4 — BadDebtWriteOff GL posting

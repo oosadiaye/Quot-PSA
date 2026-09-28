@@ -81,6 +81,7 @@ APPROVABLE_MODELS = [
     'journalheader',
     'leaverequest',
     'payrollrun',
+    'paymentdocument',       # accounting.PaymentDocument — multi-line outgoing payment
 ]
 
 APPROVABLE_LABELS = {
@@ -115,6 +116,7 @@ APPROVABLE_LABELS = {
     'journalheader':              'Journal Entry',
     'leaverequest':               'Leave Request',
     'payrollrun':                 'Payroll Run',
+    'paymentdocument':            'Payment Document',
 }
 
 
@@ -155,6 +157,7 @@ _MODEL_TO_MODULE_KEY = {
     'journalheader':              'JournalEntry',
     'leaverequest':               'LeaveRequest',
     'payrollrun':                 'PayrollRun',
+    'paymentdocument':            'PaymentDocument',
 }
 
 

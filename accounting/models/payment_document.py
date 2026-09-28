@@ -45,15 +45,18 @@ class PaymentDocument(AuditBaseModel, ImmutableModelMixin):
         ("Pending Approval", "Pending Approval"),
         ("Approved", "Approved"),
         ("Paid", "Paid"),
+        ("Rejected", "Rejected"),
         ("Void", "Void"),
     ]
     SOURCE_CHOICES = [("manual", "Manual"), ("import", "Import")]
-    # A Payment Document is only editable while Draft. Once submitted it is
-    # under approval; once approved a Payment is provisioned; once Paid the
-    # journal is posted. Transitions between these states go through the
-    # ``_allow_status_change=True`` escape hatch (submit, approval dispatch,
-    # posting). See core.models.ImmutableModelMixin.
-    IMMUTABLE_STATUSES = ("Pending Approval", "Approved", "Paid", "Void")
+    # Only the financial-terminal states are MODEL-immutable. Pending Approval /
+    # Approved are transitioned by the workflow engine, which saves WITHOUT the
+    # escape hatch (a post_save receiver on Approval + _trigger_document_action
+    # both do a plain doc.save()); including those states here would make the
+    # approve action raise ValidationError. User edits while Pending/Approved are
+    # blocked by the serializer instead. Rejected stays editable so the maker can
+    # fix and resubmit. Paid (journal posted) and Void are the true locks.
+    IMMUTABLE_STATUSES = ("Paid", "Void")
 
     document_number = models.CharField(max_length=30, unique=True, db_index=True)
     document_date = models.DateField(default=date.today)

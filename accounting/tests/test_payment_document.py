@@ -411,8 +411,15 @@ def pd_api(db):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
+def test_api_create_draft_then_submit(pd_api, pd_accounts, pd_bank, open_period):
+    """Create a draft via API, then submit for approval. With the PaymentDocument
+    approval module Disabled the engine auto-approves, the document goes Approved,
+    and a Draft Outgoing Payment is provisioned. The old direct /post/ is gone."""
+    from workflow.models import GlobalApprovalSettings
+    from accounting.models import Payment
     client, _ = pd_api
+    GlobalApprovalSettings.objects.update_or_create(
+        module="PaymentDocument", defaults={"approval_mode": "Disabled"})
     payload = {
         "bank_account": pd_bank.pk,
         "reference_number": "REF-001",
@@ -427,17 +434,17 @@ def test_api_create_draft_then_post(pd_api, pd_accounts, pd_bank, open_period):
     assert resp.status_code == 201, resp.content
     doc_id = resp.json()["id"]
 
-    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
+    # The direct post action no longer exists.
+    resp_post = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
+                            HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    assert resp_post.status_code in (404, 405)
+
+    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/submit/", {}, format="json",
                        HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     assert resp.status_code == 200, resp.content
-    body = resp.json()
-    assert body["status"] == "Paid"
-    assert Decimal(body["net_amount"]) == Decimal("90000.00")
-    # The post produced a real GL journal linked back to this document.
-    from accounting.models import JournalHeader
-    assert JournalHeader.objects.filter(
-        source_module="payment_document", source_document_id=doc_id,
-    ).exists()
+    assert resp.json()["status"] == "Approved"   # Disabled → auto-approved
+    # A single live Draft Payment was provisioned from the document.
+    assert Payment.objects.filter(payment_document_id=doc_id).exclude(status="Void").count() == 1
 
 
 @pytest.mark.django_db
@@ -551,36 +558,27 @@ def test_api_patch_draft_replaces_lines(pd_api, pd_accounts, pd_bank):
 @pytest.mark.django_db(transaction=True)
 def test_api_cannot_patch_posted_document(pd_api, pd_accounts, pd_bank, open_period):
     client, _ = pd_api
-    from accounting.models import PaymentDocument
-    payload = {
-        "bank_account": pd_bank.pk,
-        "reference_number": "REF-001",
-        "description": "To be posted then edited",
-        "lines": [
-            {"account": pd_accounts["liability"].pk, "debit": "90000.00", "credit": "0.00"},
-            {"account": pd_accounts["bank_gl"].pk, "debit": "0.00", "credit": "90000.00"},
-        ],
-    }
-    resp = client.post("/api/v1/accounting/payment-documents/", payload, format="json",
-                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
-    assert resp.status_code == 201, resp.content
-    doc_id = resp.json()["id"]
-    resp = client.post(f"/api/v1/accounting/payment-documents/{doc_id}/post/", {}, format="json",
-                       HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
-    assert resp.status_code == 200, resp.content
+    from accounting.models import PaymentDocument, PaymentDocumentLine
+    # Build a Paid document directly (the direct /post/ action is gone — a doc now
+    # reaches Paid via submit→approve→post-payment; this immutability check just
+    # needs a non-Draft doc).
+    doc = PaymentDocument.objects.create(document_number="PD-PATCH-1", bank_account=pd_bank,
+                                         reference_number="REF-001", status="Draft")
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["liability"], debit=Decimal("90000.00"))
+    PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("90000.00"))
+    doc.status = "Paid"
+    doc.save(update_fields=["status"], _allow_status_change=True)
 
-    lines_before = list(
-        PaymentDocument.objects.get(pk=doc_id).lines.values_list("account_id", "debit", "credit")
-    )
-    resp = client.patch(f"/api/v1/accounting/payment-documents/{doc_id}/",
+    lines_before = list(doc.lines.values_list("account_id", "debit", "credit"))
+    resp = client.patch(f"/api/v1/accounting/payment-documents/{doc.pk}/",
                         {"lines": []}, format="json",
                         HTTP_HOST="localhost", HTTP_X_TENANT_DOMAIN="pytest.localhost")
     # A clean 400 — NOT a 500 from destroying the posted journal's lines.
     assert resp.status_code == 400, resp.content
     lines_after = list(
-        PaymentDocument.objects.get(pk=doc_id).lines.values_list("account_id", "debit", "credit")
+        PaymentDocument.objects.get(pk=doc.pk).lines.values_list("account_id", "debit", "credit")
     )
-    assert lines_after == lines_before  # posted document's lines are untouched
+    assert lines_after == lines_before  # a Paid document's lines are untouched
 
 
 # ── Bulk import — CSV rows grouped by ``document_ref`` create DRAFT documents

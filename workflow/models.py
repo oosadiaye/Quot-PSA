@@ -35,6 +35,7 @@ class GlobalApprovalSettings(AuditBaseModel):
         ('JournalEntry', 'Journal Entries'),
         ('LeaveRequest', 'Leave Requests'),
         ('PayrollRun', 'Payroll Runs'),
+        ('PaymentDocument', 'Payment Documents'),
     ]
     
     APPROVAL_MODE_CHOICES = [

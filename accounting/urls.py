@@ -83,6 +83,7 @@ from .views import (
     PaymentBatchViewSet, BankLetterSettingsViewSet,
 )
 from .views.payment_documents import PaymentDocumentViewSet
+from .views.payment_proposals import PaymentProposalsView
 
 router = DefaultRouter()
 
@@ -293,6 +294,7 @@ urlpatterns = [
 
     # Sprint 16 — GL Data Quality diagnostics.
     path('data-quality/', DataQualityView.as_view(), name='data-quality'),
+    path('payment-proposals/', PaymentProposalsView.as_view(), name='payment-proposals'),
     path('budget-period-mgmt/', BudgetPeriodManagementViewSet.as_view({'get': 'list'}), name='budget-period-mgmt'),
 
     # IPSAS Financial Statements (Phase 7)

@@ -16,6 +16,29 @@ def pp_bank(db):
     return bank
 
 
+@pytest.fixture
+def pp_api(db):
+    """Superuser APIClient pinned to the pytest tenant, re-asserting the public
+    Client+Domain first. A preceding ``transaction=True`` test flushes those
+    rows (see project memory ci_tenant_flush_wipes_domain), which otherwise 400s
+    'Unknown tenant domain' on the next request. Mirrors ``pd_api``."""
+    from django.db import connection
+    from rest_framework.test import APIClient
+    from django.contrib.auth import get_user_model
+    from tenants.models import Client, Domain
+    connection.set_schema_to_public()
+    try:
+        tenant, _ = Client.objects.get_or_create(schema_name="pytest_schema", defaults={"name": "PyTest Tenant"})
+        Domain.objects.get_or_create(domain="pytest.localhost", tenant=tenant, defaults={"is_primary": True})
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(username="pp_admin", defaults={"is_staff": True, "is_superuser": True})
+    finally:
+        connection.set_schema("pytest_schema")
+    client = APIClient(HTTP_X_TENANT_DOMAIN="pytest.localhost")
+    client.force_authenticate(user=user)
+    return client, user
+
+
 @pytest.mark.django_db
 def test_payment_cannot_have_both_pv_and_document(pp_bank):
     """A Payment is PV-sourced OR PD-sourced, never both."""
@@ -120,3 +143,88 @@ def test_post_document_sourced_payment_posts_journal(pp_bank, open_period_pp):
     assert pay.journal_entry_id == pd.journal_id
     j = pd.journal
     assert sum(l.debit for l in j.lines.all()) == sum(l.credit for l in j.lines.all()) == Decimal("700.00")
+
+
+# ── Task 9: unified payment-proposals register endpoint ──────────────────────
+
+@pytest.mark.django_db
+def test_payment_proposals_unions_pv_and_pd(pp_bank, pp_api):
+    from accounting.models import PaymentDocument
+    from accounting.models.treasury import PaymentVoucherGov
+    from accounting.tests.test_central_payment_processing import _ncoa, _tsa
+    client, _ = pp_api
+    PaymentVoucherGov.objects.create(
+        voucher_number="PV-UNI-1", payment_type="VENDOR", ncoa_code=_ncoa(),
+        payee_name="Union Payee", narration="union test", tsa_account=_tsa(),
+        gross_amount=Decimal("10.00"), net_amount=Decimal("10.00"), status="DRAFT")
+    PaymentDocument.objects.create(document_number="PD-UNI-1", bank_account=pp_bank,
+                                   reference_number="R5", status="Draft")
+    resp = client.get("/api/v1/accounting/payment-proposals/?status=Proposed",
+                      HTTP_HOST="localhost")
+    assert resp.status_code == 200, resp.content
+    rows = resp.json()["results"]
+    assert {"pv", "pd"} <= {r["source"] for r in rows}
+    assert {"PV-UNI-1", "PD-UNI-1"} <= {r["number"] for r in rows}
+
+
+# ── Tasks 6-8: workflow registration, submit, approval dispatch ───────────────
+
+def _pp_liability():
+    from accounting.models import Account
+    acct, _ = Account.objects.get_or_create(code="41030103", defaults={
+        "name": "WHT", "account_type": "Liability", "is_active": True, "is_postable": True})
+    return acct
+
+
+@pytest.mark.django_db
+def test_paymentdocument_registered_in_workflow():
+    from workflow.views import _MODEL_TO_MODULE_KEY, APPROVABLE_MODELS
+    assert _MODEL_TO_MODULE_KEY.get("paymentdocument") == "PaymentDocument"
+    assert "paymentdocument" in APPROVABLE_MODELS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_submit_required_mode_goes_pending(pp_bank, pp_api):
+    """Submit under Required approval → the document goes Pending Approval and NO
+    Payment is provisioned yet (that happens on approval completion)."""
+    from workflow.models import GlobalApprovalSettings
+    from accounting.models import PaymentDocument, PaymentDocumentLine, Payment
+    client, _ = pp_api
+    GlobalApprovalSettings.objects.update_or_create(
+        module="PaymentDocument", defaults={"approval_mode": "Required"})
+    pd = PaymentDocument.objects.create(document_number="PD-SUB-REQ", bank_account=pp_bank,
+                                        reference_number="R7", status="Draft")
+    PaymentDocumentLine.objects.create(payment_document=pd, account=_pp_liability(), debit=Decimal("100.00"))
+    PaymentDocumentLine.objects.create(payment_document=pd, account=pp_bank.gl_account, credit=Decimal("100.00"))
+    resp = client.post(f"/api/v1/accounting/payment-documents/{pd.pk}/submit/", {},
+                       format="json", HTTP_HOST="localhost")
+    assert resp.status_code == 200, resp.content
+    pd.refresh_from_db()
+    assert pd.status == "Pending Approval"
+    assert Payment.objects.filter(payment_document=pd).exclude(status="Void").count() == 0
+
+
+@pytest.mark.django_db
+def test_submit_rejects_non_draft(pp_bank, pp_api):
+    from accounting.models import PaymentDocument
+    client, _ = pp_api
+    pd = PaymentDocument.objects.create(document_number="PD-SG-1", bank_account=pp_bank, status="Paid")
+    resp = client.post(f"/api/v1/accounting/payment-documents/{pd.pk}/submit/", {},
+                       format="json", HTTP_HOST="localhost")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_receiver_provisions_on_approval(pp_bank):
+    """The approval-completion dispatch receiver provisions the draft Payment."""
+    from unittest.mock import MagicMock
+    from accounting.models import PaymentDocument, PaymentDocumentLine, Payment
+    from accounting.signals.workflow_dispatch import auto_post_paymentdocument_on_approval
+    pd = PaymentDocument.objects.create(document_number="PD-DISP-1", bank_account=pp_bank,
+                                        reference_number="R8", status="Approved")
+    PaymentDocumentLine.objects.create(payment_document=pd, account=_pp_liability(), debit=Decimal("300.00"))
+    PaymentDocumentLine.objects.create(payment_document=pd, account=pp_bank.gl_account, credit=Decimal("300.00"))
+    auto_post_paymentdocument_on_approval(
+        sender=MagicMock(), approval=MagicMock(pk=1),
+        model_name="paymentdocument", document=pd, action="approve")
+    assert Payment.objects.filter(payment_document=pd).exclude(status="Void").count() == 1
