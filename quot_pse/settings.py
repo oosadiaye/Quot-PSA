@@ -281,6 +281,11 @@ SNAPSHOTS_KEK_HEX              = os.getenv('SNAPSHOTS_KEK_HEX')
 # rotation be a background re-wrap rather than an outage.
 AI_KEK_HEX                     = os.getenv('AI_KEK_HEX')
 AI_KEK_HEX_OLD                 = os.getenv('AI_KEK_HEX_OLD')
+# Payment-gateway (PSP) credentials use their OWN key-encryption key, separate
+# from SECRET_KEY and AI_KEK_HEX — rotating one must not brick the others.
+# GATEWAY_KEK_HEX_OLD lets a rotation be a background re-wrap, not an outage.
+GATEWAY_KEK_HEX                = os.getenv('GATEWAY_KEK_HEX')
+GATEWAY_KEK_HEX_OLD            = os.getenv('GATEWAY_KEK_HEX_OLD')
 SNAPSHOTS_KEK_ID               = os.getenv('SNAPSHOTS_KEK_ID', 'kek-v1')
 SNAPSHOTS_CREATE_RATE_PER_HOUR   = int(os.getenv('SNAPSHOTS_CREATE_RATE_PER_HOUR', '5'))
 SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR = int(os.getenv('SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR', '10'))

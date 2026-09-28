@@ -821,3 +821,18 @@ from superadmin.ai_models import (  # noqa: E402,F401  (model registration)
     AIProvider,
     TenantAISetting,
 )
+
+# ---------------------------------------------------------------------
+# Payment-gateway configuration and transaction log.
+#
+# Defined in gateway_models.py and imported here so Django registers them
+# against this (SHARED/public) app. Same reasoning as the AI layer: a
+# coherent unit that reads better on its own, and the shared schema is
+# required so an inbound PSP webhook can resolve tenant + payment.
+# ---------------------------------------------------------------------
+from superadmin.gateway_models import (  # noqa: E402,F401  (model registration)
+    GatewayService,
+    GatewayTransaction,
+    PaymentGatewayProvider,
+    TenantGatewaySetting,
+)

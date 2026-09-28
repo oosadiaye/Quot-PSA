@@ -3,6 +3,11 @@ from rest_framework.routers import DefaultRouter
 
 from . import views
 from .ai_views import AICallViewSet, AIProviderViewSet, TenantAISettingViewSet
+from .gateway_views import (
+    GatewayTransactionViewSet,
+    PaymentGatewayProviderViewSet,
+    TenantGatewaySettingViewSet,
+)
 
 # AI provider configuration. Router-based because these are CRUD over
 # models, unlike the function views above which mostly wrap actions.
@@ -10,6 +15,11 @@ ai_router = DefaultRouter()
 ai_router.register(r'ai/providers', AIProviderViewSet, basename='ai-provider')
 ai_router.register(r'ai/settings', TenantAISettingViewSet, basename='ai-setting')
 ai_router.register(r'ai/calls', AICallViewSet, basename='ai-call')
+
+# Payment-gateway configuration, per-tenant enablement and transaction log.
+ai_router.register(r'gateways/providers', PaymentGatewayProviderViewSet, basename='gateway-provider')
+ai_router.register(r'gateways/settings', TenantGatewaySettingViewSet, basename='gateway-setting')
+ai_router.register(r'gateways/transactions', GatewayTransactionViewSet, basename='gateway-transaction')
 
 urlpatterns = [
     # Public tenant signup
