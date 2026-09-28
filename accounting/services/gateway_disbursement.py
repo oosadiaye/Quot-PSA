@@ -120,12 +120,50 @@ def can_disburse_via_gateway(payment) -> bool:
     return True
 
 
+@transaction.atomic
+def active_disbursement_setting():
+    """The active, usable disbursement gateway for the CURRENT tenant, or None.
+
+    The single source of truth for "would this tenant's payment route through a
+    gateway" — shared by ``post_payment`` (which fires it) and the draft preview
+    (which shows the clearing leg), so the preview can never disagree with what
+    posts. Fail-closed: on the public schema, an unresolved tenant (FakeTenant /
+    no pk), or with no active+usable setting, returns None → the bank path.
+    """
+    from django.db import connection
+    from superadmin.gateway_models import TenantGatewaySetting
+
+    tenant_pk = getattr(getattr(connection, "tenant", None), "pk", None)
+    if tenant_pk is None:
+        return None
+    setting = (
+        TenantGatewaySetting.objects
+        .select_related("provider")
+        .filter(
+            tenant_id=tenant_pk, is_active=True,
+            provider__is_enabled=True, provider__supports_disbursement=True,
+        )
+        .order_by("-is_default", "provider__sort_order")
+        .first()
+    )
+    return setting if (setting is not None and setting.is_usable) else None
+
+
+@transaction.atomic
 def dispatch_payment_via_gateway(payment, setting, *, actor=None):
     """Post the clearing journal and dispatch ``payment`` through ``setting``.
 
     Returns ``(GatewayResult, JournalHeader)``. Raises
     :class:`GatewayRefused` if the gateway is unusable, or
     :class:`GatewayDisbursementError` for a domain problem.
+
+    ATOMIC — the clearing journal, the ``Posted`` status flip, the vendor
+    balance decrement, and the ``disburse()`` send commit or roll back as one
+    unit. If ``disburse()`` raises (credentials, network) or the gateway does
+    not accept the payout, EVERYTHING rolls back: the payment stays ``Draft``,
+    no clearing journal is left behind, and no half-settled ``GatewayTransaction``
+    lingers. The clearing balance must never hold money for a payout that was
+    never sent — the operator fixes the cause and re-posts cleanly.
     """
     if payment.status == "Posted":
         raise GatewayDisbursementError("Payment is already posted.")
@@ -204,6 +242,15 @@ def dispatch_payment_via_gateway(payment, setting, *, actor=None):
         tenant=connection.tenant, setting=setting, request=request,
         subject={"model": "Payment", "id": payment.pk},
     )
+    if not result.accepted:
+        # The PSP did not take the payout: nothing is in flight, so the
+        # clearing journal must not stand. Raising inside the atomic rolls
+        # back the journal + status flip; a webhook will never arrive to
+        # settle or reverse it, so this is the only place to undo it.
+        raise GatewayDisbursementError(
+            f"The gateway did not accept the payout for {payment.payment_number}: "
+            f"{getattr(result, 'error', '') or 'rejected'}."
+        )
     return result, journal
 
 

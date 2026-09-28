@@ -1899,38 +1899,26 @@ class PaymentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # is the real Client in a tenant request (set by TenantMainMiddleware);
         # on the public schema / an unresolved tenant its ``pk`` is None and
         # the lookup is skipped, which is the safe bank path.
-        from accounting.services.gateway_disbursement import can_disburse_via_gateway
+        from accounting.services.gateway_disbursement import (
+            can_disburse_via_gateway, active_disbursement_setting,
+        )
         if can_disburse_via_gateway(payment):
-            from django.db import connection
-            tenant_pk = getattr(getattr(connection, 'tenant', None), 'pk', None)
-            if tenant_pk is not None:
+            gw_setting = active_disbursement_setting()
+            if gw_setting is not None:
                 from superadmin.gateway_client import GatewayRefused
-                from superadmin.gateway_models import TenantGatewaySetting
                 from accounting.services.gateway_disbursement import (
                     dispatch_payment_via_gateway, GatewayDisbursementError,
                 )
-                gw_setting = (
-                    TenantGatewaySetting.objects
-                    .select_related('provider')
-                    .filter(
-                        tenant_id=tenant_pk, is_active=True,
-                        provider__is_enabled=True,
-                        provider__supports_disbursement=True,
+                try:
+                    dispatch_payment_via_gateway(
+                        payment, gw_setting, actor=request.user,
                     )
-                    .order_by('-is_default', 'provider__sort_order')
-                    .first()
-                )
-                if gw_setting is not None and gw_setting.is_usable:
-                    try:
-                        dispatch_payment_via_gateway(
-                            payment, gw_setting, actor=request.user,
-                        )
-                    except (GatewayRefused, GatewayDisbursementError) as exc:
-                        return Response(
-                            {"error": str(exc)},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    return Response(self.get_serializer(payment).data)
+                except (GatewayRefused, GatewayDisbursementError) as exc:
+                    return Response(
+                        {"error": str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                return Response(self.get_serializer(payment).data)
 
         # S1-06 — fiscal period gate on the payment_date.
         try:

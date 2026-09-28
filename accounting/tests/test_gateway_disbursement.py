@@ -234,6 +234,75 @@ def test_settle_is_idempotent(gw_accounts, gw_setting, draft_payment):
                                         source_document_id=draft_payment.pk).count() == 1
 
 
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_rolls_back_journal_and_txn_when_connector_raises(
+    gw_accounts, gw_setting, draft_payment,
+):
+    """A connector failure (e.g. InvalidToken decrypting a mis-keyed credential —
+    NOT a ConnectorError, so disburse() does not catch it) must roll back the
+    clearing journal, the Posted flip, the vendor decrement AND the pending
+    GatewayTransaction. Reproduces the live bug: without the atomic wrap, the
+    journal committed and money sat in the clearing account with a pending txn
+    that no webhook would ever settle or reverse."""
+    from django.db import connection
+    from accounting.services import gateway_disbursement
+    from accounting.models import JournalHeader
+    from superadmin.gateway_models import GatewayTransaction
+
+    class _BoomConnector:
+        def disburse(self, provider, request):
+            raise RuntimeError("InvalidToken: cannot decrypt api_key")
+
+    # dispatch passes ``connection.tenant`` to disburse(), which records the
+    # GatewayTransaction. The autouse fixture leaves a FakeTenant here (no pk);
+    # pin the real Client (as TenantMainMiddleware does in production) so the
+    # real disburse() path — txn create, then the connector call that raises —
+    # runs exactly as it did live.
+    prev_tenant = getattr(connection, "tenant", None)
+    connection.tenant = gw_setting.tenant
+    try:
+        with patch("superadmin.gateway_client.get_connector", return_value=_BoomConnector()):
+            with pytest.raises(RuntimeError):
+                gateway_disbursement.dispatch_payment_via_gateway(draft_payment, gw_setting)
+    finally:
+        connection.tenant = prev_tenant
+
+    draft_payment.refresh_from_db()
+    assert draft_payment.status == "Draft"                 # rolled back, retry-able
+    assert draft_payment.journal_entry_id is None
+    assert not JournalHeader.objects.filter(
+        source_module="gateway_disbursement", source_document_id=draft_payment.pk,
+    ).exists()                                             # no stuck clearing journal
+    assert not GatewayTransaction.objects.filter(
+        idempotency_key=draft_payment.payment_number,
+    ).exists()                                             # pending txn rolled back too
+    draft_payment.vendor.refresh_from_db()
+    assert draft_payment.vendor.balance == Decimal("1000.00")  # decrement undone
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_rolls_back_when_gateway_rejects(gw_accounts, gw_setting, draft_payment):
+    """A soft rejection (disburse returns accepted=False — nothing in flight)
+    also rolls back: the clearing journal must not stand for a payout the PSP
+    did not take."""
+    from accounting.services import gateway_disbursement
+    from accounting.models import JournalHeader
+    from superadmin.gateway_client import GatewayResult
+
+    def _reject(**kw):
+        return GatewayResult(transaction_id=0, status="failed", accepted=False, gateway_reference="")
+
+    with patch.object(gateway_disbursement, "disburse", _reject):
+        with pytest.raises(gateway_disbursement.GatewayDisbursementError):
+            gateway_disbursement.dispatch_payment_via_gateway(draft_payment, gw_setting)
+
+    draft_payment.refresh_from_db()
+    assert draft_payment.status == "Draft"
+    assert not JournalHeader.objects.filter(
+        source_module="gateway_disbursement", source_document_id=draft_payment.pk,
+    ).exists()
+
+
 @pytest.mark.django_db
 def test_can_disburse_via_gateway_guard(gw_vendor, draft_payment):
     """Only a real vendor payable with bank details is gateway-eligible; advances,
