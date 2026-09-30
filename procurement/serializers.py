@@ -1,4 +1,5 @@
 import logging
+import re
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,33 @@ class VendorCategorySerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
+# ── Vendor/supplier name de-duplication ─────────────────────────────────────
+# A supplier must be unique by name within a tenant. We compare on a
+# normalised form (trimmed, internal whitespace collapsed) case-insensitively
+# so "ABC  Ltd", "abc ltd" and " ABC Ltd " all resolve to the same supplier.
+# Both the serializer validation and the ``check_duplicate`` viewset action
+# (which powers the live warning in the form) go through these helpers, so the
+# block and the warning can never disagree.
+
+def normalize_vendor_name(value: str) -> str:
+    """Trim and collapse internal whitespace; '' for blank input."""
+    return re.sub(r'\s+', ' ', value or '').strip()
+
+
+def find_duplicate_vendor(normalized_name: str, *, exclude_pk=None):
+    """Return the existing Vendor whose name matches (case-insensitively), or None.
+
+    Considers every vendor in the tenant — active and inactive — so a
+    pending-activation supplier still blocks a duplicate.
+    """
+    if not normalized_name:
+        return None
+    qs = Vendor.objects.filter(name__iexact=normalized_name)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.first()
+
+
 class VendorSerializer(serializers.ModelSerializer):
     performance_rating = serializers.ReadOnlyField()
     on_time_delivery_rate = serializers.ReadOnlyField()
@@ -68,6 +96,23 @@ class VendorSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by',
                             'is_registration_valid', 'registration_status', 'fiscal_year_name']
+
+    def validate_name(self, value):
+        """Reject a supplier whose name duplicates an existing one (case- and
+        whitespace-insensitive). Runs on create and on rename; a vendor never
+        collides with itself. Returns the normalised name so it is stored clean."""
+        normalized = normalize_vendor_name(value)
+        if not normalized:
+            raise serializers.ValidationError('Supplier name is required.')
+        match = find_duplicate_vendor(
+            normalized, exclude_pk=self.instance.pk if self.instance else None,
+        )
+        if match is not None:
+            raise serializers.ValidationError(
+                f'A supplier named "{match.name}" already exists (code {match.code}). '
+                'Supplier names must be unique — reuse that supplier or choose a different name.'
+            )
+        return normalized
 
 class PurchaseRequestLineSerializer(PositiveDecimalMixin, serializers.ModelSerializer):
     account_code = serializers.CharField(source='account.code', read_only=True, allow_null=True)

@@ -170,6 +170,24 @@ class VendorViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
+    def check_duplicate(self, request):
+        """Live duplicate-name check for the create/edit form.
+
+        Returns ``{"exists": bool, "match": {id, name, code}}`` for a candidate
+        supplier name, using the same normalisation as
+        ``VendorSerializer.validate_name`` so the warning shown while typing
+        matches the block enforced on save. Pass ``?exclude=<id>`` when editing
+        so a vendor never flags itself.
+        """
+        from procurement.serializers import normalize_vendor_name, find_duplicate_vendor
+        name = normalize_vendor_name(request.query_params.get('name', ''))
+        exclude = request.query_params.get('exclude') or None
+        match = find_duplicate_vendor(name, exclude_pk=exclude) if name else None
+        if match is None:
+            return Response({'exists': False})
+        return Response({'exists': True, 'match': {'id': match.id, 'name': match.name, 'code': match.code}})
+
+    @action(detail=False, methods=['get'])
     def invoice_gate_status(self, request):
         """Return whether vendor registration invoice gate is enabled."""
         return Response({'enabled': self._invoice_gate_enabled()})
