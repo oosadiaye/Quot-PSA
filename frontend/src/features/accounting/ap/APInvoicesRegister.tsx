@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { formatDate } from '@/utils/date';
+import { daysOverdue, agingLabel, matchesAging, AGING_FILTER_OPTIONS, type AgingFilter } from '@/utils/aging';
 import { useNavigate } from 'react-router-dom';
 import {
     Receipt, Filter, Eye, ExternalLink, BookOpen, X,
@@ -40,6 +41,10 @@ interface RegisterRow {
     supplierNumber: string | null;   // Vendor.code — the supplier's number
     reference: string;
     date: string | null;
+    dueDate: string | null;
+    // Days overdue as of today: >0 overdue, 0 due today, <0 days until due.
+    // null = settled (Paid/Void) or no due date, so aging does not apply.
+    agingDays: number | null;
     amount: number;
     status: string;
     poNumber: string | null;
@@ -72,6 +77,7 @@ export default function APInvoicesRegister() {
     const [sourceFilter, setSourceFilter] = useState<'all' | Source>('all');
     const [statusFilter, setStatusFilter] = useState('');
     const [yearFilter, setYearFilter] = useState('');
+    const [agingFilter, setAgingFilter] = useState<AgingFilter>('all');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [viewing, setViewing] = useState<RegisterRow | null>(null);
@@ -112,6 +118,12 @@ export default function APInvoicesRegister() {
                 supplierNumber: inv.vendor_code ?? null,
                 reference: inv.reference || '',
                 date: inv.invoice_date ?? null,
+                dueDate: inv.due_date ?? null,
+                // A settled (Paid/Void) invoice has no live aging; everything
+                // still owed is aged against its due date.
+                agingDays: inv.status === 'Paid' || inv.status === 'Void'
+                    ? null
+                    : daysOverdue(inv.due_date),
                 amount: parseFloat(inv.total_amount || '0'),
                 status: inv.status,
                 poNumber: match?.po_number ?? null,
@@ -133,6 +145,9 @@ export default function APInvoicesRegister() {
                 supplierNumber: m.vendor_code ?? null,
                 reference: m.invoice_reference || '',
                 date: m.invoice_date ?? null,
+                // A verification is not yet a booked payable — no due date / aging.
+                dueDate: null,
+                agingDays: null,
                 amount: parseFloat(m.invoice_amount || '0'),
                 status: m.status,
                 poNumber: m.po_number ?? null,
@@ -167,17 +182,19 @@ export default function APInvoicesRegister() {
         return rows.filter((r) => {
             if (sourceFilter !== 'all' && r.source !== sourceFilter) return false;
             if (statusFilter && r.status !== statusFilter) return false;
+            if (!matchesAging(r.agingDays, agingFilter)) return false;
             const day = (r.date || '').slice(0, 10);
             if (yearFilter && day.slice(0, 4) !== yearFilter) return false;
             if (fromDate && (!day || day < fromDate)) return false;
             if (toDate && (!day || day > toDate)) return false;
             return true;
         });
-    }, [rows, sourceFilter, statusFilter, yearFilter, fromDate, toDate]);
+    }, [rows, sourceFilter, statusFilter, agingFilter, yearFilter, fromDate, toDate]);
 
     const totalValue = filtered.reduce((s, r) => s + r.amount, 0);
     const verifiedCount = rows.filter((r) => r.source === 'verified').length;
     const pendingCount = rows.filter((r) => r.source === 'verification').length;
+    const overdueCount = filtered.filter((r) => (r.agingDays ?? 0) > 0).length;
 
     if (invLoading || matchLoading) {
         return <LoadingScreen message="Loading AP invoices register…" />;
@@ -245,6 +262,7 @@ export default function APInvoicesRegister() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1.25rem', margin: '1.25rem 0 1.75rem' }}>
                     <SummaryCard label="Documents" value={String(filtered.length)} />
                     <SummaryCard label="Total Value" value={formatCurrency(totalValue)} accent />
+                    <SummaryCard label="Overdue" value={String(overdueCount)} warn={overdueCount > 0} />
                     <SummaryCard label="Verified (3-way)" value={String(verifiedCount)} />
                     <SummaryCard label="Pending Verification" value={String(pendingCount)} warn={pendingCount > 0} />
                 </div>
@@ -271,6 +289,9 @@ export default function APInvoicesRegister() {
                         <option value="">All Years</option>
                         {years.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
+                    <select value={agingFilter} onChange={(e) => setAgingFilter(e.target.value as AgingFilter)} style={{ flex: '0 0 auto', width: 170 }} title="Filter by aging (days due / overdue)">
+                        {AGING_FILTER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
                         From
                         <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} style={{ flex: '0 0 auto', width: 150 }} />
@@ -279,9 +300,9 @@ export default function APInvoicesRegister() {
                         To
                         <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} style={{ flex: '0 0 auto', width: 150 }} />
                     </label>
-                    {(sourceFilter !== 'all' || statusFilter || yearFilter || fromDate || toDate) && (
+                    {(sourceFilter !== 'all' || statusFilter || yearFilter || agingFilter !== 'all' || fromDate || toDate) && (
                         <button
-                            onClick={() => { setSourceFilter('all'); setStatusFilter(''); setYearFilter(''); setFromDate(''); setToDate(''); }}
+                            onClick={() => { setSourceFilter('all'); setStatusFilter(''); setYearFilter(''); setAgingFilter('all'); setFromDate(''); setToDate(''); }}
                             style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.4rem 0.7rem', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600 }}
                             title="Clear all filters"
                         >
@@ -289,7 +310,7 @@ export default function APInvoicesRegister() {
                         </button>
                     )}
                     <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
-                        Click a column header to sort · type in the table’s “Filter these rows…” box to search
+                        Aging = days overdue (negative = days until due) · click a column header to sort
                     </span>
                 </div>
 
@@ -302,8 +323,8 @@ export default function APInvoicesRegister() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: 'var(--color-surface)', textAlign: 'left' }}>
-                                {['Source', 'Document #', 'Supplier #', 'Supplier Name', 'Reference', 'Date', 'Status', 'PO #', 'Amount', ''].map((h, i) => (
-                                    <th key={h || i} style={{ padding: '0.85rem 1.1rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', textAlign: h === 'Amount' ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                                {['Source', 'Document #', 'Supplier #', 'Supplier Name', 'Reference', 'Date', 'Due Date', 'Aging', 'Status', 'PO #', 'Amount', ''].map((h, i) => (
+                                    <th key={h || i} title={h === 'Aging' ? 'Days overdue (negative = days until due). Click to sort.' : undefined} style={{ padding: '0.85rem 1.1rem', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', textAlign: h === 'Amount' || h === 'Aging' ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -333,7 +354,18 @@ export default function APInvoicesRegister() {
                                         <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.supplierNumber || '—'}</td>
                                         <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.vendorName}</td>
                                         <td title={row.reference} style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.reference || '—'}</td>
-                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
+                                        <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, whiteSpace: 'nowrap' }}>{fmtDate(row.dueDate)}</td>
+                                        {/* Aging cell renders the signed day-count as its text so the
+                                            LibreOffice-style grid sorts it numerically (positive =
+                                            overdue, negative = days until due); colour + tooltip carry
+                                            the human reading. */}
+                                        <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                            {row.agingDays === null ? (
+                                                <span style={{ ...cellTextStyle, color: 'var(--color-text-muted)' }}>—</span>
+                                            ) : (
+                                                <span title={agingLabel(row.agingDays)} style={{ ...cellTextStyle, color: agingColor(row.agingDays) }}>{row.agingDays}</span>
+                                            )}
+                                        </td>
                                         <td style={{ padding: '0.8rem 1.1rem' }}><StatusBadge status={row.status} /></td>
                                         <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle }}>{row.poNumber || '—'}</td>
                                         <td style={{ padding: '0.8rem 1.1rem', ...cellTextStyle, textAlign: 'right' }}>{formatCurrency(row.amount)}</td>
@@ -541,6 +573,13 @@ function RegisterDetailModal({ row, onClose, formatCurrency, navigate }: DetailM
 // the document number uses (monospace, semibold, primary text colour), so the
 // register reads as a consistent ledger grid.
 const cellTextStyle: React.CSSProperties = { fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text)', fontSize: 'var(--text-sm)' };
+
+// Aging colour: red = overdue, amber = due today, muted = not yet due.
+function agingColor(days: number): string {
+    if (days > 0) return '#dc2626';
+    if (days === 0) return '#b45309';
+    return 'var(--color-text-muted)';
+}
 
 const jTh: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', whiteSpace: 'nowrap' };
 const jTd: React.CSSProperties = { padding: '0.5rem 0.7rem', fontSize: 'var(--text-sm)', borderTop: '1px solid var(--color-border)' };
