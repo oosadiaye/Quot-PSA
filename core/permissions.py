@@ -292,3 +292,16 @@ class IsTenantAdmin(permissions.BasePermission):
         if not utr:
             return False
         return utr.role in ('admin', 'senior_manager')
+
+
+class IsTenantAdminOrReadOnly(permissions.BasePermission):
+    """Any signed-in user may read; only tenant admins and senior managers may
+    create, change or delete. For reference data everyone needs to see but only
+    admins may reshape (e.g. the MDA list)."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return IsTenantAdmin().has_permission(request, view)
