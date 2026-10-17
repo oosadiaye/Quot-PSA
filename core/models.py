@@ -1581,3 +1581,78 @@ class UserMFA(models.Model):
             1 for entry in (self.recovery_codes or [])
             if not entry.get('used_at')
         )
+
+
+# ── Team chat ──────────────────────────────────────────────────────────
+
+def chat_attachment_storage():
+    """Private storage for chat files.
+
+    Lives under ``PRIVATE_MEDIA_ROOT``, outside ``MEDIA_ROOT``, and has no base
+    URL — so there is no address a browser (or a web server's /media/ rule) can
+    use to fetch a file. The only way to read one is the authenticated
+    ``/core/chat/attachments/<id>/`` endpoint, which checks the reader is the
+    sender or the recipient.
+    """
+    from core.storage import PrivateFileSystemStorage
+    return PrivateFileSystemStorage(location=settings.PRIVATE_MEDIA_ROOT)
+
+
+def chat_attachment_path(instance, filename):
+    """``tenants/<schema>/chat/<random>.<ext>``: per-tenant folder, unguessable name."""
+    import os
+    import uuid
+    from django.db import connection
+    import re
+    schema = getattr(connection, 'schema_name', 'public')
+    # Only a short plain extension survives; anything odd (a stream suffix like "a.txt:x", spaces) is dropped.
+    extension = os.path.splitext(os.path.basename((filename or '').replace('\\', '/')))[1].lower()
+    extension = extension if re.fullmatch(r'\.[a-z0-9]{1,8}', extension) else ''
+    return f'tenants/{schema}/chat/{uuid.uuid4().hex}{extension}'
+
+
+class ChatMessage(models.Model):
+    """A message from one user to another within a tenant, optionally with one
+    file (up to 2 MB).
+
+    Written in the request's tenant schema, so one tenant's conversations are
+    never visible to another. The rules live in ``core.services.chat`` and the
+    API in ``core.views.chat``.
+    """
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chat_sent',
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chat_received',
+    )
+    body = models.TextField(blank=True, default='')
+    attachment = models.FileField(
+        upload_to=chat_attachment_path, storage=chat_attachment_storage,
+        null=True, blank=True,
+    )
+    attachment_name = models.CharField(max_length=200, blank=True, default='')
+    attachment_size = models.PositiveIntegerField(default=0)
+    attachment_type = models.CharField(max_length=100, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['id']
+        indexes = [
+            models.Index(fields=['sender', 'recipient', 'id'], name='chat_pair_idx'),
+            models.Index(fields=['recipient', 'read_at'], name='chat_unread_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.sender_id} -> {self.recipient_id}: {(self.body or self.attachment_name)[:40]}'
+
+
+from django.db.models.signals import post_delete  # noqa: E402
+from django.dispatch import receiver  # noqa: E402
+
+
+@receiver(post_delete, sender=ChatMessage)
+def _delete_chat_file_with_message(sender, instance, **kwargs):
+    """Deleting a message (or its user, via cascade) must not leave its file on disk."""
+    if instance.attachment and instance.attachment.name:
+        instance.attachment.delete(save=False)

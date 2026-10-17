@@ -267,6 +267,10 @@ STATICFILES_FINDERS = [
 # Media files
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+# Files that must never have a public URL (e.g. team-chat attachments). Kept
+# outside MEDIA_ROOT, which the web server may expose directly under /media/;
+# reads go through an authenticated endpoint that checks who is asking.
+PRIVATE_MEDIA_ROOT = Path(os.getenv('PRIVATE_MEDIA_ROOT', str(BASE_DIR / 'private_media')))
 
 # ── In-app snapshots (Phase 1) ─────────────────────────────────────
 SNAPSHOTS_BACKUP_DIR           = os.getenv(
@@ -430,6 +434,11 @@ REST_FRAMEWORK = {
         'login':        os.getenv('LOGIN_THROTTLE_RATE', '30/min' if DEBUG else '3/min'),
         'signup':       '5/hour',
         'impersonate':  '20/hour',   # superadmin tenant impersonation
+        # Team chat: messages a user may send per minute (reading is not limited).
+        'chat_send':    os.getenv('THROTTLE_CHAT_SEND', '60/min'),
+        # Chat reads (the widget polls: ~1,260/hour with one conversation open). Separate from the
+        # app-wide 'user' bucket (1000/hour) so polling can never lock someone out of the whole API.
+        'chat_read':    os.getenv('THROTTLE_CHAT_READ', '6000/hour'),
         # P1-T5 — tighter limits for mutating endpoints so a runaway
         # client can't DoS the posting pipeline. Applied via
         # throttle_scope='writes' on POST/PUT/PATCH/DELETE-only actions.

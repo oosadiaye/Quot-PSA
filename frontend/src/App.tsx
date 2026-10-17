@@ -250,6 +250,8 @@ const ExitManagement = lazy(() => import('./features/hrm/pages/ExitManagement'))
 
 // ── User Management ──────────────────────────────────────────
 const UserManagement = lazy(() => import('./pages/UserManagement'));
+// Team chat: loaded after first paint; it renders nothing until a user is signed in.
+const ChatWidget = lazy(() => import('./features/chat/ChatWidget'));
 
 // ── Employee Self-Service Portal ─────────────────────────────
 const MyDashboard = lazy(() => import('./features/portal/pages/MyDashboard'));
@@ -357,6 +359,8 @@ function App() {
                   </a>
                   <ImpersonationBanner />
                   <ImpersonationHandler />
+                  {/* Team chat, bottom right: message other users of the workspace and share a file up to 2 MB. */}
+                  <Suspense fallback={null}><ChatWidget /></Suspense>
                   {/* Inner ErrorBoundary scopes route crashes to the
                       content area — the outer ErrorBoundary at the
                       top-level catches anything that escapes; this
