@@ -74,3 +74,38 @@
 .chat-hint { font-size: 11px; color: var(--color-text-muted); }
 .chat-error { font-size: 12px; color: var(--color-error); }
 @media (prefers-reduced-motion: reduce) { .chat-launcher { transition: none; } }
+
+/* Chat / Ask AI tabs */
+.chat-tabs { display: flex; gap: 6px; padding: 8px 10px 0; border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+.chat-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--color-text-secondary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chat-tab:hover { color: var(--color-text); }
+.chat-tab.on { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+.chat-tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; border-radius: 6px; }
+.chat-tab-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--color-error); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+
+/* Ask AI */
+.ai-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ai-search { display: flex; align-items: center; gap: 8px; }
+.ai-search svg { flex-shrink: 0; color: var(--color-text-muted); }
+.ai-search input { flex: 1; min-width: 0; }
+.ai-ask { flex-shrink: 0; width: 34px; height: 34px; border: 0; border-radius: 8px; background: var(--color-primary); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.ai-ask:disabled { opacity: .45; cursor: not-allowed; }
+.ai-results { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ai-answer { margin: 0; padding: 9px 11px; border-radius: 10px; background: var(--color-primary-soft, #eff6ff); color: var(--color-text); font-size: 13px; line-height: 1.45; }
+.ai-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ai-result { border: 1px solid var(--color-border); border-radius: 12px; padding: 10px 12px; background: var(--color-surface); display: grid; gap: 6px; }
+.ai-result-head { display: grid; gap: 2px; }
+.ai-result-name { font-size: 14px; font-weight: 700; }
+.ai-trail { font-size: 11px; color: var(--color-text-muted); }
+.ai-why { margin: 0; font-size: 12px; color: var(--color-text-secondary); }
+.ai-steps { margin: 0; padding-left: 18px; font-size: 12px; color: var(--color-text-secondary); display: grid; gap: 2px; }
+.ai-steps strong { color: var(--color-text); }
+.ai-open { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 8px; background: var(--color-primary); color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.ai-open:hover { filter: brightness(1.1); }
+.ai-open:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.ai-intro { color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
+.ai-intro p { margin: 0 0 10px; }
+.ai-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-chip { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface-hover); color: var(--color-text); font: inherit; font-size: 12px; cursor: pointer; }
+.ai-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.ai-note { font-size: 11px; color: var(--color-text-muted); }

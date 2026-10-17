@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { MessageCircle, X } from 'lucide-react';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import { HelpCircle, MessageCircle, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { isImpersonating } from '../../components/ImpersonationBanner';
@@ -8,6 +8,10 @@ import Conversation from './Conversation';
 import { useChatSummary, useContacts } from './useChat';
 import type { Contact } from './types';
 import './chat.css';
+
+const AskAi = lazy(() => import('./AskAi'));
+
+type Tab = 'chat' | 'ask';
 
 /** Pages with no signed-in workspace (or a focused flow): the widget is never shown on them. */
 const HIDDEN_ON = /^\/(login|register|forgot-password|reset-password|verify-email|setup|superadmin)(\/|$)/;
@@ -25,6 +29,7 @@ export default function ChatWidget() {
     const available = isAuthenticated && !HIDDEN_ON.test(pathname) && !isImpersonating();
     const [open, setOpen] = useState(false);
     const [peerId, setPeerId] = useState<number | null>(null);
+    const [tab, setTab] = useState<Tab>('chat');
 
     const summary = useChatSummary(available && !open);
     const contactsQuery = useContacts(available && open);
@@ -60,13 +65,30 @@ export default function ChatWidget() {
                         <>
                             <div className="chat-head">
                                 <h2>
-                                    Team chat
-                                    <small data-testid="chat-online-count">{online} online</small>
+                                    {tab === 'chat' ? 'Team chat' : 'Help'}
+                                    <small data-testid="chat-online-count">{tab === 'chat' ? `${online} online` : 'Ask how to do something'}</small>
                                 </h2>
                                 <button type="button" className="chat-iconbtn" onClick={() => setOpen(false)} aria-label="Close chat"
                                     data-testid="chat-close"><X size={18} /></button>
                             </div>
-                            <ContactList contacts={contacts} loading={contactsQuery.isLoading} onOpen={openPeer} />
+                            <div className="chat-tabs" role="tablist">
+                                <button type="button" role="tab" aria-selected={tab === 'chat'} className={`chat-tab${tab === 'chat' ? ' on' : ''}`}
+                                    data-testid="tab-chat" onClick={() => setTab('chat')}>
+                                    <MessageCircle size={15} aria-hidden="true" /> Chat
+                                    {unread > 0 && <span className="chat-tab-count">{unread > 99 ? '99+' : unread}</span>}
+                                </button>
+                                <button type="button" role="tab" aria-selected={tab === 'ask'} className={`chat-tab${tab === 'ask' ? ' on' : ''}`}
+                                    data-testid="tab-ask" onClick={() => setTab('ask')}>
+                                    <HelpCircle size={15} aria-hidden="true" /> Ask AI
+                                </button>
+                            </div>
+                            {tab === 'chat' ? (
+                                <ContactList contacts={contacts} loading={contactsQuery.isLoading} onOpen={openPeer} />
+                            ) : (
+                                <Suspense fallback={<div className="chat-empty">Loading...</div>}>
+                                    <AskAi onNavigate={() => setOpen(false)} />
+                                </Suspense>
+                            )}
                         </>
                     )}
                 </section>
