@@ -222,15 +222,15 @@ export default function APInvoicesRegister() {
         }
     };
 
-    // Auto-create a draft Payment Voucher from the invoice and open it.
+    // Auto-create a draft Payment Proposal from the invoice and open it.
     const handleCreatePV = async (invoiceId: number) => {
         try {
             const result: any = await createDraftPV.mutateAsync({ invoiceId });
             const pv = result.payment_voucher;
-            flash(`Draft PV ${pv.voucher_number} created — opening for review.`, true);
+            flash(`Draft Payment Proposal ${pv.voucher_number} created — opening for review.`, true);
             navigate(`/accounting/payment-vouchers/${pv.id}`);
         } catch (err: any) {
-            flash(err?.response?.data?.error ?? err?.message ?? 'Failed to create draft PV.', false);
+            flash(err?.response?.data?.error ?? err?.message ?? 'Failed to create draft Payment Proposal.', false);
         }
     };
 
@@ -372,7 +372,7 @@ export default function APInvoicesRegister() {
                                         <td style={{ padding: '0.8rem 1.1rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                             {/* Icon action buttons — same compact style as the Chart of
                                                 Journals. Colour still carries the meaning: amber Post,
-                                                indigo Create PV, emerald View PV. Tooltips name each. */}
+                                                indigo Create Payment Proposal, emerald View. Tooltips name each. */}
                                             <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                                                 {row.invoiceRaw ? (() => {
                                                     // Same (status, has-journal) decision as the AP Invoice page:
@@ -395,12 +395,12 @@ export default function APInvoicesRegister() {
                                                                 </button>
                                                             )}
                                                             {canPay && (inv.payment_voucher_id ? (
-                                                                <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', color: '#047857', borderColor: '#a7f3d0' }} onClick={() => navigate(`/accounting/payment-vouchers/${inv.payment_voucher_id}`)} title={`View Payment Voucher ${inv.payment_voucher_number ?? ''} (${inv.payment_voucher_status ?? ''})`}>
+                                                                <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', color: '#047857', borderColor: '#a7f3d0' }} onClick={() => navigate(`/accounting/payment-vouchers/${inv.payment_voucher_id}`)} title={`View Payment Proposal ${inv.payment_voucher_number ?? ''} (${inv.payment_voucher_status ?? ''})`}>
                                                                     <Receipt size={14} />
                                                                 </button>
                                                             ) : (
                                                                 <>
-                                                                    <button className="btn" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', background: '#4f46e5', border: '1px solid #4338ca', color: '#fff', opacity: createDraftPV.isPending ? 0.6 : 1, cursor: createDraftPV.isPending ? 'not-allowed' : 'pointer' }} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Create a draft Payment Voucher from this invoice">
+                                                                    <button className="btn" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)', background: '#4f46e5', border: '1px solid #4338ca', color: '#fff', opacity: createDraftPV.isPending ? 0.6 : 1, cursor: createDraftPV.isPending ? 'not-allowed' : 'pointer' }} onClick={() => handleCreatePV(inv.id)} disabled={createDraftPV.isPending} title="Create a draft Payment Proposal from this invoice">
                                                                         <Receipt size={14} />
                                                                     </button>
                                                                     <button className="btn btn-outline" style={{ padding: '0.4rem', fontSize: 'var(--text-xs)' }} onClick={() => navigate(`/accounting/payments/new?invoice=${inv.id}`)} title="Pay via the advanced settlement form (multi-invoice, allocations)">
