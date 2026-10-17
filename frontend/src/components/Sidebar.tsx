@@ -371,7 +371,7 @@ const Sidebar = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { branding } = useBranding();
-    const { mdaIsolationMode } = useAuth();
+    const { mdaIsolationMode, logout } = useAuth();
     const showMdaSwitcher = mdaIsolationMode === 'SEPARATED';
     const tenantInfo = (() => {
         try {
@@ -490,12 +490,11 @@ const Sidebar = () => {
         return hasPermission(user, item.requiredPerm);
     });
 
+    // Sign out through the auth context: it revokes the token on the server and clears
+    // BOTH storages. This used to clear four localStorage keys only — the token lives in
+    // sessionStorage, so it stayed in the tab, valid, and the server was never told.
     const handleLogout = () => {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
-        localStorage.removeItem('tenantDomain');
-        localStorage.removeItem('tenantInfo');
-        localStorage.removeItem('tenantPermissions');
+        logout();
         navigate('/login');
     };
 
