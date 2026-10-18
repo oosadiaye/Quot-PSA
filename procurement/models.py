@@ -462,6 +462,11 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         'Closed': [],
     }
     po_number = models.CharField(max_length=50, unique=True)
+    GRN_MODE_CHOICES = [('', 'Use the default'), ('MANUAL', 'Manual'), ('AUTO', 'Automatic')]
+    grn_mode = models.CharField(
+        max_length=6, choices=GRN_MODE_CHOICES, blank=True, default='',
+        help_text='Blank follows Inventory Settings. AUTO books a posted GRN when the PO is approved.',
+    )
     vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     purchase_request = models.ForeignKey(PurchaseRequest, on_delete=models.SET_NULL, null=True, blank=True)
     order_date = models.DateField()
@@ -654,6 +659,10 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
             if old_status == 'Posted':
                 kwargs['_allow_status_change'] = True
             super().save(*args, **kwargs)
+
+            if old_status is not None and self.status == 'Approved' and old_status != 'Approved':
+                from procurement.services.auto_grn import auto_receive_if_enabled
+                auto_receive_if_enabled(self)
 
     def _check_warrant_ceiling(self):
         """Validate the PO total against the released-warrant ceiling.

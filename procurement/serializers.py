@@ -341,6 +341,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             'vendor_wht_code', 'vendor_wht_code_label', 'vendor_wht_exempt',
             'purchase_request', 'order_date',
             'expected_delivery_date', 'delivery_address', 'delivery_contact', 'payment_terms',
+            'grn_mode',
             'tax_rate', 'tax_amount', 'subtotal', 'total_amount', 'notes', 'terms_and_conditions',
             'tax_code', 'wht_exempt',
             'status', 'mda', 'mda_name', 'mda_code',

@@ -1270,7 +1270,10 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     "PO %s approved but down-payment advance PV not raised: %s",
                     po.po_number, exc,
                 )
-        return Response({"status": "Purchase Order approved.", "po_status": po.status})
+        body = {"status": "Purchase Order approved.", "po_status": po.status}
+        if getattr(po, 'auto_grn_error', None):
+            body["warning"] = f"The automatic GRN could not be booked ({po.auto_grn_error}). Receive the goods manually."
+        return Response(body)
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):

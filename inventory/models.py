@@ -511,6 +511,17 @@ class InventorySettings(models.Model):
         ),
     )
 
+    GRN_MODE_MANUAL = 'MANUAL'
+    GRN_MODE_AUTO = 'AUTO'
+    GRN_MODE_CHOICES = [(GRN_MODE_MANUAL, 'Manual'), (GRN_MODE_AUTO, 'Automatic')]
+    default_grn_mode = models.CharField(
+        max_length=6, choices=GRN_MODE_CHOICES, default=GRN_MODE_MANUAL,
+        help_text=(
+            'Manual: the store raises a GRN when goods arrive. Automatic: approving a Purchase '
+            'Order books a posted GRN for the full outstanding quantity. A PO can override this.'
+        ),
+    )
+
     class Meta:
         verbose_name = 'Inventory Settings'
         verbose_name_plural = 'Inventory Settings'
