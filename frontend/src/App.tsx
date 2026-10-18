@@ -182,6 +182,10 @@ const PurchaseRequisitionView = lazy(() => import('./features/procurement/Purcha
 const GoodsReceivedNotes = lazy(() => import('./features/procurement/GoodsReceivedNotes'));
 const GRNForm = lazy(() => import('./features/procurement/GRNForm'));
 const GRNView = lazy(() => import('./features/procurement/GRNView'));
+const PurchaseRequisitionPrint = lazy(() => import('./features/procurement/print/PurchaseRequisitionPrint'));
+const PurchaseOrderPrint = lazy(() => import('./features/procurement/print/PurchaseOrderPrint'));
+const GoodsReceivedNotePrint = lazy(() => import('./features/procurement/print/GoodsReceivedNotePrint'));
+const InvoiceVerificationPrint = lazy(() => import('./features/procurement/print/InvoiceVerificationPrint'));
 const InvoiceMatchingPage = lazy(() => import('./features/procurement/InvoiceMatching'));
 const NewInvoiceMatching = lazy(() => import('./features/procurement/NewInvoiceMatching'));
 const InvoiceMatchingView = lazy(() => import('./features/procurement/InvoiceMatchingView'));
@@ -655,6 +659,18 @@ function App() {
                         } />
                         <Route path="/procurement/requisitions/:id/edit" element={
                           <ProtectedRoute><PurchaseRequisitionForm /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/requisitions/:id/print" element={
+                          <ProtectedRoute><PurchaseRequisitionPrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/orders/:id/print" element={
+                          <ProtectedRoute><PurchaseOrderPrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/grn/:id/print" element={
+                          <ProtectedRoute><GoodsReceivedNotePrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/matching/:id/print" element={
+                          <ProtectedRoute><InvoiceVerificationPrint /></ProtectedRoute>
                         } />
                         <Route path="/procurement/requisitions/:id" element={
                           <ProtectedRoute><PurchaseRequisitionView /></ProtectedRoute>

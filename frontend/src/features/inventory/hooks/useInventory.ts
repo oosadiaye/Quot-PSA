@@ -690,6 +690,7 @@ export const useDeleteStockMovement = () => {
 export interface InventorySettingsPayload {
     auto_po_enabled?: boolean;
     auto_po_draft_only?: boolean;
+    default_grn_mode?: 'MANUAL' | 'AUTO';
 }
 
 export const useInventorySettings = () => {

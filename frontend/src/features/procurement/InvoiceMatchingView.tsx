@@ -24,6 +24,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
+import PrintDocButton from './print/PrintDocButton';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import '../accounting/styles/glassmorphism.css';
 
@@ -175,6 +176,7 @@ export default function InvoiceMatchingView() {
                 onBack={() => navigate('/procurement/matching')}
                 actions={
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <PrintDocButton to={`/procurement/matching/${m.id}/print`} />
                         {canMatchOverride && (
                             <button onClick={handleMatch} disabled={matchMutation.isPending} style={hdrBtn.warn}>
                                 <CheckCircle size={16} /> Override Variance

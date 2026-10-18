@@ -16,6 +16,7 @@ import AccountingLayout from '../accounting/AccountingLayout';
 import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
 import GlCodingWarningModal from '../../components/GlCodingWarningModal';
 import PageHeader from '../../components/PageHeader';
+import PrintDocButton from './print/PrintDocButton';
 import '../accounting/styles/glassmorphism.css';
 
 interface POLine {
@@ -62,6 +63,7 @@ const POForm = () => {
         vendor: '',
         order_date: new Date().toISOString().split('T')[0],
         expected_delivery_date: '',
+        grn_mode: '',
         mda: '',
         fund: '',
         function: '',
@@ -143,6 +145,7 @@ const POForm = () => {
                 vendor: existingPO.vendor ? String(existingPO.vendor) : '',
                 order_date: existingPO.order_date || new Date().toISOString().split('T')[0],
                 expected_delivery_date: existingPO.expected_delivery_date || '',
+                grn_mode: existingPO.grn_mode || '',
                 mda: existingPO.mda ? String(existingPO.mda) : '',
                 fund: existingPO.fund ? String(existingPO.fund) : '',
                 function: existingPO.function ? String(existingPO.function) : '',
@@ -277,6 +280,7 @@ const POForm = () => {
             order_date: header.order_date,
             status: 'Draft',
             ...(header.expected_delivery_date ? { expected_delivery_date: header.expected_delivery_date } : {}),
+            grn_mode: header.grn_mode,
             ...(selectedPRId ? { purchase_request: Number(selectedPRId) } : {}),
             lines: lines.map(l => ({
                 item_description: l.item_description,
@@ -387,6 +391,7 @@ const POForm = () => {
                     onBack={() => navigate('/procurement/orders')}
                     actions={createdPO ? null : (
                         <>
+                            {existingPO && <PrintDocButton to={`/procurement/orders/${existingPO.id}/print`} />}
                             {existingPO && ['Approved', 'Posted'].includes(existingPO.status) && !existingPO.has_active_grns && (
                                 <button
                                     type="button"
@@ -495,7 +500,7 @@ const POForm = () => {
                                     setSelectedPRId('');
                                     setHeader({
                                         vendor: '', order_date: new Date().toISOString().split('T')[0],
-                                        expected_delivery_date: '', mda: '', fund: '', function: '', program: '', geo: '',
+                                        expected_delivery_date: '', grn_mode: '', mda: '', fund: '', function: '', program: '', geo: '',
                                         tax_code: '', tax_rate: '0', wht_exempt: false,
                                     });
                                     setLines([{ id: crypto.randomUUID(), item_description: '', quantity: '1', unit_price: '0', account: '', asset: '', item: '', product_type: '', product_category: '' }]);
@@ -602,6 +607,16 @@ const POForm = () => {
                                         <input style={inputStyle} type="date"
                                             value={header.expected_delivery_date}
                                             onChange={e => setHeader({ ...header, expected_delivery_date: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Goods Receipt (GRN)</label>
+                                        <select style={inputStyle} value={header.grn_mode} disabled={!!existingPO}
+                                            data-testid="po-grn-mode"
+                                            onChange={e => setHeader({ ...header, grn_mode: e.target.value })}>
+                                            <option value="">Use the default (Inventory Settings)</option>
+                                            <option value="MANUAL">Manual: store raises the GRN</option>
+                                            <option value="AUTO">Automatic: booked when the PO is approved</option>
+                                        </select>
                                     </div>
                                 </div>
 

@@ -118,6 +118,7 @@ export default function InventorySettingsPage() {
 
     const [autoPo, setAutoPo]           = useState(false);
     const [draftOnly, setDraftOnly]     = useState(true);
+    const [grnMode, setGrnMode]         = useState<'MANUAL' | 'AUTO'>('MANUAL');
     const [saveMsg, setSaveMsg]         = useState<string | null>(null);
     const [saveErr, setSaveErr]         = useState<string | null>(null);
 
@@ -126,7 +127,23 @@ export default function InventorySettingsPage() {
         if (!settingsRaw) return;
         setAutoPo(settingsRaw.auto_po_enabled ?? false);
         setDraftOnly(settingsRaw.auto_po_draft_only ?? true);
+        setGrnMode(settingsRaw.default_grn_mode ?? 'MANUAL');
     }, [settingsRaw]);
+
+    const handleGrnMode = async (mode: 'MANUAL' | 'AUTO') => {
+        const previous = grnMode;
+        setGrnMode(mode);
+        setSaveMsg(null);
+        setSaveErr(null);
+        try {
+            await updateSettings.mutateAsync({ default_grn_mode: mode });
+            setSaveMsg('Settings saved.');
+            setTimeout(() => setSaveMsg(null), 2500);
+        } catch {
+            setSaveErr('Failed to save. Please try again.');
+            setGrnMode(previous);
+        }
+    };
 
     const handleToggle = async (field: 'auto_po_enabled' | 'auto_po_draft_only', value: boolean) => {
         if (field === 'auto_po_enabled') setAutoPo(value);
@@ -206,6 +223,37 @@ export default function InventorySettingsPage() {
                         disabled={!autoPo || updateSettings.isPending}
                         indent
                     />
+                </div>
+            </div>
+
+            {/* ── Section: Goods receipt ───────────────────────────── */}
+            <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <SectionBadge icon={<Package size={16} color="white" />} color="#0891b2" />
+                    <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--color-text)' }}>Goods Receipt (GRN)</h2>
+                </div>
+                <div style={{ ...CARD_STYLE, display: 'grid', gap: '12px' }} role="radiogroup" aria-label="Default GRN mode">
+                    {([
+                        ['MANUAL', 'Manual (recommended)', 'The store raises and posts a GRN when goods arrive, recording what was actually delivered.'],
+                        ['AUTO', 'Automatic', 'Approving a Purchase Order books a posted GRN for the full ordered quantity straight away, with stock-in and accounting entries. Use it only where goods are received before the order is approved.'],
+                    ] as const).map(([mode, title, body]) => (
+                        <label key={mode} data-testid={`grn-mode-${mode}`} style={{
+                            display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '14px 16px', borderRadius: '14px', cursor: 'pointer',
+                            border: `1.5px solid ${grnMode === mode ? '#0891b2' : 'var(--color-border)'}`,
+                            background: grnMode === mode ? 'rgba(8,145,178,0.06)' : 'transparent',
+                        }}>
+                            <input type="radio" name="grn-mode" checked={grnMode === mode} disabled={updateSettings.isPending}
+                                onChange={() => handleGrnMode(mode)} style={{ marginTop: '3px' }} />
+                            <span>
+                                <span style={{ display: 'block', fontWeight: 600, fontSize: '14px', color: 'var(--color-text)' }}>{title}</span>
+                                <span style={{ display: 'block', fontSize: '13px', color: 'var(--color-text-subtle)', lineHeight: 1.6 }}>{body}</span>
+                            </span>
+                        </label>
+                    ))}
+                    <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-text-subtle)' }}>
+                        A single Purchase Order can override this default when it is created. If an automatic GRN cannot be booked
+                        (for example the accounting period is closed), the approval still stands and the goods are received manually.
+                    </p>
                 </div>
             </div>
 
