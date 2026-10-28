@@ -2,6 +2,9 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, Edit, Trash2, Search, X, Check, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, FolderTree, Upload, Download, FileDown } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../api/client';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../../components/DuplicateWarningModal';
+import DuplicateHint from '../../../components/DuplicateHint';
 import {
     useAssetCategories,
     useCreateAssetCategory,
@@ -199,6 +202,18 @@ export default function AssetCategories() {
         setEditingCategory(null);
     };
 
+    // Master-data duplicate lookup: as-you-type hint + save-time guard (create only).
+    const dup = useDuplicateGuard('asset_category');
+    const dupValues = { code: formData.code, name: formData.name };
+    const { matches: dupMatches } = useDuplicateLookup('asset_category', dupValues, {
+        excludeId: editingCategory?.id, enabled: showForm,
+    });
+    /** Adopt an existing category: switch the form to editing that record. */
+    const openExisting = (m: DupMatch) => {
+        const found = (Array.isArray(categories) ? categories : []).find((c: AssetCategory) => c.id === m.id);
+        if (found) handleEdit(found);
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setFormError('');
@@ -226,7 +241,7 @@ export default function AssetCategories() {
         if (editingCategory) {
             updateCategory.mutate({ id: editingCategory.id, ...payload }, errorHandler);
         } else {
-            createCategory.mutate(payload, errorHandler);
+            dup.guard(dupValues, () => createCategory.mutate(payload, errorHandler), { onUseExisting: openExisting });
         }
     };
 
@@ -546,6 +561,7 @@ placeholder="e.g. Motor Vehicles"
                                         className="glass-input"
                                         style={{ width: '100%', fontSize: 'var(--text-base)', borderWidth: '2px' }}
                                     />
+                                    <DuplicateHint matches={dupMatches} label="asset category" onUseExisting={editingCategory ? undefined : openExisting} />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '12px' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
@@ -718,6 +734,7 @@ className="glass-input"
                                 </button>
                             </div>
                         </form>
+                        <DuplicateWarningModal {...dup.modalProps} />
                     </GlassCard>
                 </div>
             )}

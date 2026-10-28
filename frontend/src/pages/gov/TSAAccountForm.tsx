@@ -9,6 +9,9 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../components/DuplicateWarningModal';
+import DuplicateHint from '../../components/DuplicateHint';
 import { useQuery } from '@tanstack/react-query';
 import { Save, X, AlertCircle, Landmark } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
@@ -95,6 +98,12 @@ export default function TSAAccountForm() {
 
     const set = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
+    // Master-data duplicate lookup: as-you-type hint + save-time guard (create only).
+    const dup = useDuplicateGuard('tsa_account');
+    const dupValues = { account_number: form.account_number, account_name: form.account_name };
+    const { matches: dupMatches } = useDuplicateLookup('tsa_account', dupValues, { excludeId: id });
+    const openExisting = (m: DupMatch) => navigate(`/accounting/tsa-accounts/${m.id}/edit`);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setFormError('');
@@ -114,6 +123,15 @@ export default function TSAAccountForm() {
             description: form.description,
         };
 
+        if (isEditing && id) {
+            await saveTSA(payload);
+        } else {
+            // Warn before registering an account that looks like one we already hold.
+            dup.guard(dupValues, () => saveTSA(payload), { onUseExisting: openExisting });
+        }
+    };
+
+    const saveTSA = async (payload: Record<string, unknown>) => {
         try {
             if (isEditing && id) {
                 await updateTSA.mutateAsync({ id, payload });
@@ -196,6 +214,7 @@ export default function TSAAccountForm() {
                                 <div>
                                     <label style={labelStyle}>Account Name<span className="required-mark"> *</span></label>
                                     <input className="input" required value={form.account_name} onChange={e => set('account_name', e.target.value)} placeholder="bank account name" />
+                                    <DuplicateHint matches={dupMatches} label="bank account" onUseExisting={isEditing ? undefined : openExisting} />
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Bank<span className="required-mark"> *</span></label>
@@ -312,6 +331,7 @@ export default function TSAAccountForm() {
                             </div>
                         </div>
                     </form>
+                    <DuplicateWarningModal {...dup.modalProps} />
                 </div>
             </main>
         </div>

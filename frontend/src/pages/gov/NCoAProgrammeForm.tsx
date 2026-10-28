@@ -5,6 +5,9 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../components/DuplicateWarningModal';
+import DuplicateHint from '../../components/DuplicateHint';
 import { Save, X, Layers } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
@@ -70,6 +73,12 @@ export default function NCoAProgrammeForm() {
         onError: (err: any) => setFormError(err?.response?.data?.detail || JSON.stringify(err?.response?.data) || 'Failed to save'),
     });
 
+    // Master-data duplicate lookup: as-you-type hint + save-time guard (create only).
+    const dup = useDuplicateGuard('ncoa_programme');
+    const dupValues = { code: form.code, name: form.name };
+    const { matches: dupMatches } = useDuplicateLookup('ncoa_programme', dupValues, { excludeId: id });
+    const openExisting = (m: DupMatch) => navigate(`/accounting/ncoa/programme/${m.id}/edit`);
+
     const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
         setForm(prev => ({ ...prev, [field]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
 
@@ -77,7 +86,12 @@ export default function NCoAProgrammeForm() {
         e.preventDefault();
         if (!form.code || !form.name) { setFormError('Code and name are required'); return; }
         setFormError('');
-        saveMutation.mutate(form);
+        if (isEdit) {
+            saveMutation.mutate(form);
+        } else {
+            // Warn before creating a segment that looks like an existing one.
+            dup.guard(dupValues, () => saveMutation.mutate(form), { onUseExisting: openExisting });
+        }
     };
 
     const progList = segments?.programme || [];
@@ -127,6 +141,7 @@ export default function NCoAProgrammeForm() {
                             <div>
                                 <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
                                 <input className="input" value={form.name} onChange={set('name')} placeholder="e.g. Fiscal Policy Programme" required />
+                                <DuplicateHint matches={dupMatches} label="Programme" onUseExisting={isEdit ? undefined : openExisting} />
                             </div>
                             <div>
                                 <label style={labelStyle}>Policy Code</label>
@@ -173,6 +188,7 @@ export default function NCoAProgrammeForm() {
                         </div>
                     </div>
                 </form>
+                <DuplicateWarningModal {...dup.modalProps} />
             </main>
         </div>
     );

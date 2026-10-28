@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../components/DuplicateWarningModal';
+import DuplicateHint from '../../components/DuplicateHint';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Search, FolderTree, Edit2, Trash2, X, Save } from 'lucide-react';
 import {
@@ -95,6 +98,18 @@ export default function VendorCategoryList() {
         setShowModal(true);
     };
 
+    // Master-data duplicate lookup: as-you-type hint + save-time guard (create only).
+    const dup = useDuplicateGuard('vendor_category');
+    const dupValues = { code: form.code, name: form.name };
+    const { matches: dupMatches } = useDuplicateLookup('vendor_category', dupValues, {
+        excludeId: editingCategory?.id, enabled: showModal,
+    });
+    /** Adopt an existing category: switch the dialog to editing that record. */
+    const openExisting = (m: DupMatch) => {
+        const found = categories.find((c) => c.id === m.id);
+        if (found) openEdit(found);
+    };
+
     const closeModal = () => {
         setShowModal(false);
         setEditingCategory(null);
@@ -123,6 +138,14 @@ export default function VendorCategoryList() {
             is_active: form.is_active,
         };
 
+        if (editingCategory) {
+            await saveCategory(payload);
+        } else {
+            dup.guard(dupValues, () => saveCategory(payload), { onUseExisting: openExisting });
+        }
+    };
+
+    const saveCategory = async (payload: Parameters<typeof createMutation.mutateAsync>[0]) => {
         try {
             if (editingCategory) {
                 await updateMutation.mutateAsync({ id: editingCategory.id, ...payload });
@@ -443,6 +466,7 @@ export default function VendorCategoryList() {
                                         placeholder="Category name"
                                         required
                                     />
+                                    <DuplicateHint matches={dupMatches} label="vendor category" onUseExisting={editingCategory ? undefined : openExisting} />
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
                                     <label style={labelStyle}>Reconciliation Account (AP)<span className="required-mark"> *</span></label>
@@ -503,6 +527,7 @@ export default function VendorCategoryList() {
                                 </button>
                             </div>
                         </form>
+                        <DuplicateWarningModal {...dup.modalProps} />
                     </div>
                 </div>
             )}

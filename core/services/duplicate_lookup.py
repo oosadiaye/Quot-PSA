@@ -193,6 +193,17 @@ ENTITIES: dict[str, EntitySpec] = {
         identifiers=(Identifier("short_name", "short name"),),
         extra_fields=("level",),
     ),
+    # NCoA classification segments: the code is the unique key, the name is
+    # what operators mistype / re-register under a different spelling.
+    "ncoa_fund": EntitySpec(label="Fund", model="accounting.FundSegment"),
+    "ncoa_functional": EntitySpec(label="Functional segment", model="accounting.FunctionalSegment"),
+    "ncoa_programme": EntitySpec(label="Programme", model="accounting.ProgrammeSegment"),
+    "ncoa_geographic": EntitySpec(label="Geographic segment", model="accounting.GeographicSegment"),
+    "tsa_account": EntitySpec(
+        label="Bank / TSA account", model="accounting.TreasuryAccount",
+        name_field="account_name", code_field="account_number",
+        extra_fields=("account_type",),
+    ),
     "vendor_category": EntitySpec(
         label="Vendor category", model="procurement.VendorCategory",
         active_field=None,

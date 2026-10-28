@@ -20,7 +20,8 @@ import apiClient from '../api/client';
 
 export type DupEntity =
   | 'vendor' | 'account' | 'mda' | 'admin_segment'
-  | 'vendor_category' | 'asset_category' | 'item';
+  | 'vendor_category' | 'asset_category' | 'item'
+  | 'ncoa_fund' | 'ncoa_functional' | 'ncoa_programme' | 'ncoa_geographic' | 'tsa_account';
 
 export type DupLevel = 'exact' | 'likely' | 'similar';
 

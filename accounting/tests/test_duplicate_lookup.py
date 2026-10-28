@@ -98,6 +98,21 @@ class TestFindMatches:
         m2 = find_matches("vendor", {"name": "ACME Nig. Ltd"})
         assert m2 and m2[0]["level"] == "likely" and "Same name" in m2[0]["reasons"]
 
+    def test_ncoa_segments_and_tsa_account(self):
+        from accounting.models import FundSegment, TreasuryAccount
+        from core.services.duplicate_lookup import find_matches
+        FundSegment.objects.create(code="01000", name="FAAC Statutory Allocation")
+        m = find_matches("ncoa_fund", {"code": "09999", "name": "FAAC Statutory Allocations"})
+        assert m and m[0]["code"] == "01000" and m[0]["level"] == "likely"
+        assert find_matches("ncoa_fund", {"code": "01000", "name": "x"})[0]["level"] == "exact"
+        TreasuryAccount.objects.create(
+            account_number="0123456789", account_name="Delta State TSA Main", account_type="MAIN_TSA",
+        )
+        t = find_matches("tsa_account", {"account_number": "0123456789", "account_name": "Other"})
+        assert t and t[0]["level"] == "exact" and "Same code" in t[0]["reasons"]
+        t2 = find_matches("tsa_account", {"account_number": "9999999999", "account_name": "Delta State TSA Main"})
+        assert t2 and t2[0]["code"] == "0123456789"
+
     def test_limit_and_ordering_exact_first(self):
         from accounting.models import Account
         from core.services.duplicate_lookup import find_matches

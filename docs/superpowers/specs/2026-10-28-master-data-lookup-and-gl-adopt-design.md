@@ -23,7 +23,8 @@ Both are advisory. Nothing blocks a save except the DB's own uniqueness rules.
 
 - `core/services/duplicate_lookup.py` — registry-driven. One `EntitySpec` per
   master-data type (`vendor`, `account`, `mda`, `admin_segment`,
-  `vendor_category`, `asset_category`, `item`): model, name field, code field,
+  `ncoa_fund`, `ncoa_functional`, `ncoa_programme`, `ncoa_geographic`,
+  `tsa_account`, `vendor_category`, `asset_category`, `item`): model, name field, code field,
   identifier fields, context fields. Adding a type is one registry entry.
 - `find_matches(entity, values, exclude_id=None, limit=5)` returns
   `{id, code, name, is_active, level, score, reasons, extra}` ordered
@@ -56,7 +57,10 @@ Both are advisory. Nothing blocks a save except the DB's own uniqueness rules.
 - Wired into: `VendorList` (Use this one → opens the existing vendor for edit),
   `ChartOfAccounts` (→ opens the existing account), `NCoAAdminForm` (MDA →
   navigates to the existing MDA's edit page), `ItemForm` (inventory product →
-  opens the existing product). Guard runs on **create** only; the inline hint
+  opens the existing product), the NCoA Fund / Functional / Programme /
+  Geographic forms, `TSAAccountForm` (bank account number + name), and the
+  inline Vendor Category and Asset Category forms (→ switch to editing the
+  existing category). Guard runs on **create** only; the inline hint
   also shows while editing (excluding the record itself).
 - **Vendor CSV import** checks every row before creating it and *skips* exact /
   likely duplicates (including rows duplicated within the same file), listing
@@ -104,9 +108,6 @@ source}]` (max 3):
 - Forms without free-text GL coding were left alone: payment vouchers inherit the
   GL from an already-coded invoice, and accrual / deferral forms code one account
   at header level.
-- Other master data (NCoA fund / function / programme / geo, TSA accounts, asset
-  and vendor categories) are in the backend registry where applicable but not
-  yet wired into their forms.
 - The lookup is advisory in the UI; direct API clients bypass it. A server-side
   `?force=true` confirm on create is a possible v2.
 - `accounting.MDA` (legacy model) has no create screen in the frontend; `admin_segment` is the
