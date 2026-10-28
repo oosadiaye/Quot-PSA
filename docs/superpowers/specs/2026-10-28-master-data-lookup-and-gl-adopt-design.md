@@ -55,8 +55,12 @@ Both are advisory. Nothing blocks a save except the DB's own uniqueness rules.
   hidden when the **code** collides (the server would reject it).
 - Wired into: `VendorList` (Use this one → opens the existing vendor for edit),
   `ChartOfAccounts` (→ opens the existing account), `NCoAAdminForm` (MDA →
-  navigates to the existing MDA's edit page). Guard runs on **create** only; the
-  inline hint also shows while editing (excluding the record itself).
+  navigates to the existing MDA's edit page), `ItemForm` (inventory product →
+  opens the existing product). Guard runs on **create** only; the inline hint
+  also shows while editing (excluding the record itself).
+- **Vendor CSV import** checks every row before creating it and *skips* exact /
+  likely duplicates (including rows duplicated within the same file), listing
+  them in the import summary.
 
 ## 2. Posting: adopt an existing GL
 
@@ -85,8 +89,9 @@ source}]` (max 3):
   reviews the recoded lines and posts again (which re-checks them).
 - `GlCodingWarningModal` lists suggestions per flagged line with **Use this
   account**. Without `onAdopt` the suggestions are shown as information only.
-- Wired into the five forms that already ran the check: Journal, AP invoice,
-  customer invoice, Purchase Requisition, Purchase Order.
+- Wired into the five forms that already ran the check — Journal, AP invoice,
+  customer invoice, Purchase Requisition, Purchase Order — plus the Recurring
+  Journal form (which posts automatically later, so a wrong GL costs more).
 
 ## Tests
 
@@ -96,9 +101,12 @@ source}]` (max 3):
 
 ## Not in scope / follow-ups
 
-- The vendor **CSV import** creates vendors directly and does not run the
-  lookup; neither do other posting forms that don't use `useGlCodingGuard`
-  (payment documents, receipts …).
+- Forms without free-text GL coding were left alone: payment vouchers inherit the
+  GL from an already-coded invoice, and accrual / deferral forms code one account
+  at header level.
+- Other master data (NCoA fund / function / programme / geo, TSA accounts, asset
+  and vendor categories) are in the backend registry where applicable but not
+  yet wired into their forms.
 - The lookup is advisory in the UI; direct API clients bypass it. A server-side
   `?force=true` confirm on create is a possible v2.
 - `accounting.MDA` (legacy model) has no create screen in the frontend; `admin_segment` is the

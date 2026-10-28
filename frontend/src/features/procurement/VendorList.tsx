@@ -14,7 +14,7 @@ import PageHeader from '../../components/PageHeader';
 import VendorHistoryModal from './VendorHistoryModal';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useFiscalYears, useTSAAccounts } from '../../hooks/useGovForms';
-import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import { fetchDuplicates, useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
 import DuplicateWarningModal from '../../components/DuplicateWarningModal';
 import DuplicateHint from '../../components/DuplicateHint';
 
@@ -191,12 +191,25 @@ const VendorList = () => {
             const headers = parseCSVRow(lines[0]);
             let created = 0;
             let errors = 0;
+            let skipped = 0;
             const errorDetails: string[] = [];
             for (let i = 1; i < lines.length; i++) {
                 const values = parseCSVRow(lines[i]);
                 const row: Record<string, any> = {};
                 headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
                 if (!row.name || !row.code) { errors++; errorDetails.push(`Row ${i + 1}: name and code are required`); continue; }
+                // Don't bulk-create something that already exists (or that an earlier
+                // row of this file just created): skip exact / likely duplicates and
+                // report them so the operator can review instead of getting silent dupes.
+                const { matches } = await fetchDuplicates('vendor', {
+                    name: row.name, code: row.code, tax_id: row.tax_id, email: row.email, phone: row.phone,
+                });
+                const dupOf = matches.find((m) => m.level !== 'similar');
+                if (dupOf) {
+                    skipped++;
+                    errorDetails.push(`Row ${i + 1} (${row.code}): skipped — already exists as ${dupOf.code} · ${dupOf.name}`);
+                    continue;
+                }
                 try {
                     await createVendor.mutateAsync({
                         name: row.name,
@@ -216,10 +229,11 @@ const VendorList = () => {
                     errorDetails.push(`Row ${i + 1} (${row.code}): ${msg}`);
                 }
             }
-            if (created > 0 && errors === 0) {
+            const skippedNote = skipped > 0 ? `, ${skipped} skipped as duplicates` : '';
+            if (created > 0 && errors === 0 && skipped === 0) {
                 flash(`Successfully imported ${created} supplier(s).`);
-            } else if (created > 0) {
-                flash(`Imported ${created} supplier(s), ${errors} failed. ${errorDetails.slice(0, 3).join(' | ')}`, false);
+            } else if (created > 0 || skipped > 0) {
+                flash(`Imported ${created} supplier(s)${skippedNote}${errors ? `, ${errors} failed` : ''}. ${errorDetails.slice(0, 3).join(' | ')}`, errors > 0);
             } else {
                 flash(`Import failed. ${errorDetails.slice(0, 3).join(' | ')}`, false);
             }

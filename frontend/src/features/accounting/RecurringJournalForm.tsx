@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useRecurringJournal, useCreateRecurringJournal, useUpdateRecurringJournal } from './hooks/useRecurringJournal';
 import { useDimensions } from './hooks/useJournal';
@@ -7,6 +7,8 @@ import AccountingLayout from './AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { Save, X, Plus, Trash2, Calendar, Clock } from 'lucide-react';
 import LoadingScreen from '../../components/common/LoadingScreen';
+import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
+import GlCodingWarningModal from '../../components/GlCodingWarningModal';
 
 let _rjLineUid = 0;
 const nextRjLineUid = () => String(++_rjLineUid);
@@ -110,6 +112,15 @@ const RecurringJournalForm = () => {
     const totalCredit = lines.reduce((sum, l) => sum + parseFloat(l.credit || '0'), 0);
     const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
 
+    // account id → {code, name}, for the GL coding check (account name vs line description).
+    const gl = useGlCodingGuard();
+    const accountMeta = useMemo(() => {
+        const m = new Map<string, { code: string; name: string }>();
+        ((dims?.accounts ?? []) as Array<{ id: number | string; code?: string; name?: string }>).forEach((a) =>
+            m.set(String(a.id), { code: a.code ?? '', name: a.name ?? '' }));
+        return m;
+    }, [dims?.accounts]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isBalanced) return;
@@ -129,6 +140,19 @@ const RecurringJournalForm = () => {
             ...(formData.geo ? { geo: formData.geo } : {}),
         };
 
+        // Advisory GL-coding check before saving; lines without a description are skipped.
+        gl.guard(
+            lines.map((l) => {
+                const meta = accountMeta.get(String(l.account));
+                return { name: meta?.name || '', code: meta?.code || '', description: l.description || '' };
+            }),
+            () => doSubmit(payload),
+            (i, a) => updateLine(i, 'account', String(a.id)),
+            (a) => accountMeta.has(String(a.id)),
+        );
+    };
+
+    const doSubmit = async (payload: RecurringJournalPayload) => {
         try {
             setFormError('');
             if (isEdit) {
@@ -351,6 +375,7 @@ const RecurringJournalForm = () => {
                     </table>
                 </div>
             </form>
+            <GlCodingWarningModal {...gl.modalProps} />
             <style>{`
                 .label {
                     display: block; 

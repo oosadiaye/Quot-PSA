@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../../components/DuplicateWarningModal';
+import DuplicateHint from '../../../components/DuplicateHint';
 import { useQuery } from '@tanstack/react-query';
-import { useItem, useCreateItem, useUpdateItem, useDeleteItem, useProductCategories } from '../hooks/useInventory';
+import { useItem, useCreateItem, useUpdateItem, useDeleteItem, useProductCategories, type ItemPayload } from '../hooks/useInventory';
 import apiClient from '../../../api/client';
 import Sidebar from '../../../components/Sidebar';
 import PageHeader from '../../../components/PageHeader';
@@ -93,6 +96,12 @@ const ItemForm = () => {
         }
     }, [isEdit, item]);
 
+    // Master-data duplicate lookup: as-you-type hint + save-time guard (create only).
+    const dup = useDuplicateGuard('item');
+    const dupValues = { sku: formData.sku, name: formData.name };
+    const { matches: dupMatches } = useDuplicateLookup('item', dupValues, { excludeId: itemId });
+    const openExistingItem = (m: DupMatch) => navigate(`/inventory/${m.id}`);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const payload: any = {
@@ -118,6 +127,16 @@ const ItemForm = () => {
             max_stock: parseFloat(formData.max_stock) || 0,
             shelf_life_days: formData.shelf_life_days !== '' ? parseInt(formData.shelf_life_days) : null,
         };
+        if (isEdit) {
+            await saveItem(payload);
+        } else {
+            // Warn before creating a product that looks like an existing one; the
+            // operator can open the existing product instead.
+            dup.guard(dupValues, () => saveItem(payload), { onUseExisting: openExistingItem });
+        }
+    };
+
+    const saveItem = async (payload: ItemPayload) => {
         try {
             if (isEdit) {
                 await updateItem.mutateAsync({ id: Number(id), data: payload });
@@ -210,6 +229,7 @@ const ItemForm = () => {
                             <div>
                                 <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
                                 <input type="text" className="input" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required placeholder="Product name" />
+                                <DuplicateHint matches={dupMatches} label="product" onUseExisting={isEdit ? undefined : openExistingItem} />
                             </div>
                             <div>
                                 <label style={labelStyle}>Barcode</label>
@@ -433,6 +453,7 @@ const ItemForm = () => {
                         </div>
                     </div>
                 </form>
+                <DuplicateWarningModal {...dup.modalProps} />
             </main>
         </div>
     );
