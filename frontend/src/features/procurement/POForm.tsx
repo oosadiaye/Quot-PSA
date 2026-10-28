@@ -314,7 +314,7 @@ const POForm = () => {
             const meta = accountMeta.get(l.account);
             return { name: meta?.name || '', code: meta?.code || '', description: l.item_description || '' };
         });
-        gl.guard(glCheckLines, () => doSubmit(payload));
+        gl.guard(glCheckLines, () => doSubmit(payload), (i, a) => updateLine(i, 'account', String(a.id)), (a) => accountMeta.has(String(a.id)));
     };
 
     const doSubmit = async (payload: any) => {

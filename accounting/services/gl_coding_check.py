@@ -10,6 +10,11 @@ Hybrid (approach a):
    The LLM verdict overrides, mainly to *rescue* semantic matches the lexical
    check misses. On AI refusal/error the local (suspect) verdict stands.
 
+3. For every suspect line, **suggest existing GL accounts** that do fit the
+   description (name match against the chart of accounts, boosted by how
+   similar past *posted* lines were coded) so the operator can adopt one
+   instead of posting to the wrong account.
+
 Advisory only: the caller shows a non-blocking amber warning. Nothing here
 blocks a post, and every failure path degrades to "don't crash the posting".
 
@@ -90,8 +95,10 @@ def _matches(name_tok: str, desc_tokens: list[str]) -> bool:
 def local_score(name: str, description: str) -> float | None:
     """Overlap coefficient of meaningful tokens, or ``None`` when either side
     has nothing meaningful to compare (can't assess → caller must not warn)."""
-    name_tokens = _tokens(name)
-    desc_tokens = _tokens(description)
+    return _score_tokens(_tokens(name), _tokens(description))
+
+
+def _score_tokens(name_tokens: list[str], desc_tokens: list[str]) -> float | None:
     if not name_tokens or not desc_tokens:
         return None
     matched = sum(1 for t in name_tokens if _matches(t, desc_tokens))
@@ -155,12 +162,103 @@ def _ai_adjudicate(*, setting, tenant, actor, name, code, description) -> dict:
     return {"verdict": verdict, "reason": str(data.get("reason", ""))[:120]}
 
 
+# ── Suggestions: "adopt an existing GL instead" ──────────────────────────────
+
+SUGGEST_MIN_SCORE = 0.5     # at least half the account-name tokens must fit the description
+SUGGEST_LIMIT = 3
+HISTORY_SCAN = 300          # recent posted lines inspected per suspect line
+HISTORY_MIN_SCORE = 0.6     # a past memo must clearly match the description
+MAX_HISTORY_LOOKUPS = 25    # suspect lines that get a history lookup per call
+
+
+class _AccountIndex:
+    """One-query snapshot of the chart of accounts with pre-tokenised names, so
+    scoring N lines doesn't re-tokenise every account N times."""
+
+    def __init__(self):
+        from accounting.models import Account
+        rows = Account.objects.filter(is_active=True).values(
+            "id", "code", "name", "account_type", "is_postable", "is_reconciliation",
+        )
+        self.by_code: dict[str, dict] = {}
+        self.candidates: list[dict] = []
+        for r in rows:
+            r["tokens"] = _tokens(r["name"])
+            self.by_code[r["code"]] = r
+            # Header / control (reconciliation) accounts are never valid line
+            # targets for a free-text description, so never suggest them.
+            if r["is_postable"] and not r["is_reconciliation"] and r["tokens"]:
+                self.candidates.append(r)
+        self.by_id = {r["id"]: r for r in self.candidates}
+
+
+def _history_votes(description: str, desc_tokens: list[str]) -> dict[int, int]:
+    """account_id → how many recent *posted* lines with a memo like
+    ``description`` were coded to it."""
+    probe = max((t for t in desc_tokens if len(t) >= 4), key=len, default="")
+    if not probe:
+        return {}
+    from accounting.models import JournalLine
+    memos = (
+        JournalLine.objects
+        .filter(header__status="Posted", memo__icontains=probe)
+        .order_by("-id")
+        .values_list("account_id", "memo")[:HISTORY_SCAN]
+    )
+    votes: dict[int, int] = {}
+    for account_id, memo in memos:
+        score = _score_tokens(_tokens(memo), desc_tokens)
+        if score is not None and score >= HISTORY_MIN_SCORE:
+            votes[account_id] = votes.get(account_id, 0) + 1
+    return votes
+
+
+def suggest_accounts(index: _AccountIndex, *, description: str, current_code: str = "",
+                     use_history: bool = True, limit: int = SUGGEST_LIMIT) -> list[dict]:
+    """Postable GL accounts that fit ``description`` better than the one chosen.
+
+    Same ``account_type`` as the current account when it is known (a mis-coded
+    expense line should be recoded to another expense account, not to a bank
+    account). Ranked by name fit plus a small boost per past posting.
+    """
+    desc_tokens = _tokens(description)
+    if not desc_tokens:
+        return []
+    current = index.by_code.get(current_code) if current_code else None
+    want_type = current["account_type"] if current else None
+
+    votes = _history_votes(description, desc_tokens) if use_history else {}
+
+    scored: list[tuple[float, dict, str]] = []
+    for acct in index.candidates:
+        if current_code and acct["code"] == current_code:
+            continue
+        if want_type and acct["account_type"] != want_type:
+            continue
+        name_score = _score_tokens(acct["tokens"], desc_tokens) or 0.0
+        v = votes.get(acct["id"], 0)
+        if name_score >= SUGGEST_MIN_SCORE:
+            scored.append((min(1.0, name_score + 0.05 * min(v, 4)), acct, "name"))
+        elif v >= 2:
+            scored.append((min(0.9, 0.5 + 0.1 * min(v, 4)), acct, "history"))
+
+    # Prefer the more specific account (more name tokens) on equal score.
+    scored.sort(key=lambda t: (-t[0], -len(t[1]["tokens"]), t[1]["code"]))
+    return [
+        {"id": a["id"], "code": a["code"], "name": a["name"],
+         "account_type": a["account_type"], "score": round(sc, 3), "source": src}
+        for sc, a, src in scored[:limit]
+    ]
+
+
 def check_lines(lines, *, tenant=None, actor=None) -> dict:
     """Check up to ``MAX_LINES`` lines. Escalates only lexically-suspect lines
     to AI, and only when the tenant has a usable RECONCILIATION setting."""
     setting = _usable_reconciliation_setting(tenant)
     ai_used = False
     results: list[dict] = []
+    index = None            # built lazily — only if a line turns out suspect
+    history_lookups = 0
 
     for ln in list(lines)[:MAX_LINES]:
         name = (ln.get("name") or "").strip()
@@ -184,8 +282,23 @@ def check_lines(lines, *, tenant=None, actor=None) -> dict:
             except Exception:    # noqa: BLE001 - AI outage → keep local verdict
                 pass
 
+        suggestions: list[dict] = []
+        if res["verdict"] == "suspect":
+            try:
+                if index is None:
+                    index = _AccountIndex()
+                use_history = history_lookups < MAX_HISTORY_LOOKUPS
+                history_lookups += 1
+                suggestions = suggest_accounts(
+                    index, description=description, current_code=code,
+                    use_history=use_history,
+                )
+            except Exception:    # noqa: BLE001 - suggestions are a bonus; never break the check
+                suggestions = []
+
         results.append({
             **res,
+            "suggestions": suggestions,
             "index": ln.get("index"),
             "name": name, "code": code, "description": description,
         })

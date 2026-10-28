@@ -1,7 +1,9 @@
 /**
  * Amber, non-blocking warning shown before a posting commits when one or more
  * lines' descriptions don't look like they belong to the selected GL account.
- * Driven by `useGlCodingGuard`. "Post anyway" acknowledges and continues;
+ * Driven by `useGlCodingGuard`. For each flagged line the server may suggest
+ * existing GL accounts that do fit the description: "Use this account" adopts
+ * one (the form recodes the line). "Post anyway" acknowledges and continues;
  * "Go back & fix" cancels so the operator can correct the coding.
  */
 import { AlertTriangle, X } from 'lucide-react';
@@ -11,7 +13,7 @@ const AMBER = '#d97706';
 const AMBER_BG = '#fffbeb';
 const AMBER_BORDER = '#fde68a';
 
-export default function GlCodingWarningModal({ suspects, onConfirm, onCancel }: GlCodingModalProps) {
+export default function GlCodingWarningModal({ suspects, canAdopt, onAdopt, onConfirm, onCancel }: GlCodingModalProps) {
   if (!suspects || suspects.length === 0) return null;
 
   return (
@@ -64,9 +66,9 @@ export default function GlCodingWarningModal({ suspects, onConfirm, onCancel }: 
         </div>
 
         <div style={{ overflow: 'auto', padding: '4px 20px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {suspects.map((s, i) => (
+          {suspects.map((s) => (
             <div
-              key={i}
+              key={s.index}
               style={{
                 background: AMBER_BG, border: `1px solid ${AMBER_BORDER}`,
                 borderRadius: 10, padding: '10px 12px',
@@ -83,6 +85,36 @@ export default function GlCodingWarningModal({ suspects, onConfirm, onCancel }: 
               {s.reason && (
                 <div style={{ fontSize: 12, color: AMBER, marginTop: 4, fontWeight: 600 }}>
                   {s.reason}
+                </div>
+              )}
+              {s.suggestions.length > 0 && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${AMBER_BORDER}` }}>
+                  <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                    {canAdopt ? 'Existing accounts that fit this description:' : 'Accounts that look like a better fit:'}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {s.suggestions.map((g) => (
+                      <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: 1, fontSize: 13, color: '#334155', minWidth: 0 }}>
+                          <strong>{g.code} · {g.name}</strong>
+                          <span style={{ color: '#94a3b8' }}>
+                            {' '}({g.account_type}{g.source === 'history' ? ', used for similar postings' : ''})
+                          </span>
+                        </span>
+                        {canAdopt && (
+                          <button
+                            onClick={() => onAdopt(s, g)}
+                            style={{
+                              flexShrink: 0, padding: '5px 11px', borderRadius: 7, border: 'none',
+                              background: AMBER, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            }}
+                          >
+                            Use this account
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

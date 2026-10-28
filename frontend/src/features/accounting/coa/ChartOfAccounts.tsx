@@ -12,6 +12,9 @@ import JournalDetailModal from '../components/JournalDetailModal';
 import PageHeader from '../../../components/PageHeader';
 import LoadingScreen from '../../../components/common/LoadingScreen';
 import { useDialog } from '../../../hooks/useDialog';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../../components/DuplicateWarningModal';
+import DuplicateHint from '../../../components/DuplicateHint';
 import '../styles/glassmorphism.css';
 
 const API_URL = '/accounting/accounts/';
@@ -124,6 +127,14 @@ export default function ChartOfAccounts() {
         auto_create_asset: false,
         asset_category: null as number | null,
     });
+
+    // Master-data duplicate lookup: as-you-type hint + save-time guard.
+    const dup = useDuplicateGuard('account');
+    const { matches: dupMatches } = useDuplicateLookup(
+        'account',
+        { code: formData.code, name: formData.name },
+        { excludeId: editingAccount?.id, enabled: showForm },
+    );
 
     // Asset categories for the dropdown that appears when
     // "Auto-create asset on debit" is toggled ON. Note the queryKey prefix
@@ -478,7 +489,24 @@ export default function ChartOfAccounts() {
         if (editingAccount) {
             updateAccount.mutate({ id: editingAccount.id, data: formData });
         } else {
-            createAccount.mutate(formData);
+            // Warn before creating a GL that looks like an existing one; the
+            // operator can open the existing account instead.
+            dup.guard(
+                { code: formData.code, name: formData.name },
+                () => createAccount.mutate(formData),
+                { onUseExisting: openExistingAccount },
+            );
+        }
+    };
+
+    /** Adopt an existing GL: drop the "new account" draft and open that account. */
+    const openExistingAccount = async (m: DupMatch) => {
+        try {
+            const { data } = await apiClient.get(`${API_URL}${m.id}/`);
+            handleEdit(data as Account);
+            showAlert(`Opened existing account ${m.code} · ${m.name} instead of creating a new one.`, 'info');
+        } catch {
+            showAlert('Could not open the existing account.', 'warning');
         }
     };
 
@@ -1031,6 +1059,7 @@ export default function ChartOfAccounts() {
                                         className="glass-input"
                                         style={{ width: '100%', fontSize: 'var(--text-base)' }}
                                     />
+                                    <DuplicateHint matches={dupMatches} label="GL account" onUseExisting={openExistingAccount} />
                                 </div>
 
                                 <div>
@@ -1213,6 +1242,7 @@ export default function ChartOfAccounts() {
                                 </button>
                             </div>
                         </form>
+                        <DuplicateWarningModal {...dup.modalProps} />
                     </GlassCard>
                 </div>
             )}

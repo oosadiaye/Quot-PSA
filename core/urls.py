@@ -19,6 +19,7 @@ from .views.audit import AuditLogListView
 from .views.ai import ai_status, ai_calls, ai_disable_all, ai_enable
 from .views.gateway import gateway_status, gateway_enable, gateway_disable_all
 from .views.notifications import NotificationViewSet
+from .views.duplicate_check import DuplicateCheckView
 # S6-04 — MFA endpoints.
 from .views.mfa import (
     MFAEnrollView as _mfa_enroll_cls,
@@ -90,6 +91,8 @@ urlpatterns = [
     path('auth/login-history/', login_history, name='login-history'),
     # Health check
     path('health/', health_check, name='health-check'),
+    # Master-data duplicate lookup (advisory; used by create forms).
+    path('duplicate-check/', DuplicateCheckView.as_view(), name='duplicate-check'),
     # Dashboard KPI stats
     path('dashboard-stats/', dashboard_stats, name='dashboard-stats'),
     # Setup wizard

@@ -248,6 +248,8 @@ const JournalForm = () => {
                 return { name: meta?.name || '', code: meta?.code || '', description: l.memo || '' };
             }),
             () => doSubmit(payload),
+            (i, a) => updateLine(i, 'account', String(a.id)),
+            (a) => accountMeta.has(String(a.id)),
         );
     };
 

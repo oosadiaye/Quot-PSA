@@ -14,6 +14,15 @@ import PageHeader from '../../components/PageHeader';
 import VendorHistoryModal from './VendorHistoryModal';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useFiscalYears, useTSAAccounts } from '../../hooks/useGovForms';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../components/DuplicateWarningModal';
+import DuplicateHint from '../../components/DuplicateHint';
+
+type VendorPayload = {
+    name: string; code: string; category: number;
+    tax_id?: string; address?: string; email?: string; phone?: string; is_active?: boolean;
+    [field: string]: unknown;
+};
 
 const VendorList = () => {
     const [currentPage, setCurrentPage] = useState(1);
@@ -64,6 +73,14 @@ const VendorList = () => {
         bank_name: '', bank_account_number: '', bank_sort_code: '',
     });
     const [error, setError] = useState('');
+    const dup = useDuplicateGuard('vendor');
+    const dupValues = {
+        name: form.name, code: form.code, tax_id: form.tax_id, email: form.email, phone: form.phone,
+        registration_number: form.registration_number, bank_account_number: form.bank_account_number,
+    };
+    const { matches: dupMatches } = useDuplicateLookup('vendor', dupValues, {
+        excludeId: editingVendor?.id, enabled: showForm,
+    });
     const [viewMode, setViewMode] = useState<'card' | 'list'>('list');
     const [actionsOpen, setActionsOpen] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -225,13 +242,34 @@ const VendorList = () => {
             setError('Vendor Category is required.');
             return;
         }
+        const payload = {
+            ...form,
+            category: parseInt(form.category),
+            registration_fiscal_year: form.registration_fiscal_year ? parseInt(form.registration_fiscal_year) : null,
+            expiry_date: form.expiry_date || null,
+        };
+        if (editingVendor) {
+            await saveVendor(payload);
+        } else {
+            // Warn before creating a vendor that looks like one we already have;
+            // the operator can open the existing record instead.
+            dup.guard(dupValues, () => saveVendor(payload), { onUseExisting: openExistingVendor });
+        }
+    };
+
+    /** Adopt an existing vendor: close the "new" form and open that record. */
+    const openExistingVendor = async (m: DupMatch) => {
         try {
-            const payload = {
-                ...form,
-                category: parseInt(form.category),
-                registration_fiscal_year: form.registration_fiscal_year ? parseInt(form.registration_fiscal_year) : null,
-                expiry_date: form.expiry_date || null,
-            };
+            const { data } = await apiClient.get(`/procurement/vendors/${m.id}/`);
+            handleEdit(data);
+            flash(`Opened existing vendor "${m.name}" instead of creating a new one.`);
+        } catch {
+            flash('Could not open the existing vendor.', false);
+        }
+    };
+
+    const saveVendor = async (payload: VendorPayload) => {
+        try {
             if (editingVendor) {
                 await apiClient.put(`/procurement/vendors/${editingVendor.id}/`, payload);
                 flash('Vendor updated successfully');
@@ -477,6 +515,7 @@ const VendorList = () => {
                                 <div>
                                     <label className="label">Vendor Name *</label>
                                     <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Enter vendor name" required />
+                                    <DuplicateHint matches={dupMatches} label="vendor" onUseExisting={openExistingVendor} />
                                 </div>
                                 <div>
                                     <label className="label">Vendor Code *</label>
@@ -574,6 +613,7 @@ const VendorList = () => {
                                 </button>
                             </div>
                         </form>
+                        <DuplicateWarningModal {...dup.modalProps} />
                     </div>
                 )}
 

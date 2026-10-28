@@ -5,6 +5,9 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useDuplicateGuard, useDuplicateLookup, type DupMatch } from '../../hooks/useDuplicateCheck';
+import DuplicateWarningModal from '../../components/DuplicateWarningModal';
+import DuplicateHint from '../../components/DuplicateHint';
 import { Save, X, Building2 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
@@ -50,6 +53,10 @@ export default function NCoAAdminForm() {
 
     const [formError, setFormError] = useState('');
     const [form, setForm] = useState(EMPTY_FORM);
+    // Master-data duplicate lookup: as-you-type hint + save-time guard.
+    const dup = useDuplicateGuard('admin_segment');
+    const dupValues = { code: form.code, name: form.name, short_name: form.short_name };
+    const { matches: dupMatches } = useDuplicateLookup('admin_segment', dupValues, { excludeId: id });
 
     // Fetch existing record when editing
     const { data: existing } = useQuery({
@@ -106,8 +113,17 @@ export default function NCoAAdminForm() {
         e.preventDefault();
         if (!form.code || !form.name) { setFormError('Code and name are required'); return; }
         setFormError('');
-        saveMutation.mutate(form);
+        if (isEdit) {
+            saveMutation.mutate(form);
+        } else {
+            // Warn before creating an MDA that looks like one we already have;
+            // the operator can open the existing MDA instead.
+            dup.guard(dupValues, () => saveMutation.mutate(form), { onUseExisting: openExistingMda });
+        }
     };
+
+    /** Adopt an existing MDA: leave this "new" form and open that record. */
+    const openExistingMda = (m: DupMatch) => navigate(`/accounting/ncoa/administrative/${m.id}/edit`);
 
     const adminList = segments?.administrative || [];
 
@@ -149,6 +165,7 @@ export default function NCoAAdminForm() {
                             <div>
                                 <label style={labelStyle}>Name<span className="required-mark"> *</span></label>
                                 <input className="input" value={form.name} onChange={set('name')} placeholder="e.g. Ministry of Finance" required />
+                                <DuplicateHint matches={dupMatches} label="MDA" onUseExisting={isEdit ? undefined : openExistingMda} />
                             </div>
                             <div>
                                 <label style={labelStyle}>Short Name</label>
@@ -197,6 +214,7 @@ export default function NCoAAdminForm() {
                         </div>
                     </div>
                 </form>
+                <DuplicateWarningModal {...dup.modalProps} />
             </main>
         </div>
     );
