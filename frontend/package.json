@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
     "test:e2e": "playwright test",
+    "test:e2e:mock": "playwright test --config playwright.mock.config.ts",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report"
   },
