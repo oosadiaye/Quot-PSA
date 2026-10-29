@@ -1,5 +1,5 @@
 /**
- * Government IFMIS Dashboard — Quot PSE
+ * Government IFMIS Dashboard — Quot PSA
  *
  * Executive dashboard for state government financial management.
  * Shows: TSA cash position, revenue performance, budget execution,
@@ -457,7 +457,7 @@ const GovernmentDashboard = () => {
 
                 {/* ── Footer ──────────────────────────────────── */}
                 <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: '12px' }}>
-                    Quot PSE — Nigeria Government IFMIS | NCoA Compliant | IPSAS Accrual
+                    Quot PSA — Nigeria Government IFMIS | NCoA Compliant | IPSAS Accrual
                 </div>
             </main>
         </div>

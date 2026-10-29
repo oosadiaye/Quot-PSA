@@ -1,5 +1,5 @@
 /**
- * Notification Bell — Quot PSE
+ * Notification Bell — Quot PSA
  *
  * Shows unread notification count badge in sidebar header.
  * Dropdown lists recent notifications with mark-as-read.

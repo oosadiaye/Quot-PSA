@@ -1,5 +1,5 @@
 """
-Government Tenant Setup — Quot PSE
+Government Tenant Setup — Quot PSA
 ====================================
 One-command setup for a new State Government or LGA tenant.
 Creates the tenant, seeds NCoA data per-tier, populates LGA geographic
@@ -82,7 +82,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.NOTICE(
             f'\n{"=" * 60}\n'
-            f'  QUOT PSE - Government Tenant Setup\n'
+            f'  QUOT PSA - Government Tenant Setup\n'
             f'  Tenant: {name}\n'
             f'  Schema: {schema}\n'
             f'  Tier:   {tier_label}\n'

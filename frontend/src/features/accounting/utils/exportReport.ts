@@ -171,7 +171,7 @@ function buildPrintableHTML(options: ExportOptions): string {
         '</div>',
         ...parts,
         summaryBlock,
-        `<div style="margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;text-align:center;font-size:10px;color:#94a3b8;">Generated on ${timestamp} — QUOT ERP</div>`,
+        `<div style="margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;text-align:center;font-size:10px;color:#94a3b8;">Generated on ${timestamp} — QUOT PSA</div>`,
         '</body></html>',
     ].join('\n');
 }

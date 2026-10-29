@@ -271,7 +271,7 @@ const SetupWizard = () => {
                     </div>
                     <div>
                         <div style={{ fontSize: '18px', fontWeight: 800, color: 'white', letterSpacing: '-0.3px' }}>
-                            {branding.name || 'QUOT ERP'}
+                            {branding.name || 'QUOT PSA'}
                         </div>
                         <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500 }}>Setup Wizard</div>
                     </div>

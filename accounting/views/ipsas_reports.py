@@ -1,5 +1,5 @@
 """
-IPSAS Financial Statement API — Quot PSE
+IPSAS Financial Statement API — Quot PSA
 
 Exposes the five mandatory IPSAS financial statements plus Notes, the
 three NCoA dimension reports, Revenue Performance, and TSA Cash Position.

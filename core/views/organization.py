@@ -1,5 +1,5 @@
 """
-Organization (MDA-as-Branch) API views — Quot PSE
+Organization (MDA-as-Branch) API views — Quot PSA
 
 Endpoints:
 - /core/organizations/           — CRUD for admin

@@ -1,5 +1,5 @@
 """
-Production module — STUB for Quot PSE (public sector).
+Production module — STUB for Quot PSA (public sector).
 Minimal models to satisfy historical migration FK references only.
 """
 from django.db import models

@@ -1,5 +1,5 @@
 """
-Quot PSE — Nigeria Government IFMIS
+Quot PSA — Nigeria Government IFMIS
 Settings for the quot_pse project.
 
 A public sector SaaS ERP compliant with:
@@ -19,8 +19,8 @@ from django.core.exceptions import ImproperlyConfigured
 # Load environment variables
 load_dotenv()
 
-# ─── Quot PSE Project Identity ─────────────────────────────────────────
-PROJECT_NAME = "Quot PSE"
+# ─── Quot PSA Project Identity ─────────────────────────────────────────
+PROJECT_NAME = "Quot PSA"
 PROJECT_SUBTITLE = "Nigeria Government IFMIS"
 PROJECT_VERSION = "1.0.0"
 GOVERNMENT_MODE = True  # Disables all commercial features globally
@@ -484,9 +484,9 @@ MFA_VERIFICATION_TTL_MINUTES = int(os.getenv('MFA_VERIFICATION_TTL_MINUTES', '30
 
 # P7-T1 — drf-spectacular configuration.
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Quot PSE API',
+    'TITLE': 'Quot PSA API',
     'DESCRIPTION': (
-        'Quot PSE — Public Sector ERP for the Office of the Accountant-General. '
+        'Quot PSA — Public Sector Accounting for the Office of the Accountant-General. '
         'Multi-tenant IPSAS-compliant GL, budget & appropriation, procurement, '
         'revenue, payroll, and statutory (FIRS / PENCOM) integrations. '
         'All endpoints are tenant-scoped via the X-Tenant-Schema header.'

@@ -1,5 +1,5 @@
 """
-Localized Email Templates for QUOT ERP
+Localized Email Templates for QUOT PSA
 
 Provides multi-language email templates that automatically select
 the appropriate language based on user preference, IP, or email domain.
@@ -18,9 +18,9 @@ logger = logging.getLogger('dtsg')
 EMAIL_TEMPLATES: Dict[str, Dict[str, Dict[str, str]]] = {
     'welcome': {
         'en': {
-            'subject': 'Welcome to QUOT ERP - Your Organization is Ready',
+            'subject': 'Welcome to QUOT PSA - Your Organization is Ready',
             'greeting': 'Dear {first_name},',
-            'body': '''Welcome to QUOT ERP!
+            'body': '''Welcome to QUOT PSA!
 
 Your organization "{org_name}" has been successfully created.
 
@@ -34,13 +34,13 @@ Important: Please change your password immediately after first login.
 If you have any questions, our support team is here to help.
 
 Best regards,
-The QUOT ERP Team''',
+The QUOT PSA Team''',
             'footer': 'This is an automated message. Please do not reply directly to this email.',
         },
         'fr': {
-            'subject': 'Bienvenue sur QUOT ERP - Votre organisation est prête',
+            'subject': 'Bienvenue sur QUOT PSA - Votre organisation est prête',
             'greeting': 'Cher(e) {first_name},',
-            'body': '''Bienvenue sur QUOT ERP !
+            'body': '''Bienvenue sur QUOT PSA !
 
 Votre organisation "{org_name}" a été créée avec succès.
 
@@ -54,13 +54,13 @@ Important : Veuillez changer votre mot de passe immédiatement après la premiè
 Si vous avez des questions, notre équipe d'assistance est là pour vous aider.
 
 Cordialement,
-L'équipe QUOT ERP''',
+L'équipe QUOT PSA''',
             'footer': 'Ceci est un message automatique. Veuillez ne pas répondre directement à ce courriel.',
         },
         'es': {
-            'subject': 'Bienvenido a QUOT ERP - Su organización está lista',
+            'subject': 'Bienvenido a QUOT PSA - Su organización está lista',
             'greeting': 'Estimado/a {first_name},',
-            'body': '''¡Bienvenido a QUOT ERP!
+            'body': '''¡Bienvenido a QUOT PSA!
 
 Su organización "{org_name}" ha sido creada exitosamente.
 
@@ -74,13 +74,13 @@ Importante: Por favor cambie su contraseña inmediatamente después del primer i
 Si tiene alguna pregunta, nuestro equipo de soporte está aquí para ayudarle.
 
 Saludos cordiales,
-El equipo de QUOT ERP''',
+El equipo de QUOT PSA''',
             'footer': 'Este es un mensaje automático. Por favor no responda directamente a este correo electrónico.',
         },
         'de': {
-            'subject': 'Willkommen bei QUOT ERP - Ihre Organisation ist bereit',
+            'subject': 'Willkommen bei QUOT PSA - Ihre Organisation ist bereit',
             'greeting': 'Sehr geehrte/r {first_name},',
-            'body': '''Willkommen bei QUOT ERP!
+            'body': '''Willkommen bei QUOT PSA!
 
 Ihre Organisation "{org_name}" wurde erfolgreich erstellt.
 
@@ -94,13 +94,13 @@ Wichtig: Bitte ändern Sie Ihr Passwort sofort nach der ersten Anmeldung.
 Wenn Sie Fragen haben, steht Ihnen unser Support-Team gerne zur Verfügung.
 
 Mit freundlichen Grüßen,
-Das QUOT ERP Team''',
+Das QUOT PSA Team''',
             'footer': 'Dies ist eine automatische Nachricht. Bitte antworten Sie nicht direkt auf diese E-Mail.',
         },
         'pt': {
-            'subject': 'Bem-vindo ao QUOT ERP - Sua organização está pronta',
+            'subject': 'Bem-vindo ao QUOT PSA - Sua organização está pronta',
             'greeting': 'Caro(a) {first_name},',
-            'body': '''Bem-vindo ao QUOT ERP!
+            'body': '''Bem-vindo ao QUOT PSA!
 
 Sua organização "{org_name}" foi criada com sucesso.
 
@@ -114,13 +114,13 @@ Importante: Por favor, altere sua senha imediatamente após o primeiro login.
 Se você tiver alguma dúvida, nossa equipe de suporte está aqui para ajudar.
 
 Atenciosamente,
-A equipe QUOT ERP''',
+A equipe QUOT PSA''',
             'footer': 'Esta é uma mensagem automática. Por favor, não responda diretamente a este e-mail.',
         },
         'zh': {
-            'subject': '欢迎使用 QUOT ERP - 您的组织已准备就绪',
+            'subject': '欢迎使用 QUOT PSA - 您的组织已准备就绪',
             'greeting': '尊敬的 {first_name}，',
-            'body': '''欢迎使用 QUOT ERP！
+            'body': '''欢迎使用 QUOT PSA！
 
 您的组织 "{org_name}" 已成功创建。
 
@@ -134,13 +134,13 @@ A equipe QUOT ERP''',
 如果您有任何问题，我们的支持团队随时为您提供帮助。
 
 此致敬礼，
-QUOT ERP 团队''',
+QUOT PSA 团队''',
             'footer': '这是一封自动发送的邮件。请勿直接回复此邮件。',
         },
         'ar': {
-            'subject': 'مرحباً بك في QUOT ERP - جهزت مؤسستك',
+            'subject': 'مرحباً بك في QUOT PSA - جهزت مؤسستك',
             'greeting': 'عزيزي/عزيزتي {first_name}،',
-            'body': '''مرحباً بك في QUOT ERP!
+            'body': '''مرحباً بك في QUOT PSA!
 
 تم إنشاء مؤسستك "{org_name}" بنجاح.
 
@@ -154,15 +154,15 @@ QUOT ERP 团队''',
 إذا كانت لديك أي أسئلة، فإن فريق الدعم لدينا هنا لمساعدتك.
 
 مع أطيب التحيات،
-فريق QUOT ERP''',
+فريق QUOT PSA''',
             'footer': 'هذه رسالة آلية. يرجى عدم الرد مباشرة على هذا البريد الإلكتروني.',
         },
     },
     'password_reset': {
         'en': {
-            'subject': 'QUOT ERP - Password Reset Request',
+            'subject': 'QUOT PSA - Password Reset Request',
             'greeting': 'Hello {first_name},',
-            'body': '''We received a request to reset your password for QUOT ERP.
+            'body': '''We received a request to reset your password for QUOT PSA.
 
 If you did not request this, please ignore this email.
 
@@ -174,13 +174,13 @@ This link will expire in {expiry_hours} hours.
 For security reasons, if you didn't request this, please contact support immediately.
 
 Best regards,
-The QUOT ERP Team''',
+The QUOT PSA Team''',
             'footer': 'This is an automated security message.',
         },
         'fr': {
-            'subject': 'QUOT ERP - Demande de réinitialisation de mot de passe',
+            'subject': 'QUOT PSA - Demande de réinitialisation de mot de passe',
             'greeting': 'Bonjour {first_name},',
-            'body': '''Nous avons reçu une demande de réinitialisation de votre mot de passe pour QUOT ERP.
+            'body': '''Nous avons reçu une demande de réinitialisation de votre mot de passe pour QUOT PSA.
 
 Si vous n'avez pas effectué cette demande, veuillez ignorer ce courriel.
 
@@ -192,13 +192,13 @@ Ce lien expirera dans {expiry_hours} heures.
 Pour des raisons de sécurité, si vous n'avez pas demandé cela, veuillez contacter immédiatement le support.
 
 Cordialement,
-L'équipe QUOT ERP''',
+L'équipe QUOT PSA''',
             'footer': 'Ceci est un message de sécurité automatique.',
         },
         'es': {
-            'subject': 'QUOT ERP - Solicitud de Restablecimiento de Contraseña',
+            'subject': 'QUOT PSA - Solicitud de Restablecimiento de Contraseña',
             'greeting': 'Hola {first_name},',
-            'body': '''Recibimos una solicitud para restablecer su contraseña de QUOT ERP.
+            'body': '''Recibimos una solicitud para restablecer su contraseña de QUOT PSA.
 
 Si no solicitó esto, por favor ignore este correo electrónico.
 
@@ -210,13 +210,13 @@ Este enlace expirará en {expiry_hours} horas.
 Por razones de seguridad, si no solicitó esto, por favor contacte a soporte inmediatamente.
 
 Saludos cordiales,
-El equipo de QUOT ERP''',
+El equipo de QUOT PSA''',
             'footer': 'Este es un mensaje de seguridad automático.',
         },
         'de': {
-            'subject': 'QUOT ERP - Anfrage zur Passwortzurücksetzung',
+            'subject': 'QUOT PSA - Anfrage zur Passwortzurücksetzung',
             'greeting': 'Hallo {first_name},',
-            'body': '''Wir haben eine Anfrage zur Zurücksetzung Ihres Passworts für QUOT ERP erhalten.
+            'body': '''Wir haben eine Anfrage zur Zurücksetzung Ihres Passworts für QUOT PSA erhalten.
 
 Wenn Sie diese nicht angefordert haben, ignorieren Sie bitte diese E-Mail.
 
@@ -228,13 +228,13 @@ Dieser Link läuft in {expiry_hours} Stunden ab.
 Aus Sicherheitsgründen, wenn Sie dies nicht angefordert haben, wenden Sie sich bitte umgehend an den Support.
 
 Mit freundlichen Grüßen,
-Das QUOT ERP Team''',
+Das QUOT PSA Team''',
             'footer': 'Dies ist eine automatische Sicherheitsnachricht.',
         },
         'zh': {
-            'subject': 'QUOT ERP - 密码重置请求',
+            'subject': 'QUOT PSA - 密码重置请求',
             'greeting': '您好 {first_name}，',
-            'body': '''我们收到了重置您QUOT ERP密码的请求。
+            'body': '''我们收到了重置您QUOT PSA密码的请求。
 
 如果您未提出此请求，请忽略此邮件。
 
@@ -246,13 +246,13 @@ Das QUOT ERP Team''',
 出于安全原因，如果您没有提出此请求，请立即联系支持团队。
 
 此致敬礼，
-QUOT ERP 团队''',
+QUOT PSA 团队''',
             'footer': '这是一封自动发送的安全邮件。',
         },
     },
     'payment_received': {
         'en': {
-            'subject': 'QUOT ERP - Payment Confirmation',
+            'subject': 'QUOT PSA - Payment Confirmation',
             'greeting': 'Dear {first_name},',
             'body': '''Thank you for your payment!
 
@@ -263,14 +263,14 @@ Payment Details:
 
 Your subscription is now active until {end_date}.
 
-Thank you for choosing QUOT ERP!
+Thank you for choosing QUOT PSA!
 
 Best regards,
-The QUOT ERP Team''',
+The QUOT PSA Team''',
             'footer': 'For billing inquiries, please contact support.',
         },
         'fr': {
-            'subject': 'QUOT ERP - Confirmation de Paiement',
+            'subject': 'QUOT PSA - Confirmation de Paiement',
             'greeting': 'Cher(e) {first_name},',
             'body': '''Merci pour votre paiement !
 
@@ -281,58 +281,58 @@ Détails du paiement :
 
 Votre abonnement est maintenant actif jusqu'au {end_date}.
 
-Merci d'avoir choisi QUOT ERP !
+Merci d'avoir choisi QUOT PSA !
 
 Cordialement,
-L'équipe QUOT ERP''',
+L'équipe QUOT PSA''',
             'footer': 'Pour toute question concernant la facturation, veuillez contacter le support.',
         },
     },
     'subscription_expiring': {
         'en': {
-            'subject': 'QUOT ERP - Subscription Expiring Soon',
+            'subject': 'QUOT PSA - Subscription Expiring Soon',
             'greeting': 'Dear {first_name},',
-            'body': '''Your QUOT ERP subscription is expiring soon!
+            'body': '''Your QUOT PSA subscription is expiring soon!
 
 Current Plan: {plan_name}
 Expiration Date: {expiry_date}
 Days Remaining: {days_remaining}
 
-To continue using QUOT ERP without interruption, please renew your subscription.
+To continue using QUOT PSA without interruption, please renew your subscription.
 
 Renew Now: {renew_url}
 
 If you have any questions, our team is here to help.
 
 Best regards,
-The QUOT ERP Team''',
+The QUOT PSA Team''',
             'footer': 'This is a subscription reminder.',
         },
         'fr': {
-            'subject': 'QUOT ERP - Abonnement expirant bientôt',
+            'subject': 'QUOT PSA - Abonnement expirant bientôt',
             'greeting': 'Cher(e) {first_name},',
-            'body': '''Votre abonnement QUOT ERP expire bientôt !
+            'body': '''Votre abonnement QUOT PSA expire bientôt !
 
 Plan actuel : {plan_name}
 Date d'expiration : {expiry_date}
 Jours restants : {days_remaining}
 
-Pour continuer à utiliser QUOT ERP sans interruption, veuillez renouveler votre abonnement.
+Pour continuer à utiliser QUOT PSA sans interruption, veuillez renouveler votre abonnement.
 
 Renouveler maintenant : {renew_url}
 
 Si vous avez des questions, notre équipe est là pour vous aider.
 
 Cordialement,
-L'équipe QUOT ERP''',
+L'équipe QUOT PSA''',
             'footer': "Ceci est un rappel d'abonnement.",
         },
     },
     'support_ticket': {
         'en': {
-            'subject': 'QUOT ERP Support - Ticket #{ticket_number}',
+            'subject': 'QUOT PSA Support - Ticket #{ticket_number}',
             'greeting': 'Hello {first_name},',
-            'body': '''Thank you for contacting QUOT ERP Support!
+            'body': '''Thank you for contacting QUOT PSA Support!
 
 Your ticket has been received and assigned to our team.
 
@@ -347,13 +347,13 @@ We will respond to your inquiry as soon as possible.
 Track your ticket: {ticket_url}
 
 Best regards,
-QUOT ERP Support Team''',
+QUOT PSA Support Team''',
             'footer': 'Please do not reply directly to this email. Use the ticket URL above.',
         },
         'fr': {
-            'subject': 'Support QUOT ERP - Ticket #{ticket_number}',
+            'subject': 'Support QUOT PSA - Ticket #{ticket_number}',
             'greeting': 'Bonjour {first_name},',
-            'body': '''Merci d'avoir contacté le support QUOT ERP !
+            'body': '''Merci d'avoir contacté le support QUOT PSA !
 
 Votre ticket a été reçu et assigné à notre équipe.
 
@@ -368,7 +368,7 @@ Nous répondrons à votre demande dès que possible.
 Suivez votre ticket : {ticket_url}
 
 Cordialement,
-L'équipe de support QUOT ERP''',
+L'équipe de support QUOT PSA''',
             'footer': 'Veuillez ne pas répondre directement à ce courriel. Utilisez le lien du ticket ci-dessus.',
         },
     },
@@ -388,7 +388,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'This is an automated workflow notification. Do not reply to this email.',
         },
         'fr': {
@@ -405,7 +405,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
         },
         'es': {
@@ -422,7 +422,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
         },
         'de': {
@@ -439,7 +439,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
         },
         'pt': {
@@ -456,7 +456,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
         },
         'zh': {
@@ -473,7 +473,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
         },
         'ar': {
@@ -490,7 +490,7 @@ Please review and action this request at your earliest convenience.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
         },
     },
@@ -508,7 +508,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'This is an automated workflow notification. Do not reply to this email.',
         },
         'fr': {
@@ -524,7 +524,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
         },
         'es': {
@@ -540,7 +540,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
         },
         'de': {
@@ -556,7 +556,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
         },
         'pt': {
@@ -572,7 +572,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
         },
         'zh': {
@@ -588,7 +588,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
         },
         'ar': {
@@ -604,7 +604,7 @@ Please review and take action on this request.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
         },
     },
@@ -621,7 +621,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'This is an automated workflow notification. Do not reply to this email.',
         },
         'fr': {
@@ -636,7 +636,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
         },
         'es': {
@@ -651,7 +651,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
         },
         'de': {
@@ -666,7 +666,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
         },
         'pt': {
@@ -681,7 +681,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
         },
         'zh': {
@@ -696,7 +696,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
         },
         'ar': {
@@ -711,7 +711,7 @@ You may now proceed with the next steps for this document.
 View Approval: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
         },
     },
@@ -731,7 +731,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'This is an automated workflow notification. Do not reply to this email.',
         },
         'fr': {
@@ -749,7 +749,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': "Ceci est une notification automatique de flux de travail. Ne répondez pas à cet e-mail.",
         },
         'es': {
@@ -767,7 +767,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta es una notificación automática de flujo de trabajo. No responda a este correo electrónico.',
         },
         'de': {
@@ -785,7 +785,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Dies ist eine automatische Workflow-Benachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
         },
         'pt': {
@@ -803,7 +803,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta é uma notificação automática de fluxo de trabalho. Não responda a este e-mail.',
         },
         'zh': {
@@ -821,7 +821,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': '这是一封自动工作流通知邮件，请勿直接回复。',
         },
         'ar': {
@@ -839,7 +839,7 @@ Please review the feedback and take appropriate action.
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'هذا إشعار سير عمل تلقائي. يرجى عدم الرد على هذا البريد الإلكتروني.',
         },
     },
@@ -857,7 +857,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'This is an automated SLA breach notification. Do not reply to this email.',
         },
         'fr': {
@@ -873,7 +873,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': "Ceci est une notification automatique de violation SLA. Ne répondez pas à cet e-mail.",
         },
         'es': {
@@ -889,7 +889,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta es una notificación automática de incumplimiento de SLA. No responda a este correo electrónico.',
         },
         'de': {
@@ -905,7 +905,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Dies ist eine automatische SLA-Verletzungsbenachrichtigung. Bitte antworten Sie nicht auf diese E-Mail.',
         },
         'pt': {
@@ -921,7 +921,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'Esta é uma notificação automática de violação de SLA. Não responda a este e-mail.',
         },
         'zh': {
@@ -937,7 +937,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': '这是一封自动SLA违规通知邮件，请勿直接回复。',
         },
         'ar': {
@@ -953,7 +953,7 @@ This document has exceeded its SLA deadline. Please action it immediately to avo
 View Request: {action_url}
 
 Best regards,
-QUOT ERP Workflow''',
+QUOT PSA Workflow''',
             'footer': 'هذا إشعار تلقائي بانتهاك اتفاقية مستوى الخدمة. يرجى عدم الرد على هذا البريد الإلكتروني.',
         },
     },
@@ -1006,7 +1006,7 @@ def get_email_template(template_name: str, language: str = 'en') -> Dict[str, st
 
     # Return empty template if not found
     return {
-        'subject': 'QUOT ERP - Message',
+        'subject': 'QUOT PSA - Message',
         'greeting': 'Dear User,',
         'body': 'No content available.',
         'footer': '',
@@ -1083,7 +1083,7 @@ def send_localized_email(
             html_content = base_layout(
                 title=subject,
                 content_html=body_html,
-                org_name=sa.organization_name or 'QUOT ERP',
+                org_name=sa.organization_name or 'QUOT PSA',
                 support_email=sa.support_email or sa.smtp_from_email or '',
                 preheader=subject,
             )
@@ -1118,7 +1118,7 @@ def send_localized_email(
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                 <div style="background: linear-gradient(135deg, #091735 0%, #1a2744 100%); padding: 20px; border-radius: 8px 8px 0 0;">
-                    <h1 style="color: #fff; margin: 0; font-size: 24px;">QUOT ERP</h1>
+                    <h1 style="color: #fff; margin: 0; font-size: 24px;">QUOT PSA</h1>
                 </div>
                 <div style="background: #fff; padding: 30px; border: 1px solid #e0e0e0;">
                     <p style="font-size: 16px;">{greeting.replace(chr(10), '<br>')}</p>
@@ -1129,7 +1129,7 @@ def send_localized_email(
                 </div>
                 <div style="background: #f5f5f5; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e0e0e0; border-top: none;">
                     <p style="margin: 0; color: #666; font-size: 12px;">
-                        © 2024 QUOT ERP. All rights reserved.<br>
+                        © 2024 QUOT PSA. All rights reserved.<br>
                         <a href="#" style="color: #1890ff;">Privacy Policy</a> |
                         <a href="#" style="color: #1890ff;">Terms of Service</a>
                     </p>

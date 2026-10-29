@@ -185,7 +185,7 @@ def health_check(request):
 def api_root(request):
     """Returns all available API endpoints"""
     return Response({
-        "name": "QUOT ERP API",
+        "name": "QUOT PSA API",
         "version": "1.0.0",
         "description": "Enterprise Resource Planning System",
         "endpoints": {

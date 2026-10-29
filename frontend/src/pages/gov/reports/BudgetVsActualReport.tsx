@@ -1,5 +1,5 @@
 /**
- * IPSAS 24 — Statement of Comparison of Budget and Actual Amounts — Quot PSE
+ * IPSAS 24 — Statement of Comparison of Budget and Actual Amounts — Quot PSA
  * Route: /accounting/ipsas/budget-vs-actual
  *
  * IPSAS 24 ¶14 mandates THREE budget columns:

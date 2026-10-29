@@ -68,7 +68,7 @@ urlpatterns = [
     path('tenant-modules/', tenant_modules, name='tenant-modules'),
     path('pending-payments/', pending_payments_list, name='pending-payments'),
 
-    # Government Configuration (Quot PSE)
+    # Government Configuration (Quot PSA)
     path('configure-government/', configure_government, name='configure-government'),
     path('isolation-mode/', isolation_mode, name='isolation-mode'),
 ]

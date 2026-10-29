@@ -1,5 +1,5 @@
 /**
- * FiscalYear admin — Quot PSE
+ * FiscalYear admin — Quot PSA
  * Route: /admin/fiscal-years
  *
  * Create, review, and close fiscal years. Surfaces the close-action

@@ -1,4 +1,4 @@
-# QUOT ERP Implementation Verification Checklist
+# QUOT PSA Implementation Verification Checklist
 
 ## COMPLETED IMPLEMENTATIONS
 

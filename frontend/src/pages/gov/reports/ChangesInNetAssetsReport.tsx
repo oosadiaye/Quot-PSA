@@ -1,5 +1,5 @@
 /**
- * IPSAS 1 — Statement of Changes in Net Assets / Equity — Quot PSE
+ * IPSAS 1 — Statement of Changes in Net Assets / Equity — Quot PSA
  * Route: /accounting/ipsas/changes-in-net-assets
  *
  * Movement from opening net assets → surplus/deficit → revaluation →
@@ -230,7 +230,7 @@ export default function ChangesInNetAssetsReport() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — IPSAS 1 Compliant
+                    Quot PSA IFMIS — IPSAS 1 Compliant
                 </div>
             </main>
         </div>

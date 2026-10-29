@@ -1,5 +1,5 @@
 /**
- * IPSAS 1 — Notes to the Financial Statements — Quot PSE
+ * IPSAS 1 — Notes to the Financial Statements — Quot PSA
  * Route: /accounting/ipsas/notes
  *
  * Renders the machine-readable notes pack produced by
@@ -310,7 +310,7 @@ export default function NotesToFinancialStatementsReport() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — IPSAS 1 Notes Pack
+                    Quot PSA IFMIS — IPSAS 1 Notes Pack
                 </div>
             </main>
         </div>

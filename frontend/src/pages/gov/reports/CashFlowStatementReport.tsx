@@ -1,5 +1,5 @@
 /**
- * IPSAS 2 — Cash Flow Statement (Direct Method) — Quot PSE
+ * IPSAS 2 — Cash Flow Statement (Direct Method) — Quot PSA
  * Route: /accounting/ipsas/cash-flow
  *
  * Three activity sections (Operating / Investing / Financing), each with
@@ -283,7 +283,7 @@ export default function CashFlowStatementReport() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — IPSAS 2 Compliant
+                    Quot PSA IFMIS — IPSAS 2 Compliant
                 </div>
             </main>
         </div>

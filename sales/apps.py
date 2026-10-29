@@ -1,4 +1,4 @@
-"""Stub app config — sales module deleted for Quot PSE public sector.
+"""Stub app config — sales module deleted for Quot PSA public sector.
 Kept only for migration history compatibility."""
 from django.apps import AppConfig
 

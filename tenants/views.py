@@ -555,7 +555,7 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             {
                 'name': 'Free Trial',
                 'plan_type': 'free',
-                'description': 'Explore QUOT ERP with core accounting and budget modules. Perfect for evaluation.',
+                'description': 'Explore QUOT PSA with core accounting and budget modules. Perfect for evaluation.',
                 'price': 0,
                 'billing_cycle': 'monthly',
                 'max_users': 3,
@@ -1206,7 +1206,7 @@ def tenant_public_branding_api(request):
     tenant = getattr(request, 'tenant', None)
     if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
         return Response({
-            'name': 'QUOT ERP', 'tagline': '', 'logo': None,
+            'name': 'QUOT PSA', 'tagline': '', 'logo': None,
             'address': '', 'city': '', 'state': '', 'country': '',
             'postal_code': '', 'phone': '', 'email': '', 'website': '',
         })
@@ -1396,7 +1396,7 @@ def tenant_modules_api(request):
     return Response({"enabled_modules": {}, "dimensions_enabled": False})
 
 
-# ─── Government Configuration (Quot PSE) ────────────────────────────
+# ─── Government Configuration (Quot PSA) ────────────────────────────
 
 # NBS state code -> (state_name, zone_code) lookup
 _NBS_STATES = {

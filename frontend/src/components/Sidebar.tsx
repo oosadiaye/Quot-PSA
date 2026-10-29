@@ -196,7 +196,7 @@ const Sidebar = () => {
                     <Menu size={22} />
                 </button>
                 <div style={{ flex: 1, fontFamily: "'Manrope',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--color-text)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {branding.name || 'Quot PSE'}
+                    {branding.name || 'Quot PSA'}
                 </div>
                 <ThemeSwitcher iconOnly />
                 {userMenu}

@@ -80,7 +80,7 @@ class Client(TenantMixin):
         help_text='Industry category — drives default CoA, BOM templates, and module config',
     )
 
-    # ─── Government Configuration (Quot PSE) ─────────────────────
+    # ─── Government Configuration (Quot PSA) ─────────────────────
     government_tier = models.CharField(
         max_length=5, choices=GOVERNMENT_TIER_CHOICES, blank=True, default='',
         help_text='STATE = State Government, LGA = Local Government Area',
@@ -259,7 +259,7 @@ class Domain(DomainMixin):
 
 
 AVAILABLE_MODULES = [
-    # ── Quot PSE: Nigeria Government IFMIS Modules ──────────────────────────
+    # ── Quot PSA: Nigeria Government IFMIS Modules ──────────────────────────
     ('dimensions', 'NCoA Dimensions',       'NCoA 6-segment classification — Administrative, Economic, Functional, Programme, Fund, Geographic'),
     ('accounting', 'General Ledger',        'Chart of Accounts, Journals, AP/AR, Fixed Assets, IPSAS Accrual Accounting'),
     ('budget',     'Budget & Appropriation', 'Appropriations, Warrants, Budget Execution, Variance Analysis'),

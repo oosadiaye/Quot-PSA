@@ -1,5 +1,5 @@
 /**
- * DeductionLinesEditor — Quot PSE.
+ * DeductionLinesEditor — Quot PSA.
  *
  * Shared editor for a Payment Voucher's deduction lines. Each line is chosen
  * from ONE searchable dropdown that lists both Withholding Tax codes and

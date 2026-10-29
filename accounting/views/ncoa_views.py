@@ -1,5 +1,5 @@
 """
-NCoA Segment API ViewSets — Quot PSE
+NCoA Segment API ViewSets — Quot PSA
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action

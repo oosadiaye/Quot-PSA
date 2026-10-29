@@ -206,7 +206,7 @@ class Item(AuditBaseModel):
         help_text='Default vendor used when automatically generating Purchase Orders from reorder alerts.',
     )
 
-    # Production BOM link removed — Quot PSE is public sector (no manufacturing)
+    # Production BOM link removed — Quot PSA is public sector (no manufacturing)
 
     class Meta:
         verbose_name = 'Product'
@@ -753,7 +753,7 @@ class ItemSerialNumber(AuditBaseModel):
     purchase_date = models.DateField(blank=True, null=True)
     purchase_price = models.DecimalField(max_digits=19, decimal_places=4, blank=True, null=True)
     sale_date = models.DateField(blank=True, null=True)
-    # Sales FK removed — Quot PSE is public sector (no sales orders)
+    # Sales FK removed — Quot PSA is public sector (no sales orders)
     issue_reference = models.CharField(max_length=100, blank=True, default='',
         help_text="Issue/distribution reference number")
     warranty_start = models.DateField(blank=True, null=True)

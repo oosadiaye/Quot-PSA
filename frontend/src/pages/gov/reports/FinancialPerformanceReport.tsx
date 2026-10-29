@@ -1,5 +1,5 @@
 /**
- * IPSAS Statement of Financial Performance (Income & Expenditure) — Quot PSE
+ * IPSAS Statement of Financial Performance (Income & Expenditure) — Quot PSA
  * Route: /accounting/ipsas/financial-performance
  */
 import { useState } from 'react';

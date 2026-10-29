@@ -1,4 +1,4 @@
-# Playwright E2E suite — Quot PSE
+# Playwright E2E suite — Quot PSA
 
 ## Prerequisites
 

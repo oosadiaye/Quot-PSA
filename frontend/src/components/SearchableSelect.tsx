@@ -1,5 +1,5 @@
 /**
- * SearchableSelect — Type-to-search dropdown for Quot PSE forms.
+ * SearchableSelect — Type-to-search dropdown for Quot PSA forms.
  *
  * Replaces standard <select> with a searchable combobox:
  * - Click to open full list

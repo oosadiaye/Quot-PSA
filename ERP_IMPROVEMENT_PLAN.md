@@ -1,4 +1,4 @@
-# QUOT ERP Comprehensive Improvement Plan
+# QUOT PSA Comprehensive Improvement Plan
 ## Backend, Frontend, Security, Performance & UI/UX
 
 ---

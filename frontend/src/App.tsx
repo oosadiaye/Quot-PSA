@@ -937,7 +937,7 @@ function App() {
                         } />
                       </Route>
 
-                      {/* Production, Quality removed — Quot PSE is public sector only */}
+                      {/* Production, Quality removed — Quot PSA is public sector only */}
 
                       {/* ── Contracts module ─────────────────────────── */}
                       <Route element={<ModuleGuard module="contracts" />}>

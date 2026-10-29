@@ -241,7 +241,7 @@ BudgetLineViewSet = UnifiedBudgetEncumbranceViewSet
 BudgetVarianceViewSet = UnifiedBudgetVarianceViewSet
 
 
-# ─── Government Appropriation & Warrant (Quot PSE Phase 3) ───────────
+# ─── Government Appropriation & Warrant (Quot PSA Phase 3) ───────────
 
 from .models import Appropriation, Warrant
 from .serializers import (

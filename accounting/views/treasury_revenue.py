@@ -1,5 +1,5 @@
 """
-Treasury & Revenue ViewSets — Quot PSE
+Treasury & Revenue ViewSets — Quot PSA
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action

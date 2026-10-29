@@ -105,7 +105,7 @@ from .workflows import (  # noqa: F401
     SuspenseClearingViewSet,
 )
 
-# Treasury & Revenue (Quot PSE Phase 4)
+# Treasury & Revenue (Quot PSA Phase 4)
 from .treasury_revenue import (  # noqa: F401
     TreasuryAccountViewSet, PaymentVoucherViewSet, PaymentInstructionViewSet,
     RevenueHeadViewSet, RevenueCollectionViewSet,

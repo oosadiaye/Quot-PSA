@@ -172,7 +172,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     from django.utils.http import urlsafe_base64_encode
 
     frontend_url = django_settings.FRONTEND_URL
-    subject = f"Welcome to QUOT ERP - {tenant.name} Organization Created"
+    subject = f"Welcome to QUOT PSA - {tenant.name} Organization Created"
 
     if temp_password:
         # Generate a signed, single-use password-reset link. The
@@ -197,7 +197,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
 
-Your organization "{tenant.name}" has been successfully created on QUOT ERP Platform.
+Your organization "{tenant.name}" has been successfully created on QUOT PSA Platform.
 
 Login Details:
 --------------
@@ -216,7 +216,7 @@ Important Next Steps:
 If you have any questions, please contact support.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
     try:
         send_mail(
@@ -234,11 +234,11 @@ QUOT ERP Administration
 def send_password_reset_email(tenant, admin_user, temp_password):
     """Notify tenant admin that their password has been reset by superadmin."""
     frontend_url = django_settings.FRONTEND_URL
-    subject = f"Password Reset - {tenant.name} | QUOT ERP"
+    subject = f"Password Reset - {tenant.name} | QUOT PSA"
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
 
-Your password for "{tenant.name}" on QUOT ERP has been reset by the platform administrator.
+Your password for "{tenant.name}" on QUOT PSA has been reset by the platform administrator.
 
 New Login Details:
 ------------------
@@ -251,7 +251,7 @@ IMPORTANT: Please login and change your password immediately.
 If you did not request this change, please contact support.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
     try:
         send_mail(
@@ -286,7 +286,7 @@ New Plan: {new_plan.name}
 If you did not initiate this change, please contact support immediately.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
 
     # Resolve tenant admin email
@@ -377,7 +377,7 @@ def tenant_signup(request):
     plan_type = data.get('plan_type', '')
     business_category = data.get('business_category', 'other')
 
-    # Government configuration (Quot PSE)
+    # Government configuration (Quot PSA)
     government_tier = data.get('government_tier', '')   # STATE or LGA
     state_nbs_code = data.get('state_nbs_code', '')     # NBS 2-digit code
     state_name = data.get('state_name', '')
@@ -1624,7 +1624,7 @@ def platform_settings(request):
             'smtp_use_tls': getattr(sa_settings, 'smtp_use_tls', True),
             'smtp_use_ssl': getattr(sa_settings, 'smtp_use_ssl', False),
             'smtp_from_email': getattr(sa_settings, 'smtp_from_email', ''),
-            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'QUOT ERP'),
+            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'QUOT PSA'),
             'support_email': getattr(sa_settings, 'support_email', ''),
             'smtp_enabled': getattr(sa_settings, 'smtp_enabled', False),
         })
@@ -3178,7 +3178,7 @@ def webhook_test(request, pk):
     payload = {
         'event': 'test.ping',
         'timestamp': timezone.now().isoformat(),
-        'data': {'message': 'Test webhook from QUOT ERP'},
+        'data': {'message': 'Test webhook from QUOT PSA'},
     }
 
     # Sign the payload
@@ -4241,7 +4241,7 @@ def email_template_preview(request, pk):
         context.setdefault(var, f'<{var}>')
 
     settings_obj = SuperAdminSettings.load()
-    org_name = settings_obj.organization_name or 'QUOT ERP'
+    org_name = settings_obj.organization_name or 'QUOT PSA'
     support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
 
     rendered_subject = substitute(tpl.subject, context)
@@ -4280,7 +4280,7 @@ def email_template_send_test(request, pk):
         context.setdefault(var, f'<{var}>')
 
     settings_obj = SuperAdminSettings.load()
-    org_name = settings_obj.organization_name or 'QUOT ERP'
+    org_name = settings_obj.organization_name or 'QUOT PSA'
     support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
 
     rendered_subject = substitute(tpl.subject, context)

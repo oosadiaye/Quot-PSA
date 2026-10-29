@@ -1,5 +1,5 @@
 /**
- * TSA Ledger — Quot PSE
+ * TSA Ledger — Quot PSA
  * Route: /accounting/tsa-accounts/:id/ledger
  *
  * Bank-statement-style ledger for a single bank account.

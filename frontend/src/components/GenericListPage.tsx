@@ -1,5 +1,5 @@
 /**
- * GenericListPage — Glassmorphism-styled reusable list page for Quot PSE.
+ * GenericListPage — Glassmorphism-styled reusable list page for Quot PSA.
  * Uses PageHeader (gradient header) + glass-card table + CSS variable theming.
  */
 import { useState, useMemo, useEffect } from 'react';

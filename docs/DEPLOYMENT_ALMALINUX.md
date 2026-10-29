@@ -1,8 +1,8 @@
-# Quot PSE — AlmaLinux 8.1 VPS Deployment Guide
+# Quot PSA — AlmaLinux 8.1 VPS Deployment Guide
 
 **Target:** Single-node AlmaLinux 8.x VPS (8 GB RAM / 4 vCPU / 100 GB SSD minimum for a State-sized tenant; 16 GB / 8 vCPU / 250 GB recommended).
 **Stack:** PostgreSQL 15, Redis 7, Python 3.12, Node 20, Gunicorn + systemd, Celery, Nginx, Certbot TLS.
-**End state:** A hardened, SSL-terminated, observable production box serving Quot PSE at `https://<state>.quotpse.ng`.
+**End state:** A hardened, SSL-terminated, observable production box serving Quot PSA at `https://<state>.quotpse.ng`.
 
 Everything in this guide is idempotent — you can re-run a step without breaking what's already there.
 
@@ -294,7 +294,7 @@ $ npm run build                       # → frontend/dist/
 
 ```ini
 [Unit]
-Description=Quot PSE — Gunicorn application server
+Description=Quot PSA — Gunicorn application server
 After=network.target postgresql-15.service redis.service
 Requires=postgresql-15.service redis.service
 
@@ -329,7 +329,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=Quot PSE — Celery worker
+Description=Quot PSA — Celery worker
 After=network.target redis.service postgresql-15.service
 Requires=redis.service postgresql-15.service
 
@@ -353,7 +353,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=Quot PSE — Celery beat scheduler
+Description=Quot PSA — Celery beat scheduler
 After=network.target redis.service
 Requires=redis.service
 
@@ -516,7 +516,7 @@ The repo ships `scripts/backup.sh`. Install it:
 
 ```ini
 [Unit]
-Description=Quot PSE — nightly pg_dump per tenant
+Description=Quot PSA — nightly pg_dump per tenant
 After=postgresql-15.service
 
 [Service]
@@ -617,7 +617,7 @@ Run these *in order*; each should succeed before you move on:
 
 # 9.5 Frontend
 # curl -sSI https://quotpse.ng/ | head -1           # → HTTP/2 200
-# curl -s https://quotpse.ng/ | grep -i 'Quot PSE'
+# curl -s https://quotpse.ng/ | grep -i 'Quot PSA'
 
 # 9.6 Celery
 # journalctl -u quotpse-celery --since "1 minute ago" | grep ready

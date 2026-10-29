@@ -1,5 +1,5 @@
 """
-Quot PSE — Accounting API URL Configuration
+Quot PSA — Accounting API URL Configuration
 """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter

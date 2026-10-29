@@ -3841,7 +3841,7 @@ class PurchaseReturnViewSet(viewsets.ModelViewSet):
         return Response({"status": "Purchase return cancelled.", "return_number": ret.return_number})
 
 
-# ─── BPP Due Process ViewSets (Quot PSE Phase 5) ────────────────────
+# ─── BPP Due Process ViewSets (Quot PSA Phase 5) ────────────────────
 
 from procurement.models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
 from procurement.serializers import (

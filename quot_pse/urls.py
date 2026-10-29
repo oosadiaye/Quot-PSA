@@ -22,7 +22,7 @@ from django.urls import path, include
 from superadmin.gateway_webhook import gateway_webhook
 
 v1_patterns = [
-    # ─── Quot PSE: Nigeria Government IFMIS API ───────────────────────
+    # ─── Quot PSA: Nigeria Government IFMIS API ───────────────────────
     path('accounting/', include('accounting.urls')),
     path('budget/', include('budget.urls')),
     path('procurement/', include('procurement.urls')),

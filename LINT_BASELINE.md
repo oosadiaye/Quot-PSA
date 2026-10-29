@@ -1,4 +1,4 @@
-# Lint Baseline — Quot PSE
+# Lint Baseline — Quot PSA
 
 **Measured**: after P1-T3 ruff auto-fix, start of Phase 1 Task 3.
 

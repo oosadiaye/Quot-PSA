@@ -31,12 +31,12 @@ class Command(BaseCommand):
             help='Recipient email address.',
         )
         parser.add_argument(
-            '--subject', default='Quot PSE test email',
-            help='Subject line (default: Quot PSE test email).',
+            '--subject', default='Quot PSA test email',
+            help='Subject line (default: Quot PSA test email).',
         )
         parser.add_argument(
             '--body', default=(
-                'This is a test message from the Quot PSE platform.\n\n'
+                'This is a test message from the Quot PSA platform.\n\n'
                 'If you received this, your SMTP configuration is working.'
             ),
             help='Message body.',

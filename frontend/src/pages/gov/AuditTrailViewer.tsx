@@ -1,5 +1,5 @@
 /**
- * Audit Trail Viewer — Quot PSE
+ * Audit Trail Viewer — Quot PSA
  * Route: /audit/trail
  *
  * Searchable, filterable log of ALL system changes across all modules.
@@ -294,7 +294,7 @@ export default function AuditTrailViewer() {
                 </div>
 
                 <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--color-text-subtle)', fontSize: 10 }}>
-                    Quot PSE IFMIS — Audit Trail
+                    Quot PSA IFMIS — Audit Trail
                 </div>
             </main>
         </div>

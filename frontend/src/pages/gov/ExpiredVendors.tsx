@@ -1,5 +1,5 @@
 /**
- * Expired Suppliers + Renewal Invoice — Quot PSE
+ * Expired Suppliers + Renewal Invoice — Quot PSA
  * Route: /procurement/vendors-expired
  *
  * Shows expired vendors. Generate renewal invoices with TSA bank details.

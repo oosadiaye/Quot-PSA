@@ -1,5 +1,5 @@
 /**
- * Government IFMIS Page Definitions — Quot PSE
+ * Government IFMIS Page Definitions — Quot PSA
  * Each page wraps GenericListPage with appropriate column configuration.
  * Includes Create/Action buttons for data entry.
  */

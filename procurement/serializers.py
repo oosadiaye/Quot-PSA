@@ -867,7 +867,7 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
         return purchase_return
 
 
-# ─── BPP Due Process Serializers (Quot PSE Phase 5) ──────────────────
+# ─── BPP Due Process Serializers (Quot PSA Phase 5) ──────────────────
 
 from procurement.models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
 

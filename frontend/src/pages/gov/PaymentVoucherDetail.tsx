@@ -1,5 +1,5 @@
 /**
- * Payment Voucher Detail Page — Quot PSE
+ * Payment Voucher Detail Page — Quot PSA
  * Route: /accounting/payment-vouchers/:id
  * Shows PV details + action buttons (Approve, Schedule, Pay, Print)
  */

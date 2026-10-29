@@ -22,7 +22,7 @@ router.register(r'debit-notes', VendorDebitNoteViewSet)
 router.register(r'purchase-returns', PurchaseReturnViewSet)
 router.register(r'down-payment-requests', DownPaymentRequestViewSet, basename='down-payment-request')
 
-# BPP Due Process (Quot PSE Phase 5)
+# BPP Due Process (Quot PSA Phase 5)
 router.register(r'thresholds', ProcurementThresholdViewSet, basename='procurement-threshold')
 router.register(r'no-objection', CertificateOfNoObjectionViewSet, basename='no-objection')
 router.register(r'budget-links', ProcurementBudgetLinkViewSet, basename='budget-link')

@@ -1,5 +1,5 @@
 """
-IPSAS Financial Statement Generator — Quot PSE
+IPSAS Financial Statement Generator — Quot PSA
 ================================================
 Generates the 5 mandatory IPSAS financial statements from GL data,
 grouped by NCoA economic segment codes.

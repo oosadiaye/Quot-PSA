@@ -1,4 +1,4 @@
-# QUOT ERP Implementation Task Flow
+# QUOT PSA Implementation Task Flow
 ## Comprehensive Sequential Implementation Plan
 
 ---

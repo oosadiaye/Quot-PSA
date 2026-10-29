@@ -3,7 +3,7 @@ marp: true
 theme: default
 paginate: true
 size: 16:9
-header: 'Quot PSE · Contract & Milestone Payments'
+header: 'Quot PSA · Contract & Milestone Payments'
 footer: 'Delta State Government · FY 2026'
 style: |
   section { font-family: 'Segoe UI', 'Helvetica', sans-serif; }
@@ -20,7 +20,7 @@ style: |
 
 ## Training Deck — Delta State IFMIS Pilot
 
-Quot PSE · FY 2026 Rollout
+Quot PSA · FY 2026 Rollout
 
 <br>
 
@@ -51,7 +51,7 @@ Ministry of Finance · Office of the Accountant-General · Bureau of Public Proc
 > exceeded the contract ceiling, or where mobilization advances were
 > paid but never recovered.
 
-Quot PSE's contract module makes every one of those attacks
+Quot PSA's contract module makes every one of those attacks
 **physically impossible** before the cash leaves the TSA.
 
 ---
@@ -351,8 +351,8 @@ Defence in depth is real. Trust the system; verify with audit.
 - **Technical support:** `ifmis-support@deltastate.gov.ng`
 - **Policy / workflow:** Office of the Accountant-General
 - **BPP compliance:** Bureau of Public Procurement
-- **Training coordination:** Quot PSE rollout team
+- **Training coordination:** Quot PSA rollout team
 
 <br>
 
-<span class="small">Quot PSE · Delta State IFMIS · FY 2026</span>
+<span class="small">Quot PSA · Delta State IFMIS · FY 2026</span>

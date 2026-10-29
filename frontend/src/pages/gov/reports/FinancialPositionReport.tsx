@@ -1,5 +1,5 @@
 /**
- * IPSAS Statement of Financial Position (Balance Sheet) — Quot PSE
+ * IPSAS Statement of Financial Position (Balance Sheet) — Quot PSA
  * Route: /accounting/ipsas/financial-position
  */
 import { useState } from 'react';
@@ -202,7 +202,7 @@ export default function FinancialPositionReport() {
                 ) : null}
 
                 <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-subtle)', fontSize: '11px' }}>
-                    Quot PSE IFMIS — IPSAS 1 Compliant
+                    Quot PSA IFMIS — IPSAS 1 Compliant
                 </div>
             </main>
         </div>
