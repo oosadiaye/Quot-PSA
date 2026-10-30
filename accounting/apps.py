@@ -23,6 +23,9 @@ class AccountingConfig(AppConfig):
         from accounting.signals import budget_enforcement
         budget_enforcement._connect_signals()
 
+        # A Cash / Petty Cash / Imprest account gets its cash journal on save.
+        from accounting.signals import cash_journal  # noqa: F401
+
         from accounting.signals import ncoa_to_legacy  # noqa: F401 — attaches receivers
         ncoa_to_legacy._connect_signals()
 

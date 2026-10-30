@@ -42,6 +42,9 @@ from accounting.models.payment_batch import (  # noqa: F401
     BankLetterSettings, PaymentBatch, PaymentBatchLine,
 )
 from accounting.models.payment_document import PaymentDocument, PaymentDocumentLine  # noqa: F401
+from accounting.models.cash_posting import (  # noqa: F401
+    CASH_ACCOUNT_TYPES, CashClosing, CashDocument, CashDocumentLine, CashJournal,
+)
 from accounting.models.advanced import *
 from accounting.models.audit import *
 

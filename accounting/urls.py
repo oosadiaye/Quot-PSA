@@ -83,6 +83,7 @@ from .views import (
     PaymentBatchViewSet, BankLetterSettingsViewSet,
 )
 from .views.payment_documents import PaymentDocumentViewSet
+from .views.cash_posting import CashDocumentViewSet, CashJournalViewSet
 from .views.payment_proposals import PaymentProposalsView
 
 router = DefaultRouter()
@@ -101,6 +102,8 @@ router.register(r'mdas', MDAViewSet, basename='mda')
 router.register(r'vendor-invoices', VendorInvoiceViewSet, basename='vendor-invoice')
 router.register(r'payments', PaymentViewSet, basename='payment')
 router.register(r'payment-documents', PaymentDocumentViewSet, basename='payment-document')
+router.register(r'cash-journals', CashJournalViewSet, basename='cash-journal')
+router.register(r'cash-documents', CashDocumentViewSet, basename='cash-document')
 router.register(r'payment-deductions', PaymentVoucherDeductionViewSet, basename='payment-deduction')
 router.register(r'payment-allocations', PaymentAllocationViewSet, basename='payment-allocation')
 router.register(r'payment-batches', PaymentBatchViewSet, basename='payment-batch')
