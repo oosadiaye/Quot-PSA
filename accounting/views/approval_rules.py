@@ -26,6 +26,8 @@ from rest_framework.response import Response
 from accounting.models.audit import (
     ApprovalRule, ApprovalLevel, DualControlOverride,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class ApprovalLevelSerializer(serializers.ModelSerializer):
@@ -86,6 +88,8 @@ class ApprovalRuleSerializer(serializers.ModelSerializer):
 
 
 class ApprovalRuleViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """CRUD over approval rules. Read for all authenticated users,
     write for admin only."""
     queryset = (
@@ -192,6 +196,7 @@ class DualControlOverrideSerializer(serializers.ModelSerializer):
 
 
 class DualControlOverrideViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
     """Read-only feed of dual-control override attempts.
 
     Surfaces every time a single user invoked a dual-sig override with
@@ -204,4 +209,4 @@ class DualControlOverrideViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DualControlOverrideSerializer
     filterset_fields = ['status', 'document_type', 'requested_by']
     ordering = ['-requested_at']
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]

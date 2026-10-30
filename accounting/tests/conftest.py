@@ -331,18 +331,23 @@ def accumulated_fund_account(db):
 def open_fiscal_period(db):
     """A currently-open monthly period covering today."""
     from accounting.models import FiscalPeriod
+    import calendar
     today = date.today()
+    month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
     period, _ = FiscalPeriod.objects.get_or_create(
         fiscal_year=today.year,
         period_number=today.month,
         period_type='Monthly',
         defaults={
             'start_date': today.replace(day=1),
-            'end_date': today.replace(day=28),  # safe upper bound
+            'end_date': month_end,   # the real month end: a fixed day 28 leaves the 29th-31st outside the period
             'status': 'Open',
             'is_closed': False,
         },
     )
+    if period.end_date < today:      # a row left by an earlier run with the old fixed end date
+        period.end_date = month_end
+        period.save(update_fields=['end_date'])
     return period
 
 

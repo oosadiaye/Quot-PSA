@@ -1,9 +1,13 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from core.utils import api_response
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class BalanceSheetViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Balance Sheet report"""
@@ -30,6 +34,8 @@ class BalanceSheetViewSet(viewsets.ViewSet):
 
 
 class IncomeStatementViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Income Statement report"""
@@ -56,6 +62,8 @@ class IncomeStatementViewSet(viewsets.ViewSet):
 
 
 class CashFlowStatementViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Cash Flow Statement report"""
@@ -86,6 +94,8 @@ class CashFlowStatementViewSet(viewsets.ViewSet):
 
 
 class BudgetVsActualViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Budget vs Actual report"""
@@ -110,6 +120,8 @@ class BudgetVsActualViewSet(viewsets.ViewSet):
 
 
 class BudgetPerformanceViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Budget Performance report"""
@@ -132,6 +144,8 @@ class BudgetPerformanceViewSet(viewsets.ViewSet):
 
 
 class CostCenterReportViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Cost Center report"""
@@ -163,6 +177,8 @@ class CostCenterReportViewSet(viewsets.ViewSet):
 
 
 class IFRSComparisonViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate IFRS Comparison report"""
@@ -195,6 +211,8 @@ class IFRSComparisonViewSet(viewsets.ViewSet):
 
 
 class GeneralLedgerViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate General Ledger report"""
@@ -226,6 +244,8 @@ class GeneralLedgerViewSet(viewsets.ViewSet):
 
 
 class TrialBalanceViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Trial Balance report"""
@@ -252,6 +272,8 @@ class TrialBalanceViewSet(viewsets.ViewSet):
 
 
 class InventoryStockValuationViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Inventory Stock Valuation report"""
@@ -267,6 +289,8 @@ class InventoryStockValuationViewSet(viewsets.ViewSet):
 
 
 class InventoryLowStockViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def list(self, request):
         """Generate Low Stock Alert report"""
@@ -280,6 +304,8 @@ class InventoryLowStockViewSet(viewsets.ViewSet):
 
 
 class InventoryMovementViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Stock Movement report"""
@@ -306,6 +332,8 @@ class InventoryMovementViewSet(viewsets.ViewSet):
 
 
 class HRHeadcountViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def list(self, request):
         """Generate Headcount Report"""
@@ -319,6 +347,8 @@ class HRHeadcountViewSet(viewsets.ViewSet):
 
 
 class HRPayrollSummaryViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Payroll Summary Report"""
@@ -338,6 +368,8 @@ class HRPayrollSummaryViewSet(viewsets.ViewSet):
 
 
 class SalesSummaryViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Sales Summary Report"""
@@ -364,6 +396,8 @@ class SalesSummaryViewSet(viewsets.ViewSet):
 
 
 class SalesCustomersViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def list(self, request):
         """Generate Customers Report"""
@@ -377,6 +411,8 @@ class SalesCustomersViewSet(viewsets.ViewSet):
 
 
 class ProcurementSummaryViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Purchase Summary Report"""
@@ -403,6 +439,8 @@ class ProcurementSummaryViewSet(viewsets.ViewSet):
 
 
 class ProcurementVendorsViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def list(self, request):
         """Generate Vendors Report"""
@@ -416,6 +454,8 @@ class ProcurementVendorsViewSet(viewsets.ViewSet):
 
 
 class ProductionSummaryViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Production Summary Report"""
@@ -442,6 +482,8 @@ class ProductionSummaryViewSet(viewsets.ViewSet):
 
 
 class ProductionMaterialConsumptionViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Material Consumption Report"""
@@ -468,6 +510,8 @@ class ProductionMaterialConsumptionViewSet(viewsets.ViewSet):
 
 
 class ProductionCostReportViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Production Cost & Profitability Report"""
@@ -494,6 +538,8 @@ class ProductionCostReportViewSet(viewsets.ViewSet):
 
 
 class ProductProfitabilityViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def create(self, request):
         """Generate Product Profitability Analysis Report"""

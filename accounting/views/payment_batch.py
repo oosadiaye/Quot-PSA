@@ -14,6 +14,8 @@ from accounting.serializers_payment_batch import (
 )
 from accounting.services.payment_batch import PaymentBatchService
 from core.mixins import OrganizationFilterMixin
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 def _bad_request(exc: DjangoValidationError) -> Response:
@@ -22,6 +24,8 @@ def _bad_request(exc: DjangoValidationError) -> Response:
 
 
 class PaymentBatchViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Bank payment/confirmation letters.
 
     MDA isolation mirrors PaymentViewSet: a batch is visible when any of
@@ -158,6 +162,8 @@ class PaymentBatchViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class BankLetterSettingsViewSet(viewsets.GenericViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Singleton settings — mirrors the warrant-printout-settings pattern."""
 
     queryset = BankLetterSettings.objects.all()

@@ -28,6 +28,8 @@ from rest_framework import serializers as drf_serializers
 from accounting.models import ReportSnapshot
 from accounting.permissions import CanViewFinancialStatements
 from accounting.services.report_snapshot import ReportSnapshotService
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class ReportSnapshotSerializer(drf_serializers.ModelSerializer):
@@ -56,10 +58,11 @@ class ReportSnapshotSerializer(drf_serializers.ModelSerializer):
 
 
 class ReportSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
     """Read-only list/retrieve; create via the dedicated ``persist`` action."""
     queryset = ReportSnapshot.objects.all().select_related('generated_by')
     serializer_class = ReportSnapshotSerializer
-    permission_classes = [CanViewFinancialStatements]
+    permission_classes = [ModuleEnabled, CanViewFinancialStatements]
     filterset_fields = ['report_type', 'fiscal_year', 'period']
     ordering = ['-generated_at']
 

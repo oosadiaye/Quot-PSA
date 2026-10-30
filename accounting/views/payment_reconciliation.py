@@ -27,9 +27,12 @@ from rest_framework.response import Response
 
 from accounting.models import PaymentCascadeFailure
 from accounting.serializers import PaymentCascadeFailureSerializer
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class PaymentCascadeFailureViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
     """List + retrieve + resolve for the payment-reconciliation queue."""
 
     queryset = (
@@ -38,7 +41,7 @@ class PaymentCascadeFailureViewSet(viewsets.ReadOnlyModelViewSet):
         .all()
     )
     serializer_class = PaymentCascadeFailureSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['resolved', 'payment', 'ipc', 'error_class']
     ordering_fields = ['created_at', 'resolved_at']
     ordering = ['-created_at']

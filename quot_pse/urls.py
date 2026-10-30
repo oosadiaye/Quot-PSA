@@ -38,6 +38,23 @@ v1_patterns = [
     # Inbound PSP callback — pinned to the public schema by core.middleware
     # (_GATEWAY_WEBHOOK_PREFIXES), HMAC-authenticated, no tenant resolution.
     path('gateway/webhook/<str:gateway>/', gateway_webhook, name='gateway-webhook'),
+
+    # Future modules (FUTURE_MODULES.md) — switchable per-tenant.
+    path('personnel-budget/', include('personnel_budget.urls')),
+    path('cash-planning/', include('cash_planning.urls')),
+    path('staff-advances/', include('staff_advances.urls')),
+    path('budget-prep/', include('budget_prep.urls')),
+    path('debt/', include('debt.urls')),
+    path('transparency/', include('transparency.urls')),
+    path('integrations/', include('integrations.urls')),
+    path('egp/', include('egp.urls')),
+    path('results/', include('results.urls')),
+    path('revenue-admin/', include('revenue_admin.urls')),
+    path('internal-audit/', include('internal_audit.urls')),
+    path('fleet/', include('fleet.urls')),
+    path('catalogue/', include('catalogue.urls')),
+    path('disclosure/', include('disclosure.urls')),
+    path('legal/', include('legal.urls')),
 ]
 
 from core.views.health import healthz, readyz          # P3-T3
@@ -69,6 +86,15 @@ urlpatterns = [
     path('api/v1/', include((v1_patterns, 'v1'))),
     # Backward compat — remove after all clients migrate to /api/v1/
     path('api/', include(v1_patterns)),
+
+    # FUTURE_MODULES §5.5 — the public transparency portal lives in its OWN
+    # URL namespace, OUTSIDE the authenticated /api/v1/ tree, so its removal
+    # when the module is off is enforced at the routing layer (the portal
+    # returns 404 while the global master switch is disabled).
+    path('public/transparency/', include(
+        ('transparency.public_urls', 'transparency'),
+        namespace='transparency-public',
+    )),
 ]
 
 # ── Media serving in development ─────────────────────────────────────

@@ -15,9 +15,13 @@ from ..serializers import (
     PeriodStatusSerializer, YearEndClosingSerializer, RetainedEarningsSerializer,
     CurrencyRevaluationSerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class RecurringJournalViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = RecurringJournal.objects.all().prefetch_related('lines')
     serializer_class = RecurringJournalSerializer
     filterset_fields = ['frequency', 'is_active']
@@ -70,12 +74,16 @@ class RecurringJournalViewSet(viewsets.ModelViewSet):
 
 
 class RecurringJournalRunViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = RecurringJournalRun.objects.all().select_related('recurring_journal', 'journal')
     serializer_class = RecurringJournalRunSerializer
     filterset_fields = ['recurring_journal', 'status']
 
 
 class AccrualViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Accrual.objects.all().select_related('account', 'counterpart_account', 'period', 'journal_entry')
     serializer_class = AccrualSerializer
     filterset_fields = ['accrual_type', 'is_reversed', 'is_posted', 'period']
@@ -137,6 +145,8 @@ class AccrualViewSet(viewsets.ModelViewSet):
 
 
 class DeferralViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Deferral.objects.all().select_related('account', 'counterpart_account')
     serializer_class = DeferralSerializer
     filterset_fields = ['deferral_type', 'is_active', 'is_fully_recognized']
@@ -175,6 +185,8 @@ class DeferralViewSet(viewsets.ModelViewSet):
 
 
 class PeriodStatusViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PeriodStatus.objects.all().select_related('period', 'closed_by')
     serializer_class = PeriodStatusSerializer
     filterset_fields = ['status']
@@ -219,6 +231,8 @@ class PeriodStatusViewSet(viewsets.ModelViewSet):
 
 
 class YearEndClosingViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = YearEndClosing.objects.all().select_related('closing_journal', 'opening_journal', 'closed_by')
     serializer_class = YearEndClosingSerializer
     filterset_fields = ['fiscal_year', 'status']
@@ -240,12 +254,16 @@ class YearEndClosingViewSet(viewsets.ModelViewSet):
 
 
 class RetainedEarningsViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = RetainedEarnings.objects.all()
     serializer_class = RetainedEarningsSerializer
     filterset_fields = ['fiscal_year']
 
 
 class CurrencyRevaluationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CurrencyRevaluation.objects.all().select_related('currency', 'journal_entry')
     serializer_class = CurrencyRevaluationSerializer
     filterset_fields = ['currency', 'status']

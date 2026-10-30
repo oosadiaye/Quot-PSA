@@ -1,9 +1,13 @@
 from .common import AccountingPagination, DimensionImportExportMixin, viewsets
 from ..models import Fund, Function, Program, Geo
 from ..serializers import FundSerializer, FunctionSerializer, ProgramSerializer, GeoSerializer
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class FundViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Full CRUD operations for Fund dimension."""
     queryset = Fund.objects.all()
     serializer_class = FundSerializer
@@ -17,6 +21,8 @@ class FundViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
     ]
 
 class FunctionViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Full CRUD operations for Function dimension."""
     queryset = Function.objects.all()
     serializer_class = FunctionSerializer
@@ -30,6 +36,8 @@ class FunctionViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
     ]
 
 class ProgramViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Full CRUD operations for Program dimension."""
     queryset = Program.objects.all()
     serializer_class = ProgramSerializer
@@ -43,6 +51,8 @@ class ProgramViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
     ]
 
 class GeoViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Full CRUD operations for Geo dimension."""
     queryset = Geo.objects.all()
     serializer_class = GeoSerializer

@@ -1,0 +1,75 @@
+import type { ModuleConfig } from '../_base/types';
+
+export const moduleConfig: ModuleConfig = {
+  key: 'catalogue',
+  label: 'Supplier Catalogue',
+  icon: '📚',
+  description: 'Approved supplier catalogues, catalogue items and pricing history.',
+  basePath: '/catalogue',
+  entities: [
+    {
+      key: 'supplierCatalogue',
+      plural: 'supplier-catalogues',
+      label: 'Supplier Catalogue',
+      searchField: 'name',
+      statusField: 'status',
+      idField: 'id',
+      columns: [
+        { name: 'name', label: 'Name', type: 'text' },
+        { name: 'supplier', label: 'Supplier', type: 'integer', reference: { module: 'procurement', entity: 'vendor' } },
+        { name: 'status', label: 'Status', type: 'select', options: { draft: 'Draft', active: 'Active', expired: 'Expired' } },
+        { name: 'reference', label: 'Reference', type: 'text' },
+      ],
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'supplier', label: 'Supplier', type: 'integer', required: true, reference: { module: 'procurement', entity: 'vendor' } },
+        { name: 'reference', label: 'Reference', type: 'text' },
+        { name: 'valid_from', label: 'Valid From', type: 'date' },
+        { name: 'valid_to', label: 'Valid To', type: 'date' },
+        { name: 'status', label: 'Status', type: 'select', options: { draft: 'Draft', active: 'Active', expired: 'Expired' } },
+        { name: 'framework_agreement', label: 'Framework Agreement', type: 'integer', reference: { module: 'procurement', entity: 'vendorContract' } },
+        { name: 'is_current', label: 'Is Current', type: 'boolean', readOnly: true, hideInForm: true },
+      ],
+    },
+    {
+      key: 'catalogueItem',
+      plural: 'items',
+      label: 'Catalogue Item',
+      searchField: 'specification',
+      idField: 'id',
+      columns: [
+        { name: 'item', label: 'Item', type: 'integer', reference: { module: 'inventory', entity: 'item' } },
+        { name: 'unit_price', label: 'Unit Price', type: 'decimal', numeric: true },
+        { name: 'is_active', label: 'Active', type: 'boolean' },
+        { name: 'catalogue', label: 'Catalogue', type: 'integer', reference: { module: 'catalogue', entity: 'supplierCatalogue' }, secondary: true },
+      ],
+      fields: [
+        { name: 'catalogue', label: 'Catalogue', type: 'integer', required: true, reference: { module: 'catalogue', entity: 'supplierCatalogue' } },
+        { name: 'item', label: 'Item', type: 'integer', required: true, reference: { module: 'inventory', entity: 'item' } },
+        { name: 'unit_price', label: 'Unit Price', type: 'decimal', numeric: true },
+        { name: 'specification', label: 'Specification', type: 'longtext' },
+        { name: 'is_active', label: 'Active', type: 'boolean' },
+        { name: 'price_effective_date', label: 'Price Effective Date', type: 'date' },
+      ],
+    },
+    {
+      key: 'priceHistory',
+      plural: 'price-history',
+      label: 'Price History',
+      searchField: 'effective_date',
+      idField: 'id',
+      columns: [
+        { name: 'item', label: 'Item', type: 'integer', reference: { module: 'inventory', entity: 'item' } },
+        { name: 'supplier', label: 'Supplier', type: 'integer', reference: { module: 'procurement', entity: 'vendor' } },
+        { name: 'unit_price', label: 'Unit Price', type: 'decimal', numeric: true },
+        { name: 'effective_date', label: 'Effective Date', type: 'date', secondary: true },
+      ],
+      fields: [
+        { name: 'item', label: 'Item', type: 'integer', required: true, reference: { module: 'inventory', entity: 'item' } },
+        { name: 'supplier', label: 'Supplier', type: 'integer', required: true, reference: { module: 'procurement', entity: 'vendor' } },
+        { name: 'unit_price', label: 'Unit Price', type: 'decimal', numeric: true },
+        { name: 'effective_date', label: 'Effective Date', type: 'date' },
+      ],
+    },
+  ],
+};

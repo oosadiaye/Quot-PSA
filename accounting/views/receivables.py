@@ -8,9 +8,13 @@ from ..models import (
     Account, JournalHeader, JournalLine, TransactionSequence,
 )
 from ..serializers import CustomerInvoiceSerializer, ReceiptSerializer, ReceiptAllocationSerializer
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class CustomerInvoiceViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     # ``prefetch_related('lines')`` collapses the per-invoice N+1 on the list
     # endpoint (serializer renders nested ``lines`` per row). Line serializer
     # returns FK ids only, so prefetching the lines alone is sufficient.
@@ -393,6 +397,8 @@ class CustomerInvoiceViewSet(viewsets.ModelViewSet):
 
 
 class ReceiptViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Receipt.objects.all().select_related(
         'bank_account', 'currency', 'journal_entry'
     ).prefetch_related('allocations')
@@ -612,6 +618,8 @@ class ReceiptViewSet(viewsets.ModelViewSet):
 
 
 class ReceiptAllocationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """
     Manage allocations that link a Receipt to a CustomerInvoice.
 
@@ -659,6 +667,8 @@ class ReceiptAllocationViewSet(viewsets.ModelViewSet):
 
 
 class CustomerLedgerView(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Unified customer transaction ledger — invoices, receipts, and credit memos."""
 
     def list(self, request):
