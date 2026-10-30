@@ -641,6 +641,7 @@ class Role(models.Model):
                 'bankaccount', 'vendorinvoice', 'payment', 'paymentallocation',
                 'fixedasset', 'depreciationschedule',
                 'bankreconciliation', 'fiscalperiod', 'fiscalyear',
+                'cashjournal', 'cashdocument', 'cashclosing',
             ],
             'budget': [
                 'appropriation', 'warrant', 'unifiedbudget',

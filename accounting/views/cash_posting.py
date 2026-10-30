@@ -25,7 +25,7 @@ from accounting.models import CashDocument, CashDocumentLine, CashJournal
 from accounting.services import cash_posting as service
 from accounting.services.base_posting import TransactionPostingError
 from core.mixins import OrganizationFilterMixin
-from core.permissions import IsApprover, RBACPermission
+from core.permissions import IsApprover, IsTenantAdmin, RBACPermission
 
 from .common import AccountingPagination
 
@@ -73,6 +73,15 @@ class CashJournalSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashJournal
         fields = ['mda', 'float_amount', 'difference_account', 'allow_negative_balance', 'overdraft_limit']
+
+    def validate_difference_account(self, account):
+        if account is None:
+            return account
+        try:
+            service._check_gl_account(account, self.instance)
+        except service.CashPostingError as exc:
+            raise serializers.ValidationError(str(exc))
+        return account
 
 
 #: Fields each transaction type uses; the rest are cleared so a document never carries a stray account.
@@ -153,11 +162,14 @@ class CashDocumentSerializer(serializers.ModelSerializer):
 
         journal = merged.get('cash_journal')
         when = merged.get('posting_date')
-        if journal is not None and when is not None and journal.last_closed_date and when <= journal.last_closed_date:
+        view = self.context.get('view')
+        if journal is not None and view is not None and not view.get_queryset_for_journals().filter(pk=journal.pk).exists():
+            raise serializers.ValidationError({'cash_journal': 'You cannot use this cash journal.'})
+        if journal is not None and journal.last_closed_date and when <= journal.last_closed_date:
             raise serializers.ValidationError({'posting_date': f'{journal.name} is closed up to {journal.last_closed_date:%d/%m/%Y}.'})
 
-        # The coding block defaults to the desk's MDA, so a cashier need not pick it for every document.
-        if journal is not None and journal.mda_id and not attrs.get('mda') and not (self.instance and self.instance.mda_id):
+        # A desk that belongs to an MDA charges that MDA: the coding block cannot name another one.
+        if journal is not None and journal.mda_id:
             attrs['mda'] = journal.mda
         # A type uses only its own fields: drop the rest so a document never carries a stray account.
         for name in _FIELDS:
@@ -229,7 +241,7 @@ class CashJournalViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet)
             raise serializers.ValidationError({'as_of': str(exc)})
         return context
 
-    @action(detail=True, methods=['patch'], url_path='settings')
+    @action(detail=True, methods=['patch'], url_path='settings', permission_classes=[IsTenantAdmin])
     def update_settings(self, request, pk=None):
         """Set the desk's MDA, imprest float, cash-difference account and overdraft rules."""
         journal = self.get_object()
@@ -316,6 +328,13 @@ class CashDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return [RBACPermission(), IsApprover('post')]
         return super().get_permissions()
 
+    def get_queryset_for_journals(self):
+        """The cash journals this user may use: the same MDA scoping as the journal list."""
+        journals = CashJournalViewSet()
+        journals.request, journals.action, journals.format_kwarg, journals.kwargs, journals.args = self.request, 'list', None, {}, ()
+        return journals.get_queryset().filter(is_active=True)
+
+    @transaction.atomic
     def perform_create(self, serializer):
         doc = serializer.save(created_by=self.request.user)
         service.assign_number(doc)

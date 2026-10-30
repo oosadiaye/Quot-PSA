@@ -297,6 +297,70 @@ class TestClosingTheDay:
             service.close_journal(desk.journal, closing_date=date.today() + timedelta(days=1), counted_amount=D('1000.00'))
 
 
+class TestReviewFixes:
+    def test_a_back_dated_payment_may_not_push_a_later_day_below_zero(self, desk, no_budget_gate):
+        from accounting.models import CashDocument as CD
+        from accounting.services import cash_posting as service
+        today = date.today()
+        # Book: 1000 opening. Day-2 payment of 900 leaves 100; a later receipt then brings it back up.
+        service.post_document(make_doc(desk, CD.EXPENSE, '900.00', offset_account=desk.expense, posting_date=today - timedelta(days=2)))
+        service.post_document(make_doc(desk, CD.REVENUE, '900.00', offset_account=desk.revenue, posting_date=today))
+        back_dated = make_doc(desk, CD.EXPENSE, '500.00', offset_account=desk.expense, posting_date=today - timedelta(days=3))
+        with pytest.raises(service.CashPostingError, match='holds'):
+            service.post_document(back_dated)
+
+    def test_reversing_a_transfer_with_a_bank_account_that_shares_the_cash_gl_restores_both_books(self, desk):
+        from accounting.models import BankAccount, CashDocument as CD
+        from accounting.services import cash_posting as service
+        shared = BankAccount.objects.create(name='Shared GL Bank', account_number='CJ-BANK-2', account_type='Bank',
+                                            gl_account=desk.cash_gl, opening_balance=D('0.00'), currency=None)
+        doc = service.post_document(make_doc(desk, CD.BANK_WITHDRAWAL, '300.00', bank_account=shared))
+        assert service.balance_as_of(desk.cash) == D('1300.00') and service.balance_as_of(shared) == D('-300.00')
+        service.reverse_document(doc)
+        assert service.balance_as_of(desk.cash) == D('1000.00') and service.balance_as_of(shared) == D('0.00')
+
+
+class TestApiScoping:
+    DOMAIN = 'pytest.localhost'
+
+    def _client(self, role):
+        from django.contrib.auth.models import User
+        from rest_framework.authtoken.models import Token
+        from rest_framework.test import APIClient
+        from django_tenants.utils import schema_context
+        from tenants.models import Client, Domain, UserTenantRole
+        with schema_context('public'):
+            tenant, _ = Client.objects.get_or_create(schema_name='pytest_schema', defaults={'name': 'PyTest Tenant'})
+            Domain.objects.get_or_create(domain=self.DOMAIN, tenant=tenant, defaults={'is_primary': True})
+        user, _ = User.objects.get_or_create(username=f'cash_scope_{role}', defaults={'email': f'{role}@t.test'})
+        UserTenantRole.objects.update_or_create(user=user, tenant=tenant, defaults={'role': role, 'is_active': True})
+        token, _ = Token.objects.get_or_create(user=user)
+        client = APIClient(HTTP_X_TENANT_DOMAIN=self.DOMAIN)
+        client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        return client
+
+    def test_a_desk_that_belongs_to_an_mda_charges_that_mda(self, desk):
+        from accounting.models import MDA
+        other, _ = MDA.objects.get_or_create(code='CJ-OTHER', defaults={'name': 'Other MDA', 'short_name': 'OTH'})
+        admin = self._client('admin')
+        response = admin.post('/api/v1/accounting/cash-documents/', {
+            'cash_journal': desk.journal.pk, 'posting_date': date.today().isoformat(), 'transaction_type': 'REVENUE',
+            'amount': '10.00', 'offset_account': desk.revenue.pk, 'mda': other.pk}, format='json')
+        assert response.status_code == 201, response.content
+        assert response.json()['mda'] == desk.mda.pk
+
+    def test_only_a_tenant_admin_may_change_a_desks_settings(self, desk):
+        url = f'/api/v1/accounting/cash-journals/{desk.journal.pk}/settings/'
+        assert self._client('user').patch(url, {'float_amount': '1.00'}, format='json').status_code == 403
+        assert self._client('admin').patch(url, {'float_amount': '1.00'}, format='json').status_code == 200
+
+    def test_the_difference_account_must_be_a_usable_gl_account(self, desk):
+        desk.cash_gl.refresh_from_db()
+        response = self._client('admin').patch(
+            f'/api/v1/accounting/cash-journals/{desk.journal.pk}/settings/', {'difference_account': desk.cash_gl.pk}, format='json')
+        assert response.status_code == 400 and 'cash account itself' in str(response.json())
+
+
 class TestApi:
     """The same flow through the HTTP endpoints the Cash Journal page uses."""
     DOMAIN = 'pytest.localhost'

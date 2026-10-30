@@ -183,12 +183,15 @@ def _funds_check(journal, doc):
     floor = journal.lowest_balance()
     if doc.is_receipt or floor is None:
         return
-    for label, when in (('on that date', doc.posting_date), ('now', None)):
+    later_days = (_lines(journal.cash_account).filter(header__posting_date__gt=doc.posting_date)
+                  .values_list('header__posting_date', flat=True).distinct().order_by('header__posting_date'))
+    checks = [('on that date', doc.posting_date), *[(f'on {day:%d/%m/%Y}', day) for day in later_days], ('now', None)]
+    for label, when in checks:
         held = balance_as_of(journal.cash_account, when)
         if held - doc.amount < floor:
             message = (f'{journal.name} holds {held:,.2f} {label}, less than the {doc.amount:,.2f} to pay out. '
                        f'Replenish the cash first, or allow a negative balance on the journal.')
-            if when is not None:
+            if when is not None and when == doc.posting_date:
                 # The usual cause: the payment is dated BEFORE the cash came in, so today's balance looks fine but the book
                 # was empty on the payment's own date. Say when the cash was there.
                 available = first_date_with_cash(journal.cash_account, doc.posting_date, doc.amount, floor)
@@ -348,13 +351,18 @@ def post_document(doc, *, user=None):
 @transaction.atomic
 def reverse_document(doc, *, user=None, reason: str = ''):
     """Reverse a posted cash document: post the mirror journal and put its lines back on the right desk's book."""
-    from accounting.models import CashDocument as D, JournalLine
+    from accounting.models import BankAccount, CashDocument as D, CashJournal, JournalLine
     from accounting.services.ipsas_journal_service import IPSASJournalService, JournalPostingError
 
     doc = D.objects.select_for_update(of=('self',)).select_related('cash_journal__cash_account', 'journal_entry', 'bank_account').get(pk=doc.pk)
     if doc.status != D.POSTED or doc.journal_entry_id is None:
         raise CashPostingError(f'{doc.document_number} is {doc.status}; only a posted document can be reversed.')
-    journal = doc.cash_journal
+    # Same lock order as posting and closing (document, journal, then bank accounts by pk), so the funds floor and the closed
+    # day are read under the lock and a reversal cannot slip into a day that is being closed.
+    journal = CashJournal.objects.select_for_update(of=('self',)).select_related('cash_account').get(pk=doc.cash_journal_id)
+    list(BankAccount.objects.select_for_update().filter(
+        pk__in=[journal.cash_account_id] + ([doc.bank_account_id] if doc.bank_account_id else [])).order_by('pk'))
+    doc.cash_journal = journal
     when = timezone.now().date()
     _check_open_day(journal, when, 'a reversal')
     if journal.last_closed_date and doc.posting_date <= journal.last_closed_date:
@@ -377,12 +385,11 @@ def reverse_document(doc, *, user=None, reason: str = ''):
 
     # The central reversal swaps debit and credit but does not copy which cash / bank account a line belongs to; without
     # that the cash book would not move. Put each line back on the account it was on.
-    attribution = {}
-    for line in original.lines.all():
-        if line.bank_account_id:
-            attribution.setdefault(line.account_id, line.bank_account_id)
-    for account_id, bank_id in attribution.items():
-        JournalLine.objects.filter(header=reversal, account_id=account_id, bank_account__isnull=True).update(bank_account_id=bank_id)
+    # The reversal writes its lines in the original's order, so pair them by position: two lines on one GL account (a bank
+    # account that shares the cash GL) then keep their own desk.
+    for before, after in zip(original.lines.order_by('id'), reversal.lines.order_by('id')):
+        if before.bank_account_id and after.account_id == before.account_id:
+            JournalLine.objects.filter(pk=after.pk).update(bank_account_id=before.bank_account_id)
 
     _move_balance(journal.cash_account_id, -doc.signed_amount)
     if doc.bank_account_id:
