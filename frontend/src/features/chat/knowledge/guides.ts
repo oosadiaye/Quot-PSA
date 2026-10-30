@@ -78,6 +78,18 @@ export const GUIDES: readonly Guide[] = [
         steps: ['Open Accounting > Journal Entries.', 'Click New Journal, fill in the lines so debits equal credits, and save.'],
     },
     {
+        id: 'cash-journal',
+        title: 'Post a cash or petty cash transaction',
+        screen: '/accounting/cash-posting',
+        asks: ['create cash payment', 'create cash receipt', 'petty cash', 'cash journal', 'cash posting', 'imprest', 'close cash'],
+        steps: [
+            'Open Treasury & Banking > Cash Posting and choose the cash journal.',
+            'Click New cash document, pick the transaction (payment, receipt, or a transfer with the bank), fill it in and click Save as draft.',
+            'Check the entries, then use the Post button on its row. A payment needs budget cover and enough cash in the journal.',
+            'At the end of the day click Close day, enter the cash you counted, and the day is locked.',
+        ],
+    },
+    {
         id: 'supplier-invoice',
         title: 'Record a supplier invoice',
         screen: '/accounting/ap',

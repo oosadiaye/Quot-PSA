@@ -182,6 +182,8 @@ const PurchaseRequisitionView = lazy(() => import('./features/procurement/Purcha
 const GoodsReceivedNotes = lazy(() => import('./features/procurement/GoodsReceivedNotes'));
 const GRNForm = lazy(() => import('./features/procurement/GRNForm'));
 const GRNView = lazy(() => import('./features/procurement/GRNView'));
+const CashPostingPage = lazy(() => import('./features/accounting/cash-posting/CashPostingPage'));
+const CashVoucherPrint = lazy(() => import('./features/accounting/cash-posting/CashVoucherPrint'));
 const PurchaseRequisitionPrint = lazy(() => import('./features/procurement/print/PurchaseRequisitionPrint'));
 const PurchaseOrderPrint = lazy(() => import('./features/procurement/print/PurchaseOrderPrint'));
 const GoodsReceivedNotePrint = lazy(() => import('./features/procurement/print/GoodsReceivedNotePrint'));
@@ -659,6 +661,12 @@ function App() {
                         } />
                         <Route path="/procurement/requisitions/:id/edit" element={
                           <ProtectedRoute><PurchaseRequisitionForm /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/cash-posting" element={
+                          <ProtectedRoute><CashPostingPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/cash-posting/:id/print" element={
+                          <ProtectedRoute><CashVoucherPrint /></ProtectedRoute>
                         } />
                         <Route path="/procurement/requisitions/:id/print" element={
                           <ProtectedRoute><PurchaseRequisitionPrint /></ProtectedRoute>

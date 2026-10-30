@@ -123,6 +123,7 @@ export const menuItems: MenuItem[] = [
             // time. Sits next to ``Bank Accounts`` so operators reach it
             // from the same mental cluster as account management.
             { name: 'Bank Transfer', path: '/accounting/tsa-accounts/transfer', icon: ArrowRightLeft },
+            { name: 'Cash Posting', path: '/accounting/cash-posting', icon: Banknote },
             // Unified approval-staging register for BOTH Payment Vouchers and
             // Payment Documents. The standalone "Payment Documents" list is
             // folded in here (its create/detail routes remain).
