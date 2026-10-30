@@ -41,7 +41,7 @@ class LegalCase(AuditBaseModel):
 
 class HearingDiary(AuditBaseModel):
     case = models.ForeignKey(LegalCase, on_delete=models.CASCADE, related_name='hearings')
-    hearing_date = models.DateField(default=timezone.now)
+    hearing_date = models.DateField(default=timezone.localdate)
     outcome = models.TextField(blank=True, default='')
     next_hearing_date = models.DateField(null=True, blank=True)
 
@@ -51,7 +51,7 @@ class HearingDiary(AuditBaseModel):
 
 class CaseCost(AuditBaseModel):
     case = models.ForeignKey(LegalCase, on_delete=models.CASCADE, related_name='costs')
-    cost_date = models.DateField(default=timezone.now)
+    cost_date = models.DateField(default=timezone.localdate)
     description = models.CharField(max_length=255, blank=True, default='')
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     cost_type = models.CharField(max_length=50, blank=True, default='fee')

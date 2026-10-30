@@ -146,7 +146,7 @@ class DemandNotice(AuditBaseModel):
     notice_number = models.CharField(max_length=60, unique=True)
     amount_due = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     amount_paid = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    due_date = models.DateField(default=timezone.now)
+    due_date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='issued')
     issued_at = models.DateTimeField(auto_now_add=True)
 
@@ -164,7 +164,7 @@ class ArrearsLedger(AuditBaseModel):
         related_name='+',
     )
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    arrears_date = models.DateField(default=timezone.now)
+    arrears_date = models.DateField(default=timezone.localdate)
     ageing_days = models.PositiveIntegerField(default=0)
     is_settled = models.BooleanField(default=False)
 
@@ -209,7 +209,7 @@ class TaxClearanceCertificate(AuditBaseModel):
     certificate_number = models.CharField(max_length=60, unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='issued')
     fiscal_year = models.IntegerField(db_index=True)
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField(default=timezone.localdate)
     expiry_date = models.DateField(null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
 

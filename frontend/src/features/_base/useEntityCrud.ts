@@ -40,11 +40,23 @@ export function useEntityList(
   });
 }
 
+/** A payload carrying a File must go as multipart; axios's JSON default would drop it. */
+function toRequestBody(payload: Record<string, any>) {
+  if (!Object.values(payload).some((v) => v instanceof File)) return { body: payload, config: undefined };
+  const form = new FormData();
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === null || v === undefined) continue;
+    form.append(k, v instanceof File ? v : String(v));
+  }
+  return { body: form, config: { headers: { 'Content-Type': 'multipart/form-data' } } };
+}
+
 export function useEntityCreate(moduleKey: string, basePath: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: Record<string, any>) => {
-      const { data } = await apiClient.post(basePath, payload);
+      const { body, config } = toRequestBody(payload);
+      const { data } = await apiClient.post(basePath, body, config);
       return data;
     },
     onSuccess: () => {
@@ -57,7 +69,8 @@ export function useEntityUpdate(moduleKey: string, basePath: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, payload }: { id: number; payload: Record<string, any> }) => {
-      const { data } = await apiClient.patch(`${basePath}${id}/`, payload);
+      const { body, config } = toRequestBody(payload);
+      const { data } = await apiClient.patch(`${basePath}${id}/`, body, config);
       return data;
     },
     onSuccess: (_d, vars) => {

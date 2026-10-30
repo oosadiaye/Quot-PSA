@@ -4,7 +4,7 @@ from .models import IntegrationEndpoint, IntegrationRun, IntegrationMessage
 
 
 class IntegrationEndpointSerializer(serializers.ModelSerializer):
-    sources = serializers.ListField(source='sources', read_only=True)
+    sources = serializers.ListField(read_only=True)
 
     class Meta:
         model = IntegrationEndpoint

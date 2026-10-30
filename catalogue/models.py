@@ -24,7 +24,7 @@ class SupplierCatalogue(AuditBaseModel):
         'procurement.Vendor', on_delete=models.PROTECT, related_name='catalogues',
     )
     reference = models.CharField(max_length=100, blank=True, default='')
-    valid_from = models.DateField(default=timezone.now)
+    valid_from = models.DateField(default=timezone.localdate)
     valid_to = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     framework_agreement = models.ForeignKey(
@@ -53,7 +53,7 @@ class CatalogueItem(AuditBaseModel):
     unit_price = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     specification = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
-    price_effective_date = models.DateField(default=timezone.now)
+    price_effective_date = models.DateField(default=timezone.localdate)
 
     class Meta:
         ordering = ['catalogue', 'item']
@@ -74,7 +74,7 @@ class PriceHistory(AuditBaseModel):
         'procurement.Vendor', on_delete=models.PROTECT, related_name='+',
     )
     unit_price = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    effective_date = models.DateField(default=timezone.now)
+    effective_date = models.DateField(default=timezone.localdate)
 
     class Meta:
         ordering = ['item', '-effective_date']

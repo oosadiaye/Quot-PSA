@@ -57,7 +57,7 @@ class DebtInstrument(AuditBaseModel):
     principal_amount = models.DecimalField(max_digits=18, decimal_places=2)
     interest_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     commitment_fee_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
-    start_date = models.DateField(default=timezone.now)
+    start_date = models.DateField(default=timezone.localdate)
     maturity_date = models.DateField(null=True, blank=True)
     grace_period = models.PositiveIntegerField(default=0, help_text='Grace period in months.')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
@@ -245,7 +245,7 @@ class DebtDrawdown(AuditBaseModel):
     STATUS_CHOICES = [('posted', 'Posted')]
 
     instrument = models.ForeignKey(DebtInstrument, on_delete=models.PROTECT, related_name='drawdowns')
-    drawdown_date = models.DateField(default=timezone.now)
+    drawdown_date = models.DateField(default=timezone.localdate)
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     bank_account = models.ForeignKey('accounting.BankAccount', on_delete=models.PROTECT, related_name='+')
     reference = models.CharField(max_length=100, blank=True, default='')

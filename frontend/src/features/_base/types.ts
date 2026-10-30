@@ -14,6 +14,7 @@ export type FieldType =
   | 'datetime'
   | 'boolean'
   | 'select'
+  | 'file'
   | 'object';
 
 export interface EntityField {

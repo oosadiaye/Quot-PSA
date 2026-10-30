@@ -69,7 +69,7 @@ class EstablishmentPost(AuditBaseModel):
         default=0,
         help_text='Total approved posts for this MDA + grade.',
     )
-    effective_date = models.DateField(default=timezone.now)
+    effective_date = models.DateField(default=timezone.localdate)
     expiry_date = models.DateField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default='draft',

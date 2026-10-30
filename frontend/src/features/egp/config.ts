@@ -148,7 +148,7 @@ export const moduleConfig: ModuleConfig = {
       fields: [
         { name: 'bid', label: 'Bid', type: 'integer', numeric: true, required: true },
         { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'file', label: 'File', type: 'text', required: true },
+        { name: 'file', label: 'File', type: 'file', required: true },
       ],
     },
     {

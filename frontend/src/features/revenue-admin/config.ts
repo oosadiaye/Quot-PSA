@@ -66,7 +66,7 @@ export const moduleConfig: ModuleConfig = {
       ],
       fields: [
         { name: 'taxpayer', label: 'Taxpayer', type: 'integer', required: true, reference: { module: 'revenue_admin', entity: 'taxpayer' } },
-        { name: 'revenue_head', label: 'Revenue Head', type: 'integer', reference: { module: 'accounting', entity: 'revenueHead' } },
+        { name: 'revenue_head', label: 'Revenue Head', type: 'integer', required: true, reference: { module: 'accounting', entity: 'revenueHead' } },
         { name: 'fiscal_year', label: 'Fiscal Year', type: 'integer', numeric: true, required: true },
         { name: 'assessment_type', label: 'Type', type: 'select', options: { self: 'Self-Assessment', boj: 'Best of Judgement', amended: 'Amended' } },
         { name: 'status', label: 'Status', type: 'select', options: { draft: 'Draft', issued: 'Issued', objected: 'Objected', appealed: 'Appealed', settled: 'Settled' } },

@@ -158,6 +158,20 @@ export const EntityForm: React.FC<EntityFormProps> = ({
         />
       );
     }
+    if (field.type === 'file') {
+      const current = typeof values[field.name] === 'string' ? values[field.name] : '';
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <input
+            type="file"
+            style={inputStyle}
+            data-testid={`file-${field.name}`}
+            onChange={(e) => set(field.name, e.target.files?.[0] ?? '')}
+          />
+          {current && <span style={{ fontSize: 12, color: '#64748b' }}>Current: {current.split('/').pop()}</span>}
+        </div>
+      );
+    }
     if (field.type === 'object') {
       // Read-only display for nested / structured values.
       return (
@@ -185,6 +199,7 @@ export const EntityForm: React.FC<EntityFormProps> = ({
     for (const f of formFields) {
       const v = values[f.name];
       if (f.type === 'boolean') { payload[f.name] = !!v; continue; }
+      if (f.type === 'file' && !(v instanceof File)) continue;   // an unchanged stored file is a URL: leave it alone
       if (v === '' || v === null || v === undefined) {
         if (f.required) payload[f.name] = v;
         continue;

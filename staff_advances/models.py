@@ -52,7 +52,7 @@ class StaffAdvance(AuditBaseModel):
     )
     purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default='travel')
     amount = models.DecimalField(max_digits=15, decimal_places=2)
-    advance_date = models.DateField(default=timezone.now)
+    advance_date = models.DateField(default=timezone.localdate)
     recovery_start = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OUTSTANDING')
     recovered_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -90,7 +90,7 @@ class ImprestAccount(AuditBaseModel):
     issued_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     retired_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     replenished_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField(default=timezone.localdate)
     retirement_due_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
 
@@ -108,7 +108,7 @@ class ImprestRetirement(AuditBaseModel):
     imprest = models.ForeignKey(
         ImprestAccount, on_delete=models.CASCADE, related_name='retirements',
     )
-    retirement_date = models.DateField(default=timezone.now)
+    retirement_date = models.DateField(default=timezone.localdate)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     supporting_docs = models.TextField(blank=True, default='')
     approved_by = models.ForeignKey(
@@ -133,7 +133,7 @@ class PerDiemTable(AuditBaseModel):
     grade = models.CharField(max_length=20, choices=GRADE_CHOICES)
     destination = models.CharField(max_length=200, blank=True, default='Local')
     daily_rate = models.DecimalField(max_digits=12, decimal_places=2)
-    effective_date = models.DateField(default=timezone.now)
+    effective_date = models.DateField(default=timezone.localdate)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -151,8 +151,8 @@ class TravelRequest(AuditBaseModel):
     )
     destination = models.CharField(max_length=200)
     purpose = models.TextField(blank=True, default='')
-    start_date = models.DateField(default=timezone.now)
-    end_date = models.DateField(default=timezone.now)
+    start_date = models.DateField(default=timezone.localdate)
+    end_date = models.DateField(default=timezone.localdate)
     days = models.PositiveIntegerField(default=0)
     estimated_cost = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
@@ -170,14 +170,14 @@ class TravelAdvance(AuditBaseModel):
         related_name='travel_advance',
     )
     amount = models.DecimalField(max_digits=15, decimal_places=2)
-    advance_date = models.DateField(default=timezone.now)
+    advance_date = models.DateField(default=timezone.localdate)
 
 
 class TravelRetirement(AuditBaseModel):
     travel_advance = models.ForeignKey(
         TravelAdvance, on_delete=models.CASCADE, related_name='retirements',
     )
-    retired_date = models.DateField(default=timezone.now)
+    retired_date = models.DateField(default=timezone.localdate)
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     balance_returned = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     documents = models.TextField(blank=True, default='')

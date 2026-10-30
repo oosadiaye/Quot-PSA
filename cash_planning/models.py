@@ -79,7 +79,7 @@ class CashForecastLine(AuditBaseModel):
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual')
     flow = models.CharField(max_length=10, choices=FLOW_CHOICES)
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    due_date = models.DateField(default=timezone.now)
+    due_date = models.DateField(default=timezone.localdate)
     description = models.TextField(blank=True, default='')
     source_ref = models.CharField(
         max_length=100, blank=True, default='',
@@ -120,7 +120,7 @@ class WarrantRecommendation(AuditBaseModel):
         ('rejected', 'Rejected'),
     ]
 
-    recommendation_date = models.DateField(default=timezone.now)
+    recommendation_date = models.DateField(default=timezone.localdate)
     mda_name = models.CharField(max_length=200, blank=True, default='')
     appropriation = models.ForeignKey(
         'budget.Appropriation', on_delete=models.PROTECT, null=True, blank=True,

@@ -57,7 +57,7 @@ class VehicleAssignment(AuditBaseModel):
     )
     assigned_to = models.CharField(max_length=200)
     department = models.CharField(max_length=200, blank=True, default='')
-    assigned_from = models.DateField(default=timezone.now)
+    assigned_from = models.DateField(default=timezone.localdate)
     assigned_to_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True, default='')
 
@@ -67,7 +67,7 @@ class VehicleAssignment(AuditBaseModel):
 
 class FuelLog(AuditBaseModel):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='fuel_logs')
-    log_date = models.DateField(default=timezone.now)
+    log_date = models.DateField(default=timezone.localdate)
     litres = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     odometer_reading = models.PositiveIntegerField(default=0)
@@ -79,7 +79,7 @@ class FuelLog(AuditBaseModel):
 
 class MileageLog(AuditBaseModel):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='mileage_logs')
-    log_date = models.DateField(default=timezone.now)
+    log_date = models.DateField(default=timezone.localdate)
     odometer_reading = models.PositiveIntegerField(default=0)
     trip_purpose = models.TextField(blank=True, default='')
     driver = models.CharField(max_length=200, blank=True, default='')
@@ -92,7 +92,7 @@ class MaintenanceRecord(AuditBaseModel):
     vehicle = models.ForeignKey(
         Vehicle, on_delete=models.CASCADE, related_name='maintenance_records',
     )
-    service_date = models.DateField(default=timezone.now)
+    service_date = models.DateField(default=timezone.localdate)
     next_due_date = models.DateField(null=True, blank=True)
     service_type = models.CharField(max_length=100, blank=True, default='')
     description = models.TextField(blank=True, default='')

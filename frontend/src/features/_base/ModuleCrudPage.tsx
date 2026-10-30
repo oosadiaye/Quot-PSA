@@ -3,7 +3,7 @@
  * module as a set of tabs, each tab giving full CRUD through a responsive
  * table + modal form. Driven entirely by the module's config.ts.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, message, Input } from 'antd';
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
@@ -32,12 +32,30 @@ const formatCell = (field: any, value: any): React.ReactNode => {
   return String(value);
 };
 
+/** The server's own reason for a refused save: detail/error, else the first field error named by its label. */
+function describeSaveError(e: any, entity: EntityConfig): string {
+  const data = e?.response?.data;
+  if (data?.detail) return String(data.detail);
+  if (data?.error) return String(data.error);
+  if (data && typeof data === 'object') {
+    const [name, msg] = Object.entries(data).find(([, v]) => v) ?? [];
+    if (name) {
+      const label = entity.fields.find((f) => f.name === name)?.label ?? name.replace(/_/g, ' ');
+      return `${label}: ${Array.isArray(msg) ? msg[0] : msg}`;
+    }
+  }
+  return e?.response?.status >= 500 ? 'The server could not save this record. Please try again.' : 'Save failed';
+}
+
 export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
+  const [formError, setFormError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(config.entities[0]?.key ?? '');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<{ entity: EntityConfig; record: Record<string, any> | null } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+
+  useEffect(() => { setFormError(null); }, [modal]);
 
   const activeEntity = useMemo(
     () => config.entities.find((e) => e.key === activeKey) ?? config.entities[0],
@@ -60,6 +78,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
 
   const handleSubmit = async (payload: Record<string, any>) => {
     if (!activeEntity || !modal) return;
+    setFormError(null);
     try {
       if (modal.record) {
         await updateMut.mutateAsync({ id: modal.record[activeEntity.idField ?? 'id'], payload });
@@ -70,7 +89,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
       }
       setModal(null);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || e?.response?.data?.error || 'Save failed');
+      setFormError(describeSaveError(e, activeEntity));
     }
   };
 
@@ -217,6 +236,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
             initial={modal.record}
             onCancel={() => setModal(null)}
             onSubmit={handleSubmit}
+            error={formError}
             submitting={createMut.isPending || updateMut.isPending}
           />
         )}

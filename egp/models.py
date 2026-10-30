@@ -49,7 +49,7 @@ class TenderNotice(AuditBaseModel):
     description = models.TextField(blank=True, default='')
     category = models.CharField(max_length=100, blank=True, default='')
     method = models.CharField(max_length=20, choices=METHOD_CHOICES, default='open')
-    published_date = models.DateField(default=timezone.now)
+    published_date = models.DateField(default=timezone.localdate)
     closing_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     documents = models.FileField(upload_to='egp/notices/%Y/', null=True, blank=True)

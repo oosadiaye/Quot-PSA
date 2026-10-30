@@ -124,7 +124,7 @@ class FollowUp(AuditBaseModel):
     finding = models.ForeignKey(
         AuditFinding, on_delete=models.CASCADE, related_name='follow_ups',
     )
-    follow_up_date = models.DateField(default=timezone.now)
+    follow_up_date = models.DateField(default=timezone.localdate)
     note = models.TextField(blank=True, default='')
     is_overdue = models.BooleanField(default=False)
     escalated_by = models.ForeignKey(

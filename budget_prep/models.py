@@ -33,7 +33,7 @@ class CallCircular(AuditBaseModel):
     """Annual Budget Call Circular."""
 
     fiscal_year = models.IntegerField(db_index=True)
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField(default=timezone.localdate)
     submission_deadline = models.DateField(null=True, blank=True)
     guidelines = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=False)
