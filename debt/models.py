@@ -63,11 +63,50 @@ class DebtInstrument(AuditBaseModel):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     is_concessional = models.BooleanField(default=False)
 
+    # --- General-ledger integration (chart of accounts + bank accounts) ---------------------------------------------
+    # Money received (a drawdown) is a NON-CURRENT liability; the part due within twelve months is moved to the CURRENT
+    # PORTION account; interest and fees go to expense; every payment leaves a bank account. Leave these empty and the
+    # instrument behaves as before (legacy debt-service posting); "Use standard accounts" fills them from the chart.
+    liability_account = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+        help_text='Non-current liability (long-term borrowings) credited when money is drawn.',
+    )
+    current_portion_account = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+        help_text='Current liability that holds principal due within twelve months.',
+    )
+    interest_expense_account = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+    fee_expense_account = models.ForeignKey(
+        'accounting.Account', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+        help_text='Commitment and other fees. Defaults to the interest expense account when empty.',
+    )
+    bank_account = models.ForeignKey(
+        'accounting.BankAccount', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+        help_text='Default bank account that receives drawdowns and pays debt service.',
+    )
+    current_portion_booked = models.DecimalField(
+        max_digits=18, decimal_places=2, default=0,
+        help_text='Principal currently classified as current (maintained by the GL service).',
+    )
+
+    @property
+    def drawn_amount(self):
+        total = self.drawdowns.filter(status='posted').aggregate(t=models.Sum('amount'))['t']
+        return total or 0
+
+    @property
+    def principal_repaid(self):
+        total = AmortisationCoupon.objects.filter(schedule__instrument=self, status='paid').aggregate(
+            t=models.Sum('principal_amount'))['t']
+        return total or 0
+
     @property
     def outstanding_principal(self):
-        coupons = self.coupons.filter(is_paid=True)
-        paid = sum(c.principal_amount or 0 for c in coupons)
-        return self.principal_amount - paid
+        """What is owed: money drawn so far, less principal repaid. Before any drawdown is recorded, the facility amount."""
+        base = self.drawn_amount or self.principal_amount
+        return base - self.principal_repaid
 
     class Meta:
         ordering = ['instrument_number']
@@ -115,6 +154,13 @@ class AmortisationCoupon(AuditBaseModel):
         'budget.Warrant', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
     paid_at = models.DateTimeField(null=True, blank=True)
+    # Set when the coupon is paid through the integrated (bank + chart of accounts) route.
+    bank_account = models.ForeignKey(
+        'accounting.BankAccount', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+    journal = models.ForeignKey(
+        'accounting.JournalHeader', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
 
     @property
     def total_amount(self):
@@ -191,3 +237,37 @@ class DebtAversionStatement(AuditBaseModel):
 
     class Meta:
         ordering = ['fiscal_year', 'pillar']
+
+
+class DebtDrawdown(AuditBaseModel):
+    """Money received against an instrument: Dr Bank / Cr Non-current liability."""
+
+    STATUS_CHOICES = [('posted', 'Posted')]
+
+    instrument = models.ForeignKey(DebtInstrument, on_delete=models.PROTECT, related_name='drawdowns')
+    drawdown_date = models.DateField(default=timezone.now)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    bank_account = models.ForeignKey('accounting.BankAccount', on_delete=models.PROTECT, related_name='+')
+    reference = models.CharField(max_length=100, blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='posted')
+    journal = models.ForeignKey('accounting.JournalHeader', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+
+    class Meta:
+        ordering = ['-drawdown_date', '-id']
+
+
+class DebtClassification(AuditBaseModel):
+    """A current / non-current reclassification of an instrument's principal at a reporting date."""
+
+    instrument = models.ForeignKey(DebtInstrument, on_delete=models.PROTECT, related_name='classifications')
+    as_of = models.DateField()
+    current_portion = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    adjustment = models.DecimalField(
+        max_digits=18, decimal_places=2, default=0,
+        help_text='Amount moved at this date: positive moves non-current to current, negative the reverse.',
+    )
+    journal = models.ForeignKey('accounting.JournalHeader', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+
+    class Meta:
+        ordering = ['-as_of', '-id']
+        constraints = [models.UniqueConstraint(fields=['instrument', 'as_of'], name='one_debt_classification_per_date')]

@@ -76,6 +76,23 @@ class DebtServiceGLService:
             return payable
         return get_gl_account("DEBT_SERVICE_PAYABLE", "Liability", "Debt")
 
+    @staticmethod
+    def record_actuals(instrument, posting_date, principal, interest, fees) -> None:
+        """Add a payment to the month's debt-service actuals (feeds cash planning and the IPSAS/GFS disclosures)."""
+        from .models import DebtServiceCost
+
+        actuals, created = DebtServiceCost.objects.get_or_create(
+            fiscal_year=posting_date.year,
+            month=posting_date.month,
+            instrument=instrument,
+            defaults={"principal_paid": principal, "interest_paid": interest, "fees_paid": fees},
+        )
+        if not created:
+            actuals.principal_paid = (actuals.principal_paid or ZERO) + principal
+            actuals.interest_paid = (actuals.interest_paid or ZERO) + interest
+            actuals.fees_paid = (actuals.fees_paid or ZERO) + fees
+            actuals.save(update_fields=["principal_paid", "interest_paid", "fees_paid"])
+
     @classmethod
     @transaction.atomic
     def pay_coupon(
@@ -85,6 +102,7 @@ class DebtServiceGLService:
         warrant=None,
         paid_date=None,
         description: str = "",
+        bank_account=None,
     ) -> JournalHeader:
         """Mark an AmortisationCoupon paid and post its debt-service journal.
 
@@ -95,7 +113,7 @@ class DebtServiceGLService:
           * no Debt Service Payable GL is configured
           * the coupon total is non-positive
         """
-        from .models import AmortisationLedger, DebtServiceCost
+        from .models import AmortisationLedger
 
         if coupon.status == "paid":
             raise TransactionPostingError(
@@ -108,6 +126,14 @@ class DebtServiceGLService:
                 f"Amortisation coupon {coupon.pk} already has a paid ledger "
                 "event. Refusing to double-post debt service.",
             )
+
+        # An instrument with a GL mapping is paid out of a bank account (principal reduces the liability); see debt.gl.
+        mapped = coupon.schedule.instrument if coupon.schedule else None
+        if mapped is not None and mapped.liability_account_id:
+            from .gl import pay_coupon_from_bank
+            return pay_coupon_from_bank(
+                coupon=coupon, actor=actor, bank_account=bank_account, warrant=warrant, paid_date=paid_date,
+                description=description)
 
         principal = Decimal(str(coupon.principal_amount or 0))
         interest = Decimal(str(coupon.interest_amount or 0))
@@ -169,21 +195,7 @@ class DebtServiceGLService:
         coupon.save(update_fields=["warrant", "status", "paid_at", "updated_at"])
 
         # Fiscal-year actuals feed cash_planning + IPSAS/GFS disclosures.
-        actuals, created = DebtServiceCost.objects.get_or_create(
-            fiscal_year=posting_date.year,
-            month=posting_date.month,
-            instrument=instrument,
-            defaults={
-                "principal_paid": principal,
-                "interest_paid": interest,
-                "fees_paid": fees,
-            },
-        )
-        if not created:
-            actuals.principal_paid = (actuals.principal_paid or ZERO) + principal
-            actuals.interest_paid = (actuals.interest_paid or ZERO) + interest
-            actuals.fees_paid = (actuals.fees_paid or ZERO) + fees
-            actuals.save(update_fields=["principal_paid", "interest_paid", "fees_paid"])
+        cls.record_actuals(instrument, posting_date, principal, interest, fees)
 
         AmortisationLedger.objects.create(
             coupon=coupon,

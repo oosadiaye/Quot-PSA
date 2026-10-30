@@ -29,7 +29,7 @@ export function useEntityList(
   basePath: string,
   filters: EntityFilters = {},
 ) {
-  const qk = [moduleKey, 'list', filters];
+  const qk = [moduleKey, 'list', basePath, filters];
   return useQuery({
     queryKey: qk,
     queryFn: async () => {
