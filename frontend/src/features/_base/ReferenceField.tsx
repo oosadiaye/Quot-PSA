@@ -77,8 +77,10 @@ export const ReferenceField: React.FC<ReferenceFieldProps> = ({ field, value, on
   const options: Option[] = selected.data ? [selected.data] : selectedId ? [{ value: selectedId, label: `Record ${selectedId}` }] : [];
 
   return (
-    <div id={id} className="ef-ref" aria-invalid={invalid || undefined}>
+    <div className="ef-ref" aria-invalid={invalid || undefined}>
       <SearchableSelect
+        inputId={id}
+        invalid={invalid}
         options={options}
         value={selectedId}
         onChange={(v) => onChange(v === '' ? '' : Number(v))}

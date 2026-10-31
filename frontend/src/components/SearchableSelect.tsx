@@ -57,11 +57,15 @@ interface SearchableSelectProps {
     onSearch?: (query: string) => Promise<Option[]>;
     /** Debounce for ``onSearch`` (ms). Default 250. */
     searchDebounceMs?: number;
+    /** Optional id for the text input, so a <label htmlFor> can name it. */
+    inputId?: string;
+    /** Optional: marks the input invalid for assistive technology. */
+    invalid?: boolean;
 }
 
 export default function SearchableSelect({
     options, value, onChange, placeholder = 'Search or select...', required, style,
-    onSearch, searchDebounceMs = 250,
+    onSearch, searchDebounceMs = 250, inputId, invalid,
 }: SearchableSelectProps) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -242,6 +246,8 @@ export default function SearchableSelect({
             )}
             <input
                 ref={inputRef}
+                id={inputId}
+                aria-invalid={invalid || undefined}
                 type="text"
                 role="combobox"
                 aria-expanded={open}
