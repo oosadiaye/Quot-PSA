@@ -58,7 +58,7 @@ class PersonnelCostForecastSerializer(serializers.ModelSerializer):
 
 class PayrollBudgetBindingSerializer(serializers.ModelSerializer):
     payroll_run_ref = serializers.CharField(
-        source='payroll_run.reference', read_only=True, default='',
+        source='payroll_run.run_number', read_only=True, default='',
     )
 
     class Meta:
@@ -68,7 +68,8 @@ class PayrollBudgetBindingSerializer(serializers.ModelSerializer):
             'bound_amount', 'remaining_at_binding', 'check_level',
             'bound_by', 'bound_at',
         ]
-        read_only_fields = ['remaining_at_binding', 'check_level', 'bound_by', 'bound_at']
+        # The amount is the run's own gross pay and the rest is a snapshot taken by the service, never typed in.
+        read_only_fields = ['bound_amount', 'remaining_at_binding', 'check_level', 'bound_by', 'bound_at']
 
 
 class PayrollBudgetBindingCreateSerializer(PayrollBudgetBindingSerializer):

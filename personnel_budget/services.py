@@ -106,6 +106,66 @@ def _appropriation_available_safe(appropriation):
     return _appropriation_available(appropriation)
 
 
+class BindingError(Exception):
+    """The payroll run cannot be bound to that appropriation; the message says why."""
+
+
+#: Personnel costs sit in the NCoA expenditure family 21 (salaries, wages and allowances).
+PERSONNEL_CODE_PREFIX = '21'
+_CLOSED_RUN_STATUSES = ('Paid', 'Cancelled')
+
+
+def run_fiscal_year(run):
+    """The fiscal year a payroll run falls in, from its period's start date; None when no year covers it."""
+    from accounting.models.advanced import FiscalYear
+
+    start = run.period.start_date
+    return FiscalYear.objects.filter(start_date__lte=start, end_date__gte=start).first()
+
+
+def _available_of(appropriation) -> Decimal:
+    from accounting.services.budget_check_rules import _appropriation_available
+    return _appropriation_available(appropriation)
+
+
+def personnel_candidates(run) -> list[dict]:
+    """Active personnel appropriations this run could be funded from, those with enough balance first."""
+    from budget.models import Appropriation
+
+    fiscal_year = run_fiscal_year(run)
+    if fiscal_year is None:
+        return []
+    needed = _run_total(run)
+    rows = []
+    for a in (Appropriation.objects
+              .filter(fiscal_year=fiscal_year, status='ACTIVE', economic__code__startswith=PERSONNEL_CODE_PREFIX)
+              .select_related('administrative', 'economic')):
+        available = _available_of(a)
+        rows.append({
+            'id': a.pk, 'mda': a.administrative.name, 'economic_code': a.economic.code, 'economic_name': a.economic.name,
+            'approved': str(a.amount_approved), 'available': str(available), 'covers': available >= needed,
+        })
+    return sorted(rows, key=lambda r: (not r['covers'], -Decimal(r['available'])))
+
+
+def bind_checked(run, appropriation, *, bound_by=None):
+    """Bind a payroll run to an appropriation after the checks a person would expect, then snapshot the control state.
+
+    A run that has been paid, cancelled or already posted to the ledger can no longer change its funding line; only an
+    ACTIVE appropriation can fund payroll, and it must belong to the fiscal year the run falls in.
+    """
+    if run.status in _CLOSED_RUN_STATUSES or getattr(run, 'journal_entry_id', None):
+        raise BindingError('This payroll run has already been paid, cancelled or posted, so its budget line can no longer change.')
+    if appropriation.status != 'ACTIVE':
+        raise BindingError('Only an active appropriation can fund payroll; this one is '
+                           f'{appropriation.get_status_display().lower()}.')
+    fiscal_year = run_fiscal_year(run)
+    if fiscal_year is not None and appropriation.fiscal_year_id != fiscal_year.pk:
+        raise BindingError(f'This appropriation belongs to {appropriation.fiscal_year.year}, but the payroll run is for '
+                           f'{fiscal_year.year}.')
+    return bind_payroll_run(run, appropriation, bound_by=bound_by)
+
+
 def assert_payroll_budget_ok(run, requested_amount=None):
     """Enforce the G3 payroll budget gate before a run posts to the GL.
 
