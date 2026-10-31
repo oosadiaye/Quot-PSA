@@ -95,6 +95,14 @@ class BudgetSubmission(AuditBaseModel):
         CallCircular, on_delete=models.PROTECT, null=True, blank=True,
         related_name='submissions',
     )
+    KIND_CHOICES = [
+        ('original', 'Original budget'),
+        ('supplementary', 'Supplementary budget'),
+    ]
+    # A supplementary is its own set of lines (the user picks the economic code) and becomes SUPPLEMENTARY
+    # appropriations on hand-over; it is not measured against the original ceilings.
+    kind = models.CharField(max_length=15, choices=KIND_CHOICES, default='original', db_index=True)
+    justification = models.TextField(blank=True, default='')
     stage = models.CharField(max_length=20, choices=STAGE_CHOICES, default='draft')
     submitted_at = models.DateTimeField(null=True, blank=True)
     total_personnel = models.DecimalField(max_digits=18, decimal_places=2, default=0)

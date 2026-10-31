@@ -112,6 +112,8 @@ def baseline_rows(submission, basis: str, *, as_of: date | None = None) -> tuple
 def adopt_actuals(submission, *, basis: str = OUTTURN, growth_pct=0, class_adjustments: dict | None = None,
                   as_of: date | None = None) -> AdoptionResult:
     """Replace the submission's adopted lines with a fresh baseline plus adjustment. Idempotent."""
+    if submission.kind == 'supplementary':
+        raise AdoptionError("Adopting last year's figures applies to the original budget, not a supplementary.")
     if submission.stage not in EDITABLE_STAGES:
         raise AdoptionError('Lines can only be adopted while the submission is a draft or sent back for revision.')
     overall = Decimal(str(growth_pct or 0))

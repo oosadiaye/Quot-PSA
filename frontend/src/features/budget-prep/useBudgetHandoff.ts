@@ -6,6 +6,8 @@ export interface SubmissionRow {
   fiscal_year: number;
   mda_name: string;
   stage: string;
+  kind: 'original' | 'supplementary';
+  justification: string;
   total_personnel: string;
   total_overhead: string;
   total_capital: string;
@@ -58,6 +60,25 @@ export interface MilestoneRow {
   completed_on: string | null;
   status: 'completed' | 'overdue' | 'due_soon' | 'upcoming';
   days_to_due: number | null;
+}
+
+export interface SupplementaryRow {
+  mda: string;
+  lines: number;
+  lines_from_prep: number;
+  total: string;
+  draft: string;
+  before_legislature: string;
+  enacted: string;
+  original_appropriation: string;
+  percent_of_original: string | null;
+}
+
+export interface SupplementaryReport {
+  fiscal_year: number;
+  rows: SupplementaryRow[];
+  totals: { lines: number; total: string; draft: string; before_legislature: string; enacted: string };
+  original_total: string;
 }
 
 export interface HandoffProblem {
@@ -126,6 +147,13 @@ export const useUpcomingMilestones = (days = 30) =>
   useQuery<MilestoneRow[]>({
     queryKey: [...KEY, 'milestones', days],
     queryFn: async () => (await apiClient.get('/budget-prep/milestones/upcoming/', { params: { days } })).data,
+  });
+
+export const useSupplementaryReport = (fiscalYear: number | null) =>
+  useQuery<SupplementaryReport>({
+    queryKey: [...KEY, 'supplementary', fiscalYear],
+    queryFn: async () => (await apiClient.get('/budget-prep/submissions/supplementary-report/', { params: { fiscal_year: fiscalYear } })).data,
+    enabled: !!fiscalYear,
   });
 
 export function useSeedCalendar() {

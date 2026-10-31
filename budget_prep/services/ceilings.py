@@ -74,7 +74,8 @@ def check_ceiling(submission) -> CeilingCheck:
     proposed = defaultdict(lambda: Decimal('0'))
     for line in SubmissionLine.objects.filter(submission=submission):
         proposed[line.line_type] += Decimal(line.proposed_amount)
-    ceiling = _ceiling_for(submission)
+    # Ceilings govern the original budget; a supplementary is a separate request with its own justification.
+    ceiling = None if submission.kind == 'supplementary' else _ceiling_for(submission)
     rows = [CeilingRow(t, proposed[t], None if ceiling is None else Decimal(getattr(ceiling, _CEILING_FIELD[t])))
             for t in LINE_TYPES]
     return CeilingCheck(has_ceiling=ceiling is not None, rows=rows)
@@ -100,6 +101,8 @@ def submit_submission(submission, *, override_reason: str = '', actor_name: str 
         raise SubmissionError('Only a draft or sent-back submission can be submitted.')
     if not SubmissionLine.objects.filter(submission=submission).exists():
         raise SubmissionError('This submission has no lines yet.')
+    if submission.kind == 'supplementary' and not (submission.justification or '').strip():
+        raise SubmissionError('A supplementary budget needs a justification before it is submitted.')
     check = check_ceiling(submission)
     reason = (override_reason or '').strip()
     if not check.ok and not reason:

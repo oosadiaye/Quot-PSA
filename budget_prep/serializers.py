@@ -60,7 +60,7 @@ class BudgetSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = BudgetSubmission
         fields = [
-            'id', 'fiscal_year', 'mda_name', 'circular', 'stage',
+            'id', 'fiscal_year', 'mda_name', 'circular', 'kind', 'justification', 'stage',
             'submitted_at', 'total_personnel', 'total_overhead', 'total_capital',
             'notes', 'lines', 'created_at', 'updated_at',
         ]

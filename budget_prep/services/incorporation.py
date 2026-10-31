@@ -71,8 +71,9 @@ def _aggregate(submission, defaults: dict) -> dict:
         group = groups.get(key)
         if group is None:
             groups[key] = {**resolved, 'amount_approved': Decimal(line.proposed_amount or 0),
-                           'description': (line.description or '')[:500]}
+                           'description': (line.description or '')[:500], 'lines': [line.pk]}
             continue
+        group['lines'].append(line.pk)
         if (group['functional'], group['programme']) != (resolved['functional'], resolved['programme']):
             problems.append({'line': line.pk, 'conflict': 'functional/programme differ within the same appropriation line'})
             continue
@@ -83,6 +84,28 @@ def _aggregate(submission, defaults: dict) -> dict:
     if not groups:
         raise IncorporationError('This submission has no lines to hand off.')
     return groups
+
+
+def _refuse_collisions(groups: dict, fiscal_year, reference: str) -> None:
+    """A supplementary is a separate line, so it may not land on a line the budget already has.
+
+    Budget allows only one live appropriation per (MDA, economic code, fund, year); the officer chooses a different
+    economic code (or fund) for the supplementary rather than silently topping up the enacted line.
+    """
+    problems = []
+    for (administrative, economic, fund), group in groups.items():
+        taken = (Appropriation.objects
+                 .filter(fiscal_year=fiscal_year, administrative_id=administrative, economic_id=economic, fund_id=fund)
+                 .exclude(source_module=SOURCE_MODULE, source_reference=reference)
+                 .exclude(status='CLOSED'))
+        if taken.exists():
+            for line in group['lines']:
+                problems.append({'line': line, 'conflict': 'this MDA already has an appropriation on this economic code '
+                                                           'and fund; choose a different economic code for the supplementary'})
+    if problems:
+        raise IncorporationError(
+            f'{len(problems)} supplementary line(s) land on an existing appropriation; give each its own economic code.',
+            lines=problems)
 
 
 def incorporate_submission(submission, *, defaults: dict | None = None) -> IncorporationResult:
@@ -104,6 +127,10 @@ def incorporate_submission(submission, *, defaults: dict | None = None) -> Incor
             'Appropriations from this submission are already past Draft, so re-incorporation is refused.')
 
     groups = _aggregate(submission, defaults)
+    appropriation_type = 'ORIGINAL'
+    if submission.kind == 'supplementary':
+        appropriation_type = 'SUPPLEMENTARY'
+        _refuse_collisions(groups, fiscal_year, reference)
     result = IncorporationResult()
     with transaction.atomic():
         existing = {_key(a): a for a in mine.select_for_update()}
@@ -116,7 +143,7 @@ def incorporate_submission(submission, *, defaults: dict | None = None) -> Incor
             obj = existing.pop(key, None)
             if obj is None:
                 obj = Appropriation.objects.create(
-                    fiscal_year=fiscal_year, status='DRAFT', appropriation_type='ORIGINAL',
+                    fiscal_year=fiscal_year, status='DRAFT', appropriation_type=appropriation_type,
                     source_module=SOURCE_MODULE, source_reference=reference, **fields)
                 result.created += 1
             else:

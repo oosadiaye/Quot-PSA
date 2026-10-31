@@ -23,6 +23,7 @@ from .models import (
 from .services.adoption import BASES, AdoptionError, adopt_actuals, baseline_rows
 from .services.calendar import CalendarError, DUE_SOON_DAYS, seed_standard_calendar
 from .services.ceilings import SubmissionError, check_ceiling, refresh_totals, submit_submission
+from .services.supplementary import supplementary_report
 from .services.incorporation import IncorporationError, incorporate_submission
 from .serializers import (
     BudgetMilestoneSerializer,
@@ -70,6 +71,15 @@ class BudgetSubmissionViewSet(viewsets.ModelViewSet):
         if self.action == 'incorporate':
             return [IsAuthenticated(), ModuleEnabled(), RBACPermission(), IsApprover('post')]
         return super().get_permissions()
+
+    @action(detail=False, methods=['get'], url_path='supplementary-report')
+    def supplementary(self, request):
+        """Supplementary budgets for a year, per MDA and by stage, against the original appropriation. Read-only."""
+        try:
+            fiscal_year = int(request.query_params.get('fiscal_year'))
+        except (TypeError, ValueError):
+            return Response({'error': 'fiscal_year is required and must be a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(supplementary_report(fiscal_year))
 
     @action(detail=True, methods=['get'], url_path='ceiling-check')
     def ceiling_check(self, request, pk=None):

@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useCurrency } from '../../context/CurrencyContext';
 import {
   handoffError, useAdoptActuals, useAdoptionPreview, useCeilingCheck, useIncorporate, useSeedCalendar, useSubmissions,
-  useSubmitSubmission, useUpcomingMilestones, type AdoptionBasis, type MilestoneRow, type SubmissionRow,
+  useSubmitSubmission, useSupplementaryReport, useUpcomingMilestones, type AdoptionBasis, type MilestoneRow, type SubmissionRow,
 } from './useBudgetHandoff';
 
 const STAGES: Record<string, string> = {
@@ -54,6 +54,7 @@ export default function BudgetHandoff() {
   const adopt = useAdoptActuals();
   const incorporate = useIncorporate();
   const ceiling = useCeilingCheck(id);
+  const supplementaryReport = useSupplementaryReport(submission?.fiscal_year ?? null);
   const submit = useSubmitSubmission();
   const [reason, setReason] = useState('');
   const milestones = useUpcomingMilestones(30);
@@ -63,6 +64,7 @@ export default function BudgetHandoff() {
 
   if (!submission) return null;
   const editable = EDITABLE.includes(submission.stage);
+  const isSupplementary = submission.kind === 'supplementary';
   const canHandOff = submission.stage === 'incorporated';
   const growthNumber = Number(growth);
   const growthValid = growth.trim() !== '' && Number.isFinite(growthNumber);
@@ -115,7 +117,7 @@ export default function BudgetHandoff() {
           <select id="bh-submission" data-testid="bh-submission" style={input} value={submission.id}
             onChange={(e) => { setPicked(Number(e.target.value)); setPreviewing(false); setError(null); }}>
             {submissions.map((s) => (
-              <option key={s.id} value={s.id}>{s.mda_name} – {s.fiscal_year}</option>
+              <option key={s.id} value={s.id}>{s.mda_name} – {s.fiscal_year}{s.kind === 'supplementary' ? ' (supplementary)' : ''}</option>
             ))}
           </select>
         </div>
@@ -161,14 +163,26 @@ export default function BudgetHandoff() {
         </div>
       </div>
 
+      {isSupplementary && (
+        <div data-testid="bh-supplementary-note" style={{ fontSize: 13, color: '#334155' }}>
+          <div style={heading}>Supplementary budget</div>
+          <p style={{ margin: '0 0 6px' }}>
+            This is a separate request. Choose the economic code for each line yourself; the original MDA ceilings do not apply.
+            It becomes supplementary appropriations on hand-over and goes through the normal approval and enactment steps.
+          </p>
+          <p data-testid="bh-justification" style={{ margin: 0 }}>
+            <strong>Justification: </strong>{submission.justification.trim() || 'None yet. Add it on the submission before submitting.'}
+          </p>
+        </div>
+      )}
       <div data-testid="bh-ceiling">
-        <div style={heading}>Against the MDA ceiling</div>
-        {ceiling.data && !ceiling.data.has_ceiling && (
+        <div style={heading}>{isSupplementary ? 'Send to the Budget Office' : 'Against the MDA ceiling'}</div>
+        {!isSupplementary && ceiling.data && !ceiling.data.has_ceiling && (
           <p data-testid="bh-no-ceiling" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
             No ceiling has been set for this MDA and year, so there is nothing to check against.
           </p>
         )}
-        {ceiling.data?.has_ceiling && (
+        {!isSupplementary && ceiling.data?.has_ceiling && (
           <table data-no-tools style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#64748b' }}>
@@ -193,7 +207,7 @@ export default function BudgetHandoff() {
         )}
         {editable && (
           <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-            {overCeiling && (
+            {!isSupplementary && overCeiling && (
               <div>
                 <label style={label} htmlFor="bh-reason">This is over the ceiling. Why is it needed? (required to submit)</label>
                 <textarea id="bh-reason" data-testid="bh-reason" style={{ ...input, minHeight: 64, resize: 'vertical' }} value={reason}
@@ -202,8 +216,8 @@ export default function BudgetHandoff() {
             )}
             <div>
               <button type="button" style={primary} data-testid="bh-submit"
-                disabled={submit.isPending || (overCeiling && reason.trim() === '')} onClick={runSubmit}>
-                {submit.isPending ? 'Submitting…' : overCeiling ? 'Submit over ceiling' : 'Submit to Budget Office'}
+                disabled={submit.isPending || (!isSupplementary && overCeiling && reason.trim() === '')} onClick={runSubmit}>
+                {submit.isPending ? 'Submitting…' : !isSupplementary && overCeiling ? 'Submit over ceiling' : 'Submit to Budget Office'}
               </button>
             </div>
           </div>
@@ -213,7 +227,11 @@ export default function BudgetHandoff() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
         <div>
           <div style={heading}>Start from last year’s figures</div>
-          {!editable ? (
+          {isSupplementary ? (
+            <p data-testid="bh-adopt-original-only" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+              This applies to the original budget. Enter the supplementary lines directly.
+            </p>
+          ) : !editable ? (
             <p data-testid="bh-adopt-locked" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
               Figures can only be adopted while the submission is a draft or sent back for revision.
             </p>
@@ -267,6 +285,42 @@ export default function BudgetHandoff() {
             </div>
           )}
         </div>
+      </div>
+
+      <div data-testid="bh-supplementary-report">
+        <div style={heading}>Supplementary budgets in {submission.fiscal_year}</div>
+        {(supplementaryReport.data?.rows ?? []).length === 0 ? (
+          <p data-testid="bh-supplementary-empty" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+            No supplementary appropriations for {submission.fiscal_year} yet.
+          </p>
+        ) : (
+          <table data-no-tools style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                <th style={{ padding: '4px 8px 4px 0' }}>MDA</th>
+                <th style={{ textAlign: 'right' }}>Lines</th>
+                <th style={{ textAlign: 'right' }}>Total</th>
+                <th style={{ textAlign: 'right' }}>Draft</th>
+                <th style={{ textAlign: 'right' }}>With legislature</th>
+                <th style={{ textAlign: 'right' }}>Enacted</th>
+                <th style={{ textAlign: 'right' }}>% of original</th>
+              </tr>
+            </thead>
+            <tbody>
+              {supplementaryReport.data!.rows.map((r) => (
+                <tr key={r.mda} data-testid="bh-supplementary-row" style={{ color: '#334155' }}>
+                  <td style={{ padding: '4px 8px 4px 0' }}>{r.mda}</td>
+                  <td style={{ textAlign: 'right' }}>{r.lines}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(r.total)}</td>
+                  <td style={{ textAlign: 'right' }}>{money(r.draft)}</td>
+                  <td style={{ textAlign: 'right' }}>{money(r.before_legislature)}</td>
+                  <td style={{ textAlign: 'right' }}>{money(r.enacted)}</td>
+                  <td style={{ textAlign: 'right' }}>{r.percent_of_original === null ? 'n/a' : `${r.percent_of_original}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
