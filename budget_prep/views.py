@@ -2,6 +2,9 @@
 budget_prep viewsets — module_key = 'budget_prep'.
 """
 from django.db import transaction
+from datetime import date, timedelta
+
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,6 +12,7 @@ from rest_framework.response import Response
 
 from core.permissions import IsApprover, ModuleEnabled, RBACPermission
 from .models import (
+    BudgetMilestone,
     CallCircular,
     MTEFProjection,
     MDACeiling,
@@ -17,9 +21,11 @@ from .models import (
     ReviewComment,
 )
 from .services.adoption import BASES, AdoptionError, adopt_actuals, baseline_rows
+from .services.calendar import CalendarError, DUE_SOON_DAYS, seed_standard_calendar
 from .services.ceilings import SubmissionError, check_ceiling, refresh_totals, submit_submission
 from .services.incorporation import IncorporationError, incorporate_submission
 from .serializers import (
+    BudgetMilestoneSerializer,
     CallCircularSerializer,
     MTEFProjectionSerializer,
     MDACeilingSerializer,
@@ -172,3 +178,54 @@ class ReviewCommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ReviewComment.objects.all()
     serializer_class = ReviewCommentSerializer
+
+
+class BudgetMilestoneViewSet(viewsets.ModelViewSet):
+    module_key = 'budget_prep'
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
+    queryset = BudgetMilestone.objects.all()
+    serializer_class = BudgetMilestoneSerializer
+    filterset_fields = ['fiscal_year']
+
+    @action(detail=False, methods=['post'], url_path='seed-standard')
+    def seed_standard(self, request):
+        """Create the standard budget-cycle steps for a year, counted from the call circular's issue date.
+
+        Body: ``fiscal_year`` (required) and optionally ``anchor_date`` (YYYY-MM-DD) when no circular exists yet.
+        Safe to repeat: existing steps are never moved or duplicated.
+        """
+        try:
+            fiscal_year = int(request.data.get('fiscal_year'))
+        except (TypeError, ValueError):
+            return Response({'error': 'fiscal_year is required and must be a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        anchor = None
+        if request.data.get('anchor_date'):
+            try:
+                anchor = date.fromisoformat(str(request.data['anchor_date']))
+            except ValueError:
+                return Response({'error': 'anchor_date must be a date like 2026-09-01.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = seed_standard_calendar(fiscal_year, anchor=anchor)
+        except CalendarError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'created': result.created, 'existing': result.existing, 'anchor': result.anchor.isoformat()})
+
+    @action(detail=False, methods=['get'], url_path='upcoming')
+    def upcoming(self, request):
+        """Open steps that are overdue or due within ``days`` (default the due-soon window), soonest first."""
+        try:
+            days = int(request.query_params.get('days', DUE_SOON_DAYS))
+        except ValueError:
+            return Response({'error': 'days must be a whole number.'}, status=status.HTTP_400_BAD_REQUEST)
+        horizon = timezone.localdate() + timedelta(days=days)
+        rows = self.get_queryset().filter(completed_on__isnull=True, due_date__lte=horizon).order_by('due_date', 'sequence')
+        return Response(self.get_serializer(rows, many=True).data)
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        """Mark a step done today (or on ``completed_on``)."""
+        milestone = self.get_object()
+        milestone.completed_on = request.data.get('completed_on') or timezone.localdate()
+        milestone.save(update_fields=['completed_on', 'updated_at'])
+        milestone.refresh_from_db()
+        return Response(self.get_serializer(milestone).data)

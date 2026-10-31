@@ -164,3 +164,30 @@ class ReviewComment(AuditBaseModel):
     action_required = models.BooleanField(default=False)
     commented_by = models.CharField(max_length=200, blank=True, default='')
     commented_at = models.DateTimeField(auto_now_add=True)
+
+
+class BudgetMilestone(AuditBaseModel):
+    """One dated step in a year's budget calendar (call circular, submissions due, defence, enactment ...).
+
+    ``std_key`` marks a step seeded from the standard template, so seeding again never duplicates it and never moves a
+    date someone has already changed. Steps added by hand leave it blank.
+    """
+    fiscal_year = models.IntegerField(db_index=True)
+    sequence = models.PositiveSmallIntegerField(default=0)
+    name = models.CharField(max_length=200)
+    due_date = models.DateField()
+    completed_on = models.DateField(null=True, blank=True)
+    owner = models.CharField(max_length=200, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    std_key = models.CharField(max_length=40, blank=True, default='')
+
+    class Meta:
+        ordering = ['fiscal_year', 'due_date', 'sequence', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['fiscal_year', 'std_key'], condition=~models.Q(std_key=''),
+                name='uniq_budget_milestone_std_key_per_year'),
+        ]
+
+    def __str__(self):
+        return f'{self.fiscal_year} {self.name} ({self.due_date})'

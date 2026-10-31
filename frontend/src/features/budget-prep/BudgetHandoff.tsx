@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { message } from 'antd';
 import { useCurrency } from '../../context/CurrencyContext';
 import {
-  handoffError, useAdoptActuals, useAdoptionPreview, useCeilingCheck, useIncorporate, useSubmissions, useSubmitSubmission,
-  type AdoptionBasis, type SubmissionRow,
+  handoffError, useAdoptActuals, useAdoptionPreview, useCeilingCheck, useIncorporate, useSeedCalendar, useSubmissions,
+  useSubmitSubmission, useUpcomingMilestones, type AdoptionBasis, type MilestoneRow, type SubmissionRow,
 } from './useBudgetHandoff';
 
 const STAGES: Record<string, string> = {
@@ -17,6 +17,13 @@ const BASES: { value: AdoptionBasis; label: string; hint: string }[] = [
 ];
 const EDITABLE = ['draft', 'revised'];
 const TYPE_LABEL: Record<string, string> = { personnel: 'Personnel', overhead: 'Overheads', capital: 'Capital' };
+const MILESTONE_STYLE: Record<MilestoneRow['status'], { label: string; color: string }> = {
+  completed: { label: 'Done', color: '#166534' },
+  overdue: { label: 'Overdue', color: '#991b1b' },
+  due_soon: { label: 'Due soon', color: '#92400e' },
+  upcoming: { label: 'Upcoming', color: '#475569' },
+};
+const ddmmyyyy = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
 
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 18px', minWidth: 0 };
 const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 };
@@ -49,6 +56,10 @@ export default function BudgetHandoff() {
   const ceiling = useCeilingCheck(id);
   const submit = useSubmitSubmission();
   const [reason, setReason] = useState('');
+  const milestones = useUpcomingMilestones(30);
+  const seedCalendar = useSeedCalendar();
+  const [anchor, setAnchor] = useState('');
+  const [needAnchor, setNeedAnchor] = useState(false);
 
   if (!submission) return null;
   const editable = EDITABLE.includes(submission.stage);
@@ -74,6 +85,18 @@ export default function BudgetHandoff() {
       message.success(overCeiling ? 'Submitted over the ceiling, with your reason recorded for the reviewer' : 'Submitted to the Budget Office');
       setReason('');
     } catch (e) { setError(handoffError(e)); }
+  };
+
+  const runSeed = async () => {
+    setError(null);
+    try {
+      const r = await seedCalendar.mutateAsync({ fiscal_year: submission.fiscal_year, ...(anchor ? { anchor_date: anchor } : {}) });
+      message.success(r.created ? `Added ${r.created} standard step(s) for ${submission.fiscal_year}` : `The ${submission.fiscal_year} calendar already has every standard step`);
+      setNeedAnchor(false);
+    } catch (e) {
+      setNeedAnchor(true);
+      setError(handoffError(e));
+    }
   };
 
   const runHandOff = async () => {
@@ -106,6 +129,37 @@ export default function BudgetHandoff() {
       </div>
 
       {error && <div role="alert" data-testid="bh-error" style={errorBox}>{error}</div>}
+
+      <div data-testid="bh-calendar">
+        <div style={heading}>Budget calendar: coming up</div>
+        {(milestones.data ?? []).length === 0 ? (
+          <p data-testid="bh-calendar-empty" style={{ fontSize: 13, color: '#64748b', margin: '0 0 8px' }}>
+            Nothing is overdue or due in the next 30 days.
+          </p>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: '0 0 8px', padding: 0, display: 'grid', gap: 4 }}>
+            {(milestones.data ?? []).slice(0, 5).map((m) => (
+              <li key={m.id} data-testid="bh-milestone" style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 13, color: '#334155' }}>
+                <span style={{ fontWeight: 700, color: MILESTONE_STYLE[m.status].color, minWidth: 70 }}>{MILESTONE_STYLE[m.status].label}</span>
+                <span style={{ flex: 1 }}>{m.fiscal_year}: {m.name}</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{ddmmyyyy(m.due_date)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+          {needAnchor && (
+            <div>
+              <label style={label} htmlFor="bh-anchor">Date the {submission.fiscal_year} call circular is issued</label>
+              <input id="bh-anchor" data-testid="bh-anchor" type="date" style={{ ...input, width: 190 }} value={anchor}
+                onChange={(e) => setAnchor(e.target.value)} />
+            </div>
+          )}
+          <button type="button" style={btn} data-testid="bh-seed" disabled={seedCalendar.isPending} onClick={runSeed}>
+            Set up the standard {submission.fiscal_year} calendar
+          </button>
+        </div>
+      </div>
 
       <div data-testid="bh-ceiling">
         <div style={heading}>Against the MDA ceiling</div>

@@ -50,6 +50,16 @@ export interface CeilingCheck {
   rows: CeilingRow[];
 }
 
+export interface MilestoneRow {
+  id: number;
+  fiscal_year: number;
+  name: string;
+  due_date: string;
+  completed_on: string | null;
+  status: 'completed' | 'overdue' | 'due_soon' | 'upcoming';
+  days_to_due: number | null;
+}
+
 export interface HandoffProblem {
   line: number;
   missing?: string[];
@@ -108,6 +118,20 @@ export function useSubmitSubmission() {
   return useMutation<{ stage: string; check: CeilingCheck }, unknown, { id: number; override_reason?: string }>({
     mutationFn: async ({ id, override_reason }) =>
       (await apiClient.post(`/budget-prep/submissions/${id}/submit/`, { override_reason: override_reason ?? '' })).data,
+    onSuccess: refresh,
+  });
+}
+
+export const useUpcomingMilestones = (days = 30) =>
+  useQuery<MilestoneRow[]>({
+    queryKey: [...KEY, 'milestones', days],
+    queryFn: async () => (await apiClient.get('/budget-prep/milestones/upcoming/', { params: { days } })).data,
+  });
+
+export function useSeedCalendar() {
+  const refresh = useRefresh();
+  return useMutation<{ created: number; existing: number; anchor: string }, unknown, { fiscal_year: number; anchor_date?: string }>({
+    mutationFn: async (body) => (await apiClient.post('/budget-prep/milestones/seed-standard/', body)).data,
     onSuccess: refresh,
   });
 }

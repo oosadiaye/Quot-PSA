@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    BudgetMilestoneViewSet,
     CallCircularViewSet,
     MTEFProjectionViewSet,
     MDACeilingViewSet,
@@ -16,6 +17,7 @@ router.register(r'mda-ceilings', MDACeilingViewSet, basename='mda-ceiling')
 router.register(r'submissions', BudgetSubmissionViewSet, basename='budget-submission')
 router.register(r'submission-lines', SubmissionLineViewSet, basename='submission-line')
 router.register(r'review-comments', ReviewCommentViewSet, basename='review-comment')
+router.register(r'milestones', BudgetMilestoneViewSet, basename='budget-milestone')
 
 urlpatterns = [
     path('', include(router.urls)),

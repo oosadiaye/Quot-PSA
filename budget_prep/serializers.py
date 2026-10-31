@@ -1,6 +1,8 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
+    BudgetMilestone,
     CallCircular,
     MTEFProjection,
     MDACeiling,
@@ -8,6 +10,7 @@ from .models import (
     SubmissionLine,
     ReviewComment,
 )
+from .services.calendar import status_of
 
 
 class CallCircularSerializer(serializers.ModelSerializer):
@@ -69,6 +72,25 @@ class BudgetSubmissionSerializer(serializers.ModelSerializer):
         if value == 'submitted' and current != 'submitted':
             raise serializers.ValidationError('Use Submit to send a submission to the Budget Office; it checks the MDA ceiling.')
         return value
+
+
+class BudgetMilestoneSerializer(serializers.ModelSerializer):
+    status = serializers.SerializerMethodField()
+    days_to_due = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BudgetMilestone
+        fields = [
+            'id', 'fiscal_year', 'sequence', 'name', 'due_date', 'completed_on', 'owner', 'notes', 'std_key',
+            'status', 'days_to_due',
+        ]
+        read_only_fields = ['std_key']
+
+    def get_status(self, obj) -> str:
+        return status_of(obj, timezone.localdate())
+
+    def get_days_to_due(self, obj):
+        return None if obj.completed_on else (obj.due_date - timezone.localdate()).days
 
 
 class ReviewCommentSerializer(serializers.ModelSerializer):
