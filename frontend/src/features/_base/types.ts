@@ -33,8 +33,10 @@ export interface EntityField {
   numeric?: boolean;
   /** Hide from the create/edit form (server-managed fields). */
   hideInForm?: boolean;
-  /** Auxiliary columns displayed only in the expanded card on mobile. */
+  /** Auxiliary columns displayed only in the expanded card on mobile; in the form they sit under "Additional information". */
   secondary?: boolean;
+  /** One line of guidance shown under the input. */
+  hint?: string;
 }
 
 export interface EntityConfig {
@@ -43,6 +45,8 @@ export interface EntityConfig {
   /** Plural path segment on the backend, e.g. 'staff-advances'. */
   plural: string;
   label: string;
+  /** Singular name for headings and buttons ("Vehicle" for "Vehicles"); derived from the label when omitted. */
+  singular?: string;
   /** Field used for the search query param. */
   searchField: string;
   /** Columns shown in the table (subset of fields). */

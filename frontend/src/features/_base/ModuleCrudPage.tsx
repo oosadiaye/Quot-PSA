@@ -4,15 +4,17 @@
  * table + modal form. Driven entirely by the module's config.ts.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, message, Input } from 'antd';
-import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Drawer, Modal, message } from 'antd';
+import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, InboxOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
-import { ListPageShell, SectionCard, StatusBadge, ThemedButton } from '../../components/layout';
+import { ListPageShell, StatusBadge, ThemedButton } from '../../components/layout';
 import ResponsiveTable from '../../components/ResponsiveTable';
 import type { Column } from '../../components/ResponsiveTable';
 import type { EntityConfig, ModuleConfig } from '../_base/types';
 import { EntityForm } from '../_base/EntityForm';
 import { useEntityList, useEntityCreate, useEntityUpdate, useEntityDelete } from '../_base/useEntityCrud';
+import { singularLabel } from './labels';
+import './crud.css';
 
 interface ModuleCrudPageProps {
   config: ModuleConfig;
@@ -26,6 +28,8 @@ const listBase = (module: ModuleConfig, entity: EntityConfig) =>
 const formatCell = (field: any, value: any): React.ReactNode => {
   if (value === null || value === undefined) return '—';
   if (field.type === 'boolean') return value ? 'Yes' : 'No';
+  if (field.type === 'select' && field.options) return field.options[String(value)] ?? String(value);
+  if (field.type === 'object') return Array.isArray(value) ? value.length.toLocaleString() : '—';
   if (field.type === 'decimal' || field.type === 'number') {
     const n = Number(value);
     return isNaN(n) ? String(value) : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -78,6 +82,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
   const deleteMut = useEntityDelete(config.key, base);
 
   const rows: Record<string, any>[] = list.data?.results ?? [];
+  const singular = activeEntity ? singularLabel(activeEntity.label, activeEntity.singular) : '';
+  const total = list.data?.count ?? 0;
+  const searching = search.trim() !== '';
+  const firstShown = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastShown = Math.min(page * pageSize, total);
 
   const handleSubmit = async (payload: Record<string, any>) => {
     if (!activeEntity || !modal) return;
@@ -85,10 +94,10 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
     try {
       if (modal.record) {
         await updateMut.mutateAsync({ id: modal.record[activeEntity.idField ?? 'id'], payload });
-        message.success('Record updated');
+        message.success(`${singular} updated`);
       } else {
         await createMut.mutateAsync(payload);
-        message.success('Record created');
+        message.success(`${singular} created`);
       }
       setModal(null);
     } catch (e: any) {
@@ -100,14 +109,14 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
     if (!activeEntity) return;
     const id = row[activeEntity.idField ?? 'id'];
     Modal.confirm({
-      title: `Delete this ${activeEntity.label.toLowerCase()}?`,
-      content: 'This action cannot be undone.',
+      title: `Delete this ${singular.toLowerCase()}?`,
+      content: 'This cannot be undone.',
       okText: 'Delete',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteMut.mutateAsync(id);
-          message.success('Record deleted');
+          message.success(`${singular} deleted`);
         } catch (e: any) {
           message.error(e?.response?.data?.detail || 'Delete failed');
         }
@@ -122,12 +131,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
       header: f.label,
       align: f.numeric ? ('right' as const) : ('left' as const),
       mobilePrimary: f === activeEntity.columns[0] || f === activeEntity.columns[1],
-      render: (row: Record<string, any>) =>
-        f.name === activeEntity.statusField ? (
-          <StatusBadge status={String(row[f.name] ?? '')}>{String(row[f.name] ?? '—')}</StatusBadge>
-        ) : (
-          formatCell(f, row[f.name])
-        ),
+      render: (row: Record<string, any>) => {
+        if (f.name !== activeEntity.statusField) return formatCell(f, row[f.name]);
+        const raw = String(row[f.name] ?? '');
+        return <StatusBadge status={raw}>{f.options?.[raw] ?? (raw || '—')}</StatusBadge>;
+      },
     }));
     cols.push({
       key: '__actions',
@@ -135,11 +143,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
       align: 'right',
       mobilePrimary: false,
       render: (row) => (
-        <span style={{ display: 'inline-flex', gap: 6 }}>
-          <ThemedButton size="sm" variant="ghost" icon={<EditOutlined />} title="Edit" children=""
-            onClick={() => setModal({ entity: activeEntity, record: row })} />
-          <ThemedButton size="sm" variant="danger" icon={<DeleteOutlined />} title="Delete" children=""
-            onClick={(e) => { e?.stopPropagation(); handleDelete(row); }} />
+        <span style={{ display: 'inline-flex', gap: 2 }}>
+          <button type="button" className="reg-act" title="Edit" aria-label={`Edit ${singular.toLowerCase()}`}
+            onClick={() => setModal({ entity: activeEntity, record: row })}><EditOutlined /></button>
+          <button type="button" className="reg-act danger" title="Delete" aria-label={`Delete ${singular.toLowerCase()}`}
+            onClick={(e) => { e.stopPropagation(); handleDelete(row); }}><DeleteOutlined /></button>
         </span>
       ),
     });
@@ -147,6 +155,9 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
   }, [activeEntity, search]);
 
   const refresh = () => list.refetch();
+
+  const openNew = () => activeEntity && setModal({ entity: activeEntity, record: null });
+  const drawerSize = typeof window === 'undefined' ? 760 : Math.min(760, window.innerWidth);
 
   return (
     <ListPageShell>
@@ -163,77 +174,107 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
 
       {banner}
 
-      {/* Entity tabs */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        {config.entities.map((e) => {
-          const active = e.key === activeKey;
-          return (
-            <button
-              key={e.key}
-              onClick={() => { setActiveKey(e.key); setPage(1); }}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 999,
-                border: active ? '1px solid #242a88' : '1px solid #cbd5e1',
-                background: active ? '#242a88' : '#ffffff',
-                color: active ? '#ffffff' : '#475569',
-                fontSize: 12.5,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              {e.label}
-            </button>
-          );
-        })}
+      <div className="reg-tabs" role="tablist" aria-label={`${config.label} sections`}>
+        {config.entities.map((e) => (
+          <button
+            key={e.key}
+            type="button"
+            role="tab"
+            className="reg-tab"
+            aria-selected={e.key === activeKey}
+            onClick={() => { setActiveKey(e.key); setPage(1); setSearch(''); }}
+          >
+            {e.label}
+          </button>
+        ))}
       </div>
 
       {activeEntity && (
-        <SectionCard
-          title={`${activeEntity.label} Register`}
-          subtitle={list.data ? `${list.data.count} record(s)` : 'Loading…'}
-          actions={
-            <ThemedButton size="sm" icon={<PlusOutlined />} onClick={() => setModal({ entity: activeEntity, record: null })}>
-              New {activeEntity.label}
-            </ThemedButton>
-          }
-        >
-          <div style={{ marginBottom: 12 }}>
-            <Input
-              allowClear
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder={`Search ${activeEntity.label.toLowerCase()}…`}
-              style={{ maxWidth: 340 }}
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            />
+        <>
+          <div className="reg-head">
+            <div>
+              <h2 className="reg-title">{activeEntity.label}</h2>
+              <p className="reg-sub" data-testid="reg-count">
+                {list.data
+                  ? `${total.toLocaleString()} ${total === 1 ? 'record' : 'records'}${searching ? ` matching \u201c${search.trim()}\u201d` : ''}`
+                  : 'Loading\u2026'}
+              </p>
+            </div>
+            <div className="reg-tools">
+              <label className="reg-search">
+                <SearchOutlined />
+                <input
+                  type="search"
+                  aria-label={`Search ${activeEntity.label.toLowerCase()}`}
+                  placeholder={`Search ${activeEntity.label.toLowerCase()}\u2026`}
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                />
+              </label>
+              <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}>
+                <PlusOutlined /> New {singular}
+              </button>
+            </div>
           </div>
-          <ResponsiveTable
-            data={rows}
-            columns={columns as Column<Record<string, any>>[]}
-            keyField={(activeEntity.idField ?? 'id') as any}
-            emptyState={`No ${activeEntity.label.toLowerCase()} records found.`}
-            ariaLabel={activeEntity.label}
-          />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <ThemedButton size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Prev
-            </ThemedButton>
-            <span style={{ fontSize: 13, color: '#475569' }}>Page {page}</span>
-            <ThemedButton size="sm" variant="secondary" disabled={!list.data || page * pageSize >= list.data.count} onClick={() => setPage((p) => p + 1)}>
-              Next
-            </ThemedButton>
+
+          <div className="reg-surface">
+            {list.isLoading ? (
+              <div className="reg-skeleton" aria-busy="true" aria-label="Loading records"><span /><span /><span /><span /></div>
+            ) : list.isError ? (
+              <div className="reg-empty" role="alert">
+                <h3>These records could not be loaded</h3>
+                <p>Check your connection and try again. If it keeps happening, tell your administrator.</p>
+                <button type="button" className="ef-btn" onClick={refresh}>Try again</button>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="reg-empty" data-testid="reg-empty">
+                <div className="reg-empty-mark" aria-hidden="true"><InboxOutlined /></div>
+                <h3>{searching ? 'Nothing matches that search' : `No ${activeEntity.label.toLowerCase()} yet`}</h3>
+                <p>
+                  {searching
+                    ? `No ${activeEntity.label.toLowerCase()} match \u201c${search.trim()}\u201d. Check the spelling or clear the search.`
+                    : `${activeEntity.label} you add will be listed here.`}
+                </p>
+                {searching
+                  ? <button type="button" className="ef-btn" onClick={() => setSearch('')}>Clear search</button>
+                  : <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}><PlusOutlined /> New {singular}</button>}
+              </div>
+            ) : (
+              <ResponsiveTable
+                data={rows}
+                columns={columns as Column<Record<string, any>>[]}
+                keyField={(activeEntity.idField ?? 'id') as any}
+                emptyState=""
+                ariaLabel={activeEntity.label}
+              />
+            )}
+            {total > 0 && (
+              <div className="reg-pager">
+                <span data-testid="reg-range">Showing {firstShown.toLocaleString()}–{lastShown.toLocaleString()} of {total.toLocaleString()}</span>
+                <span className="reg-pager-actions">
+                  <button type="button" className="ef-btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
+                  <button type="button" className="ef-btn" disabled={page * pageSize >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
+                </span>
+              </div>
+            )}
           </div>
-        </SectionCard>
+        </>
       )}
 
-      <Modal
-        title={modal ? (modal.record ? `Edit ${modal.entity.label}` : `New ${modal.entity.label}`) : ''}
+      <Drawer
         open={!!modal}
-        onCancel={() => setModal(null)}
-        footer={null}
-        width={720}
-        destroyOnClose
+        onClose={() => setModal(null)}
+        size={drawerSize}
+        destroyOnHidden
+        title={modal ? (
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>
+              {modal.record ? `Edit ${singularLabel(modal.entity.label, modal.entity.singular).toLowerCase()}` : `New ${singularLabel(modal.entity.label, modal.entity.singular).toLowerCase()}`}
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 400, color: 'var(--color-text-muted)' }}>{config.label}</div>
+          </div>
+        ) : ''}
+        styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
       >
         {modal && (
           <EntityForm
@@ -245,7 +286,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
             submitting={createMut.isPending || updateMut.isPending}
           />
         )}
-      </Modal>
+      </Drawer>
     </ListPageShell>
   );
 };

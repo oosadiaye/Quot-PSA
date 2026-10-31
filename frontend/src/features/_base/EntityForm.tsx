@@ -1,18 +1,21 @@
 /**
- * EntityForm — generic create/edit modal form rendered from an
- * EntityConfig. One "primary key / label" summary identifier per entity is
- * surfaced as the top summary line; all other writable fields are rendered
- * as labelled inputs matching the Quot PSE input style.
+ * EntityForm: the create / edit form for any registry entity, rendered from its config.
+ *
+ * Laid out like an official form: numbered sections, one question per field, required fields marked, guidance and errors
+ * beside the field they belong to, and the actions pinned at the bottom so they never scroll away. Fields marked
+ * `secondary` sit in a second, collapsible section unless they are required or already filled.
  *
  * Props:
- *   config   — the entity config describing fields
- *   initial  — existing record when editing, otherwise null (create)
- *   onSubmit — called with the collected payload
- *   onCancel — close the modal
- *   submitting
+ *   config   the entity config describing fields
+ *   initial  the existing record when editing, otherwise null (create)
+ *   onSubmit called with the collected payload once it passes validation
+ *   onCancel close the form
  */
-import React, { useMemo, useState } from 'react';
-import type { EntityConfig, EntityField } from '../_base/types';
+import React, { useId, useMemo, useRef, useState } from 'react';
+import './crud.css';
+import { ReferenceField } from './ReferenceField';
+import { singularLabel } from './labels';
+import type { EntityConfig, EntityField } from './types';
 
 interface EntityFormProps {
   config: EntityConfig;
@@ -23,252 +26,215 @@ interface EntityFormProps {
   error?: string | null;
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 8,
-  border: '1px solid #cbd5e1',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  background: '#fff',
-  color: '#0b1320',
-};
+const NUMERIC: EntityField['type'][] = ['number', 'decimal', 'integer'];
+const isNumeric = (f: EntityField) => NUMERIC.includes(f.type);
+const isEmpty = (v: unknown) => v === '' || v === null || v === undefined;
+const asText = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: '#475569',
-  textTransform: 'uppercase',
-  letterSpacing: '0.4px',
-  marginBottom: 4,
-  display: 'block',
-};
-
-function formatValue(field: EntityField, value: any): string {
-  if (value === null || value === undefined) return '';
-  if (field.type === 'boolean') return String(value);
-  return String(value);
+function seedValues(config: EntityConfig, initial?: Record<string, any> | null): Record<string, any> {
+  const seed: Record<string, any> = {};
+  for (const f of config.fields) {
+    if (f.hideInForm) continue;
+    const v = initial ? initial[f.name] : undefined;
+    seed[f.name] = isEmpty(v) ? (f.type === 'boolean' ? false : '') : v;
+  }
+  return seed;
 }
 
-export const EntityForm: React.FC<EntityFormProps> = ({
-  config,
-  initial,
-  onSubmit,
-  onCancel,
-  submitting,
-  error,
-}) => {
-  const formFields = useMemo(
-    () => config.fields.filter((f) => !f.hideInForm),
-    [config],
-  );
+/** What is wrong with one field's value, or '' when it is fine. */
+function problemWith(f: EntityField, v: unknown): string {
+  if (f.readOnly || f.type === 'boolean' || f.type === 'object') return '';
+  if (f.type === 'file') return f.required && !(v instanceof File) && !(typeof v === 'string' && v) ? 'Choose a file to upload.' : '';
+  if (isEmpty(v)) return f.required ? 'This field is required.' : '';
+  if (isNumeric(f)) {
+    if (!Number.isFinite(Number(v))) return 'Enter a valid number.';
+    if (f.type === 'integer' && !Number.isInteger(Number(v))) return 'Enter a whole number.';
+  }
+  return '';
+}
 
-  // Initialise local form state from the config + existing record. The
-  // form is remounted on every open (Modal destroyOnClose), so a lazy
-  // initialiser is safe here — no effect-driven setState required.
-  const [values, setValues] = useState<Record<string, any>>(() => {
-    const seed: Record<string, any> = {};
-    for (const f of config.fields) {
-      if (f.hideInForm) continue;
-      let v = initial ? initial[f.name] : undefined;
-      if (v === undefined || v === null) {
-        v = f.type === 'boolean' ? false : f.type === 'number' || f.type === 'decimal' || f.type === 'integer' ? '' : '';
-      }
-      seed[f.name] = v;
-    }
-    return seed;
-  });
+export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, onSubmit, onCancel, submitting, error }) => {
+  const uid = useId();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const formFields = useMemo(() => config.fields.filter((f) => !f.hideInForm), [config]);
+  const [values, setValues] = useState<Record<string, any>>(() => seedValues(config, initial));
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [summary, setSummary] = useState<string | null>(null);
 
-  // Summary = id field + a small set of headline text fields, shown above
-  // the inputs (or the label field if one is marked primary).
-  const summaryFields = useMemo(() => {
+  const primary = useMemo(() => {
+    const main = formFields.filter((f) => !f.secondary || f.required);
+    return main.length ? main : formFields;
+  }, [formFields]);
+  const more = useMemo(() => formFields.filter((f) => !primary.includes(f)), [formFields, primary]);
+  const [moreOpen, setMoreOpen] = useState(() => !!initial && more.some((f) => !isEmpty(initial[f.name])));
+
+  // The record being edited, named by the fields people recognise it by.
+  const recordSummary = useMemo(() => {
+    if (!initial) return [];
+    // What people recognise a record by: the entity's own search key first, then the usual naming fields.
+    const naming = [config.searchField, 'reference', 'code', 'name', 'title', 'description'];
+    const headline = naming
+      .map((n) => config.fields.find((f) => f.name === n))
+      .filter((f, i, all): f is EntityField => !!f && all.indexOf(f) === i)
+      .slice(0, 2);
     const id = config.fields.find((f) => f.name === config.idField);
-    const headline = config.fields.filter((f) => !f.hideInForm && (f.name === 'reference' || f.name === 'code' || f.name === 'name' || f.name === 'title' || f.name === 'description')).slice(0, 2);
-    return [id, ...headline].filter(Boolean) as EntityField[];
-  }, [config]);
+    return [id, ...headline].filter((f): f is EntityField => !!f && !isEmpty(initial[f.name]));
+  }, [config, initial]);
 
-  const set = (name: string, v: any) => setValues((p) => ({ ...p, [name]: v }));
-
-  const renderControl = (field: EntityField) => {
-    const value = formatValue(field, values[field.name]);
-    if (field.type === 'boolean') {
-      return (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#0b1320' }}>
-          <input
-            type="checkbox"
-            checked={!!values[field.name]}
-            onChange={(e) => set(field.name, e.target.checked)}
-          />
-          {field.label}
-        </label>
-      );
-    }
-    if (field.type === 'select' && field.options) {
-      return (
-        <select
-          style={inputStyle}
-          value={value}
-          onChange={(e) => set(field.name, e.target.value)}
-        >
-          <option value="">— Select —</option>
-          {Object.entries(field.options).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      );
-    }
-    if (field.type === 'longtext') {
-      return (
-        <textarea
-          style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
-          value={value}
-          onChange={(e) => set(field.name, e.target.value)}
-          placeholder={field.placeholder}
-        />
-      );
-    }
-    if (field.type === 'date') {
-      return (
-        <input
-          type="date"
-          style={inputStyle}
-          value={value}
-          onChange={(e) => set(field.name, e.target.value)}
-        />
-      );
-    }
-    if (field.type === 'datetime') {
-      return (
-        <input
-          type="datetime-local"
-          style={inputStyle}
-          value={value}
-          onChange={(e) => set(field.name, e.target.value)}
-        />
-      );
-    }
-    if (field.type === 'number' || field.type === 'decimal' || field.type === 'integer') {
-      return (
-        <input
-          type="number"
-          step={field.type === 'integer' ? 1 : 'any'}
-          style={inputStyle}
-          value={value}
-          onChange={(e) => set(field.name, e.target.value === '' ? '' : Number(e.target.value))}
-        />
-      );
-    }
-    if (field.type === 'file') {
-      const current = typeof values[field.name] === 'string' ? values[field.name] : '';
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <input
-            type="file"
-            style={inputStyle}
-            data-testid={`file-${field.name}`}
-            onChange={(e) => set(field.name, e.target.files?.[0] ?? '')}
-          />
-          {current && <span style={{ fontSize: 12, color: '#64748b' }}>Current: {current.split('/').pop()}</span>}
-        </div>
-      );
-    }
-    if (field.type === 'object') {
-      // Read-only display for nested / structured values.
-      return (
-        <input
-          style={inputStyle}
-          value={typeof value === 'string' ? value : JSON.stringify(value ?? '')}
-          readOnly
-        />
-      );
-    }
-    // text
-    return (
-      <input
-        style={inputStyle}
-        value={value}
-        onChange={(e) => set(field.name, e.target.value)}
-        placeholder={field.placeholder}
-      />
-    );
+  const set = (name: string, v: unknown) => {
+    setValues((p) => ({ ...p, [name]: v }));
+    if (errors[name]) setErrors((p) => ({ ...p, [name]: '' }));
   };
 
   const submit = () => {
-    // Drop empty numeric strings and empty values that aren't required.
+    const found: Record<string, string> = {};
+    for (const f of formFields) {
+      const problem = problemWith(f, values[f.name]);
+      if (problem) found[f.name] = problem;
+    }
+    setErrors(found);
+    const count = Object.keys(found).length;
+    if (count) {
+      setSummary(`${count} field${count === 1 ? ' needs' : 's need'} attention before this can be saved.`);
+      if (more.some((f) => found[f.name])) setMoreOpen(true);
+      requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
+    setSummary(null);
     const payload: Record<string, any> = {};
     for (const f of formFields) {
+      if (f.readOnly) continue;
       const v = values[f.name];
       if (f.type === 'boolean') { payload[f.name] = !!v; continue; }
       if (f.type === 'file' && !(v instanceof File)) continue;   // an unchanged stored file is a URL: leave it alone
-      if (v === '' || v === null || v === undefined) {
-        if (f.required) payload[f.name] = v;
-        continue;
-      }
+      if (isEmpty(v)) { if (f.required) payload[f.name] = v; continue; }
       payload[f.name] = v;
     }
     onSubmit(payload);
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {initial && summaryFields.length > 0 && (
-        <div
-          style={{
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: 10,
-            padding: '10px 14px',
-            fontSize: 13,
-            color: '#334155',
-          }}
-        >
-          {summaryFields.map((f) => (
-            <span key={f.name} style={{ marginRight: 16 }}>
-              <strong>{f.label}:</strong>{' '}{formatValue(f, initial?.[f.name]) ?? '—'}
-            </span>
-          ))}
-        </div>
-      )}
+  const control = (f: EntityField, id: string, described: string | undefined) => {
+    const invalid = errors[f.name] ? true : undefined;
+    const common = { id, 'aria-invalid': invalid, 'aria-describedby': described, 'aria-required': f.required || undefined };
+    const v = values[f.name];
 
-      {error && (
-        <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '8px 12px', borderRadius: 8, fontSize: 13 }}>
-          {error}
+    if (f.reference && isNumeric(f)) {
+      return <ReferenceField field={f} value={v} onChange={(next) => set(f.name, next)} id={id} invalid={!!invalid} />;
+    }
+    if (f.type === 'select' && f.options) {
+      return (
+        <select {...common} className="ef-input" disabled={f.readOnly} value={asText(v)} onChange={(e) => set(f.name, e.target.value)}>
+          <option value="">Select…</option>
+          {Object.entries(f.options).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+      );
+    }
+    if (f.type === 'longtext') {
+      return <textarea {...common} className="ef-input" readOnly={f.readOnly} value={asText(v)} placeholder={f.placeholder} onChange={(e) => set(f.name, e.target.value)} />;
+    }
+    if (f.type === 'date' || f.type === 'datetime') {
+      return (
+        <input {...common} className="ef-input" type={f.type === 'date' ? 'date' : 'datetime-local'} readOnly={f.readOnly}
+          value={f.type === 'datetime' ? asText(v).slice(0, 16) : asText(v).slice(0, 10)} onChange={(e) => set(f.name, e.target.value)} />
+      );
+    }
+    if (isNumeric(f)) {
+      return (
+        <input {...common} className={f.type === 'integer' ? 'ef-input' : 'ef-input num'} type="number" inputMode={f.type === 'integer' ? 'numeric' : 'decimal'}
+          step={f.type === 'integer' ? 1 : 'any'} readOnly={f.readOnly} value={asText(v)} placeholder={f.placeholder}
+          onChange={(e) => set(f.name, e.target.value === '' ? '' : Number(e.target.value))} />
+      );
+    }
+    if (f.type === 'file') {
+      const current = typeof v === 'string' ? v : '';
+      return (
+        <div className="ef-file" aria-invalid={invalid}>
+          <input {...common} type="file" data-testid={`file-${f.name}`} onChange={(e) => set(f.name, e.target.files?.[0] ?? '')} />
+          {current && <span>Current file: <strong>{current.split('/').pop()}</strong></span>}
         </div>
-      )}
+      );
+    }
+    if (f.type === 'object') {
+      return <input {...common} className="ef-input" readOnly value={typeof v === 'string' ? v : JSON.stringify(v ?? '')} />;
+    }
+    return <input {...common} className="ef-input" readOnly={f.readOnly} value={asText(v)} placeholder={f.placeholder} onChange={(e) => set(f.name, e.target.value)} />;
+  };
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
-        {formFields.map((f) => (
-          <div key={f.name} style={{ gridColumn: f.type === 'longtext' ? '1 / -1' : undefined }}>
-            <label style={labelStyle}>{f.label}{f.required ? ' *' : ''}</label>
-            {renderControl(f)}
+  const field = (f: EntityField) => {
+    const id = `${uid}-${f.name}`;
+    const hintId = f.hint ? `${id}-hint` : undefined;
+    const errId = errors[f.name] ? `${id}-err` : undefined;
+    const described = [hintId, errId].filter(Boolean).join(' ') || undefined;
+
+    if (f.type === 'boolean') {
+      return (
+        <div key={f.name} className="ef-field full">
+          <div className="ef-switch-row">
+            <div>
+              <label className="ef-label" htmlFor={id}>{f.label}</label>
+              {f.hint && <p className="ef-hint" id={hintId}>{f.hint}</p>}
+            </div>
+            <button id={id} type="button" role="switch" aria-checked={!!values[f.name]} aria-label={f.label} className="ef-switch"
+              disabled={f.readOnly} onClick={() => set(f.name, !values[f.name])} />
           </div>
-        ))}
+        </div>
+      );
+    }
+    return (
+      <div key={f.name} className={`ef-field${f.type === 'longtext' || f.type === 'object' ? ' full' : ''}`}>
+        <label className="ef-label" htmlFor={id}>
+          {f.label}{f.required && <span className="ef-req" aria-hidden="true">*</span>}
+        </label>
+        {control(f, id, described)}
+        {f.hint && !errors[f.name] && <p className="ef-hint" id={hintId}>{f.hint}</p>}
+        {errors[f.name] && <p className="ef-error" id={errId} role="alert">{errors[f.name]}</p>}
+      </div>
+    );
+  };
+
+  const singular = singularLabel(config.label, config.singular);
+
+  return (
+    <div className="ef">
+      <div className="ef-scroll" ref={scrollRef}>
+        {recordSummary.length > 0 && (
+          <div className="ef-record" data-testid="ef-record">
+            {recordSummary.map((f) => <span key={f.name}><b>{f.label}</b>{asText(initial?.[f.name])}</span>)}
+          </div>
+        )}
+
+        {(error || summary) && (
+          <div className="ef-alert" role="alert" data-testid="ef-error">{error ?? summary}</div>
+        )}
+
+        <section className="ef-section">
+          <div className="ef-section-head">
+            <span className="ef-section-no">01</span>
+            <span className="ef-section-title">Details</span>
+          </div>
+          <div className="ef-grid">{primary.map(field)}</div>
+        </section>
+
+        {more.length > 0 && (
+          <section className="ef-section">
+            <button type="button" className="ef-section-head" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
+              <span className="ef-section-no">02</span>
+              <span className="ef-section-title">Additional information</span>
+              <span className="ef-section-toggle">{moreOpen ? 'Hide' : `Show ${more.length}`}</span>
+            </button>
+            {moreOpen && <div className="ef-grid">{more.map(field)}</div>}
+          </section>
+        )}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{ ...inputStyle, width: 'auto', padding: '8px 16px', background: '#fff', border: '1px solid #cbd5e1', color: '#242a88', fontWeight: 600 }}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={submitting}
-          style={{
-            ...inputStyle,
-            width: 'auto',
-            padding: '8px 18px',
-            background: 'linear-gradient(135deg, #242a88, #2e35a0)',
-            border: 'none',
-            color: '#fff',
-            fontWeight: 600,
-          }}
-        >
-          {submitting ? 'Saving…' : initial ? 'Save Changes' : 'Create'}
-        </button>
+      <div className="ef-footer">
+        <span className="ef-footer-note"><span className="ef-req">*</span> Required</span>
+        <span className="ef-footer-actions">
+          <button type="button" className="ef-btn" onClick={onCancel}>Cancel</button>
+          <button type="button" className="ef-btn ef-btn-primary" onClick={submit} disabled={submitting}>
+            {submitting ? 'Saving…' : initial ? 'Save changes' : `Create ${singular.toLowerCase()}`}
+          </button>
+        </span>
       </div>
     </div>
   );
