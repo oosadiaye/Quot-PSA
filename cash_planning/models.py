@@ -130,6 +130,11 @@ class WarrantRecommendation(AuditBaseModel):
         'accounting.Fund', on_delete=models.PROTECT, null=True, blank=True,
         related_name='+',
     )
+    # The period this recommendation is for; the window becomes the warrant's effective dates on conversion.
+    fiscal_year = models.IntegerField(null=True, blank=True, db_index=True)
+    quarter = models.PositiveSmallIntegerField(null=True, blank=True)
+    effective_from = models.DateField(null=True, blank=True)
+    effective_to = models.DateField(null=True, blank=True)
     proposed_amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='proposed')
     rationale = models.TextField(blank=True, default='')

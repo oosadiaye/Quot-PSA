@@ -140,6 +140,8 @@ export const moduleConfig: ModuleConfig = {
       columns: [
         { name: 'recommendation_date', label: 'Recommendation Date', type: 'date' },
         { name: 'mda_name', label: 'MDA', type: 'text' },
+        { name: 'fiscal_year', label: 'Year', type: 'integer', numeric: true },
+        { name: 'quarter', label: 'Quarter', type: 'integer', numeric: true },
         { name: 'proposed_amount', label: 'Proposed Amount', type: 'decimal', numeric: true },
         {
           name: 'status',
@@ -166,11 +168,15 @@ export const moduleConfig: ModuleConfig = {
           secondary: true,
           reference: { module: 'accounting', entity: 'fund' },
         },
+        { name: 'fiscal_year', label: 'Year', type: 'integer', numeric: true, readOnly: true, hideInForm: true },
+        { name: 'quarter', label: 'Quarter', type: 'integer', numeric: true, readOnly: true, hideInForm: true },
         { name: 'proposed_amount', label: 'Proposed Amount', type: 'decimal', numeric: true },
         {
           name: 'status',
           label: 'Status',
           type: 'select',
+          readOnly: true,
+          hideInForm: true,
           options: { proposed: 'Proposed', accepted: 'Accepted', converted: 'Converted to Warrant', rejected: 'Rejected' },
         },
         { name: 'rationale', label: 'Rationale', type: 'longtext', secondary: true },
@@ -179,6 +185,8 @@ export const moduleConfig: ModuleConfig = {
           label: 'Warrant',
           type: 'integer',
           secondary: true,
+          readOnly: true,
+          hideInForm: true,
           reference: { module: 'budget', entity: 'warrant' },
         },
         { name: 'created_at', label: 'Created At', type: 'datetime', hideInForm: true, readOnly: true, secondary: true },

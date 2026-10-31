@@ -43,11 +43,15 @@ class ForecastEngine:
     def from_payroll(self):
         """Projected payroll obligations from active PayrollRun/employee data."""
         def _q():
+            from accounting.models.advanced import FiscalYear
             from hrm.models import PayrollRun
+            year = FiscalYear.objects.filter(year=self.fiscal_year).first()
+            start, end = (year.start_date, year.end_date) if year else (date(self.fiscal_year, 1, 1), date(self.fiscal_year, 12, 31))
             runs = (
                 PayrollRun.objects
-                .filter(fiscal_year=self.fiscal_year)
-                .aggregate(total=Sum('gross_pay'))
+                .filter(period__start_date__gte=start, period__start_date__lte=end)
+                .exclude(status='Cancelled')
+                .aggregate(total=Sum('total_gross'))
             )
             total = runs.get('total') or 0
             if self.cash_plan is not None:

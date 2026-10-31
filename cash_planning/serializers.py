@@ -52,11 +52,12 @@ class WarrantRecommendationSerializer(serializers.ModelSerializer):
     class Meta:
         model = WarrantRecommendation
         fields = [
-            'id', 'recommendation_date', 'mda_name', 'appropriation', 'fund',
-            'proposed_amount', 'status', 'rationale', 'warrant',
+            'id', 'recommendation_date', 'mda_name', 'appropriation', 'fund', 'fiscal_year', 'quarter',
+            'effective_from', 'effective_to', 'proposed_amount', 'status', 'rationale', 'warrant',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        # Status and the warrant only ever change through accept / reject / convert, never by editing the row.
+        read_only_fields = ['status', 'warrant', 'created_at', 'updated_at']
 
 
 class CashPlanVarianceSerializer(serializers.ModelSerializer):
