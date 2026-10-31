@@ -455,6 +455,8 @@ class UserTenantRole(models.Model):
         ('manager', 'Mid-Level Manager'),
         ('user', 'Standard User'),
         ('viewer', 'Read-Only Viewer'),
+        # A supplier signing in to the supplier portal. Not a staff role: the middleware confines it to the portal API.
+        ('vendor', 'Supplier (portal only)'),
     ]
 
     ROLE_HIERARCHY = {
@@ -463,6 +465,7 @@ class UserTenantRole(models.Model):
         'manager': 3,
         'user': 2,
         'viewer': 1,
+        'vendor': 0,
     }
 
     user = models.ForeignKey(
