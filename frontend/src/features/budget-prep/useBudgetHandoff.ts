@@ -37,6 +37,19 @@ export interface HandoffResult {
   fiscal_year: number;
 }
 
+export interface CeilingRow {
+  line_type: 'personnel' | 'overhead' | 'capital';
+  proposed: string;
+  ceiling: string | null;
+  over_by: string;
+}
+
+export interface CeilingCheck {
+  has_ceiling: boolean;
+  ok: boolean;
+  rows: CeilingRow[];
+}
+
 export interface HandoffProblem {
   line: number;
   missing?: string[];
@@ -81,6 +94,22 @@ function useRefresh() {
     qc.invalidateQueries({ queryKey: KEY }),
     qc.invalidateQueries({ queryKey: ['budget_prep'] }),
   ]);
+}
+
+export const useCeilingCheck = (id: number | null) =>
+  useQuery<CeilingCheck>({
+    queryKey: [...KEY, 'ceiling', id],
+    queryFn: async () => (await apiClient.get(`/budget-prep/submissions/${id}/ceiling-check/`)).data,
+    enabled: !!id,
+  });
+
+export function useSubmitSubmission() {
+  const refresh = useRefresh();
+  return useMutation<{ stage: string; check: CeilingCheck }, unknown, { id: number; override_reason?: string }>({
+    mutationFn: async ({ id, override_reason }) =>
+      (await apiClient.post(`/budget-prep/submissions/${id}/submit/`, { override_reason: override_reason ?? '' })).data,
+    onSuccess: refresh,
+  });
 }
 
 export function useAdoptActuals() {

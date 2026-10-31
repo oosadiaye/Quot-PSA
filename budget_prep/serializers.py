@@ -61,7 +61,14 @@ class BudgetSubmissionSerializer(serializers.ModelSerializer):
             'submitted_at', 'total_personnel', 'total_overhead', 'total_capital',
             'notes', 'lines', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['submitted_at', 'created_at', 'updated_at']
+        read_only_fields = ['submitted_at', 'total_personnel', 'total_overhead', 'total_capital', 'created_at', 'updated_at']
+
+    def validate_stage(self, value):
+        # Submitting is the one move that has a control (the MDA ceiling), so it only happens through the Submit action.
+        current = self.instance.stage if self.instance else None
+        if value == 'submitted' and current != 'submitted':
+            raise serializers.ValidationError('Use Submit to send a submission to the Budget Office; it checks the MDA ceiling.')
+        return value
 
 
 class ReviewCommentSerializer(serializers.ModelSerializer):

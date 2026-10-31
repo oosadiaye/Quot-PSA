@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { message } from 'antd';
 import { useCurrency } from '../../context/CurrencyContext';
 import {
-  handoffError, useAdoptActuals, useAdoptionPreview, useIncorporate, useSubmissions,
+  handoffError, useAdoptActuals, useAdoptionPreview, useCeilingCheck, useIncorporate, useSubmissions, useSubmitSubmission,
   type AdoptionBasis, type SubmissionRow,
 } from './useBudgetHandoff';
 
@@ -16,6 +16,7 @@ const BASES: { value: AdoptionBasis; label: string; hint: string }[] = [
   { value: 'run_rate', label: 'Spending so far, annualised', hint: 'Spending to date scaled up to a full year.' },
 ];
 const EDITABLE = ['draft', 'revised'];
+const TYPE_LABEL: Record<string, string> = { personnel: 'Personnel', overhead: 'Overheads', capital: 'Capital' };
 
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 18px', minWidth: 0 };
 const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 };
@@ -45,6 +46,9 @@ export default function BudgetHandoff() {
   const preview = useAdoptionPreview(id, basis, previewing);
   const adopt = useAdoptActuals();
   const incorporate = useIncorporate();
+  const ceiling = useCeilingCheck(id);
+  const submit = useSubmitSubmission();
+  const [reason, setReason] = useState('');
 
   if (!submission) return null;
   const editable = EDITABLE.includes(submission.stage);
@@ -59,6 +63,16 @@ export default function BudgetHandoff() {
       const r = await adopt.mutateAsync({ id: submission.id, basis, growth_pct: growthNumber });
       message.success(`Adopted ${r.created} line(s) from ${r.source_year}: ${money(r.total_proposed)} proposed`);
       setPreviewing(false);
+    } catch (e) { setError(handoffError(e)); }
+  };
+
+  const overCeiling = ceiling.data ? !ceiling.data.ok : false;
+  const runSubmit = async () => {
+    setError(null);
+    try {
+      await submit.mutateAsync({ id: submission.id, override_reason: reason });
+      message.success(overCeiling ? 'Submitted over the ceiling, with your reason recorded for the reviewer' : 'Submitted to the Budget Office');
+      setReason('');
     } catch (e) { setError(handoffError(e)); }
   };
 
@@ -92,6 +106,55 @@ export default function BudgetHandoff() {
       </div>
 
       {error && <div role="alert" data-testid="bh-error" style={errorBox}>{error}</div>}
+
+      <div data-testid="bh-ceiling">
+        <div style={heading}>Against the MDA ceiling</div>
+        {ceiling.data && !ceiling.data.has_ceiling && (
+          <p data-testid="bh-no-ceiling" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+            No ceiling has been set for this MDA and year, so there is nothing to check against.
+          </p>
+        )}
+        {ceiling.data?.has_ceiling && (
+          <table data-no-tools style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: '#64748b' }}>
+                <th style={{ padding: '4px 8px 4px 0' }}>Type</th>
+                <th style={{ textAlign: 'right' }}>Proposed</th>
+                <th style={{ textAlign: 'right' }}>Ceiling</th>
+                <th style={{ textAlign: 'right' }}>Over by</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ceiling.data.rows.map((r) => (
+                <tr key={r.line_type} data-testid={`bh-ceiling-${r.line_type}`}
+                  style={{ color: Number(r.over_by) > 0 ? '#991b1b' : '#334155', fontWeight: Number(r.over_by) > 0 ? 700 : 400 }}>
+                  <td style={{ padding: '4px 8px 4px 0' }}>{TYPE_LABEL[r.line_type]}</td>
+                  <td style={{ textAlign: 'right' }}>{money(r.proposed)}</td>
+                  <td style={{ textAlign: 'right' }}>{r.ceiling === null ? 'none set' : money(r.ceiling)}</td>
+                  <td style={{ textAlign: 'right' }}>{Number(r.over_by) > 0 ? money(r.over_by) : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {editable && (
+          <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+            {overCeiling && (
+              <div>
+                <label style={label} htmlFor="bh-reason">This is over the ceiling. Why is it needed? (required to submit)</label>
+                <textarea id="bh-reason" data-testid="bh-reason" style={{ ...input, minHeight: 64, resize: 'vertical' }} value={reason}
+                  onChange={(e) => setReason(e.target.value)} />
+              </div>
+            )}
+            <div>
+              <button type="button" style={primary} data-testid="bh-submit"
+                disabled={submit.isPending || (overCeiling && reason.trim() === '')} onClick={runSubmit}>
+                {submit.isPending ? 'Submitting…' : overCeiling ? 'Submit over ceiling' : 'Submit to Budget Office'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
         <div>

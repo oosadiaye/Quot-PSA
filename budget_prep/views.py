@@ -17,6 +17,7 @@ from .models import (
     ReviewComment,
 )
 from .services.adoption import BASES, AdoptionError, adopt_actuals, baseline_rows
+from .services.ceilings import SubmissionError, check_ceiling, refresh_totals, submit_submission
 from .services.incorporation import IncorporationError, incorporate_submission
 from .serializers import (
     CallCircularSerializer,
@@ -63,6 +64,30 @@ class BudgetSubmissionViewSet(viewsets.ModelViewSet):
         if self.action == 'incorporate':
             return [IsAuthenticated(), ModuleEnabled(), RBACPermission(), IsApprover('post')]
         return super().get_permissions()
+
+    @action(detail=True, methods=['get'], url_path='ceiling-check')
+    def ceiling_check(self, request, pk=None):
+        """Proposed totals per line type against this MDA's ceiling for the year. Writes nothing."""
+        return Response(check_ceiling(self.get_object()).as_dict())
+
+    @action(detail=True, methods=['post'], url_path='submit')
+    def submit(self, request, pk=None):
+        """Send a draft (or sent-back) submission to the Budget Office, enforcing the MDA ceiling.
+
+        Over a ceiling it is refused unless ``override_reason`` is given; the reason is kept as a flagged review comment.
+        """
+        submission = self.get_object()
+        user = request.user
+        try:
+            check = submit_submission(
+                submission, override_reason=str(request.data.get('override_reason') or ''),
+                actor_name=(user.get_full_name() or user.get_username()) if user and user.is_authenticated else '')
+        except SubmissionError as exc:
+            body = {'error': str(exc)}
+            if exc.check is not None:
+                body['check'] = exc.check.as_dict()
+            return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'stage': submission.stage, 'submitted_at': submission.submitted_at, 'check': check.as_dict()})
 
     @action(detail=True, methods=['get'], url_path='adoption-preview')
     def adoption_preview(self, request, pk=None):
@@ -126,6 +151,20 @@ class SubmissionLineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = SubmissionLine.objects.all()
     serializer_class = SubmissionLineSerializer
+
+    # A submission's totals are the sum of its lines, so they are recomputed whenever a line changes.
+    def perform_create(self, serializer):
+        line = serializer.save()
+        refresh_totals(line.submission)
+
+    def perform_update(self, serializer):
+        line = serializer.save()
+        refresh_totals(line.submission)
+
+    def perform_destroy(self, instance):
+        submission = instance.submission
+        instance.delete()
+        refresh_totals(submission)
 
 
 class ReviewCommentViewSet(viewsets.ModelViewSet):

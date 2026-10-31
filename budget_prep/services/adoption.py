@@ -25,6 +25,7 @@ from django.db import transaction
 from accounting.models.advanced import FiscalYear
 from budget.models import Appropriation
 from budget_prep.models import SubmissionLine
+from budget_prep.services.ceilings import refresh_totals
 
 OUTTURN, APPROPRIATION, RUN_RATE = 'outturn', 'appropriation', 'run_rate'
 BASES = (OUTTURN, APPROPRIATION, RUN_RATE)
@@ -135,16 +136,5 @@ def adopt_actuals(submission, *, basis: str = OUTTURN, growth_pct=0, class_adjus
                 adopted_basis=basis, baseline_amount=row['amount'], adjustment_pct=pct)
             result.created += 1
             result.total_proposed += proposed
-        _refresh_totals(submission)
+        refresh_totals(submission)
     return result
-
-
-def _refresh_totals(submission) -> None:
-    """Nothing else maintains the submission's three totals, so keep them honest after lines change."""
-    totals = defaultdict(lambda: Decimal('0'))
-    for line in submission.lines.all():
-        totals[line.line_type] += Decimal(line.proposed_amount)
-    submission.total_personnel = totals['personnel']
-    submission.total_overhead = totals['overhead']
-    submission.total_capital = totals['capital']
-    submission.save(update_fields=['total_personnel', 'total_overhead', 'total_capital', 'updated_at'])
