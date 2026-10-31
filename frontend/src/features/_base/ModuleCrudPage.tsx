@@ -4,7 +4,7 @@
  * table + modal form. Driven entirely by the module's config.ts.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Drawer, Modal, message } from 'antd';
+import { Modal, message } from 'antd';
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, InboxOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { ListPageShell, StatusBadge, ThemedButton } from '../../components/layout';
@@ -157,7 +157,6 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
   const refresh = () => list.refetch();
 
   const openNew = () => activeEntity && setModal({ entity: activeEntity, record: null });
-  const drawerSize = typeof window === 'undefined' ? 760 : Math.min(760, window.innerWidth);
 
   return (
     <ListPageShell>
@@ -261,11 +260,15 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
         </>
       )}
 
-      <Drawer
+      <Modal
         open={!!modal}
-        onClose={() => setModal(null)}
-        size={drawerSize}
+        onCancel={() => setModal(null)}
+        footer={null}
+        centered
+        width="min(780px, calc(100vw - 24px))"
+        className="ef-modal"
         destroyOnHidden
+        maskClosable={false}
         title={modal ? (
           <div>
             <div style={{ fontSize: 16, fontWeight: 700 }}>
@@ -274,7 +277,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
             <div style={{ fontSize: 12.5, fontWeight: 400, color: 'var(--color-text-muted)' }}>{config.label}</div>
           </div>
         ) : ''}
-        styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+        styles={{ container: { padding: 0, overflow: 'hidden' }, header: { margin: 0, padding: '18px 28px 14px' }, body: { padding: 0 } }}
       >
         {modal && (
           <EntityForm
@@ -286,7 +289,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
             submitting={createMut.isPending || updateMut.isPending}
           />
         )}
-      </Drawer>
+      </Modal>
     </ListPageShell>
   );
 };

@@ -621,3 +621,25 @@ button.ef-section-head {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
+
+/* The form sits in a centred modal: the header and the action bar stay put and a long form scrolls between them. */
+.ef-modal .ant-modal-container,
+.ef-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.ef-modal .ant-modal-header {
+  margin: 0;
+  padding: 18px 28px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ef-modal .ef {
+  height: auto;
+}
+
+.ef-modal .ef-scroll {
+  max-height: calc(100vh - 230px);
+}
