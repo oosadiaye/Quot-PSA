@@ -275,6 +275,18 @@ class PayrollPostingService(BasePostingService):
         return reversal_journal
 
 
+def _personnel_budget_enabled() -> bool:
+    """Is the personnel_budget module switched on for this tenant? Off (or no row) means payroll posts exactly as it
+    did before the module existed."""
+    from django.db import connection
+    from core.permissions import _is_module_enabled
+
+    tenant = getattr(connection, 'tenant', None)
+    if tenant is None or getattr(tenant, 'schema_name', 'public') == 'public':
+        return False
+    return _is_module_enabled('personnel_budget', tenant)
+
+
 def _enforce_payroll_budget(payroll_run, total_gross):
     """Run the personnel_budget G3 gate before a payroll run posts to the GL.
 
@@ -288,6 +300,8 @@ def _enforce_payroll_budget(payroll_run, total_gross):
     continues), matching how the rest of the legacy flow tolerates optional
     future modules.
     """
+    if not _personnel_budget_enabled():
+        return
     try:
         from personnel_budget.services import assert_payroll_budget_ok
         assert_payroll_budget_ok(payroll_run, requested_amount=total_gross)
