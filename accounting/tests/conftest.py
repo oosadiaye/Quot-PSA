@@ -22,6 +22,8 @@ Key design choices (read this before writing new tests):
 from __future__ import annotations
 
 from datetime import date
+
+from django.utils import timezone
 from decimal import Decimal
 
 import pytest
@@ -332,7 +334,7 @@ def open_fiscal_period(db):
     """A currently-open monthly period covering today."""
     from accounting.models import FiscalPeriod
     import calendar
-    today = date.today()
+    today = timezone.localdate()      # Django's own idea of today, so it agrees with what the services post against
     month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
     period, _ = FiscalPeriod.objects.get_or_create(
         fiscal_year=today.year,

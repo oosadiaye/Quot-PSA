@@ -255,7 +255,7 @@ class CashJournalViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet)
     @action(detail=True, methods=['get'])
     def book(self, request, pk=None):
         journal = self.get_object()
-        today = date.today()
+        today = timezone.localdate()
         try:
             date_to = _parse_date(request.query_params.get('date_to'), 'The end date') or today
             date_from = _parse_date(request.query_params.get('date_from'), 'The start date') or date_to.replace(day=1)
@@ -296,7 +296,7 @@ class CashJournalViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet)
         """Count the cash for a day: ``{closing_date, counted_amount, note}``."""
         journal = self.get_object()
         try:
-            closing_date = _parse_date(request.data.get('closing_date'), 'The closing date') or date.today()
+            closing_date = _parse_date(request.data.get('closing_date'), 'The closing date') or timezone.localdate()
             try:
                 counted = Decimal(str(request.data.get('counted_amount')))
             except (InvalidOperation, TypeError):

@@ -363,7 +363,7 @@ def reverse_document(doc, *, user=None, reason: str = ''):
     list(BankAccount.objects.select_for_update().filter(
         pk__in=[journal.cash_account_id] + ([doc.bank_account_id] if doc.bank_account_id else [])).order_by('pk'))
     doc.cash_journal = journal
-    when = timezone.now().date()
+    when = timezone.localdate()
     _check_open_day(journal, when, 'a reversal')
     if journal.last_closed_date and doc.posting_date <= journal.last_closed_date:
         raise CashPostingError(
@@ -412,7 +412,7 @@ def close_journal(journal, *, closing_date: date, counted_amount, user=None, not
     journal = CashJournal.objects.select_for_update(of=('self',)).select_related('cash_account', 'difference_account').get(pk=journal.pk)
     _check_journal(journal)
     list(BankAccount.objects.select_for_update().filter(pk=journal.cash_account_id))
-    if closing_date > timezone.now().date():
+    if closing_date > timezone.localdate():
         raise CashPostingError('A day cannot be closed before it has happened.')
     if journal.last_closed_date and closing_date <= journal.last_closed_date:
         raise CashPostingError(f'{journal.name} is already closed up to {journal.last_closed_date:%d/%m/%Y}.')

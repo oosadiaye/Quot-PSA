@@ -5,6 +5,8 @@ Posting writes journals, so these run with ``transaction=True`` (the balance tri
 from __future__ import annotations
 
 from datetime import date, timedelta
+
+from django.utils import timezone
 from decimal import Decimal
 from unittest import mock
 
@@ -18,7 +20,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 @pytest.fixture(autouse=True)
 def open_period(db):
     from accounting.models import FiscalPeriod
-    today = date.today()
+    today = timezone.localdate()
     FiscalPeriod.objects.get_or_create(
         fiscal_year=today.year, period_number=today.month, period_type='Monthly',
         defaults={'start_date': today.replace(day=1), 'end_date': today, 'status': 'Open', 'is_closed': False},
@@ -67,7 +69,7 @@ def no_budget_gate():
 def make_doc(desk, kind, amount, **extra):
     from accounting.models import CashDocument
     from accounting.services import cash_posting as service
-    doc = CashDocument(cash_journal=desk.journal, posting_date=extra.pop('posting_date', date.today()), transaction_type=kind,
+    doc = CashDocument(cash_journal=desk.journal, posting_date=extra.pop('posting_date', timezone.localdate()), transaction_type=kind,
                        amount=D(str(amount)), mda=desk.mda, **extra)
     service.assign_number(doc)
     doc.save()
@@ -233,7 +235,7 @@ class TestCashBook:
     def test_the_book_shows_opening_flows_closing_and_drafts(self, desk, no_budget_gate):
         from accounting.models import CashDocument as CD
         from accounting.services import cash_posting as service
-        today = date.today()
+        today = timezone.localdate()
         service.post_document(make_doc(desk, CD.REVENUE, '200.00', offset_account=desk.revenue))
         service.post_document(make_doc(desk, CD.EXPENSE, '50.00', offset_account=desk.expense))
         make_doc(desk, CD.EXPENSE, '25.00', offset_account=desk.expense)           # a Draft
@@ -246,23 +248,23 @@ class TestCashBook:
         from accounting.models import CashDocument as CD
         from accounting.services import cash_posting as service
         service.post_document(make_doc(desk, CD.REVENUE, '200.00', offset_account=desk.revenue))
-        tomorrow = date.today() + timedelta(days=1)
+        tomorrow = timezone.localdate() + timedelta(days=1)
         assert service.cash_book(desk.journal, tomorrow, tomorrow)['opening_balance'] == D('1200.00')
 
 
 class TestClosingTheDay:
     def test_a_count_that_matches_closes_the_day_with_no_difference(self, desk):
         from accounting.services import cash_posting as service
-        closing = service.close_journal(desk.journal, closing_date=date.today(), counted_amount=D('1000.00'))
+        closing = service.close_journal(desk.journal, closing_date=timezone.localdate(), counted_amount=D('1000.00'))
         assert closing.difference == 0 and closing.difference_journal_id is None
         desk.journal.refresh_from_db()
-        assert desk.journal.last_closed_date == date.today()
+        assert desk.journal.last_closed_date == timezone.localdate()
 
     def test_a_shortage_is_posted_to_the_difference_account(self, desk):
         from accounting.services import cash_posting as service
         desk.journal.difference_account = desk.shortage
         desk.journal.save()
-        closing = service.close_journal(desk.journal, closing_date=date.today(), counted_amount=D('970.00'))
+        closing = service.close_journal(desk.journal, closing_date=timezone.localdate(), counted_amount=D('970.00'))
         assert closing.difference == D('-30.00')
         assert service.balance_as_of(desk.cash) == D('970.00')                  # the book now agrees with the count
         debit = closing.difference_journal.lines.get(debit__gt=0)
@@ -271,20 +273,20 @@ class TestClosingTheDay:
     def test_a_difference_without_a_difference_account_is_refused(self, desk):
         from accounting.services import cash_posting as service
         with pytest.raises(service.CashPostingError, match='difference'):
-            service.close_journal(desk.journal, closing_date=date.today(), counted_amount=D('900.00'))
+            service.close_journal(desk.journal, closing_date=timezone.localdate(), counted_amount=D('900.00'))
 
     def test_drafts_must_be_dealt_with_first(self, desk):
         from accounting.models import CashDocument as CD
         from accounting.services import cash_posting as service
         make_doc(desk, CD.REVENUE, '10.00', offset_account=desk.revenue)
         with pytest.raises(service.CashPostingError, match='still Drafts'):
-            service.close_journal(desk.journal, closing_date=date.today(), counted_amount=D('1000.00'))
+            service.close_journal(desk.journal, closing_date=timezone.localdate(), counted_amount=D('1000.00'))
 
     def test_nothing_can_be_posted_or_reversed_into_a_closed_day(self, desk):
         from accounting.models import CashDocument as CD
         from accounting.services import cash_posting as service
         posted = service.post_document(make_doc(desk, CD.REVENUE, '10.00', offset_account=desk.revenue))
-        service.close_journal(desk.journal, closing_date=date.today(), counted_amount=D('1010.00'))
+        service.close_journal(desk.journal, closing_date=timezone.localdate(), counted_amount=D('1010.00'))
         desk.journal.refresh_from_db()
         with pytest.raises(service.CashPostingError, match='closed'):
             service.post_document(make_doc(desk, CD.REVENUE, '5.00', offset_account=desk.revenue))
@@ -294,14 +296,14 @@ class TestClosingTheDay:
     def test_a_day_cannot_be_closed_before_it_has_happened(self, desk):
         from accounting.services import cash_posting as service
         with pytest.raises(service.CashPostingError, match='before it has happened'):
-            service.close_journal(desk.journal, closing_date=date.today() + timedelta(days=1), counted_amount=D('1000.00'))
+            service.close_journal(desk.journal, closing_date=timezone.localdate() + timedelta(days=1), counted_amount=D('1000.00'))
 
 
 class TestReviewFixes:
     def test_a_back_dated_payment_may_not_push_a_later_day_below_zero(self, desk, no_budget_gate):
         from accounting.models import CashDocument as CD
         from accounting.services import cash_posting as service
-        today = date.today()
+        today = timezone.localdate()
         # Book: 1000 opening. Day-2 payment of 900 leaves 100; a later receipt then brings it back up.
         service.post_document(make_doc(desk, CD.EXPENSE, '900.00', offset_account=desk.expense, posting_date=today - timedelta(days=2)))
         service.post_document(make_doc(desk, CD.REVENUE, '900.00', offset_account=desk.revenue, posting_date=today))
@@ -344,7 +346,7 @@ class TestApiScoping:
         other, _ = MDA.objects.get_or_create(code='CJ-OTHER', defaults={'name': 'Other MDA', 'short_name': 'OTH'})
         admin = self._client('admin')
         response = admin.post('/api/v1/accounting/cash-documents/', {
-            'cash_journal': desk.journal.pk, 'posting_date': date.today().isoformat(), 'transaction_type': 'REVENUE',
+            'cash_journal': desk.journal.pk, 'posting_date': timezone.localdate().isoformat(), 'transaction_type': 'REVENUE',
             'amount': '10.00', 'offset_account': desk.revenue.pk, 'mda': other.pk}, format='json')
         assert response.status_code == 201, response.content
         assert response.json()['mda'] == desk.mda.pk
@@ -398,7 +400,7 @@ class TestApi:
         assert row['balance'] == '1000.00'
 
         created = admin.post(f'{base}cash-documents/', {
-            'cash_journal': desk.journal.pk, 'posting_date': date.today().isoformat(), 'transaction_type': 'REVENUE',
+            'cash_journal': desk.journal.pk, 'posting_date': timezone.localdate().isoformat(), 'transaction_type': 'REVENUE',
             'amount': '120.00', 'offset_account': desk.revenue.pk, 'description': 'Fine paid'}, format='json')
         assert created.status_code == 201, created.content
         doc = created.json()
@@ -408,7 +410,7 @@ class TestApi:
         assert posted.status_code == 200, posted.content
         assert posted.json()['status'] == 'Posted'
 
-        today = date.today().isoformat()
+        today = timezone.localdate().isoformat()
         book = admin.get(f'{base}cash-journals/{desk.journal.pk}/book/', {'date_from': today, 'date_to': today}).json()
         assert (book['opening_balance'], book['receipts'], book['closing_balance']) == ('1000.00', '120.00', '1120.00')
 
@@ -425,13 +427,13 @@ class TestApi:
     def test_a_draft_can_be_edited_and_deleted_and_a_bad_payment_is_explained(self, desk, admin):
         base = '/api/v1/accounting/'
         made = admin.post(f'{base}cash-documents/', {
-            'cash_journal': desk.journal.pk, 'posting_date': date.today().isoformat(), 'transaction_type': 'EXPENSE',
+            'cash_journal': desk.journal.pk, 'posting_date': timezone.localdate().isoformat(), 'transaction_type': 'EXPENSE',
             'lines': [{'account': desk.expense.pk, 'amount': '40.00'}, {'account': desk.expense.pk, 'amount': '60.00'}]},
             format='json')
         assert made.status_code == 201, made.content
         assert made.json()['amount'] == '100.00'                        # the lines' total
         no_account = admin.post(f'{base}cash-documents/', {
-            'cash_journal': desk.journal.pk, 'posting_date': date.today().isoformat(), 'transaction_type': 'REVENUE',
+            'cash_journal': desk.journal.pk, 'posting_date': timezone.localdate().isoformat(), 'transaction_type': 'REVENUE',
             'amount': '10.00'}, format='json')
         assert no_account.status_code == 400 and 'offset_account' in no_account.json()
         refused = admin.post(f'{base}cash-documents/{made.json()["id"]}/post_document/')
