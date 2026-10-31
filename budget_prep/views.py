@@ -16,6 +16,7 @@ from .models import (
     SubmissionLine,
     ReviewComment,
 )
+from .services.adoption import BASES, AdoptionError, adopt_actuals, baseline_rows
 from .services.incorporation import IncorporationError, incorporate_submission
 from .serializers import (
     CallCircularSerializer,
@@ -62,6 +63,42 @@ class BudgetSubmissionViewSet(viewsets.ModelViewSet):
         if self.action == 'incorporate':
             return [IsAuthenticated(), ModuleEnabled(), RBACPermission(), IsApprover('post')]
         return super().get_permissions()
+
+    @action(detail=True, methods=['get'], url_path='adoption-preview')
+    def adoption_preview(self, request, pk=None):
+        """The baseline each basis would give for this MDA, without writing anything."""
+        submission = self.get_object()
+        basis = request.query_params.get('basis', 'outturn')
+        try:
+            rows, source_year = baseline_rows(submission, basis)
+        except AdoptionError as exc:
+            return Response({'error': str(exc), 'bases': list(BASES)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'basis': basis, 'source_year': source_year,
+            'rows': [{'economic_code': r['code'], 'baseline': str(r['amount'])} for r in rows],
+            'total': str(sum(r['amount'] for r in rows)),
+        })
+
+    @action(detail=True, methods=['post'], url_path='adopt-actuals')
+    def adopt_actuals(self, request, pk=None):
+        """Seed this draft submission from prior-year outturn, approved appropriation or run rate, plus a growth adjustment.
+
+        Body: ``basis`` (outturn | appropriation | run_rate), ``growth_pct``, ``class_adjustments`` ({account-code prefix: pct}).
+        Re-running replaces the previously adopted lines and leaves hand-entered lines alone.
+        """
+        submission = self.get_object()
+        try:
+            result = adopt_actuals(
+                submission, basis=request.data.get('basis', 'outturn'), growth_pct=request.data.get('growth_pct') or 0,
+                class_adjustments=request.data.get('class_adjustments') or {})
+        except AdoptionError as exc:
+            return Response({'error': str(exc), 'bases': list(BASES)}, status=status.HTTP_400_BAD_REQUEST)
+        except ArithmeticError:
+            return Response({'error': 'growth_pct and class_adjustments must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'basis': result.basis, 'source_year': result.source_year, 'created': result.created,
+            'replaced': result.replaced, 'total_proposed': str(result.total_proposed), 'skipped': result.skipped,
+        })
 
     @action(detail=True, methods=['post'], url_path='incorporate')
     def incorporate(self, request, pk=None):

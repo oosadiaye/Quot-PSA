@@ -46,7 +46,9 @@ class SubmissionLineSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'submission', 'line_type', 'administrative', 'economic',
             'functional', 'fund', 'programme', 'description', 'proposed_amount', 'ceiling_reference',
+            'adopted_basis', 'baseline_amount', 'adjustment_pct',
         ]
+        read_only_fields = ['adopted_basis', 'baseline_amount', 'adjustment_pct']
 
 
 class BudgetSubmissionSerializer(serializers.ModelSerializer):

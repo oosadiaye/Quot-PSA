@@ -142,6 +142,10 @@ class SubmissionLine(AuditBaseModel):
     )
     description = models.CharField(max_length=255, blank=True, default='')
     proposed_amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    # Audit trail for a figure seeded from actuals ("adopt actuals to plan"). Blank on hand-entered lines.
+    adopted_basis = models.CharField(max_length=20, blank=True, default='')
+    baseline_amount = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    adjustment_pct = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     ceiling_reference = models.ForeignKey(
         MDACeiling, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
