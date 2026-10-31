@@ -3039,6 +3039,8 @@ class PaymentVoucherDeductionViewSet(OrganizationFilterMixin, viewsets.ReadOnlyM
     ``appropriation__administrative``, reached here one hop deeper through
     ``payment_voucher``.
     """
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_admin_field = 'payment_voucher__appropriation__administrative'
 
     queryset = (

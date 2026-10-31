@@ -71,6 +71,8 @@ class PaymentDeductionCodeViewSet(viewsets.ModelViewSet):
 
     Tenant-wide config, like WithholdingTax/TaxCode — no MDA scoping.
     """
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PaymentDeductionCode.objects.all().select_related('gl_account')
     serializer_class = PaymentDeductionCodeSerializer
     filterset_fields = ['deduction_type', 'calculation_method', 'is_active']

@@ -391,12 +391,13 @@ class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
     an invoice (``MilestoneScheduleViewSet.post_invoice``). Filter by
     ``?milestone=<id>``.
     """
+    module_key = "contracts"
 
     queryset = MilestoneInvoiceLine.objects.select_related(
         "account", "milestone",
     ).order_by("milestone_id", "id")
     serializer_class = MilestoneInvoiceLineSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["milestone"]
 

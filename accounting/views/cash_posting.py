@@ -25,7 +25,8 @@ from accounting.models import CashDocument, CashDocumentLine, CashJournal
 from accounting.services import cash_posting as service
 from accounting.services.base_posting import TransactionPostingError
 from core.mixins import OrganizationFilterMixin
-from core.permissions import IsApprover, IsTenantAdmin, RBACPermission
+from rest_framework.permissions import IsAuthenticated
+from core.permissions import ModuleEnabled, IsApprover, IsTenantAdmin, RBACPermission
 
 from .common import AccountingPagination
 
@@ -225,9 +226,10 @@ def _journal_entries(header):
 # -- viewsets -------------------------------------------------------------------------------------------------------------
 class CashJournalViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only: the journal is made with its Bank & Cash account. Reading, the book, counts and closing live here."""
+    module_key = "accounting"
     queryset = CashJournal.objects.all().select_related('cash_account', 'difference_account', 'mda')
     serializer_class = CashJournalSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_field = 'mda'
     filterset_fields = ['is_active']
     search_fields = ['code', 'name']
@@ -311,10 +313,11 @@ class CashJournalViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet)
 
 
 class CashDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = CashDocument.objects.all().select_related(
         'cash_journal', 'offset_account', 'bank_account', 'journal_entry', 'mda').prefetch_related('lines__account')
     serializer_class = CashDocumentSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_field = 'mda'
     filterset_fields = {'cash_journal': ['exact'], 'status': ['exact'], 'transaction_type': ['exact'],
                         'posting_date': ['exact', 'gte', 'lte']}

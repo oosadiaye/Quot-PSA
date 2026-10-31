@@ -38,7 +38,7 @@ from debt.services import DebtServiceGLService
 ZERO = Decimal("0")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestDebtServiceGL:
     """Every test drives DebtServiceGLService.pay_coupon.
 
@@ -52,20 +52,24 @@ class TestDebtServiceGL:
         # post_journal refuses a date with no open period, so every
         # posting test needs one or it fails on the gate instead of
         # on the thing it is checking.
-        self.actor = User.objects.create_user(
-            username="debt_officer", password="x", email="d@example.com",
+        self.actor, _ = User.objects.get_or_create(
+            username="debt_officer", defaults=dict(email="d@example.com"),
         )
         # Tagged accounts: the service prefers reconciliation_type over the
         # DEFAULT_GL_ACCOUNTS fallback, so tagging is the narrower setup.
-        self.expense = Account.objects.create(
-            code="5300100", name="Debt Service Expense",
-            account_type="Expense", reconciliation_type="debt_service_expense",
-            is_active=True,
+        # accounting_account is not flushed between transactional tests, so these are get-or-create, and any
+        # debt-service account another test left behind is neutralised or it satisfies the service's fallback lookup.
+        Account.objects.filter(name__icontains="Debt Service").exclude(code__in=["5300100", "2300100"]).update(
+            name="Retired", reconciliation_type="")
+        self.expense, _ = Account.objects.update_or_create(
+            code="5300100", defaults=dict(
+                name="Debt Service Expense", account_type="Expense",
+                reconciliation_type="debt_service_expense", is_active=True),
         )
-        self.payable = Account.objects.create(
-            code="2300100", name="Debt Service Payable",
-            account_type="Liability", reconciliation_type="debt_service",
-            is_active=True,
+        self.payable, _ = Account.objects.update_or_create(
+            code="2300100", defaults=dict(
+                name="Debt Service Payable", account_type="Liability",
+                reconciliation_type="debt_service", is_active=True),
         )
         self.instrument = DebtInstrument.objects.create(
             instrument_number="LN-2026-001",

@@ -223,12 +223,15 @@ class TestPayCoupon:
     def test_an_instrument_with_no_mapping_keeps_the_older_behaviour(self, world):
         expense = _account("5300199", "Debt Service Expense (legacy)", "Expense")
         payable = _account("2300199", "Debt Service Payable (legacy)", "Liability")
+        Account.objects.filter(reconciliation_type__in=["debt_service_expense", "debt_service"]).update(reconciliation_type="")
         Account.objects.filter(pk=expense.pk).update(reconciliation_type="debt_service_expense")
         Account.objects.filter(pk=payable.pk).update(reconciliation_type="debt_service")
         legacy = DebtInstrument.objects.create(instrument_number="LEGACY-1", creditor="A", principal_amount=D("1000.00"))
         due = coupon(legacy, date.today(), principal="100.00", interest="10.00")
         journal = DebtServiceGLService.pay_coupon(coupon=due, actor=world.actor)
         assert {code for code, _ in lines_of(journal)} == {"5300199", "2300199"}
+        # leave nothing behind for tests that expect an unconfigured chart
+        Account.objects.filter(pk__in=[expense.pk, payable.pk]).update(name="Retired", reconciliation_type="")
 
 
 class TestStatementOfFinancialPosition:
