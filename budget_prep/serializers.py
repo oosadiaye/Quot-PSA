@@ -45,7 +45,7 @@ class SubmissionLineSerializer(serializers.ModelSerializer):
         model = SubmissionLine
         fields = [
             'id', 'submission', 'line_type', 'administrative', 'economic',
-            'functional', 'description', 'proposed_amount', 'ceiling_reference',
+            'functional', 'fund', 'programme', 'description', 'proposed_amount', 'ceiling_reference',
         ]
 
 

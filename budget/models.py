@@ -796,6 +796,18 @@ class Appropriation(AuditBaseModel):
     description      = models.CharField(max_length=500, blank=True, default='')
     notes            = models.TextField(blank=True, default='')
 
+    # Provenance for rows created from another module (e.g. budget_prep hands a
+    # submission over as DRAFT appropriations). Plain strings, not a foreign key,
+    # so budget builds and runs with the source module absent or switched off.
+    source_module    = models.CharField(
+        max_length=40, blank=True, default='',
+        help_text="Originating module key, e.g. 'budget_prep'. Blank for manual entry.",
+    )
+    source_reference = models.CharField(
+        max_length=100, blank=True, default='', db_index=True,
+        help_text="Opaque origin reference, e.g. 'submission:42'.",
+    )
+
     # P6-T2 — denormalised totals. Maintained by
     # accounting.services.appropriation_totals.refresh_totals() on commit /
     # invoice / payment events, and by the ``resync_appropriation_totals``

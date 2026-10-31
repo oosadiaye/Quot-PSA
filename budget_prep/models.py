@@ -131,6 +131,15 @@ class SubmissionLine(AuditBaseModel):
         'accounting.FunctionalSegment', on_delete=models.PROTECT, null=True, blank=True,
         related_name='+',
     )
+    # Needed to hand the line over as an appropriation; optional on entry, resolved at hand-off.
+    fund = models.ForeignKey(
+        'accounting.FundSegment', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='+',
+    )
+    programme = models.ForeignKey(
+        'accounting.ProgrammeSegment', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='+',
+    )
     description = models.CharField(max_length=255, blank=True, default='')
     proposed_amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     ceiling_reference = models.ForeignKey(
