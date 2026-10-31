@@ -3,10 +3,5 @@ import { moduleConfig } from './config';
 import DebtPosition from './DebtPosition';
 
 export default function DebtModulePage() {
-  return (
-    <>
-      <DebtPosition />
-      <ModuleCrudPage config={moduleConfig} />
-    </>
-  );
+  return <ModuleCrudPage config={moduleConfig} banner={<DebtPosition />} />;
 }

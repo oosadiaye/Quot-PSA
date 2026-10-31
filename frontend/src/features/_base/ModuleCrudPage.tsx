@@ -16,6 +16,8 @@ import { useEntityList, useEntityCreate, useEntityUpdate, useEntityDelete } from
 
 interface ModuleCrudPageProps {
   config: ModuleConfig;
+  /** Extra content a module wants above the register. It renders inside the page shell, so it gets the same offset and padding. */
+  banner?: React.ReactNode;
 }
 
 const listBase = (module: ModuleConfig, entity: EntityConfig) =>
@@ -47,7 +49,7 @@ function describeSaveError(e: any, entity: EntityConfig): string {
   return e?.response?.status >= 500 ? 'The server could not save this record. Please try again.' : 'Save failed';
 }
 
-export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
+export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }) => {
   const [formError, setFormError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(config.entities[0]?.key ?? '');
   const [search, setSearch] = useState('');
@@ -157,6 +159,8 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config }) => {
           </ThemedButton>
         }
       />
+
+      {banner}
 
       {/* Entity tabs */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
