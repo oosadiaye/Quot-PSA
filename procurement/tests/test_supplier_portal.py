@@ -116,6 +116,40 @@ def test_an_email_that_belongs_to_another_supplier_is_refused():
         portal.invite(b, email=a.email)
 
 
+def test_an_invitation_never_lands_on_a_staff_account():
+    """The supplier role must not overwrite a staff user's, nor mail that user a way in, because an officer typed their address."""
+    from django.contrib.auth.models import User
+    from django_tenants.utils import schema_context
+    from tenants.models import UserTenantRole
+    switch_portal()
+    tenant = _tenant()
+    with schema_context('public'):
+        staff = User.objects.create_user(username='sp-staff', email='sp-staff@example.test', password='Str0ng-pass-123')
+        UserTenantRole.objects.update_or_create(user=staff, tenant=tenant, defaults={'role': 'admin', 'is_active': True})
+    with pytest.raises(portal.PortalError, match='already belongs to a user'):
+        portal.invite(make_vendor('SP-TAKE'), email='sp-staff@example.test')
+    with schema_context('public'):
+        assert UserTenantRole.objects.get(user=staff, tenant=tenant).role == 'admin'
+        assert User.objects.get(pk=staff.pk).check_password('Str0ng-pass-123')
+
+
+def test_an_account_with_a_password_but_no_role_is_not_taken_either():
+    from django.contrib.auth.models import User
+    from django_tenants.utils import schema_context
+    switch_portal()
+    with schema_context('public'):
+        User.objects.create_user(username='sp-lone', email='sp-lone@example.test', password='Str0ng-pass-123')
+    with pytest.raises(portal.PortalError, match='already belongs to a user'):
+        portal.invite(make_vendor('SP-LONE'), email='sp-lone@example.test')
+
+
+def test_a_user_who_is_already_a_supplier_here_can_be_invited_again():
+    switch_portal()
+    v = make_vendor('SP-AGAIN')
+    first = portal.invite(v)
+    assert portal.invite(v).user_id == first.user_id
+
+
 def test_switching_the_portal_off_locks_every_supplier_out():
     switch_portal()
     c = supplier_client(make_vendor('SP-LOCK'))

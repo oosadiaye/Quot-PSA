@@ -41,6 +41,25 @@ def _require_enabled() -> SupplierPortalSettings:
     return cfg
 
 
+def _reusable_user(address: str):
+    """The account that already uses this email, if it is safe to make a supplier sign-in of; None when there is none.
+
+    An invitation hands the address a password-reset link and gives the account the supplier role, so it must never land
+    on a staff account: that would demote it and let whoever controls the mailbox take it over. Only an account that is
+    already a supplier on some tenant, or one with no role anywhere and no password, may be reused."""
+    from tenants.models import UserTenantRole
+
+    found = User.objects.filter(email__iexact=address).first()
+    if found is None:
+        return None
+    roles = set(UserTenantRole.objects.filter(user=found).values_list('role', flat=True))
+    all_suppliers = bool(roles) and roles == {VENDOR_ROLE}
+    unused = not roles and not found.has_usable_password()
+    if found.is_staff or found.is_superuser or not (all_suppliers or unused):
+        raise PortalError('That email address already belongs to a user of this system. Use a different address for this supplier.')
+    return found
+
+
 def _send_invitation(user, vendor: Vendor) -> None:
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
@@ -70,7 +89,7 @@ def invite(vendor: Vendor, *, email: str | None = None) -> VendorUser:
     with schema_context('public'):
         # Looked up by schema name: under schema_context the connection holds a placeholder tenant, not the row.
         tenant = Client.objects.get(schema_name=schema)
-        user = existing.user if existing else User.objects.filter(email__iexact=address).first()
+        user = existing.user if existing else _reusable_user(address)
         if user is None:
             user = User(username=address[:150], email=address, is_active=True)
             user.set_unusable_password()
