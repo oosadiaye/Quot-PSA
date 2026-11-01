@@ -643,3 +643,96 @@ button.ef-section-head {
 .ef-modal .ef-scroll {
   max-height: calc(100vh - 230px);
 }
+
+/* ───────────── Fields that stand out from the sheet they sit on ─────────────
+ * A tinted sheet, white fields with a clear edge and a faint inset, and a stronger focus ring. Later than the rules above
+ * and the same specificity, so it wins; background-color (not the shorthand) keeps the dropdown arrow. */
+
+.ef {
+  --ef-sheet: var(--color-surface-hover);
+  --ef-field: #ffffff;
+  /* Dark enough to clear 3:1 against the field (the WCAG minimum for the boundary of an input). */
+  --ef-edge: color-mix(in srgb, var(--color-text-muted) 78%, var(--color-border));
+  --ef-edge-hover: var(--color-text);
+}
+
+[data-theme='dark'] .ef {
+  --ef-field: var(--color-background);
+  --ef-edge: color-mix(in srgb, var(--color-text-muted) 78%, var(--color-border));
+}
+
+.ef-scroll {
+  background: var(--ef-sheet);
+}
+
+.ef .ef-field .ef-input {
+  min-height: 44px;
+  border: 1px solid var(--ef-edge);
+  background-color: var(--ef-field);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+.ef .ef-field textarea.ef-input {
+  min-height: 104px;
+}
+
+.ef .ef-field .ef-input:hover:not(:disabled):not([readonly]) {
+  border-color: var(--ef-edge-hover);
+}
+
+.ef .ef-field .ef-input:focus {
+  border-color: var(--color-primary);
+  background-color: var(--ef-field);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 26%, transparent);
+}
+
+.ef .ef-field .ef-input[aria-invalid='true'] {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error) 18%, transparent);
+}
+
+.ef .ef-field .ef-input[readonly],
+.ef .ef-field .ef-input:disabled {
+  background-color: color-mix(in srgb, var(--ef-sheet) 70%, var(--ef-edge));
+  box-shadow: none;
+}
+
+.ef .ef-field .ef-input::placeholder {
+  color: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+}
+
+.ef .ef-ref input {
+  border: 1px solid var(--ef-edge) !important;
+  background-color: var(--ef-field) !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07) !important;
+}
+
+.ef .ef-ref input:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 26%, transparent) !important;
+}
+
+.ef .ef-switch-row,
+.ef .ef-file {
+  border-color: var(--ef-edge);
+  background: var(--ef-field);
+}
+
+.ef .ef-file {
+  border-style: dashed;
+}
+
+.ef-record {
+  background: var(--ef-field);
+  border-color: var(--ef-edge);
+  border-left-color: var(--color-primary);
+}
+
+.ef-section-head::after {
+  background: var(--ef-edge);
+  opacity: 0.55;
+}
+
+.ef-label {
+  font-size: 13.5px;
+}
