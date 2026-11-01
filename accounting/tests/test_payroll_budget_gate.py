@@ -27,24 +27,6 @@ pytestmark = pytest.mark.django_db
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def rules(db):
-    """Seed a clean set of rules so tests don't collide with defaults."""
-    from accounting.models import BudgetCheckRule
-    BudgetCheckRule.objects.all().delete()
-    BudgetCheckRule.objects.create(
-        gl_from='21000000', gl_to='21999999',
-        check_level='STRICT', priority=20, is_active=True,
-        description='Personnel — strict',
-    )
-    BudgetCheckRule.objects.create(
-        gl_from='30000000', gl_to='39999999',
-        check_level='NONE', priority=10, is_active=True,
-        description='Non-controlled',
-    )
-    return None
-
-
 def _fake_account(code='21000010', name='Salary Expense'):
     return SimpleNamespace(code=code, name=name)
 

@@ -126,6 +126,13 @@ def test_retire_imprest_rejects_second_pin(rules, monkeypatch):
 # DebtServiceGLService — pay_coupon guards
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def no_paid_ledger_event(monkeypatch):
+    """These coupons are stand-ins, not rows: say there is no ledger event for them, so the service reaches the guard under test."""
+    import debt.models as debt_models
+    monkeypatch.setattr(debt_models.AmortisationLedger, 'objects', SimpleNamespace(filter=lambda **kw: SimpleNamespace(exists=lambda: False)))
+
+
 def test_pay_coupon_rejects_already_paid(rules):
     from debt.services import DebtServiceGLService
 
@@ -140,7 +147,7 @@ def test_pay_coupon_rejects_already_paid(rules):
         )
 
 
-def test_pay_coupon_rejects_nonpositive_amount(rules):
+def test_pay_coupon_rejects_nonpositive_amount(rules, no_paid_ledger_event):
     from debt.services import DebtServiceGLService
 
     coupon = SimpleNamespace(
@@ -154,13 +161,13 @@ def test_pay_coupon_rejects_nonpositive_amount(rules):
         )
 
 
-def test_pay_coupon_rejects_missing_expense_gl(rules, monkeypatch):
+def test_pay_coupon_rejects_missing_expense_gl(rules, monkeypatch, no_paid_ledger_event):
     from debt.services import DebtServiceGLService
 
     coupon = SimpleNamespace(
         pk=1, status='scheduled', principal_amount=Decimal('100'),
         interest_amount=Decimal('0'), commitment_fee=Decimal('0'),
-        schedule=SimpleNamespace(instrument=SimpleNamespace(instrument_number='LN-1')),
+        schedule=SimpleNamespace(instrument=SimpleNamespace(instrument_number='LN-1', liability_account_id=None)),
     )
     monkeypatch.setattr(DebtServiceGLService, 'resolve_expense_account', lambda: None)
     with pytest.raises(TransactionPostingError) as exc:
