@@ -19,7 +19,7 @@ export const moduleConfig: ModuleConfig = {
         { name: 'issue_date', label: 'Issue Date', type: 'date' },
         { name: 'submission_deadline', label: 'Submission Deadline', type: 'date' },
         { name: 'is_active', label: 'Active', type: 'boolean' },
-        { name: 'document', label: 'Document', type: 'text', secondary: true },
+        { name: 'document', label: 'Document', type: 'file', secondary: true },
       ],
       fields: [
         { name: 'fiscal_year', label: 'Fiscal Year', type: 'integer', numeric: true, required: true },
@@ -27,7 +27,7 @@ export const moduleConfig: ModuleConfig = {
         { name: 'submission_deadline', label: 'Submission Deadline', type: 'date' },
         { name: 'guidelines', label: 'Guidelines', type: 'longtext' },
         { name: 'is_active', label: 'Active', type: 'boolean' },
-        { name: 'document', label: 'Document', type: 'text' },
+        { name: 'document', label: 'Document', type: 'file', hint: 'The signed call circular, as a PDF or Word file.' },
       ],
     },
     {
@@ -79,6 +79,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'mdaCeiling',
+      importable: true,
       plural: 'mda-ceilings',
       label: 'MDA Ceilings',
       searchField: 'mda_name',
@@ -88,11 +89,12 @@ export const moduleConfig: ModuleConfig = {
         { name: 'fiscal_year', label: 'Fiscal Year', type: 'integer', numeric: true },
         { name: 'personnel_ceiling', label: 'Personnel', type: 'decimal', numeric: true },
         { name: 'overhead_ceiling', label: 'Overhead', type: 'decimal', numeric: true },
+        { name: 'capital_ceiling', label: 'Capital', type: 'decimal', numeric: true },
         { name: 'total_ceiling', label: 'Total Ceiling', type: 'decimal', numeric: true },
       ],
       fields: [
         { name: 'fiscal_year', label: 'Fiscal Year', type: 'integer', numeric: true, required: true },
-        { name: 'mda_name', label: 'MDA Name', type: 'text', required: true },
+        { name: 'mda_name', label: 'MDA Name', type: 'text', required: true, importExample: 'Ministry of Works' },
         { name: 'personnel_ceiling', label: 'Personnel Ceiling', type: 'decimal', numeric: true },
         { name: 'overhead_ceiling', label: 'Overhead Ceiling', type: 'decimal', numeric: true },
         { name: 'capital_ceiling', label: 'Capital Ceiling', type: 'decimal', numeric: true },
@@ -133,6 +135,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'submissionLine',
+      importable: true,
       plural: 'submission-lines',
       label: 'Submission Lines',
       searchField: 'description',
@@ -145,11 +148,13 @@ export const moduleConfig: ModuleConfig = {
         { name: 'ceiling_reference', label: 'Ceiling', type: 'integer', reference: { module: 'budget_prep', entity: 'mdaCeiling' } },
       ],
       fields: [
-        { name: 'submission', label: 'Submission', type: 'integer', required: true, reference: { module: 'budget_prep', entity: 'budgetSubmission' } },
+        { name: 'submission', label: 'Submission', type: 'integer', required: true, reference: { module: 'budget_prep', entity: 'budgetSubmission' }, importExample: 'Ministry of Works' },
         { name: 'line_type', label: 'Line Type', type: 'select', required: true, options: { personnel: 'Personnel', overhead: 'Overhead', capital: 'Capital' } },
         { name: 'administrative', label: 'Administrative Segment', type: 'integer', reference: { module: 'accounting', entity: 'administrativeSegment' } },
-        { name: 'economic', label: 'Economic Segment', type: 'integer', reference: { module: 'accounting', entity: 'economicSegment' } },
+        { name: 'economic', label: 'Economic Code', type: 'integer', reference: { module: 'accounting', entity: 'account' }, hint: 'The economic (account) code the line is charged to.' },
         { name: 'functional', label: 'Functional Segment', type: 'integer', reference: { module: 'accounting', entity: 'functionalSegment' } },
+        { name: 'fund', label: 'Fund', type: 'integer', reference: { module: 'accounting', entity: 'fundSegment' }, hint: 'Needed to hand the line over as an appropriation; it can be set later.' },
+        { name: 'programme', label: 'Programme', type: 'integer', reference: { module: 'accounting', entity: 'programmeSegment' } },
         { name: 'description', label: 'Description', type: 'text' },
         { name: 'proposed_amount', label: 'Proposed Amount', type: 'decimal', numeric: true },
         { name: 'ceiling_reference', label: 'Ceiling Reference', type: 'integer', reference: { module: 'budget_prep', entity: 'mdaCeiling' } },
@@ -179,6 +184,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'budgetMilestone',
+      importable: true,
       plural: 'milestones',
       label: 'Budget Calendar',
       searchField: 'name',

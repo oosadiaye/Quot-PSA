@@ -16,6 +16,7 @@ const CORE_PATHS: Record<string, string> = {
   'accounting.administrativeSegment': '/accounting/ncoa/administrative/',
   'accounting.administrativeSegments': '/accounting/ncoa/administrative/',
   'accounting.programmeSegment': '/accounting/ncoa/programme/',
+  'accounting.fundSegment': '/accounting/ncoa/fund/',
   'accounting.functionalSegment': '/accounting/ncoa/functional/',
   'accounting.reportSnapshot': '/accounting/snapshots/',
   'budget.warrant': '/budget/warrants/',
@@ -70,6 +71,13 @@ const NAME_KEYS = [
 const CODE_KEYS = ['code', 'employee_id', 'staff_id', 'budget_code', 'economic_code'];
 
 const text = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim());
+
+/** Every name a person might call a record by: its code, its name, and the combined label. Used to find a record from text. */
+export function recordNames(row: Record<string, any>): string[] {
+  const person = [text(row.first_name), text(row.last_name)].filter(Boolean).join(' ');
+  return [describeRecord(row), person, ...CODE_KEYS.map((k) => text(row[k])), ...NAME_KEYS.map((k) => text(row[k]))]
+    .filter(Boolean).map((v) => v.toLowerCase());
+}
 
 /** A short human name for a record: "code · name" when it has both, never a bare number if anything readable exists. */
 export function describeRecord(row: Record<string, any> | null | undefined): string {

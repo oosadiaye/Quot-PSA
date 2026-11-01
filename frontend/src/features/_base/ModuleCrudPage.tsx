@@ -5,13 +5,14 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
-import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, InboxOutlined } from '@ant-design/icons';
+import { SearchOutlined, PlusOutlined, UploadOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, InboxOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { ListPageShell, StatusBadge, ThemedButton } from '../../components/layout';
 import ResponsiveTable from '../../components/ResponsiveTable';
 import type { Column } from '../../components/ResponsiveTable';
 import type { EntityConfig, ModuleConfig } from '../_base/types';
 import { EntityForm } from '../_base/EntityForm';
+import ImportDialog from './ImportDialog';
 import { useEntityList, useEntityCreate, useEntityUpdate, useEntityDelete } from '../_base/useEntityCrud';
 import { plainName, singularLabel } from './labels';
 import './crud.css';
@@ -68,6 +69,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
   const [formError, setFormError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(config.entities[0]?.key ?? '');
   const [search, setSearch] = useState('');
+  const [importing, setImporting] = useState(false);
   const [modal, setModal] = useState<{ entity: EntityConfig; record: Record<string, any> | null; defaults?: Record<string, any> } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -220,12 +222,17 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
                 <SearchOutlined />
                 <input
                   type="search"
-                  aria-label={`Search ${activeEntity.label.toLowerCase()}`}
-                  placeholder={`Search ${activeEntity.label.toLowerCase()}\u2026`}
+                  aria-label={`Search ${plainName(activeEntity.label)}`}
+                  placeholder={`Search ${plainName(activeEntity.label)}\u2026`}
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 />
               </label>
+              {activeEntity.importable && (
+                <button type="button" className="ef-btn" data-testid="reg-import" onClick={() => setImporting(true)}>
+                  <UploadOutlined /> Import
+                </button>
+              )}
               <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}>
                 <PlusOutlined /> New {singular}
               </button>
@@ -244,10 +251,10 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
             ) : rows.length === 0 ? (
               <div className="reg-empty" data-testid="reg-empty">
                 <div className="reg-empty-mark" aria-hidden="true"><InboxOutlined /></div>
-                <h3>{searching ? 'Nothing matches that search' : `No ${activeEntity.label.toLowerCase()} yet`}</h3>
+                <h3>{searching ? 'Nothing matches that search' : `No ${plainName(activeEntity.label)} yet`}</h3>
                 <p>
                   {searching
-                    ? `No ${activeEntity.label.toLowerCase()} match \u201c${search.trim()}\u201d. Check the spelling or clear the search.`
+                    ? `No ${plainName(activeEntity.label)} match \u201c${search.trim()}\u201d. Check the spelling or clear the search.`
                     : `${activeEntity.label} you add will be listed here.`}
                 </p>
                 {searching
@@ -274,6 +281,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
             )}
           </div>
         </>
+      )}
+
+      {activeEntity?.importable && (
+        <ImportDialog open={importing} entity={activeEntity} basePath={listBase(config, activeEntity)}
+          onClose={() => setImporting(false)} onImported={refresh} />
       )}
 
       <Modal

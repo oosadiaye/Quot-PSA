@@ -4,6 +4,7 @@ Posting writes journals, so these run with ``transaction=True`` (the balance tri
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date, timedelta
 
 from django.utils import timezone
@@ -21,10 +22,13 @@ pytestmark = pytest.mark.django_db(transaction=True)
 def open_period(db):
     from accounting.models import FiscalPeriod
     today = timezone.localdate()
-    FiscalPeriod.objects.get_or_create(
-        fiscal_year=today.year, period_number=today.month, period_type='Monthly',
-        defaults={'start_date': today.replace(day=1), 'end_date': today, 'status': 'Open', 'is_closed': False},
-    )
+    # Some tests back-date by a few days, which on the first days of a month lands in the month before: open that one too.
+    for day in {today - timedelta(days=n) for n in range(0, 6)}:
+        FiscalPeriod.objects.get_or_create(
+            fiscal_year=day.year, period_number=day.month, period_type='Monthly',
+            defaults={'start_date': day.replace(day=1), 'end_date': day.replace(day=calendar.monthrange(day.year, day.month)[1]),
+                      'status': 'Open', 'is_closed': False},
+        )
 
 
 @pytest.fixture

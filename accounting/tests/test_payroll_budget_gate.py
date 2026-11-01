@@ -127,18 +127,27 @@ def test_gate_not_blocked_accounting_salary_falls_to_default(rules, settings):
 # _enforce_payroll_budget() — the integration in post_payroll_run
 # ---------------------------------------------------------------------------
 
-def test_enforce_blocks_gate_from_posting_service(rules):
-    """post_payroll_run must refuse an unbound run on a STRICT salary account."""
+def test_enforce_blocks_gate_from_posting_service(rules, monkeypatch):
+    """post_payroll_run must refuse an unbound run on a STRICT salary account (once personnel_budget is switched on)."""
     import accounting.services.payroll_posting as pp_module
+    monkeypatch.setattr(pp_module, '_personnel_budget_enabled', lambda: True)
     run = _fake_run(account=_fake_account())
     with pytest.raises(BudgetExceededError):
         pp_module._enforce_payroll_budget(run, Decimal('1000'))
+
+
+def test_enforce_does_nothing_while_personnel_budget_is_switched_off(rules, monkeypatch):
+    """The module is off by default: payroll posts exactly as it did before the module existed."""
+    import accounting.services.payroll_posting as pp_module
+    monkeypatch.setattr(pp_module, '_personnel_budget_enabled', lambda: False)
+    pp_module._enforce_payroll_budget(_fake_run(account=_fake_account()), Decimal('1000'))     # must not raise
 
 
 def test_enforce_fails_open_when_module_unavailable(rules, monkeypatch):
     """If personnel_budget cannot import, posting must NOT be blocked."""
     import accounting.services.payroll_posting as pp_module
     import builtins
+    monkeypatch.setattr(pp_module, '_personnel_budget_enabled', lambda: True)   # switched on, but the import fails
 
     real_import = builtins.__import__
 

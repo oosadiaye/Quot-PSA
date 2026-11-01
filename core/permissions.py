@@ -361,7 +361,9 @@ def _is_module_enabled(module_key, tenant):
     request.  ``invalidate_module_cache`` must be called when a
     superadmin toggles a module.
     """
-    cache_key = f'mod_enabled:{tenant.pk}:{module_key}'
+    # django-tenants' schema_context() leaves a FakeTenant (no pk) on the request; its schema name still identifies it.
+    tenant_id = getattr(tenant, 'pk', None) or getattr(tenant, 'schema_name', None) or 'unknown'
+    cache_key = f'mod_enabled:{tenant_id}:{module_key}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached

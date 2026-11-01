@@ -35,6 +35,8 @@ export interface EntityField {
   hideInForm?: boolean;
   /** Auxiliary columns displayed only in the expanded card on mobile; in the form they sit under "Additional information". */
   secondary?: boolean;
+  /** What the import template shows in this column's example row, when the default would mislead. */
+  importExample?: string;
   /** One line of guidance shown under the input. */
   hint?: string;
   /** Heading of the form section this field belongs to. Fields share a section when they share a group; ungrouped fields sit under "Details". */
@@ -49,6 +51,8 @@ export interface EntityConfig {
   label: string;
   /** True when the module supplies a screen of its own (through `panel`) that stands in for the generic register on this tab. */
   panel?: boolean;
+  /** Offer "Import" on the register: a downloadable CSV template and a checked upload. For registers filled in bulk. */
+  importable?: boolean;
   /** Singular name for headings and buttons ("Vehicle" for "Vehicles"); derived from the label when omitted. */
   singular?: string;
   /** Field used for the search query param. */
