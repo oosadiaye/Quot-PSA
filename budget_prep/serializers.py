@@ -4,6 +4,7 @@ from rest_framework import serializers
 from .models import (
     BudgetMilestone,
     CallCircular,
+    MTEFPolicy,
     MTEFProjection,
     MDACeiling,
     BudgetSubmission,
@@ -23,13 +24,49 @@ class CallCircularSerializer(serializers.ModelSerializer):
 
 
 class MTEFProjectionSerializer(serializers.ModelSerializer):
+    """One year of the framework. Totals, balance and status are worked out or set by actions, never typed in."""
+
+    total_revenue = serializers.DecimalField(read_only=True, max_digits=20, decimal_places=2)
+    total_expenditure = serializers.DecimalField(read_only=True, max_digits=20, decimal_places=2)
+    total_financing = serializers.DecimalField(read_only=True, max_digits=20, decimal_places=2)
+    unfinanced_gap = serializers.DecimalField(read_only=True, max_digits=20, decimal_places=2)
+
     class Meta:
         model = MTEFProjection
         fields = [
-            'id', 'fiscal_year', 'inflation_assumption', 'exchange_rate_assumption',
-            'oil_price_assumption', 'aggregate_revenue', 'aggregate_expenditure',
-            'fiscal_balance',
+            'id', 'fiscal_year', 'inflation_assumption', 'exchange_rate_assumption', 'oil_price_assumption', 'oil_sensitivity',
+            *MTEFProjection.REVENUE_FIELDS, *MTEFProjection.EXPENDITURE_FIELDS, *MTEFProjection.FINANCING_FIELDS,
+            'aggregate_revenue', 'aggregate_expenditure', 'fiscal_balance',
+            'total_revenue', 'total_expenditure', 'total_financing', 'unfinanced_gap',
+            'status', 'approved_by', 'approved_at', 'override_reason', 'notes',
         ]
+        read_only_fields = ['aggregate_revenue', 'aggregate_expenditure', 'fiscal_balance', 'status', 'approved_by',
+                            'approved_at', 'override_reason']
+        # an amount of money is never negative; a shortfall is a balance, not a negative revenue line
+        extra_kwargs = {n: {'min_value': 0} for n in (*MTEFProjection.REVENUE_FIELDS, *MTEFProjection.EXPENDITURE_FIELDS,
+                                                       *MTEFProjection.FINANCING_FIELDS, 'exchange_rate_assumption')}
+
+    def validate_oil_sensitivity(self, value):
+        if value < 0 or value > 2:
+            raise serializers.ValidationError('Use a number from 0 (not linked to the oil price) to 2.')
+        return value
+
+    def validate_fiscal_year(self, value):
+        if value < 1990 or value > 2200:
+            raise serializers.ValidationError('Enter a real fiscal year, for example 2027.')
+        return value
+
+
+class MTEFPolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MTEFPolicy
+        fields = [
+            'id', 'max_debt_service_pct', 'max_personnel_pct', 'min_capital_pct', 'max_borrowing_pct',
+            'max_revenue_growth_pct', 'max_outturn_jump_pct', 'enforce_golden_rule',
+        ]
+        extra_kwargs = {n: {'min_value': 0, 'max_value': 100} for n in (
+            'max_debt_service_pct', 'max_personnel_pct', 'min_capital_pct', 'max_borrowing_pct',
+            'max_revenue_growth_pct', 'max_outturn_jump_pct')}
 
 
 class MDACeilingSerializer(serializers.ModelSerializer):

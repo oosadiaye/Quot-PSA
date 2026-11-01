@@ -45,19 +45,135 @@ class CallCircular(AuditBaseModel):
         ordering = ['-fiscal_year']
 
 
+def _money(**kw):
+    return models.DecimalField(max_digits=20, decimal_places=2, default=0, **kw)
+
+
 class MTEFProjection(AuditBaseModel):
-    """Three-year Medium Term Expenditure Framework projection."""
+    """One year of the Medium Term Expenditure Framework: the resource envelope and how it is spent and financed.
+
+    A framework is three consecutive years (the budget year and two outer years), each its own row. Revenue, expenditure
+    and financing are entered by source or category; the totals and the fiscal balance are always worked out from them,
+    never typed, so the three can never disagree. ``budget_prep.services.mtef`` assesses a year against the fiscal rules.
+    """
+
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('reviewed', 'Reviewed'),
+        ('approved', 'Approved'),
+    ]
+    #: Revenue that recurs every year; grants and capital receipts are one-off or capital in nature.
+    RECURRENT_REVENUE = ('rev_statutory', 'rev_vat', 'rev_igr', 'rev_other')
+    CAPITAL_REVENUE = ('rev_grants', 'rev_capital_receipts')
+    REVENUE_FIELDS = RECURRENT_REVENUE + CAPITAL_REVENUE
+    RECURRENT_EXPENDITURE = ('exp_debt_service', 'exp_personnel', 'exp_overhead', 'exp_other_recurrent')
+    EXPENDITURE_FIELDS = RECURRENT_EXPENDITURE + ('exp_capital',)
+    FINANCING_FIELDS = ('fin_domestic', 'fin_external', 'fin_other')
 
     fiscal_year = models.IntegerField(db_index=True)
+
+    # Assumptions behind the numbers
     inflation_assumption = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     exchange_rate_assumption = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     oil_price_assumption = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True)
-    aggregate_revenue = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    aggregate_expenditure = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    fiscal_balance = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    # How strongly the statutory allocation and VAT follow the oil price: 1 = one for one, 0 = not at all.
+    oil_sensitivity = models.DecimalField(max_digits=4, decimal_places=2, default=1)
+
+    # Resource envelope, by source
+    rev_statutory = _money()            # statutory (FAAC) allocation
+    rev_vat = _money()                  # VAT allocation
+    rev_igr = _money()                  # internally generated revenue
+    rev_other = _money()                # other recurrent revenue
+    rev_grants = _money()               # grants and aid
+    rev_capital_receipts = _money()     # asset sales and other capital receipts
+
+    # Expenditure, by economic category (debt service is the first charge on revenue)
+    exp_debt_service = _money()
+    exp_personnel = _money()
+    exp_overhead = _money()
+    exp_other_recurrent = _money()      # statutory transfers, pensions and other recurrent items
+    exp_capital = _money()
+
+    # How a deficit is financed
+    fin_domestic = _money()
+    fin_external = _money()
+    fin_other = _money()                # balances brought forward and other financing
+
+    # Worked out on save from the parts above (a row holding only these legacy totals keeps them until parts are entered)
+    aggregate_revenue = models.DecimalField(max_digits=20, decimal_places=2, default=0, editable=False)
+    aggregate_expenditure = models.DecimalField(max_digits=20, decimal_places=2, default=0, editable=False)
+    fiscal_balance = models.DecimalField(max_digits=20, decimal_places=2, default=0, editable=False)
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='draft', db_index=True)
+    approved_by = models.CharField(max_length=200, blank=True, default='')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    override_reason = models.TextField(blank=True, default='')
+    notes = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['-fiscal_year']
+        constraints = [models.UniqueConstraint(fields=['fiscal_year'], name='uniq_mtef_projection_per_year')]
+
+    def __str__(self):
+        return f'MTEF {self.fiscal_year}'
+
+    def _sum(self, names):
+        return sum((getattr(self, n) or 0 for n in names), 0)
+
+    @property
+    def total_revenue(self):
+        return self._sum(self.REVENUE_FIELDS)
+
+    @property
+    def recurrent_revenue(self):
+        return self._sum(self.RECURRENT_REVENUE)
+
+    @property
+    def total_expenditure(self):
+        return self._sum(self.EXPENDITURE_FIELDS)
+
+    @property
+    def recurrent_expenditure(self):
+        return self._sum(self.RECURRENT_EXPENDITURE)
+
+    @property
+    def total_financing(self):
+        return self._sum(self.FINANCING_FIELDS)
+
+    @property
+    def unfinanced_gap(self):
+        """The part of a deficit that nothing finances (zero when the budget is in surplus or fully financed)."""
+        return max(0, -self.fiscal_balance - self.total_financing)
+
+    def save(self, *args, **kwargs):
+        if self.total_revenue or self.total_expenditure:      # parts entered: they are the truth
+            self.aggregate_revenue = self.total_revenue
+            self.aggregate_expenditure = self.total_expenditure
+        self.fiscal_balance = self.aggregate_revenue - self.aggregate_expenditure
+        super().save(*args, **kwargs)
+
+
+class MTEFPolicy(AuditBaseModel):
+    """The fiscal rules a framework is held to. One row per tenant; the defaults are a starting point for the
+    government's own fiscal policy, not a statutory text, so each limit is meant to be set by the Budget Office."""
+
+    max_debt_service_pct = models.DecimalField(max_digits=5, decimal_places=2, default=30,
+                                               help_text='Debt service as a % of total revenue.')
+    max_personnel_pct = models.DecimalField(max_digits=5, decimal_places=2, default=50,
+                                            help_text='Personnel cost as a % of recurrent revenue.')
+    min_capital_pct = models.DecimalField(max_digits=5, decimal_places=2, default=30,
+                                          help_text='Capital expenditure as a % of total expenditure (a floor).')
+    max_borrowing_pct = models.DecimalField(max_digits=5, decimal_places=2, default=15,
+                                            help_text='New borrowing as a % of total revenue.')
+    max_revenue_growth_pct = models.DecimalField(max_digits=5, decimal_places=2, default=10,
+                                                 help_text='How far a year-on-year revenue growth may exceed inflation.')
+    max_outturn_jump_pct = models.DecimalField(max_digits=5, decimal_places=2, default=25,
+                                               help_text='How far the budget year may exceed last year\'s actual spending, '
+                                                         'above inflation.')
+    enforce_golden_rule = models.BooleanField(default=True, help_text='Recurrent spending must fit within recurrent revenue.')
+
+    def __str__(self):
+        return 'MTEF fiscal rules'
 
 
 class MDACeiling(AuditBaseModel):

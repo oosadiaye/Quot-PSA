@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    MTEFPolicyViewSet,
     BudgetMilestoneViewSet,
     CallCircularViewSet,
     MTEFProjectionViewSet,
@@ -13,6 +14,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'call-circulars', CallCircularViewSet, basename='call-circular')
 router.register(r'mtef-projections', MTEFProjectionViewSet, basename='mtef-projection')
+router.register(r'mtef-policy', MTEFPolicyViewSet, basename='mtef-policy')
 router.register(r'mda-ceilings', MDACeilingViewSet, basename='mda-ceiling')
 router.register(r'submissions', BudgetSubmissionViewSet, basename='budget-submission')
 router.register(r'submission-lines', SubmissionLineViewSet, basename='submission-line')

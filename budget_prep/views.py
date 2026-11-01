@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,6 +15,7 @@ from core.permissions import IsApprover, ModuleEnabled, RBACPermission
 from .models import (
     BudgetMilestone,
     CallCircular,
+    MTEFPolicy,
     MTEFProjection,
     MDACeiling,
     BudgetSubmission,
@@ -21,6 +23,7 @@ from .models import (
     ReviewComment,
 )
 from .services.adoption import BASES, AdoptionError, adopt_actuals, baseline_rows
+from .services import mtef as mtef_service
 from .services.calendar import CalendarError, DUE_SOON_DAYS, seed_standard_calendar
 from .services.ceilings import SubmissionError, check_ceiling, refresh_totals, submit_submission
 from .services.supplementary import supplementary_report
@@ -28,6 +31,7 @@ from .services.incorporation import IncorporationError, incorporate_submission
 from .serializers import (
     BudgetMilestoneSerializer,
     CallCircularSerializer,
+    MTEFPolicySerializer,
     MTEFProjectionSerializer,
     MDACeilingSerializer,
     BudgetSubmissionSerializer,
@@ -48,6 +52,109 @@ class MTEFProjectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = MTEFProjection.objects.all()
     serializer_class = MTEFProjectionSerializer
+    filterset_fields = ['fiscal_year', 'status']
+
+    def get_permissions(self):
+        # Approving a framework releases the envelope MDA ceilings are drawn from, so it is an approver's act.
+        if self.action in ('approve', 'reopen'):
+            return [IsAuthenticated(), ModuleEnabled(), RBACPermission(), IsApprover('post')]
+        return super().get_permissions()
+
+    def _refuse_if_approved(self, instance):
+        if instance.status == 'approved':
+            raise ValidationError({'detail': f'The {instance.fiscal_year} MTEF is approved and locked. Reopen it, with a reason, to change it.'})
+
+    def perform_update(self, serializer):
+        self._refuse_if_approved(serializer.instance)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._refuse_if_approved(instance)
+        instance.delete()
+
+    @staticmethod
+    def _year(request, source='query_params'):
+        try:
+            return int(getattr(request, source).get('base_year'))
+        except (TypeError, ValueError):
+            return None
+
+    @action(detail=False, methods=['get'], url_path='framework')
+    def framework(self, request):
+        """The three-year framework from a base year: figures, ratios, rule findings, last year's outturn and the ceilings."""
+        year = self._year(request)
+        if year is None:
+            return Response({'error': 'base_year is required and must be a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(mtef_service.framework(year))
+
+    @action(detail=False, methods=['post'], url_path='scenario')
+    def scenario(self, request):
+        """What the framework looks like if the oil price, IGR or costs move. Nothing is saved."""
+        year = self._year(request, 'data')
+        if year is None:
+            return Response({'error': 'base_year is required and must be a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response(mtef_service.scenario(
+                year, oil_price_change_pct=request.data.get('oil_price_change_pct'),
+                igr_change_pct=request.data.get('igr_change_pct'), cost_change_pct=request.data.get('cost_change_pct')))
+        except ArithmeticError:
+            return Response({'error': 'The shock percentages must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='roll-forward')
+    def roll_forward(self, request):
+        """Create the two outer years from the budget year; a year that already exists is left alone."""
+        year = self._year(request, 'data')
+        if year is None:
+            return Response({'error': 'base_year is required and must be a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        growth = {k: request.data.get(k) for k in ('revenue_growth_pct', 'debt_service_growth_pct', 'personnel_growth_pct',
+                                                   'overhead_growth_pct', 'capital_growth_pct')}
+        try:
+            result = mtef_service.roll_forward(year, growth=growth)
+        except ArithmeticError:
+            return Response({'error': 'The growth rates must be numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        except mtef_service.MTEFError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'created': result.created, 'kept': result.kept})
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk=None):
+        """Approve this year. A broken fiscal rule blocks it unless ``override_reason`` is given; the reason is kept."""
+        projection = self.get_object()
+        user = request.user
+        try:
+            findings = mtef_service.approve(
+                projection, override_reason=str(request.data.get('override_reason') or ''),
+                actor_name=(user.get_full_name() or user.get_username()) if user.is_authenticated else '')
+        except mtef_service.MTEFError as exc:
+            return Response({'error': str(exc), 'findings': [f.as_dict() for f in exc.findings]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': projection.status, 'findings': [f.as_dict() for f in findings]})
+
+    @action(detail=True, methods=['post'], url_path='reopen')
+    def reopen(self, request, pk=None):
+        projection = self.get_object()
+        try:
+            mtef_service.reopen(projection, reason=str(request.data.get('reason') or ''))
+        except mtef_service.MTEFError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': projection.status})
+
+
+class MTEFPolicyViewSet(viewsets.ModelViewSet):
+    """The fiscal rules the MTEF is held to. There is one set per government; use ``current``."""
+    module_key = 'budget_prep'
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
+    queryset = MTEFPolicy.objects.all()
+    serializer_class = MTEFPolicySerializer
+
+    @action(detail=False, methods=['get', 'patch'], url_path='current')
+    def current(self, request):
+        policy = mtef_service.get_policy()
+        if request.method == 'PATCH':
+            serializer = self.get_serializer(policy, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+        return Response(self.get_serializer(policy).data)
 
 
 class MDACeilingViewSet(viewsets.ModelViewSet):
@@ -56,6 +163,26 @@ class MDACeilingViewSet(viewsets.ModelViewSet):
     queryset = MDACeiling.objects.all()
     serializer_class = MDACeilingSerializer
     filterset_fields = ['fiscal_year', 'mda_name']
+
+    # A ceiling is drawn from the MTEF envelope, so it is checked against the approved framework for its year.
+    def _check(self, serializer, exclude_pk=None):
+        fields = ('fiscal_year', 'personnel_ceiling', 'overhead_ceiling', 'capital_ceiling')
+        current = {n: getattr(serializer.instance, n) for n in fields} if serializer.instance is not None else {}
+        data = {**current, **serializer.validated_data}
+        try:
+            mtef_service.check_ceiling_fits(
+                data['fiscal_year'], personnel=data.get('personnel_ceiling'), overhead=data.get('overhead_ceiling'),
+                capital=data.get('capital_ceiling'), exclude_pk=exclude_pk)
+        except mtef_service.MTEFError as exc:
+            raise ValidationError({'detail': str(exc)})
+
+    def perform_create(self, serializer):
+        self._check(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._check(serializer, exclude_pk=serializer.instance.pk)
+        serializer.save()
 
 
 class BudgetSubmissionViewSet(viewsets.ModelViewSet):
