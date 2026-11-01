@@ -343,3 +343,71 @@
     min-width: 170px;
   }
 }
+
+.mtef-print-only {
+  display: none;
+}
+
+/* Printed (or saved as PDF) the framework stands alone, as the page for a Fiscal Strategy Paper: nothing of the app around it. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .mtef,
+  .mtef * {
+    visibility: visible;
+  }
+
+  .mtef {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .mtef-print-only {
+    display: block;
+    margin-bottom: 14px;
+  }
+
+  .mtef-print-only h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+
+  .mtef-controls,
+  .mtef-year-actions,
+  .mtef-details,
+  .mtef-decision,
+  .mtef-error,
+  [data-testid='mtef-scenario'] {
+    display: none !important;
+  }
+
+  .mtef-scroll {
+    overflow: visible;
+    border: 0;
+  }
+
+  .mtef-table {
+    min-width: 0;
+    font-size: 11px;
+  }
+
+  .mtef-table th:first-child,
+  .mtef-table td:first-child {
+    position: static;
+    min-width: 0;
+  }
+
+  .mtef-table thead th {
+    min-width: 0 !important;
+  }
+
+  .mtef-table tr {
+    break-inside: avoid;
+  }
+}

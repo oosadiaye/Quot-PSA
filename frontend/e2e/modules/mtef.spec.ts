@@ -147,6 +147,25 @@ test.describe('MTEF framework', () => {
     await expect(page.getByTestId(`mtef-shock-verdict-${BASE}`)).toBeVisible();
   });
 
+  test('prints as a stand-alone Fiscal Strategy Paper page', async ({ authedPage: page }) => {
+    const api = await apiContext();
+    await api.post(API, { data: { fiscal_year: BASE, inflation_assumption: '15', exchange_rate_assumption: '1500', rev_statutory: String(100 * BN), exp_personnel: String(50 * BN) } });
+    await api.dispose();
+
+    await openFramework(page);
+    await page.evaluate(() => { (window as unknown as { printed: number }).printed = 0; window.print = () => { (window as unknown as { printed: number }).printed += 1; }; });
+    await page.getByTestId('mtef-print').click();
+    expect(await page.evaluate(() => (window as unknown as { printed: number }).printed)).toBe(1);
+
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.getByTestId('mtef-print-header')).toBeVisible();
+    await expect(page.getByTestId('mtef-print-header')).toContainText(`Framework ${BASE} to ${BASE + 2}`);
+    await expect(page.getByTestId('mtef-table')).toBeVisible();
+    await expect(page.getByTestId('mtef-roll')).toBeHidden();                         // controls stay off the page
+    await expect(page.getByTestId('mtef-scenario')).toBeHidden();
+    await expect(page.getByRole('navigation').first()).toBeHidden();                   // and so does the app around it
+  });
+
   test('fits a phone screen without sideways page scroll', async ({ authedPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openFramework(page);

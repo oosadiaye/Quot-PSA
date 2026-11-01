@@ -97,6 +97,19 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
 
   return (
     <section className="mtef" data-testid="mtef-panel" aria-labelledby="mtef-title">
+      <div className="mtef-print-only" data-testid="mtef-print-header">
+        <h1>Medium Term Expenditure Framework {base} to {base + 2}</h1>
+        <p>Printed on {new Date().toLocaleDateString('en-GB')}</p>
+        <ul>
+          {present.map((y) => (
+            <li key={y.year}>
+              {y.year}: {MTEF_STATUS_LABEL[y.status ?? 'draft']}
+              {y.status === 'approved' && y.approved_by ? ` by ${y.approved_by}${y.approved_at ? ` on ${new Date(y.approved_at).toLocaleDateString('en-GB')}` : ''}` : ''}
+              {y.override_reason ? `. Approved although a fiscal rule was broken, because: ${y.override_reason}` : ''}
+            </li>
+          ))}
+        </ul>
+      </div>
       <div className="mtef-bar">
         <div>
           <h3 id="mtef-title">Medium Term Expenditure Framework</h3>
@@ -114,6 +127,10 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
           <button type="button" className="ef-btn" data-testid="mtef-roll" disabled={!canRoll || roll.isPending} onClick={doRoll}
             title="Create the outer years from the budget year, growing each line by inflation">
             {roll.isPending ? 'Working…' : 'Roll forward'}
+          </button>
+          <button type="button" className="ef-btn" data-testid="mtef-print" disabled={present.length === 0} onClick={() => window.print()}
+            title="Print the framework, or save it as a PDF, for the Fiscal Strategy Paper">
+            Print / PDF
           </button>
         </div>
       </div>
