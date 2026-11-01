@@ -126,7 +126,6 @@ export const moduleConfig: ModuleConfig = {
           withdrawn: 'Withdrawn',
         }, required: true },
         { name: 'submitted_at', label: 'Submitted At', type: 'datetime', required: true },
-        { name: 'encrypted_payload', label: 'Encrypted Payload', type: 'text' },
         { name: 'payload_hash', label: 'Payload Hash', type: 'text', readOnly: true, hideInForm: true },
         { name: 'opened_at', label: 'Opened At', type: 'datetime', readOnly: true, hideInForm: true },
         { name: 'opened_by', label: 'Opened By', type: 'integer', numeric: true, readOnly: true, hideInForm: true },

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { portalError, supplierApi } from './api';
 import CatalogueTab from './CatalogueTab';
+import TendersTab from './TendersTab';
 import { BankTab, InvoicesTab, OrdersTab, OverviewTab, PaymentsTab } from './SupplierTabs';
 import './supplier-portal.css';
 
@@ -12,6 +13,7 @@ const TABS = [
   { key: 'invoices', label: 'Invoices' },
   { key: 'payments', label: 'Payments' },
   { key: 'catalogue', label: 'Catalogue' },
+  { key: 'tenders', label: 'Tenders' },
   { key: 'bank', label: 'Bank details' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
@@ -26,7 +28,8 @@ export default function SupplierPortal() {
   const profile = useQuery({ queryKey: ['supplier', 'profile'], queryFn: supplierApi.profile, retry: false });
   // The catalogue tab exists only while the government has that module on; with it off the API refuses and the tab is not offered.
   const catalogueOn = useQuery({ queryKey: ['supplier', 'catalogue'], queryFn: supplierApi.catalogue, retry: false, enabled: profile.isSuccess });
-  const tabs = TABS.filter((t) => t.key !== 'catalogue' || catalogueOn.isSuccess);
+  const tendersOn = useQuery({ queryKey: ['supplier', 'tenders'], queryFn: supplierApi.tenders, retry: false, enabled: profile.isSuccess });
+  const tabs = TABS.filter((t) => (t.key !== 'catalogue' || catalogueOn.isSuccess) && (t.key !== 'tenders' || tendersOn.isSuccess));
   const requested = params.get('tab') as TabKey | null;
   const tab: TabKey = tabs.some((t) => t.key === requested) ? (requested as TabKey) : 'overview';
 
@@ -65,6 +68,7 @@ export default function SupplierPortal() {
             {tab === 'invoices' && <InvoicesTab />}
             {tab === 'payments' && <PaymentsTab />}
             {tab === 'catalogue' && <CatalogueTab />}
+            {tab === 'tenders' && <TendersTab />}
             {tab === 'bank' && <BankTab profile={profile.data} />}
           </>
         )}

@@ -2,6 +2,8 @@
 
   token   <tenant-domain> <email>                 -> prints an API token for the user with that email
   reset-link <tenant-domain> <email>              -> prints `uid token`, as the emailed choose-a-password link carries them
+  tender  <tenant-domain> <ref> <days>            -> a published tender closing in <days> days (negative: already closed)
+  closes  <tenant-domain> <ref> <days>            -> moves a tender's closing date to <days> from today
   module  <tenant-domain> <name> [on|off]         -> prints a module's state (on / off / none), and switches it when told to
   item    <tenant-domain> <sku> <name>            -> creates (or refreshes) an inventory item
   activate <tenant-domain> <vendor-code>          -> marks the supplier's registration as paid
@@ -81,6 +83,30 @@ def item(domain: str, sku: str, name: str) -> None:
         print(row.pk)
 
 
+def tender(domain: str, ref: str, closes_in_days: str) -> None:
+    """Create (or reset) a published tender that closes that many days from today (negative: already closed to bids)."""
+    from datetime import timedelta
+    from django.utils import timezone
+    from egp.models import TenderNotice
+
+    with schema_context(schema_for(domain)):
+        closes = timezone.localdate() + timedelta(days=int(closes_in_days))
+        TenderNotice.objects.update_or_create(reference=ref, defaults={'title': 'E2E borehole drilling', 'status': 'published', 'closing_date': closes,
+                                                                        'description': 'Drill and equip a borehole', 'category': 'Works'})
+        print('ok')
+
+
+def closes(domain: str, ref: str, days: str) -> None:
+    """Move a tender's closing date, as the passing of time would."""
+    from datetime import timedelta
+    from django.utils import timezone
+    from egp.models import TenderNotice
+
+    with schema_context(schema_for(domain)):
+        TenderNotice.objects.filter(reference=ref).update(closing_date=timezone.localdate() + timedelta(days=int(days)))
+        print('ok')
+
+
 def po(domain: str, code: str, number: str) -> None:
     from accounting.models.gl import Account, Fund, Function, Geo, MDA, Program
     from procurement.models import PurchaseOrder, PurchaseOrderLine, Vendor
@@ -110,6 +136,14 @@ def cleanup(domain: str, code: str) -> None:
         for vendor in Vendor.objects.filter(code=code):
             emails += [vu.user.email for vu in VendorUser.objects.filter(vendor=vendor).select_related('user')]
             PurchaseOrder.objects.filter(vendor=vendor).delete()   # acknowledgements go with them
+            try:                                                   # e-procurement is optional too
+                from egp.models import Bid, BidOpening, BidderRegistration, TenderNotice
+                BidOpening.objects.filter(tender__reference__startswith='E2E-T').delete()
+                Bid.objects.filter(bidder__vendor=vendor).delete()
+                BidderRegistration.objects.filter(vendor=vendor).delete()
+                TenderNotice.objects.filter(reference__startswith='E2E-T').delete()
+            except ImportError:
+                pass
             try:                                                   # the catalogue is optional; its rows protect the supplier
                 from catalogue.models import CatalogueItem, PriceHistory, SupplierCatalogue
                 CatalogueItem.objects.filter(catalogue__supplier=vendor).delete()
@@ -134,4 +168,4 @@ def cleanup(domain: str, code: str) -> None:
 
 if __name__ == '__main__':
     command, *args = sys.argv[1:]
-    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item, 'reset-link': reset_link}[command](*args)
+    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item, 'reset-link': reset_link, 'tender': tender, 'closes': closes}[command](*args)

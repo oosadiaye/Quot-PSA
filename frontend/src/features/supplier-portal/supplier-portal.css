@@ -350,6 +350,23 @@
   background: #fff;
 }
 
+.sp .sp-tender {
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 12px;
+}
+
+.sp .sp-bidform {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--sp-line);
+}
+
+.sp .sp-field textarea {
+  min-height: 80px;
+}
+
 /* the procurement office's page lives inside the app shell, so it keeps the shell's background */
 .spa {
   min-height: 0;

@@ -82,6 +82,15 @@ export interface PriceProposal {
   specification: string; status: 'pending' | 'approved' | 'rejected'; reason: string; created_at: string; decided_at: string | null;
 }
 
+export interface MyBid { id: number; tender: number; status: string; submitted_at: string; receipt: string }
+
+export interface OpenTender {
+  id: number; reference: string; title: string; description: string; category: string; method: string;
+  published_date: string; closing_date: string | null; my_bid: MyBid | null;
+}
+
+export interface TenderList { eligible: boolean; reason: string; registration_status: string; tenders: OpenTender[] }
+
 const BASE = '/supplier-portal';
 
 export const supplierApi = {
@@ -100,6 +109,12 @@ export const supplierApi = {
   proposals: async (): Promise<PriceProposal[]> => (await apiClient.get(`${BASE}/catalogue/proposals/`)).data,
   propose: async (body: { item: number; proposed_price: string; specification: string }): Promise<PriceProposal> =>
     (await apiClient.post(`${BASE}/catalogue/proposals/`, body)).data,
+  tenders: async (): Promise<TenderList> => (await apiClient.get(`${BASE}/tenders/`)).data,
+  placeBid: async (tender: number, body: { price: string; completion_days: number; validity_days: number; technical_note: string }): Promise<MyBid> =>
+    (await apiClient.post(`${BASE}/tenders/${tender}/bid/`, body)).data,
+  withdrawBid: async (bid: number): Promise<MyBid> => (await apiClient.post(`${BASE}/tenders/bids/${bid}/withdraw/`, {})).data,
+  requestRegistration: async (categories: string[]): Promise<{ status: string }> =>
+    (await apiClient.post(`${BASE}/tenders/registration/`, { categories })).data,
   requestBankChange: async (body: { bank_name: string; bank_account_number: string; bank_sort_code: string }): Promise<BankChange> =>
     (await apiClient.post(`${BASE}/bank-changes/`, body)).data,
 };
