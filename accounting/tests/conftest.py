@@ -194,7 +194,7 @@ def django_db_setup(request, django_db_setup, django_db_blocker):
 
 
 @pytest.fixture(autouse=True)
-def _route_to_pytest_schema(request):
+def _route_to_pytest_schema(request, django_db_blocker):
     """Auto-switch to ``pytest_schema`` for every test that touches the DB.
 
     We detect DB usage by checking if the test consumes the ``db`` or
@@ -218,7 +218,8 @@ def _route_to_pytest_schema(request):
         return
 
     from django.db import connection
-    _ensure_test_tenant()
+    with django_db_blocker.unblock():          # this fixture can run before pytest-django has opened the database for the test
+        _ensure_test_tenant()
     previous = getattr(connection, 'schema_name', 'public')
     try:
         connection.set_schema(PYTEST_SCHEMA_NAME)
