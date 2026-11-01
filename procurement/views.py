@@ -406,6 +406,10 @@ class VendorViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        # With the tenant's say-so, a paid-up supplier is invited to the supplier portal; a failure here never undoes the payment.
+        from procurement.services.supplier_portal import on_registration_paid
+        on_registration_paid(vendor)
+
         return Response({
             'status': 'Payment confirmed. Vendor activated.',
             'invoice_number': invoice.invoice_number,

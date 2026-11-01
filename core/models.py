@@ -353,6 +353,7 @@ class AuditLog(models.Model):
         'PayrollLine': {'bank_account'},
         'PensionFundAdministrator': {'bank_account'},
         'Vendor': {'bank_account_number'},
+        'VendorBankChangeRequest': {'bank_account_number'},
         'AccountingSettings': {'account_number_series'},
         'BankAccount': {'account_number'},
         'TreasuryAccount': {'account_number'},
