@@ -354,6 +354,8 @@ class AuditLog(models.Model):
         'PensionFundAdministrator': {'bank_account'},
         'Vendor': {'bank_account_number'},
         'VendorBankChangeRequest': {'bank_account_number'},
+        # A sealed bid must never reach the audit log, not even as ciphertext.
+        'Bid': {'encrypted_payload'},
         'AccountingSettings': {'account_number_series'},
         'BankAccount': {'account_number'},
         'TreasuryAccount': {'account_number'},
@@ -388,6 +390,8 @@ class AuditLog(models.Model):
                     values[field.name] = str(value)
                 elif isinstance(value, (dt, date)):
                     values[field.name] = value.isoformat()
+                elif isinstance(value, (bytes, bytearray, memoryview)):
+                    values[field.name] = f'[binary, {len(bytes(value))} bytes]'      # raw bytes cannot be stored as JSON
                 elif hasattr(value, '__dict__'):
                     # Skip complex objects
                     continue

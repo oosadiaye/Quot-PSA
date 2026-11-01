@@ -40,7 +40,7 @@ class BidSerializer(serializers.ModelSerializer):
         model = Bid
         fields = [
             'id', 'tender', 'bidder', 'status', 'submitted_at',
-            'encrypted_payload', 'payload_hash', 'opened_at', 'opened_by',
+            'payload_hash', 'opened_at', 'opened_by',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['payload_hash', 'opened_at', 'opened_by', 'created_at', 'updated_at']
