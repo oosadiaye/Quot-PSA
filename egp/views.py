@@ -71,18 +71,26 @@ class TenderNoticeViewSet(viewsets.ModelViewSet):
         """Award the tender to a responsive bid; raises a draft purchase order, which then needs the usual order approval."""
         from accounting.models import Account, Fund, Function, Geo, MDA, Program
         tender = self.get_object()
+
+        def pk(value):
+            """An id from the request, or None when it is blank or not a number (never an error: it just counts as not chosen)."""
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
         try:
-            bid = Bid.objects.filter(pk=request.data.get('bid'), tender=tender).first()
+            bid = Bid.objects.filter(pk=pk(request.data.get('bid')), tender=tender).first()
             if bid is None:
                 raise awarding.AwardingError('Choose the bid to award.')
             parts = {}
             for key, model, label in (('mda', MDA, 'MDA'), ('fund', Fund, 'fund'), ('function', Function, 'function'), ('program', Program, 'programme'),
                                       ('geo', Geo, 'location')):
-                parts[key] = model.objects.filter(pk=request.data.get(key)).first()
+                parts[key] = model.objects.filter(pk=pk(request.data.get(key))).first()
                 if parts[key] is None:
                     raise awarding.AwardingError(f'Choose the {label} the order is charged to.')
-            given = request.data.get('account')
-            parts['account'] = (Account.objects.filter(pk=given).first() if given not in (None, '')
+            given = pk(request.data.get('account'))
+            parts['account'] = (Account.objects.filter(pk=given).first() if given is not None
                                 else Account.objects.filter(code=str(request.data.get('account_code', '')).strip()).first())
             if parts['account'] is None:
                 raise awarding.AwardingError('Choose the expense account for the order line.')
