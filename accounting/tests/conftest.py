@@ -87,7 +87,20 @@ _PgDatabaseOperations.sql_flush = _sql_flush_cascade
 #      the tenant schema for every test that requests ``db`` — but NOT
 #      for pure-import smoke tests that never touch the DB.
 
-PYTEST_SCHEMA_NAME = 'pytest_schema'
+PYTEST_SCHEMA_NAME = 'pytest_schema'
+
+
+def _ensure_test_tenant():
+    """Put the test tenant's rows back if a ``transaction=True`` test's flush wiped them from the public schema.
+
+    Without them every API test answers 400 "Unknown tenant domain" for the rest of the run, and which tests are hit
+    depends on the order the run happens to take."""
+    from django.db import connection
+    from tenants.models import Client, Domain
+
+    connection.set_schema_to_public()
+    client, _ = Client.objects.get_or_create(schema_name=PYTEST_SCHEMA_NAME, defaults={'name': 'PyTest Tenant'})
+    Domain.objects.get_or_create(domain='pytest.localhost', defaults={'tenant': client, 'is_primary': True})
 
 
 @pytest.fixture(scope='session')
@@ -205,6 +218,7 @@ def _route_to_pytest_schema(request):
         return
 
     from django.db import connection
+    _ensure_test_tenant()
     previous = getattr(connection, 'schema_name', 'public')
     try:
         connection.set_schema(PYTEST_SCHEMA_NAME)
