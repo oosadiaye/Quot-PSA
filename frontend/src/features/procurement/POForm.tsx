@@ -1,3 +1,4 @@
+import CataloguePriceHint from '../catalogue/CataloguePriceHint';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -927,6 +928,8 @@ const POForm = () => {
                                                                 type="number" step="0.01" min="0"
                                                                 value={line.unit_price} onChange={e => updateLine(idx, 'unit_price', e.target.value)} required />
                                                         </div>
+                                                        <CataloguePriceHint vendorId={header.vendor} itemId={line.item} current={line.unit_price}
+                                                            onUse={(p) => updateLine(idx, 'unit_price', p)} format={formatCurrency} />
                                                     </td>
                                                     <td style={{ padding: '0.35rem', textAlign: 'right', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
                                                         {formatCurrency(lineTotal)}

@@ -136,8 +136,9 @@ class VendorViewSet(viewsets.ModelViewSet):
                 output_field=DecimalField(),
             )
         )
-        # Default list excludes expired & pending-activation vendors
-        if self.action == 'list':
+        # Default list excludes expired & pending-activation vendors. The supplier-portal page asks for the unpaid ones too
+        # (include_unpaid=1), so an officer can invite a supplier that has registered but not yet paid.
+        if self.action == 'list' and self.request.query_params.get('include_unpaid') != '1':
             qs = qs.filter(
                 is_active=True,
             ).filter(

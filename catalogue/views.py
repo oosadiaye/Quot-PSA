@@ -26,7 +26,7 @@ class CatalogueItemViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CatalogueItem.objects.all()
     serializer_class = CatalogueItemSerializer
-    filterset_fields = ['catalogue', 'item', 'is_active']
+    filterset_fields = ['catalogue', 'item', 'is_active', 'catalogue__supplier', 'catalogue__status']
 
 
 class PriceHistoryViewSet(viewsets.ModelViewSet):

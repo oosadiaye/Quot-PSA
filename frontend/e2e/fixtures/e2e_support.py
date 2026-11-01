@@ -77,8 +77,8 @@ def item(domain: str, sku: str, name: str) -> None:
     from inventory.models import Item
 
     with schema_context(schema_for(domain)):
-        Item.objects.update_or_create(sku=sku, defaults={'name': name, 'description': name, 'unit_of_measure': 'bag', 'barcode': sku, 'is_active': True})
-        print('ok')
+        row, _ = Item.objects.update_or_create(sku=sku, defaults={'name': name, 'description': name, 'unit_of_measure': 'bag', 'barcode': sku, 'is_active': True})
+        print(row.pk)
 
 
 def po(domain: str, code: str, number: str) -> None:

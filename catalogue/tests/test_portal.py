@@ -176,3 +176,17 @@ def test_a_supplier_cannot_approve_its_own_price():
     p = service.propose(v, None, item=make_item(), unit_price=100)
     assert c.post(f'/api/v1/catalogue/price-proposals/{p.pk}/approve/', {}, format='json').status_code == 403
     assert CataloguePriceProposal.objects.get(pk=p.pk).status == 'pending'
+
+
+def test_staff_can_find_a_suppliers_price_for_an_item_which_is_what_the_order_form_shows():
+    switch_portal()
+    mine, other = make_vendor('SP-C16'), make_vendor('SP-C16B')
+    item = make_item()
+    service.decide(service.propose(mine, None, item=item, unit_price=D('4500.00')), None, approve=True)
+    service.decide(service.propose(other, None, item=item, unit_price=D('4100.00')), None, approve=True)
+    admin = client_with_role('admin')
+    url = f'/api/v1/catalogue/items/?item={item.pk}&catalogue__supplier={mine.pk}&catalogue__status=active&is_active=true&page_size=1'
+    body = admin.get(url).json()
+    rows = body.get('results') or body
+    assert [r['unit_price'] for r in rows] == ['4500.00']
+

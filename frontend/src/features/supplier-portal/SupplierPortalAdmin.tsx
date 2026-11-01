@@ -35,6 +35,7 @@ export default function SupplierPortalAdmin() {
   const qc = useQueryClient();
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['supplier-admin'] }); };
   const [search, setSearch] = useState('');
+  const [includeUnpaid, setIncludeUnpaid] = useState(false);
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,8 +44,8 @@ export default function SupplierPortalAdmin() {
 
   const settings = useQuery({ queryKey: ['supplier-admin', 'settings'], queryFn: async (): Promise<PortalSettings> => (await apiClient.get('/procurement/portal-settings/current/')).data });
   const suppliers = useQuery({
-    queryKey: ['supplier-admin', 'suppliers', search],
-    queryFn: async () => unwrap<SupplierRow>((await apiClient.get('/procurement/vendors/', { params: { search, page_size: 50 } })).data),
+    queryKey: ['supplier-admin', 'suppliers', search, includeUnpaid],
+    queryFn: async () => unwrap<SupplierRow>((await apiClient.get('/procurement/vendors/', { params: { search, page_size: 50, ...(includeUnpaid ? { include_unpaid: 1 } : {}) } })).data),
   });
   const changes = useQuery({
     queryKey: ['supplier-admin', 'changes'],
@@ -190,6 +191,7 @@ export default function SupplierPortalAdmin() {
             <label htmlFor="spa-search">Search suppliers</label>
             <input id="spa-search" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or code" />
           </div>
+          <label className="spa-check"><input type="checkbox" data-testid="spa-unpaid" checked={includeUnpaid} onChange={(e) => setIncludeUnpaid(e.target.checked)} /> Include suppliers who have registered but not yet paid</label>
           {suppliers.isLoading ? <p className="sp-sub" aria-busy="true">Loading suppliers…</p> : (suppliers.data ?? []).length === 0 ? (
             <p className="sp-hint">No suppliers match.</p>
           ) : (
@@ -200,7 +202,7 @@ export default function SupplierPortalAdmin() {
                 const go = (verb: 'portal-invite' | 'portal-activate' | 'portal-suspend') => act.mutate({ id: s.id, verb });
                 return (
                   <tr key={s.id} data-testid={`spa-supplier-${s.code}`}>
-                    <td><b>{s.name}</b><br /><span className="sp-hint">{s.code}</span></td>
+                    <td><b>{s.name}</b><br /><span className="sp-hint">{s.code}{s.is_active ? '' : ' · registration not paid'}</span></td>
                     <td>{s.email || <span className="sp-hint">No email: add one to invite</span>}</td>
                     <td><span className={`sp-pill ${st.tone}`} data-testid={`spa-status-${s.code}`}>{st.word}</span></td>
                     <td><div className="sp-actions" style={{ marginTop: 0 }}>

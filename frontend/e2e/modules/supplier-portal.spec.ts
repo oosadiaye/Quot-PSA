@@ -219,4 +219,28 @@ test.describe('Supplier portal', () => {
       if (was !== 'on') support('module', session.tenantDomain, 'catalogue', was === 'off' ? 'off' : 'off');
     }
   });
+
+  test('the office can invite a supplier who has registered but not yet paid', async ({ authedPage: office }) => {
+    const api = await apiContext();
+    await api.patch('/api/v1/procurement/portal-settings/current/', { data: { enabled: true } });
+    const v = await api.post('/api/v1/procurement/vendors/', { data: { name: 'E2E Supplies Ltd', code: CODE, email: EMAIL } });
+    expect(v.ok(), await v.text()).toBeTruthy();                                       // created unpaid: not activated
+    await api.dispose();
+
+    await office.goto('/procurement/supplier-portal');
+    await office.getByLabel('Search suppliers').fill(CODE);
+    await expect(office.getByTestId(`spa-supplier-${CODE}`)).toHaveCount(0, { timeout: 15_000 });     // the register leaves unpaid suppliers out
+    await office.getByTestId('spa-unpaid').check();
+    await expect(office.getByTestId(`spa-supplier-${CODE}`)).toContainText('registration not paid', { timeout: 15_000 });
+    await office.getByTestId(`spa-invite-${CODE}`).click();
+    await expect(office.getByTestId(`spa-status-${CODE}`)).toHaveText('Invited');
+
+    // and that supplier, once let in, sees that its registration is still pending
+    await office.getByTestId(`spa-activate-${CODE}`).click();
+    const sup = await supplierPage(office.context().browser()!);
+    await sup.goto('/supplier-portal');
+    await expect(sup.getByTestId('sp-reg-status')).toHaveText('Registration pending', { timeout: 30_000 });
+    await sup.context().close();
+  });
 });
+

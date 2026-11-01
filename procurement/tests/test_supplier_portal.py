@@ -345,3 +345,27 @@ def test_a_supplier_cannot_decide_its_own_bank_change():
     assert r.status_code == 403
     v.refresh_from_db()
     assert v.bank_account_number == ''
+
+
+def test_the_supplier_list_leaves_out_unpaid_suppliers_unless_asked():
+    paid = make_vendor('SP-PAID')
+    unpaid = Vendor.objects.create(code='SP-UNPAID', name='SP-UNPAID Supplies Ltd', email='sp-unpaid@example.test', is_active=False)
+    admin = client_with_role('admin')
+
+    def codes(url):
+        body = admin.get(url).json()
+        return {row['code'] for row in (body.get('results') or body)}
+
+    assert 'SP-PAID' in codes('/api/v1/procurement/vendors/?search=SP-&page_size=100')
+    assert 'SP-UNPAID' not in codes('/api/v1/procurement/vendors/?search=SP-&page_size=100')
+    assert {'SP-PAID', 'SP-UNPAID'} <= codes('/api/v1/procurement/vendors/?search=SP-&page_size=100&include_unpaid=1')
+    assert paid.pk and unpaid.pk
+
+
+def test_an_unpaid_supplier_can_be_invited_and_sees_that_its_registration_is_pending():
+    switch_portal()
+    v = Vendor.objects.create(code='SP-PEND', name='SP-PEND Supplies Ltd', email='sp-pend@example.test', is_active=False)
+    c = supplier_client(v)
+    assert c.get(PORTAL + 'me/').json()['registration_status'] == 'PENDING_ACTIVATION'
+    assert c.get(PORTAL + 'orders/').json() == []
+
