@@ -89,6 +89,7 @@ for (const m of MODULES) {
       for (const e of m.entities) {
         await tab(page, e).click();
         await expect(tab(page, e)).toHaveAttribute('aria-selected', 'true');
+        if (e.panel) { await expect(page.getByTestId('mtef-panel')).toBeVisible(); continue; }   // a screen of its own, covered by mtef.spec.ts
         await expect(page.locator('.reg-title')).toHaveText(e.label);
         await expect(page.getByTestId('reg-count')).toHaveText(/^\d[\d,]* records?$/, { timeout: 20_000 });
         await expect(page.getByRole('button', { name: `New ${singularLabel(e.label, e.singular)}` }).first()).toBeVisible();
@@ -100,7 +101,7 @@ for (const m of MODULES) {
       expect(problems).toEqual([]);
     });
 
-    for (const e of m.entities) {
+    for (const e of m.entities.filter((x) => !x.panel)) {
       test(`form: ${e.label} opens well-formed, validates, and cancels`, async ({ authedPage: page }) => {
         const problems = watch(page);
         if ((await openModule(page, m)) === 'disabled') { test.skip(true, 'module switched off for this tenant'); return; }

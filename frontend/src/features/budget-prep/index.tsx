@@ -7,7 +7,8 @@ export default function BudgetPrepPage() {
   return (
     <ModuleCrudPage
       config={moduleConfig}
-      banner={({ activeKey, openForm }) => (activeKey === 'mtefProjection' ? <MtefFramework openForm={openForm} /> : <BudgetHandoff />)}
+      banner={({ activeKey }) => (activeKey === 'mtefProjection' ? null : <BudgetHandoff />)}
+      panel={({ openForm }) => <MtefFramework openForm={openForm} />}
     />
   );
 }

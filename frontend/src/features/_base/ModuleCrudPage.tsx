@@ -23,6 +23,8 @@ interface ModuleCrudPageProps {
    * Pass a function to vary it by tab and to open the form from the panel (a new record can start with `defaults`).
    */
   banner?: React.ReactNode | ((ctx: BannerContext) => React.ReactNode);
+  /** For a tab whose entity sets `panel`: the screen that replaces the register under the tabs. */
+  panel?: (ctx: BannerContext) => React.ReactNode;
 }
 
 export interface BannerContext {
@@ -62,7 +64,7 @@ function describeSaveError(e: any, entity: EntityConfig): string {
   return e?.response?.status >= 500 ? 'The server could not save this record. Please try again.' : 'Save failed';
 }
 
-export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }) => {
+export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, panel }) => {
   const [formError, setFormError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(config.entities[0]?.key ?? '');
   const [search, setSearch] = useState('');
@@ -202,7 +204,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
         ))}
       </div>
 
-      {activeEntity && (
+      {activeEntity?.panel && panel ? panel({ activeKey, openForm }) : activeEntity && (
         <>
           <div className="reg-head">
             <div>

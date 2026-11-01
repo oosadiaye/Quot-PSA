@@ -180,7 +180,7 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              {present.length > 0 && <tbody>
                 <tr className="group"><td colSpan={4}>Assumptions</td></tr>
                 <tr><td>Inflation</td>{cells((y) => `${y.assumptions?.inflation}%`)}</tr>
                 <tr><td>Exchange rate<span className="note">per US dollar</span></td>{cells((y) => money(y.assumptions?.exchange_rate))}</tr>
@@ -240,7 +240,7 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
                     })}
                   </tr>
                 ))}
-              </tbody>
+              </tbody>}
             </table>
           </div>
 

@@ -32,6 +32,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'mtefProjection',
+      panel: true,
       plural: 'mtef-projections',
       label: 'MTEF Projections',
       singular: 'MTEF Year',

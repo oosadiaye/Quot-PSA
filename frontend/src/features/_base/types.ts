@@ -47,6 +47,8 @@ export interface EntityConfig {
   /** Plural path segment on the backend, e.g. 'staff-advances'. */
   plural: string;
   label: string;
+  /** True when the module supplies a screen of its own (through `panel`) that stands in for the generic register on this tab. */
+  panel?: boolean;
   /** Singular name for headings and buttons ("Vehicle" for "Vehicles"); derived from the label when omitted. */
   singular?: string;
   /** Field used for the search query param. */
