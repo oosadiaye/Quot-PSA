@@ -3,6 +3,7 @@
  * portal and nowhere else, then signing out. (supplier-portal.spec.ts injects a session instead, to test the portal itself.)
  */
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +13,7 @@ import { apiContext } from '../fixtures/api';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CODE = 'E2E-SP2';
 const EMAIL = 'e2e-sp2@example.test';
-const PASSWORD = 'Supplier-Test-2026!';
+const PASSWORD = `Sp-${randomUUID()}-aA1!`;           // made fresh each run, never kept in the repository
 const REPO = path.resolve(__dirname, '../../..');
 const PYTHON = process.env.E2E_PYTHON ?? path.join(REPO, '.venv', 'Scripts', 'python.exe');
 const SUPPORT = path.resolve(__dirname, '../fixtures/e2e_support.py');

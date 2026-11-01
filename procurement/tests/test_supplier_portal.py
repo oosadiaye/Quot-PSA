@@ -3,6 +3,8 @@ registration); it sees and changes only its own records; bank details change onl
 from datetime import date
 from decimal import Decimal
 
+import secrets
+
 import pytest
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -14,6 +16,7 @@ from procurement.tests.test_vendor_role_containment import DOMAIN, _tenant, clie
 
 pytestmark = pytest.mark.django_db
 PORTAL = '/api/v1/supplier-portal/'
+TEST_PASSWORD = f'{secrets.token_urlsafe(18)}-aA1!'     # made fresh each run, never kept in the repository
 GOOD_NUBAN = '0123456789'       # any 10 digits passes the format check
 
 
@@ -124,13 +127,13 @@ def test_an_invitation_never_lands_on_a_staff_account():
     switch_portal()
     tenant = _tenant()
     with schema_context('public'):
-        staff = User.objects.create_user(username='sp-staff', email='sp-staff@example.test', password='Str0ng-pass-123')
+        staff = User.objects.create_user(username='sp-staff', email='sp-staff@example.test', password=TEST_PASSWORD)
         UserTenantRole.objects.update_or_create(user=staff, tenant=tenant, defaults={'role': 'admin', 'is_active': True})
     with pytest.raises(portal.PortalError, match='already belongs to a user'):
         portal.invite(make_vendor('SP-TAKE'), email='sp-staff@example.test')
     with schema_context('public'):
         assert UserTenantRole.objects.get(user=staff, tenant=tenant).role == 'admin'
-        assert User.objects.get(pk=staff.pk).check_password('Str0ng-pass-123')
+        assert User.objects.get(pk=staff.pk).check_password(TEST_PASSWORD)
 
 
 def test_an_account_with_a_password_but_no_role_is_not_taken_either():
@@ -138,7 +141,7 @@ def test_an_account_with_a_password_but_no_role_is_not_taken_either():
     from django_tenants.utils import schema_context
     switch_portal()
     with schema_context('public'):
-        User.objects.create_user(username='sp-lone', email='sp-lone@example.test', password='Str0ng-pass-123')
+        User.objects.create_user(username='sp-lone', email='sp-lone@example.test', password=TEST_PASSWORD)
     with pytest.raises(portal.PortalError, match='already belongs to a user'):
         portal.invite(make_vendor('SP-LONE'), email='sp-lone@example.test')
 

@@ -7,16 +7,21 @@ input that feeds it, and the permission on the org-users endpoint.
 """
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from django.contrib.auth.models import User
 from rest_framework import serializers as drf
 
 from core.models import Organization, UserOrganization
 
+# Made fresh each run: a throwaway account's password is not something to keep in the repository.
+TEST_PASSWORD = f'{secrets.token_urlsafe(18)}-aA1!'
+
 
 @pytest.fixture
 def user(db):
-    return User.objects.create_user(username='mda_user', password='x-Strong-1234')
+    return User.objects.create_user(username='mda_user', password=TEST_PASSWORD)
 
 
 @pytest.fixture
@@ -221,7 +226,7 @@ class TestCreateSerializerAcceptsWhatTheAddFormSends:
         serializer = TenantUserCreateSerializer(data={
             'username': 'blank_names_user', 'email': 'blank_names@example.com',
             'first_name': '', 'last_name': '',
-            'password': 'Zx9!kQ-Pilot-Test-2026', 'role': 'user',
+            'password': TEST_PASSWORD, 'role': 'user',
         })
         assert serializer.is_valid(), serializer.errors
 
