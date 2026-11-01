@@ -174,6 +174,7 @@ export const menuItems: MenuItem[] = [
             { name: 'Invoice Verification', path: '/procurement/matching', icon: CheckCircle },
             { name: 'Suppliers/Vendor', path: '/procurement/vendors', icon: Building },
             { name: 'Expired Suppliers', path: '/procurement/vendors-expired', icon: Clock },
+            { name: 'Supplier Portal', path: '/procurement/supplier-portal', icon: Building2 },
             { name: 'Vendor Categories', path: '/procurement/vendor-categories', icon: FolderTree },
             // Advisory: orders that clear a ceiling individually but not
             // together. Reports only — see features/procurement/SplitPurchaseScan.

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { CurrencyProvider } from './context/CurrencyContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
 import { ToastProvider } from './context/ToastContext';
 import ToastContainer from './components/ToastContainer';
@@ -260,6 +260,8 @@ const UserManagement = lazy(() => import('./pages/UserManagement'));
 const ChatWidget = lazy(() => import('./features/chat/ChatWidget'));
 
 // ── Employee Self-Service Portal ─────────────────────────────
+const SupplierPortal = lazy(() => import('./features/supplier-portal/SupplierPortal'));
+const SupplierPortalAdmin = lazy(() => import('./features/supplier-portal/SupplierPortalAdmin'));
 const MyDashboard = lazy(() => import('./features/portal/pages/MyDashboard'));
 const MyPayslips  = lazy(() => import('./features/portal/pages/MyPayslips'));
 const MyLeave     = lazy(() => import('./features/portal/pages/MyLeave'));
@@ -353,6 +355,12 @@ function RootRoute() {
   return <Navigate to="/login" replace />;
 }
 
+/** Team chat and similar staff tools are not for a supplier account, which can reach only the supplier portal. */
+function StaffOnly({ children }: { children: React.ReactNode }) {
+  const { tenantRole } = useAuth();
+  return tenantRole === 'vendor' ? null : <>{children}</>;
+}
+
 function App() {
   return (
     <ThemeProvider>
@@ -383,7 +391,7 @@ function App() {
                   <ImpersonationBanner />
                   <ImpersonationHandler />
                   {/* Team chat, bottom right: message other users of the workspace and share a file up to 2 MB. */}
-                  <Suspense fallback={null}><ChatWidget /></Suspense>
+                  <StaffOnly><Suspense fallback={null}><ChatWidget /></Suspense></StaffOnly>
                   {/* Inner ErrorBoundary scopes route crashes to the
                       content area — the outer ErrorBoundary at the
                       top-level catches anything that escapes; this
@@ -417,6 +425,11 @@ function App() {
                       } />
                       <Route path="/dashboard/legacy" element={
                         <ProtectedRoute><Dashboard /></ProtectedRoute>
+                      } />
+
+                      {/* ── Supplier Self-Service Portal (a supplier account reaches nothing else) ── */}
+                      <Route path="/supplier-portal" element={
+                        <ProtectedRoute><SupplierPortal /></ProtectedRoute>
                       } />
 
                       {/* ── Employee Self-Service Portal ───────────────── */}
@@ -666,6 +679,9 @@ function App() {
                         } />
                         <Route path="/procurement/vendors" element={
                           <ProtectedRoute><VendorList /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/supplier-portal" element={
+                          <ProtectedRoute><SupplierPortalAdmin /></ProtectedRoute>
                         } />
                         <Route path="/procurement/vendors-expired" element={
                           <ProtectedRoute><ExpiredVendors /></ProtectedRoute>

@@ -83,7 +83,7 @@ class VendorSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'code', 'category', 'category_name',
             'tax_id', 'address', 'email', 'phone',
-            'is_active',
+            'is_active', 'portal_status',
             'registration_number', 'registration_fiscal_year', 'fiscal_year_name',
             'registration_date', 'expiry_date',
             'is_registration_valid', 'registration_status',
