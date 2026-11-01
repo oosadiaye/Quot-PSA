@@ -26,6 +26,7 @@ v1_patterns = [
     path('accounting/', include('accounting.urls')),
     path('budget/', include('budget.urls')),
     path('procurement/', include('procurement.urls')),
+    path('supplier-portal/catalogue/', include('catalogue.urls_portal')),
     path('supplier-portal/', include('procurement.urls_portal')),
     path('inventory/', include('inventory.urls')),
     path('workflow/', include('workflow.urls')),

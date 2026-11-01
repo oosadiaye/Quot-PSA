@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { portalError, supplierApi } from './api';
+import CatalogueTab from './CatalogueTab';
 import { BankTab, InvoicesTab, OrdersTab, OverviewTab, PaymentsTab } from './SupplierTabs';
 import './supplier-portal.css';
 
@@ -10,6 +11,7 @@ const TABS = [
   { key: 'orders', label: 'Orders' },
   { key: 'invoices', label: 'Invoices' },
   { key: 'payments', label: 'Payments' },
+  { key: 'catalogue', label: 'Catalogue' },
   { key: 'bank', label: 'Bank details' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
@@ -21,9 +23,12 @@ type TabKey = (typeof TABS)[number]['key'];
 export default function SupplierPortal() {
   const { logout } = useAuth();
   const [params, setParams] = useSearchParams();
-  const requested = params.get('tab') as TabKey | null;
-  const tab: TabKey = TABS.some((t) => t.key === requested) ? (requested as TabKey) : 'overview';
   const profile = useQuery({ queryKey: ['supplier', 'profile'], queryFn: supplierApi.profile, retry: false });
+  // The catalogue tab exists only while the government has that module on; with it off the API refuses and the tab is not offered.
+  const catalogueOn = useQuery({ queryKey: ['supplier', 'catalogue'], queryFn: supplierApi.catalogue, retry: false, enabled: profile.isSuccess });
+  const tabs = TABS.filter((t) => t.key !== 'catalogue' || catalogueOn.isSuccess);
+  const requested = params.get('tab') as TabKey | null;
+  const tab: TabKey = tabs.some((t) => t.key === requested) ? (requested as TabKey) : 'overview';
 
   return (
     <div className="sp">
@@ -38,7 +43,7 @@ export default function SupplierPortal() {
             <button type="button" className="sp-signout" onClick={() => logout()}>Sign out</button>
           </div>
           <div className="sp-tabs" role="tablist" aria-label="Supplier portal sections">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button key={t.key} type="button" role="tab" className="sp-tab" aria-selected={t.key === tab} data-testid={`sp-tab-${t.key}`}
                 onClick={() => setParams(t.key === 'overview' ? {} : { tab: t.key })}>{t.label}</button>
             ))}
@@ -59,6 +64,7 @@ export default function SupplierPortal() {
             {tab === 'orders' && <OrdersTab />}
             {tab === 'invoices' && <InvoicesTab />}
             {tab === 'payments' && <PaymentsTab />}
+            {tab === 'catalogue' && <CatalogueTab />}
             {tab === 'bank' && <BankTab profile={profile.data} />}
           </>
         )}

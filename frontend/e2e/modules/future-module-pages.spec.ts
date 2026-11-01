@@ -53,10 +53,15 @@ type Outcome = 'register' | 'disabled';
 
 /** Open a module and report whether its register or the "Module Disabled" page appeared. */
 async function openModule(page: Page, m: ModuleConfig): Promise<Outcome> {
+  // The app first draws the page, then learns which modules are on and may swap it for the disabled page: wait for that answer.
+  const modulesKnown = page.waitForResponse((r) => r.url().includes('/tenants/enabled-modules/'), { timeout: 20_000 }).catch(() => null);
   await page.goto(m.basePath);
-  const register = page.getByRole('tablist');
+  // A real tab, not just a tab strip: the module check settles after the shell first appears, and the disabled page must win a tie.
+  const register = page.getByRole('tab').first();
   const disabled = page.getByText(/Module Disabled/);
   await expect(register.or(disabled).first()).toBeVisible({ timeout: 30_000 });
+  await modulesKnown;
+  await page.waitForTimeout(300);                    // let the page swap itself for the disabled one
   return (await disabled.count()) > 0 ? 'disabled' : 'register';
 }
 

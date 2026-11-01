@@ -1,6 +1,8 @@
 """Back-end helpers for the supplier-portal E2E, run from the repository root with the project's own Python.
 
   token   <tenant-domain> <email>                 -> prints an API token for the user with that email
+  module  <tenant-domain> <name> [on|off]         -> prints a module's state (on / off / none), and switches it when told to
+  item    <tenant-domain> <sku> <name>            -> creates (or refreshes) an inventory item
   activate <tenant-domain> <vendor-code>          -> marks the supplier's registration as paid
   po      <tenant-domain> <vendor-code> <number>  -> creates an approved purchase order for the supplier
   cleanup <tenant-domain> <vendor-code>           -> removes the supplier, its sign-in, orders and bank-change requests
@@ -47,6 +49,26 @@ def activate(domain: str, code: str) -> None:
         print('ok')
 
 
+def module(domain: str, name: str, state: str = '') -> None:
+    """Print whether a module is on (on / off / none) and, given on|off, switch it. The running server caches the answer for up
+    to a minute, so a change is seen by it after that."""
+    from core.models import TenantModule
+
+    with schema_context(schema_for(domain)):
+        row = TenantModule.objects.filter(module_name=name).first()
+        print('none' if row is None else 'on' if row.is_active else 'off')
+        if state in ('on', 'off'):
+            TenantModule.objects.update_or_create(module_name=name, defaults={'is_active': state == 'on'})
+
+
+def item(domain: str, sku: str, name: str) -> None:
+    from inventory.models import Item
+
+    with schema_context(schema_for(domain)):
+        Item.objects.update_or_create(sku=sku, defaults={'name': name, 'description': name, 'unit_of_measure': 'bag', 'barcode': sku, 'is_active': True})
+        print('ok')
+
+
 def po(domain: str, code: str, number: str) -> None:
     from accounting.models.gl import Account, Fund, Function, Geo, MDA, Program
     from procurement.models import PurchaseOrder, PurchaseOrderLine, Vendor
@@ -76,6 +98,13 @@ def cleanup(domain: str, code: str) -> None:
         for vendor in Vendor.objects.filter(code=code):
             emails += [vu.user.email for vu in VendorUser.objects.filter(vendor=vendor).select_related('user')]
             PurchaseOrder.objects.filter(vendor=vendor).delete()   # acknowledgements go with them
+            try:                                                   # the catalogue is optional; its rows protect the supplier
+                from catalogue.models import CatalogueItem, PriceHistory, SupplierCatalogue
+                CatalogueItem.objects.filter(catalogue__supplier=vendor).delete()
+                SupplierCatalogue.objects.filter(supplier=vendor).delete()
+                PriceHistory.objects.filter(supplier=vendor).delete()
+            except ImportError:
+                pass
             vendor.delete()                                        # sign-in link and bank-change requests go with it
     from tenants.models import UserTenantRole
     # Deleted from inside the tenant schema, where the tables that point at a user (some per-tenant) can all be reached.
@@ -89,4 +118,4 @@ def cleanup(domain: str, code: str) -> None:
 
 if __name__ == '__main__':
     command, *args = sys.argv[1:]
-    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup}[command](*args)
+    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item}[command](*args)

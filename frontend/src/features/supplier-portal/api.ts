@@ -70,6 +70,18 @@ export interface PaymentRow {
   status: string;
 }
 
+export interface CatalogueLine {
+  id: number; item: number; item_code: string; item_name: string; unit_price: string; specification: string;
+  effective_date: string; valid_to: string | null;
+}
+
+export interface ItemChoice { id: number; code: string; name: string; unit: string }
+
+export interface PriceProposal {
+  id: number; item: number; item_code: string; item_name: string; proposed_price: string; current_price: string | null;
+  specification: string; status: 'pending' | 'approved' | 'rejected'; reason: string; created_at: string; decided_at: string | null;
+}
+
 const BASE = '/supplier-portal';
 
 export const supplierApi = {
@@ -83,6 +95,11 @@ export const supplierApi = {
   invoices: async (): Promise<InvoiceRow[]> => (await apiClient.get(`${BASE}/invoices/`)).data,
   payments: async (): Promise<PaymentRow[]> => (await apiClient.get(`${BASE}/payments/`)).data,
   bankChanges: async (): Promise<BankChange[]> => (await apiClient.get(`${BASE}/bank-changes/`)).data,
+  catalogue: async (): Promise<CatalogueLine[]> => (await apiClient.get(`${BASE}/catalogue/`)).data,
+  searchItems: async (search: string): Promise<ItemChoice[]> => (await apiClient.get(`${BASE}/catalogue/items/`, { params: { search } })).data,
+  proposals: async (): Promise<PriceProposal[]> => (await apiClient.get(`${BASE}/catalogue/proposals/`)).data,
+  propose: async (body: { item: number; proposed_price: string; specification: string }): Promise<PriceProposal> =>
+    (await apiClient.post(`${BASE}/catalogue/proposals/`, body)).data,
   requestBankChange: async (body: { bank_name: string; bank_account_number: string; bank_sort_code: string }): Promise<BankChange> =>
     (await apiClient.post(`${BASE}/bank-changes/`, body)).data,
 };

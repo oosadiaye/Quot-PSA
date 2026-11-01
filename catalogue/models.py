@@ -78,3 +78,28 @@ class PriceHistory(AuditBaseModel):
 
     class Meta:
         ordering = ['item', '-effective_date']
+
+
+class CataloguePriceProposal(AuditBaseModel):
+    """A price a supplier asks to have in its catalogue. It binds the government only once an approver accepts it."""
+
+    STATUS_CHOICES = [('pending', 'Waiting for approval'), ('approved', 'Approved'), ('rejected', 'Rejected')]
+
+    supplier = models.ForeignKey('procurement.Vendor', on_delete=models.CASCADE, related_name='price_proposals')
+    item = models.ForeignKey('inventory.Item', on_delete=models.PROTECT, related_name='+')
+    proposed_price = models.DecimalField(max_digits=18, decimal_places=2)
+    current_price = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True,
+                                        help_text='The price in force when this was proposed, kept for comparison.')
+    specification = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', db_index=True)
+    requested_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    decided_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    decided_at = models.DateTimeField(null=True, blank=True)
+    reason = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.supplier} proposes {self.proposed_price} for {self.item} ({self.status})'
+

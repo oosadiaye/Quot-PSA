@@ -14,6 +14,10 @@ interface ChangeRow {
   id: number; vendor_name: string; vendor_code: string; current_bank_name: string; bank_name: string; bank_account_number: string;
   status: 'pending' | 'approved' | 'rejected'; reason: string; created_at: string;
 }
+interface ProposalRow {
+  id: number; supplier_name: string; item_code: string; item_name: string; proposed_price: string; current_price: string | null;
+  specification: string; status: 'pending' | 'approved' | 'rejected'; created_at: string;
+}
 type PortalStatus = 'not_invited' | 'invited' | 'active' | 'suspended';
 
 const STATUS: Record<PortalStatus, { word: string; tone: string }> = {
@@ -34,6 +38,8 @@ export default function SupplierPortalAdmin() {
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [rejectingPrice, setRejectingPrice] = useState<number | null>(null);
+  const [priceReason, setPriceReason] = useState('');
 
   const settings = useQuery({ queryKey: ['supplier-admin', 'settings'], queryFn: async (): Promise<PortalSettings> => (await apiClient.get('/procurement/portal-settings/current/')).data });
   const suppliers = useQuery({
@@ -43,6 +49,19 @@ export default function SupplierPortalAdmin() {
   const changes = useQuery({
     queryKey: ['supplier-admin', 'changes'],
     queryFn: async () => unwrap<ChangeRow>((await apiClient.get('/procurement/bank-change-requests/', { params: { page_size: 50 } })).data),
+  });
+
+  // Price proposals belong to the catalogue module: with it off the API refuses, and this section is simply not shown.
+  const proposals = useQuery({
+    queryKey: ['supplier-admin', 'proposals'],
+    retry: false,
+    queryFn: async () => unwrap<ProposalRow>((await apiClient.get('/catalogue/price-proposals/', { params: { status: 'pending', page_size: 50 } })).data),
+  });
+  const decideProposal = useMutation({
+    mutationFn: async ({ id, verb, why }: { id: number; verb: 'approve' | 'reject'; why?: string }) =>
+      (await apiClient.post(`/catalogue/price-proposals/${id}/${verb}/`, { reason: why ?? '' })).data,
+    onSuccess: (_d, v) => { setError(null); setRejectingPrice(null); setPriceReason(''); message.success(v.verb === 'approve' ? 'Price accepted' : 'Price rejected'); refresh(); },
+    onError: (e) => setError(portalError(e)),
   });
 
   const saveSettings = useMutation({
@@ -125,6 +144,45 @@ export default function SupplierPortalAdmin() {
             </table></div>
           )}
         </section>
+
+        {proposals.isSuccess && (
+          <section className="sp-card" aria-labelledby="spa-prices">
+            <h2 id="spa-prices">Catalogue prices waiting for you ({(proposals.data ?? []).length})</h2>
+            <p className="sp-sub">Accepting a price puts it in the supplier&rsquo;s catalogue and the price history. Compare it with what is in force before you accept.</p>
+            {(proposals.data ?? []).length === 0 ? <p className="sp-hint" data-testid="spa-no-prices">Nothing is waiting.</p> : (
+              <div className="sp-table-wrap"><table className="sp-table" aria-label="Pending catalogue prices">
+                <thead><tr><th scope="col">Supplier</th><th scope="col">Item</th><th scope="col" className="num">Proposed</th><th scope="col" className="num">In force</th><th scope="col"><span className="sr-only">Decide</span></th></tr></thead>
+                <tbody>{(proposals.data ?? []).map((p) => (
+                  <tr key={p.id} data-testid="spa-price">
+                    <td><b>{p.supplier_name}</b></td>
+                    <td>{p.item_name}<br /><span className="sp-hint">{p.item_code}{p.specification ? ` · ${p.specification}` : ''}</span></td>
+                    <td className="num">{`₦${Number(p.proposed_price).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}</td>
+                    <td className="num">{p.current_price === null ? 'None' : `₦${Number(p.current_price).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}</td>
+                    <td>
+                      {rejectingPrice === p.id ? (
+                        <div className="sp-field" style={{ minWidth: 220 }}>
+                          <label htmlFor={`spa-price-why-${p.id}`}>Reason for rejecting</label>
+                          <input id={`spa-price-why-${p.id}`} data-testid="spa-price-reason" value={priceReason} onChange={(e) => setPriceReason(e.target.value)} />
+                          <div className="sp-actions">
+                            <button type="button" className="sp-btn primary" data-testid="spa-price-reject-confirm" disabled={!priceReason.trim() || decideProposal.isPending}
+                              onClick={() => decideProposal.mutate({ id: p.id, verb: 'reject', why: priceReason })}>Reject</button>
+                            <button type="button" className="sp-btn" onClick={() => { setRejectingPrice(null); setPriceReason(''); }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="sp-actions" style={{ marginTop: 0 }}>
+                          <button type="button" className="sp-btn primary" data-testid="spa-price-approve" disabled={decideProposal.isPending}
+                            onClick={() => decideProposal.mutate({ id: p.id, verb: 'approve' })}>Accept</button>
+                          <button type="button" className="sp-btn" data-testid="spa-price-reject" onClick={() => { setRejectingPrice(p.id); setPriceReason(''); }}>Reject</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+          </section>
+        )}
 
         <section className="sp-card" aria-labelledby="spa-suppliers">
           <h2 id="spa-suppliers">Suppliers</h2>

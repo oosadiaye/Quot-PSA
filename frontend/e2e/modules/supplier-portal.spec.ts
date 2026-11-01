@@ -170,4 +170,53 @@ test.describe('Supplier portal', () => {
     await sup.context().close();
     void office;
   });
+
+  test('a supplier proposes a catalogue price, the office accepts it, and it is in force', async ({ authedPage: office, browser }) => {
+    test.setTimeout(300_000);
+    const was = support('module', session.tenantDomain, 'catalogue', 'on');
+    try {
+      const api = await apiContext();
+      await api.patch('/api/v1/procurement/portal-settings/current/', { data: { enabled: true } });
+      const v = await api.post('/api/v1/procurement/vendors/', { data: { name: 'E2E Supplies Ltd', code: CODE, email: EMAIL } });
+      expect(v.ok(), await v.text()).toBeTruthy();
+      const { id } = await v.json();
+      support('activate', session.tenantDomain, CODE);
+      await api.post(`/api/v1/procurement/vendors/${id}/portal-invite/`, { data: {} });
+      await api.post(`/api/v1/procurement/vendors/${id}/portal-activate/`, { data: {} });
+      await api.dispose();
+      support('item', session.tenantDomain, 'E2E-CEMENT', 'E2E Cement 50kg bag');
+
+      const sup = await supplierPage(browser);
+      // the running server remembers a module's state for up to a minute, so wait for the tab to appear
+      await expect(async () => {
+        await sup.goto('/supplier-portal');
+        await expect(sup.getByTestId('sp-tab-catalogue')).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: 120_000, intervals: [5_000] });
+
+      await sup.getByTestId('sp-tab-catalogue').click();
+      await expect(sup.getByTestId('sp-empty')).toContainText('No prices yet');
+      await sup.getByLabel('Item').fill('E2E Cement');
+      await sup.getByTestId('sp-cat-pick-E2E-CEMENT').click();
+      await expect(sup.getByTestId('sp-cat-chosen')).toHaveText('E2E Cement 50kg bag');
+      await expect(sup.getByTestId('sp-cat-send')).toBeDisabled();                    // no price yet
+      await sup.getByLabel('Price per unit (₦)').fill('4500');
+      await sup.getByLabel('Specification (optional)').fill('Dangote, 50kg');
+      await sup.getByTestId('sp-cat-send').click();
+      await expect(sup.getByTestId('sp-proposal-row')).toContainText('Waiting for approval');
+      await expect(sup.getByTestId('sp-price-row')).toHaveCount(0);                   // nothing in force until accepted
+
+      await office.goto('/procurement/supplier-portal');
+      await expect(office.getByTestId('spa-price')).toContainText('E2E Cement 50kg bag', { timeout: 30_000 });
+      await office.getByTestId('spa-price-approve').click();
+      await expect(office.getByTestId('spa-no-prices')).toBeVisible({ timeout: 20_000 });
+
+      await sup.reload();
+      await sup.getByTestId('sp-tab-catalogue').click();
+      await expect(sup.getByTestId('sp-price-row')).toContainText('₦4,500.00');
+      await expect(sup.getByTestId('sp-proposal-row')).toContainText('Approved');
+      await sup.context().close();
+    } finally {
+      if (was !== 'on') support('module', session.tenantDomain, 'catalogue', was === 'off' ? 'off' : 'off');
+    }
+  });
 });
