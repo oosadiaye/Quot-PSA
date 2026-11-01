@@ -35,6 +35,7 @@ class MTEFProjectionSerializer(serializers.ModelSerializer):
         model = MTEFProjection
         fields = [
             'id', 'fiscal_year', 'inflation_assumption', 'exchange_rate_assumption', 'oil_price_assumption', 'oil_sensitivity',
+            'gdp_assumption', 'opening_debt_stock',
             *MTEFProjection.REVENUE_FIELDS, *MTEFProjection.EXPENDITURE_FIELDS, *MTEFProjection.FINANCING_FIELDS,
             'aggregate_revenue', 'aggregate_expenditure', 'fiscal_balance',
             'total_revenue', 'total_expenditure', 'total_financing', 'unfinanced_gap',
@@ -44,7 +45,8 @@ class MTEFProjectionSerializer(serializers.ModelSerializer):
                             'approved_at', 'override_reason']
         # an amount of money is never negative; a shortfall is a balance, not a negative revenue line
         extra_kwargs = {n: {'min_value': 0} for n in (*MTEFProjection.REVENUE_FIELDS, *MTEFProjection.EXPENDITURE_FIELDS,
-                                                       *MTEFProjection.FINANCING_FIELDS, 'exchange_rate_assumption')}
+                                                       *MTEFProjection.FINANCING_FIELDS, 'exchange_rate_assumption',
+                                                       'gdp_assumption', 'opening_debt_stock')}
 
     def validate_oil_sensitivity(self, value):
         if value < 0 or value > 2:
@@ -62,11 +64,11 @@ class MTEFPolicySerializer(serializers.ModelSerializer):
         model = MTEFPolicy
         fields = [
             'id', 'max_debt_service_pct', 'max_personnel_pct', 'min_capital_pct', 'max_borrowing_pct',
-            'max_revenue_growth_pct', 'max_outturn_jump_pct', 'enforce_golden_rule',
+            'max_revenue_growth_pct', 'max_outturn_jump_pct', 'max_deficit_pct_gdp', 'max_debt_stock_pct_gdp', 'enforce_golden_rule',
         ]
         extra_kwargs = {n: {'min_value': 0, 'max_value': 100} for n in (
             'max_debt_service_pct', 'max_personnel_pct', 'min_capital_pct', 'max_borrowing_pct',
-            'max_revenue_growth_pct', 'max_outturn_jump_pct')}
+            'max_revenue_growth_pct', 'max_outturn_jump_pct', 'max_deficit_pct_gdp', 'max_debt_stock_pct_gdp')}
 
 
 class MDACeilingSerializer(serializers.ModelSerializer):

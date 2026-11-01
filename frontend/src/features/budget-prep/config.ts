@@ -51,6 +51,8 @@ export const moduleConfig: ModuleConfig = {
         { name: 'inflation_assumption', label: 'Inflation (%)', type: 'decimal', numeric: true, group: 'Assumptions', hint: 'The rate the projection assumes.' },
         { name: 'exchange_rate_assumption', label: 'Exchange rate (per US dollar)', type: 'decimal', numeric: true, group: 'Assumptions' },
         { name: 'oil_price_assumption', label: 'Oil price (US dollars a barrel)', type: 'decimal', numeric: true, group: 'Assumptions' },
+        { name: 'gdp_assumption', label: 'GDP (GSDP for a state)', type: 'decimal', numeric: true, group: 'Assumptions', hint: 'Nominal size of the economy. Without it the deficit and debt limits cannot be checked.' },
+        { name: 'opening_debt_stock', label: 'Public debt at start of year', type: 'decimal', numeric: true, group: 'Assumptions', hint: 'Total debt owed on 1 January; this year’s borrowing is added to give the closing debt.' },
         { name: 'oil_sensitivity', label: 'Oil sensitivity', type: 'decimal', numeric: true, group: 'Assumptions', hint: 'How closely statutory allocation and VAT follow the oil price: 1 is one for one, 0 not at all.' },
         { name: 'rev_statutory', label: 'Statutory allocation (FAAC)', type: 'decimal', numeric: true, group: 'Revenue' },
         { name: 'rev_vat', label: 'VAT allocation', type: 'decimal', numeric: true, group: 'Revenue' },

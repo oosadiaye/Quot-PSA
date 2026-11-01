@@ -88,6 +88,7 @@ def figures(p: MTEFProjection) -> dict:
             'inflation': str(p.inflation_assumption), 'exchange_rate': str(p.exchange_rate_assumption),
             'oil_price': None if p.oil_price_assumption is None else str(p.oil_price_assumption),
             'oil_sensitivity': str(p.oil_sensitivity),
+            'gdp': str(p.gdp_assumption), 'opening_debt_stock': str(p.opening_debt_stock),
         },
         'revenue': {n: str(getattr(p, n)) for n in MTEFProjection.REVENUE_FIELDS},
         'expenditure': {n: str(getattr(p, n)) for n in MTEFProjection.EXPENDITURE_FIELDS},
@@ -102,10 +103,21 @@ def figures(p: MTEFProjection) -> dict:
             'personnel_pct_recurrent_revenue': _opt(_pct(p.exp_personnel, p.recurrent_revenue)),
             'capital_pct_expenditure': _opt(_pct(p.exp_capital, spend)),
             'borrowing_pct_revenue': _opt(_pct(p.fin_domestic + p.fin_external, revenue)),
+            'deficit_pct_gdp': _opt(_pct(_deficit(p), p.gdp_assumption)),
+            'debt_stock_pct_gdp': _opt(_pct(closing_debt(p), p.gdp_assumption)),
         },
         'approved_by': p.approved_by, 'approved_at': p.approved_at.isoformat() if p.approved_at else None,
         'override_reason': p.override_reason,
     }
+
+
+def _deficit(p: MTEFProjection) -> Decimal:
+    return max(_ZERO, -Decimal(p.fiscal_balance))
+
+
+def closing_debt(p: MTEFProjection) -> Decimal:
+    """The debt owed at the end of the year: what was owed at the start plus the year's new borrowing."""
+    return Decimal(p.opening_debt_stock) + Decimal(p.fin_domestic) + Decimal(p.fin_external)
 
 
 def _opt(v):
@@ -176,6 +188,11 @@ def assess_year(p: MTEFProjection, policy: MTEFPolicy, *, previous: MTEFProjecti
           what='Capital expenditure as a share of total expenditure')
     limit('Borrowing', _pct(p.fin_domestic + p.fin_external, revenue), Decimal(policy.max_borrowing_pct),
           what='New borrowing as a share of total revenue')
+
+    limit('Deficit to GDP', _pct(_deficit(p), p.gdp_assumption), Decimal(policy.max_deficit_pct_gdp), severity=FAIL,
+          what='The fiscal deficit as a share of GDP')
+    limit('Debt stock', _pct(closing_debt(p), p.gdp_assumption), Decimal(policy.max_debt_stock_pct_gdp), severity=FAIL,
+          what='Closing public debt as a share of GDP')
 
     if p.inflation_assumption <= 0 or p.exchange_rate_assumption <= 0:
         out.append(Finding('Assumptions', WARN, 'The inflation or exchange-rate assumption is blank, so the projection has no stated basis.'))
@@ -331,6 +348,8 @@ def roll_forward(base_year: int, *, growth: dict | None = None) -> RollResult:
                 continue
             values = {n: _q(getattr(previous, n) * (1 + rate[n] / 100)) for n in rate}
             values.update({n: getattr(previous, n) for n in MTEFProjection.FINANCING_FIELDS})
+            values['opening_debt_stock'] = closing_debt(previous)
+            values['gdp_assumption'] = _q(previous.gdp_assumption * (1 + growth.get('gdp_growth_pct', default) / 100))
             previous = MTEFProjection.objects.create(
                 fiscal_year=year, inflation_assumption=base.inflation_assumption, exchange_rate_assumption=base.exchange_rate_assumption,
                 oil_price_assumption=base.oil_price_assumption, oil_sensitivity=base.oil_sensitivity,

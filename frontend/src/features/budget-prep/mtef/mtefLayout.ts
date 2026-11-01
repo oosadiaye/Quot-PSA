@@ -46,6 +46,8 @@ export const RATIO_ROWS: RatioRow[] = [
   { key: 'personnel_pct_recurrent_revenue', label: 'Personnel cost, % of recurrent revenue', limit: 'max_personnel_pct', bound: 'max' },
   { key: 'capital_pct_expenditure', label: 'Capital, % of expenditure', limit: 'min_capital_pct', bound: 'min' },
   { key: 'borrowing_pct_revenue', label: 'New borrowing, % of revenue', limit: 'max_borrowing_pct', bound: 'max' },
+  { key: 'deficit_pct_gdp', label: 'Fiscal deficit, % of GDP', limit: 'max_deficit_pct_gdp', bound: 'max' },
+  { key: 'debt_stock_pct_gdp', label: 'Closing public debt, % of GDP', limit: 'max_debt_stock_pct_gdp', bound: 'max' },
 ];
 
 export const STATUS_WORD: Record<RuleStatus, string> = { pass: 'Met', warn: 'Check', fail: 'Broken' };
@@ -62,6 +64,8 @@ export const POLICY_FIELDS: { key: keyof PolicyValues; label: string; hint: stri
   { key: 'max_personnel_pct', label: 'Personnel cost limit (%)', hint: 'Of recurrent revenue.' },
   { key: 'min_capital_pct', label: 'Capital spending floor (%)', hint: 'Of total expenditure.' },
   { key: 'max_borrowing_pct', label: 'New borrowing limit (%)', hint: 'Of total revenue.' },
+  { key: 'max_deficit_pct_gdp', label: 'Fiscal deficit limit (% of GDP)', hint: 'The Fiscal Responsibility Act sets 3. Breaking it blocks approval.' },
+  { key: 'max_debt_stock_pct_gdp', label: 'Public debt limit (% of GDP)', hint: 'Closing debt: what is owed plus the year’s new borrowing.' },
   { key: 'max_revenue_growth_pct', label: 'Revenue growth above inflation (points)', hint: 'How far year-on-year growth may beat inflation.' },
   { key: 'max_outturn_jump_pct', label: 'Rise on last year’s actuals (points)', hint: 'How far the budget year may exceed what was actually spent, above inflation.' },
 ];

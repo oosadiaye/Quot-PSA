@@ -168,6 +168,8 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
                 <tr><td>Inflation</td>{cells((y) => `${y.assumptions?.inflation}%`)}</tr>
                 <tr><td>Exchange rate<span className="note">per US dollar</span></td>{cells((y) => money(y.assumptions?.exchange_rate))}</tr>
                 <tr><td>Oil price<span className="note">US dollars a barrel</span></td>{cells((y) => (y.assumptions?.oil_price ? Number(y.assumptions.oil_price).toLocaleString() : '–'))}</tr>
+                <tr><td>GDP<span className="note">nominal; GSDP for a state</span></td>{cells((y) => (Number(y.assumptions?.gdp) > 0 ? money(y.assumptions?.gdp) : '–'))}</tr>
+                <tr><td>Public debt at start of year</td>{cells((y) => (Number(y.assumptions?.opening_debt_stock) > 0 ? money(y.assumptions?.opening_debt_stock) : '–'))}</tr>
 
                 <tr className="group"><td colSpan={4}>Revenue</td></tr>
                 {moneyRows(REVENUE_ROWS, 'revenue')}
@@ -196,7 +198,7 @@ export default function MtefFramework({ openForm }: { openForm: BannerContext['o
                 </tr>
 
                 <tr className="group"><td colSpan={4}>Key ratios</td></tr>
-                {RATIO_ROWS.map((r) => (
+                {RATIO_ROWS.filter((r) => present.some((y) => y.ratios?.[r.key] != null)).map((r) => (
                   <tr key={r.key}>
                     <td>{r.label}{policy && <span className="note">{r.bound === 'max' ? 'limit' : 'floor'} {String(policy[r.limit])}%</span>}</td>
                     {cells((y) => (y.ratios?.[r.key] ? `${y.ratios[r.key]}%` : '–'))}

@@ -65,6 +65,8 @@ test.describe('MTEF framework', () => {
     await expect(form.getByText('New MTEF year')).toBeVisible();
     await expect(form.getByLabel(labelled('Fiscal Year'))).toHaveValue(String(BASE));
     for (const [label, bn] of Object.entries(BALANCED)) await form.getByLabel(labelled(label)).fill(String(bn * BN));
+    await form.getByLabel(labelled('GDP (GSDP for a state)')).fill(String(2000 * BN));
+    await form.getByLabel(labelled('Public debt at start of year')).fill(String(100 * BN));
     await form.getByRole('button', { name: 'Create MTEF year' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 15_000 });
 
@@ -73,6 +75,8 @@ test.describe('MTEF framework', () => {
     await expect(page.getByTestId(`mtef-gap-${BASE}`)).not.toHaveText('–');
     await expect(page.getByTestId(`mtef-rule-fully-financed-${BASE}`)).toContainText('Met');
     await expect(page.getByTestId(`mtef-rule-golden-rule-${BASE}`)).toContainText('Met');
+    await expect(page.getByTestId(`mtef-rule-deficit-to-gdp-${BASE}`)).toContainText('Met');   // no deficit
+    await expect(page.getByTestId(`mtef-rule-debt-stock-${BASE}`)).toContainText('Met');       // 100bn of 2 000bn
 
     // roll forward creates the two outer years
     await page.getByTestId('mtef-roll').click();
@@ -85,6 +89,7 @@ test.describe('MTEF framework', () => {
     await edit.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByTestId(`mtef-rule-fully-financed-${BASE}`)).toContainText('Broken');
+    await expect(page.getByTestId(`mtef-rule-deficit-to-gdp-${BASE}`)).toContainText('Broken');  // 100bn of 2 000bn is 5%, over the 3% limit
     await expect(page.getByTestId('mtef-attention')).toBeVisible();
     await expect(page.getByTestId('mtef-allgood')).toHaveCount(0);
 
@@ -110,7 +115,7 @@ test.describe('MTEF framework', () => {
 
   test('a rule limit is the government’s to set, and is held to', async ({ authedPage: page }) => {
     const api = await apiContext();
-    await api.post(API, { data: { fiscal_year: BASE, inflation_assumption: '15', exchange_rate_assumption: '1500', ...Object.fromEntries(
+    await api.post(API, { data: { fiscal_year: BASE, inflation_assumption: '15', exchange_rate_assumption: '1500', gdp_assumption: String(2000 * BN), ...Object.fromEntries(
       [['rev_statutory', 400], ['rev_vat', 100], ['rev_igr', 150], ['rev_other', 50], ['rev_grants', 50], ['rev_capital_receipts', 50],
         ['exp_debt_service', 40], ['exp_personnel', 300], ['exp_overhead', 100], ['exp_other_recurrent', 100], ['exp_capital', 260]]
         .map(([k, v]) => [k, String(Number(v) * BN)])) } });
@@ -133,6 +138,13 @@ test.describe('MTEF framework', () => {
       await page.getByTestId('policy-save').click();
     }
     await expect(debtRule).toContainText('Met', { timeout: 15_000 });
+
+    // a fall in the oil price is run against the framework without saving anything
+    await page.getByTestId('mtef-oil').fill('-30');
+    await page.getByTestId('mtef-scenario-run').click();
+    await expect(page.getByTestId('mtef-scenario-result')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId(`mtef-shock-change-${BASE}`)).not.toHaveText(/^₦0\.00$/);
+    await expect(page.getByTestId(`mtef-shock-verdict-${BASE}`)).toBeVisible();
   });
 
   test('fits a phone screen without sideways page scroll', async ({ authedPage: page }) => {

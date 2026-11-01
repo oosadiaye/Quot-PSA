@@ -513,3 +513,48 @@ def test_policy_can_be_read_changed_and_changes_the_verdict():
 def test_module_off_refuses_the_mtef():
     _module(False)
     assert _client('admin').get(f'{BASE}framework/?base_year={YEAR}').status_code == 403
+
+
+# ── fiscal responsibility: the deficit and the debt stock, set against the size of the economy ────────────────
+
+def test_deficit_within_the_gdp_limit_passes():
+    f = rules(make(gdp_assumption=D('10000')))['Deficit to GDP']            # deficit 150 of 10 000 = 1.50%
+    assert f.status == mtef.PASS and f.value == '1.50'
+
+
+def test_deficit_above_the_gdp_limit_fails_and_says_by_how_much():
+    f = rules(make(gdp_assumption=D('3000')))['Deficit to GDP']             # 150 of 3 000 = 5.00% against 3
+    assert f.status == mtef.FAIL and '5.00%' in f.message and '3.00%' in f.message
+
+
+def test_a_surplus_has_no_deficit_to_judge():
+    f = rules(make(gdp_assumption=D('3000'), exp_capital=D('0'), fin_domestic=D('0'), fin_external=D('0')))['Deficit to GDP']
+    assert f.status == mtef.PASS and f.value == '0.00'
+
+
+def test_the_debt_stock_is_what_was_owed_plus_this_years_borrowing():
+    f = rules(make(gdp_assumption=D('1000'), opening_debt_stock=D('200')))['Debt stock']    # 200 + 100 + 50 = 350 of 1 000
+    assert f.status == mtef.FAIL and f.value == '35.00'
+
+
+def test_a_debt_stock_within_the_limit_passes():
+    f = rules(make(gdp_assumption=D('10000'), opening_debt_stock=D('200')))['Debt stock']
+    assert f.status == mtef.PASS and f.value == '3.50'
+
+
+def test_without_a_stated_gdp_the_gdp_rules_stay_silent_rather_than_invent_a_figure():
+    found = rules(make())
+    assert 'Deficit to GDP' not in found and 'Debt stock' not in found
+
+
+def test_the_gdp_limits_are_the_governments_to_set():
+    MTEFPolicy.objects.create(max_deficit_pct_gdp=D('6'))
+    assert rules(make(gdp_assumption=D('3000')))['Deficit to GDP'].status == mtef.PASS
+
+
+def test_roll_forward_carries_the_debt_stock_and_grows_gdp_with_inflation():
+    make(gdp_assumption=D('1000'), opening_debt_stock=D('200'))
+    mtef.roll_forward(YEAR)
+    nxt = MTEFProjection.objects.get(fiscal_year=YEAR + 1)
+    assert nxt.opening_debt_stock == D('350')            # 200 + this year's 150 of borrowing
+    assert nxt.gdp_assumption == D('1100.00')            # grown by the 10% inflation assumption

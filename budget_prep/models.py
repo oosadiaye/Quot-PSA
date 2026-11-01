@@ -78,6 +78,10 @@ class MTEFProjection(AuditBaseModel):
     oil_price_assumption = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True)
     # How strongly the statutory allocation and VAT follow the oil price: 1 = one for one, 0 = not at all.
     oil_sensitivity = models.DecimalField(max_digits=4, decimal_places=2, default=1)
+    # The size of the economy (nominal GDP, or GSDP for a state) and the public debt owed at the start of the year: the base
+    # against which the deficit and the debt stock are held. Left at 0 they are simply not judged.
+    gdp_assumption = models.DecimalField(max_digits=22, decimal_places=2, default=0)
+    opening_debt_stock = models.DecimalField(max_digits=22, decimal_places=2, default=0)
 
     # Resource envelope, by source
     rev_statutory = _money()            # statutory (FAAC) allocation
@@ -170,6 +174,10 @@ class MTEFPolicy(AuditBaseModel):
     max_outturn_jump_pct = models.DecimalField(max_digits=5, decimal_places=2, default=25,
                                                help_text='How far the budget year may exceed last year\'s actual spending, '
                                                          'above inflation.')
+    max_deficit_pct_gdp = models.DecimalField(max_digits=5, decimal_places=2, default=3,
+                                              help_text='The fiscal deficit as a % of GDP (the Fiscal Responsibility Act sets 3).')
+    max_debt_stock_pct_gdp = models.DecimalField(max_digits=5, decimal_places=2, default=25,
+                                                 help_text='Closing public debt as a % of GDP.')
     enforce_golden_rule = models.BooleanField(default=True, help_text='Recurrent spending must fit within recurrent revenue.')
 
     def __str__(self):

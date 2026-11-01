@@ -34,7 +34,7 @@ export interface YearView {
   missing: boolean;
   id?: number;
   status?: MtefStatus;
-  assumptions?: { inflation: string; exchange_rate: string; oil_price: string | null; oil_sensitivity: string };
+  assumptions?: { inflation: string; exchange_rate: string; oil_price: string | null; oil_sensitivity: string; gdp: string; opening_debt_stock: string };
   revenue?: Record<string, string>;
   expenditure?: Record<string, string>;
   financing?: Record<string, string>;
@@ -45,6 +45,7 @@ export interface YearView {
   ratios?: {
     debt_service_pct_revenue: string | null; personnel_pct_recurrent_revenue: string | null;
     capital_pct_expenditure: string | null; borrowing_pct_revenue: string | null;
+    deficit_pct_gdp: string | null; debt_stock_pct_gdp: string | null;
   };
   findings?: Finding[];
   overall?: RuleStatus;
@@ -86,6 +87,8 @@ export interface PolicyValues {
   max_borrowing_pct: string;
   max_revenue_growth_pct: string;
   max_outturn_jump_pct: string;
+  max_deficit_pct_gdp: string;
+  max_debt_stock_pct_gdp: string;
   enforce_golden_rule: boolean;
 }
 
