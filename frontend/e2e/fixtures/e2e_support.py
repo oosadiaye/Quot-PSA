@@ -1,6 +1,7 @@
 """Back-end helpers for the supplier-portal E2E, run from the repository root with the project's own Python.
 
   token   <tenant-domain> <email>                 -> prints an API token for the user with that email
+  reset-link <tenant-domain> <email>              -> prints `uid token`, as the emailed choose-a-password link carries them
   module  <tenant-domain> <name> [on|off]         -> prints a module's state (on / off / none), and switches it when told to
   item    <tenant-domain> <sku> <name>            -> creates (or refreshes) an inventory item
   activate <tenant-domain> <vendor-code>          -> marks the supplier's registration as paid
@@ -49,6 +50,17 @@ def activate(domain: str, code: str) -> None:
         print('ok')
 
 
+def reset_link(domain: str, email: str) -> None:
+    """Print the uid and token an emailed password link carries, as ``uid token``."""
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    with schema_context('public'):
+        user = get_user_model().objects.get(email__iexact=email)
+        print(urlsafe_base64_encode(force_bytes(user.pk)), default_token_generator.make_token(user))
+
+
 def module(domain: str, name: str, state: str = '') -> None:
     """Print whether a module is on (on / off / none) and, given on|off, switch it. The running server caches the answer for up
     to a minute, so a change is seen by it after that."""
@@ -93,7 +105,7 @@ def po(domain: str, code: str, number: str) -> None:
 def cleanup(domain: str, code: str) -> None:
     from procurement.models import PurchaseOrder, Vendor, VendorUser
 
-    emails = []
+    emails = [f'{code.lower()}@example.test']      # the test convention; also catches a sign-in left by an earlier failed run
     with schema_context(schema_for(domain)):
         for vendor in Vendor.objects.filter(code=code):
             emails += [vu.user.email for vu in VendorUser.objects.filter(vendor=vendor).select_related('user')]
@@ -106,16 +118,20 @@ def cleanup(domain: str, code: str) -> None:
             except ImportError:
                 pass
             vendor.delete()                                        # sign-in link and bank-change requests go with it
+    from core.models import PasswordHistory, UserSession          # a supplier who chose a password has these; they protect the user
     from tenants.models import UserTenantRole
-    # Deleted from inside the tenant schema, where the tables that point at a user (some per-tenant) can all be reached.
-    with schema_context(schema_for(domain)):
+    with schema_context('public'):
         users = get_user_model().objects.filter(email__in=emails)
         UserTenantRole.objects.filter(user__in=users).delete()
         Token.objects.filter(user__in=users).delete()
-        users.delete()
+        PasswordHistory.objects.filter(user__in=users).delete()
+        UserSession.objects.filter(user__in=users).delete()
+    # Deleted from inside the tenant schema, where the tables that point at a user (some per-tenant) can all be reached.
+    with schema_context(schema_for(domain)):
+        get_user_model().objects.filter(email__in=emails).delete()
     print('ok')
 
 
 if __name__ == '__main__':
     command, *args = sys.argv[1:]
-    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item}[command](*args)
+    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item, 'reset-link': reset_link}[command](*args)

@@ -1,4 +1,5 @@
 import logging
+import os
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
@@ -642,7 +643,8 @@ def my_tenants(request):
 # ── Password Reset (self-service) ──────────────────────────────────────
 
 class PasswordResetRateThrottle(AnonRateThrottle):
-    rate = '3/hour'
+    # Strict by default; a developer machine running the end-to-end suite raises it with PASSWORD_RESET_THROTTLE_RATE.
+    rate = os.getenv('PASSWORD_RESET_THROTTLE_RATE', '3/hour')
 
 
 @api_view(['POST'])
