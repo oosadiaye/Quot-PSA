@@ -95,6 +95,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'bid',
+      readOnly: true,
       plural: 'bids',
       label: 'Bids',
       searchField: 'bidder',
@@ -152,6 +153,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'bidOpening',
+      readOnly: true,
       plural: 'bid-openings',
       label: 'Bid Openings',
       searchField: 'tender',
@@ -230,6 +232,7 @@ export const moduleConfig: ModuleConfig = {
     },
     {
       key: 'tenderAward',
+      readOnly: true,
       plural: 'awards',
       label: 'Tender Awards',
       searchField: 'tender',

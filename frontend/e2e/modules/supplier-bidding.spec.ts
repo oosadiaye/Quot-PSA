@@ -52,6 +52,7 @@ test.describe('Supplier bidding', () => {
       await api.post(`/api/v1/procurement/vendors/${vendor}/portal-invite/`, { data: {} });
       await api.post(`/api/v1/procurement/vendors/${vendor}/portal-activate/`, { data: {} });
       support('tender', session.tenantDomain, REF, '5');
+      const account = support('dims', session.tenantDomain);
 
       const sup = await supplierPage(browser);
       // the server remembers a module's state for up to a minute, so wait for the tab to appear
@@ -107,8 +108,34 @@ test.describe('Supplier bidding', () => {
       await office.getByTestId('bo-attendance').fill('A. Obi\nB. Eze');
       await office.getByTestId('bo-open').click();
       await expect(office.getByTestId('bo-opened')).toBeVisible({ timeout: 20_000 });
-      await expect(office.getByTestId('bo-bid')).toContainText('₦1,100,000.00');
-      await expect(office.getByTestId('bo-bid')).toContainText('opened');
+      await expect(office.getByTestId('bo-ranked')).toContainText('₦1,100,000.00');
+      await expect(office.getByTestId('bo-ranked')).toContainText('Opened');
+
+      // the office rules on the bid, ranks it and awards the tender: a draft purchase order is raised
+      await expect(office.getByTestId('bo-ranked')).toContainText('1,100,000.00');
+      await expect(office.getByTestId('bo-award')).toHaveCount(0);                       // nothing to award until a bid is ruled responsive
+      await office.getByTestId(/bo-responsive-/).click();
+      await expect(office.getByTestId('bo-ranked')).toContainText('Responsive');
+      await office.getByTestId('bo-pick').selectOption({ index: 1 });
+      const choose = async (key: string, typed: string, option: RegExp) => {
+        const box = office.getByTestId(`bo-${key}`).getByRole('combobox');
+        await box.click();
+        await box.fill(typed);
+        await office.getByRole('option', { name: option }).first().click();
+      };
+      await choose('mda', 'E2E Award', /E2E Award MDA/);
+      await choose('fund', 'E2E Award', /E2E Award Fund/);
+      await choose('function', 'E2E Award', /E2E Award Function/);
+      await choose('program', 'E2E Award', /E2E Award Programme/);
+      await choose('geo', 'E2E Award', /E2E Award Location/);
+      await expect(office.getByTestId('bo-award')).toBeDisabled();                       // the expense account is still missing
+      await choose('account', account, new RegExp(account));
+      await office.getByTestId('bo-award').click();
+      await expect(office.getByTestId('bo-awarded')).toContainText('₦1,100,000.00', { timeout: 20_000 });
+      const orders = await (await api.get(`/api/v1/procurement/orders/?vendor=${vendor}&page_size=10`)).json();
+      const po = ((orders.results ?? orders) as { status: string; notes: string }[])[0];
+      expect(po.status).toBe('Draft');                                                     // not yet approved: the usual order approval still applies
+      expect(po.notes).toContain(REF);
 
       // the supplier no longer sees the tender among those open for bids
       await sup.reload();

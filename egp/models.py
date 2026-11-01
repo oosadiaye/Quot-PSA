@@ -113,6 +113,7 @@ class Bid(AuditBaseModel):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='+',
     )
+    assessment_note = models.TextField(blank=True, default='', help_text='Why a bid was ruled non-responsive or disqualified.')
 
     class Meta:
         ordering = ['tender', 'bidder']

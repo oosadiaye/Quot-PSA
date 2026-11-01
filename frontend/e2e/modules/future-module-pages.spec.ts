@@ -97,7 +97,8 @@ for (const m of MODULES) {
         if (e.panel) { await expect(page.getByTestId('mtef-panel')).toBeVisible(); continue; }   // a screen of its own, covered by mtef.spec.ts
         await expect(page.locator('.reg-title')).toHaveText(e.label);
         await expect(page.getByTestId('reg-count')).toHaveText(/^\d[\d,]* records?$/, { timeout: 20_000 });
-        await expect(page.getByRole('button', { name: `New ${singularLabel(e.label, e.singular)}` }).first()).toBeVisible();
+        if (!e.readOnly) await expect(page.getByRole('button', { name: `New ${singularLabel(e.label, e.singular)}` }).first()).toBeVisible();
+        else await expect(page.getByRole('button', { name: `New ${singularLabel(e.label, e.singular)}` })).toHaveCount(0);
         // exactly one of: an explicit empty state, or the table with its pager
         const empty = page.getByTestId('reg-empty');
         if (await empty.count()) await expect(empty).toContainText(/yet|Nothing matches/);
@@ -106,7 +107,7 @@ for (const m of MODULES) {
       expect(problems).toEqual([]);
     });
 
-    for (const e of m.entities.filter((x) => !x.panel)) {
+    for (const e of m.entities.filter((x) => !x.panel && !x.readOnly)) {
       test(`form: ${e.label} opens well-formed, validates, and cancels`, async ({ authedPage: page }) => {
         const problems = watch(page);
         if ((await openModule(page, m)) === 'disabled') { test.skip(true, 'module switched off for this tenant'); return; }

@@ -83,6 +83,20 @@ def item(domain: str, sku: str, name: str) -> None:
         print(row.pk)
 
 
+def dims(domain: str) -> None:
+    """Make sure the charging dimensions an order needs exist, named for the test, and print the expense account code."""
+    from accounting.models.gl import Account, Fund, Function, Geo, MDA, Program
+
+    with schema_context(schema_for(domain)):
+        Fund.objects.get_or_create(code='E2ED', defaults={'name': 'E2E Award Fund'})
+        Function.objects.get_or_create(code='E2ED', defaults={'name': 'E2E Award Function'})
+        Program.objects.get_or_create(code='E2ED', defaults={'name': 'E2E Award Programme'})
+        Geo.objects.get_or_create(code='E2ED', defaults={'name': 'E2E Award Location'})
+        MDA.objects.get_or_create(code='E2ED-MDA', defaults={'name': 'E2E Award MDA', 'short_name': 'E2D'})
+        Account.objects.get_or_create(code='22100995', defaults={'name': 'E2E Award Expense', 'account_type': 'Expense'})
+        print('22100995')
+
+
 def tender(domain: str, ref: str, closes_in_days: str) -> None:
     """Create (or reset) a published tender that closes that many days from today (negative: already closed to bids)."""
     from datetime import timedelta
@@ -137,7 +151,8 @@ def cleanup(domain: str, code: str) -> None:
             emails += [vu.user.email for vu in VendorUser.objects.filter(vendor=vendor).select_related('user')]
             PurchaseOrder.objects.filter(vendor=vendor).delete()   # acknowledgements go with them
             try:                                                   # e-procurement is optional too
-                from egp.models import Bid, BidOpening, BidderRegistration, TenderNotice
+                from egp.models import Bid, BidOpening, BidderRegistration, TenderAward, TenderNotice
+                TenderAward.objects.filter(tender__reference__startswith='E2E-T').delete()
                 BidOpening.objects.filter(tender__reference__startswith='E2E-T').delete()
                 Bid.objects.filter(bidder__vendor=vendor).delete()
                 BidderRegistration.objects.filter(vendor=vendor).delete()
@@ -168,4 +183,4 @@ def cleanup(domain: str, code: str) -> None:
 
 if __name__ == '__main__':
     command, *args = sys.argv[1:]
-    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item, 'reset-link': reset_link, 'tender': tender, 'closes': closes}[command](*args)
+    {'token': token, 'po': po, 'activate': activate, 'cleanup': cleanup, 'module': module, 'item': item, 'reset-link': reset_link, 'tender': tender, 'closes': closes, 'dims': dims}[command](*args)

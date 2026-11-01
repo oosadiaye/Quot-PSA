@@ -131,3 +131,44 @@
   font-size: 14px;
   margin-bottom: 12px;
 }
+
+.bo-eval {
+  margin-top: 14px;
+}
+
+.bo-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 18px;
+}
+
+.bo .bo-field select,
+.bo .bo-field input {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1.5px solid #8b93bd;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+}
+
+.bo-pill.out {
+  background: #fdeceb;
+  color: #a1261a;
+}
+
+.bo-done {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #e3f5ec;
+  color: #0b6b44;
+  font-size: 14px;
+  font-weight: 600;
+}

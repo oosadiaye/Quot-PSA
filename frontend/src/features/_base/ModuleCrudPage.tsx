@@ -154,7 +154,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
       header: '',
       align: 'right',
       mobilePrimary: false,
-      render: (row) => (
+      render: (row) => activeEntity.readOnly ? null : (
         <span style={{ display: 'inline-flex', gap: 2 }}>
           <button type="button" className="reg-act" title="Edit" aria-label={`Edit ${plainName(singular)}`}
             onClick={() => setModal({ entity: activeEntity, record: row })}><EditOutlined /></button>
@@ -233,9 +233,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
                   <UploadOutlined /> Import
                 </button>
               )}
-              <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}>
-                <PlusOutlined /> New {singular}
-              </button>
+              {!activeEntity.readOnly && (
+                <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}>
+                  <PlusOutlined /> New {singular}
+                </button>
+              )}
             </div>
           </div>
 
@@ -255,11 +257,11 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner, 
                 <p>
                   {searching
                     ? `No ${plainName(activeEntity.label)} match \u201c${search.trim()}\u201d. Check the spelling or clear the search.`
-                    : `${activeEntity.label} you add will be listed here.`}
+                    : activeEntity.readOnly ? `${activeEntity.label} will be listed here as they are made.` : `${activeEntity.label} you add will be listed here.`}
                 </p>
                 {searching
                   ? <button type="button" className="ef-btn" onClick={() => setSearch('')}>Clear search</button>
-                  : <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}><PlusOutlined /> New {singular}</button>}
+                  : activeEntity.readOnly ? null : <button type="button" className="ef-btn ef-btn-primary" onClick={openNew}><PlusOutlined /> New {singular}</button>}
               </div>
             ) : (
               <ResponsiveTable

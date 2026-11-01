@@ -51,6 +51,8 @@ export interface EntityConfig {
   label: string;
   /** True when the module supplies a screen of its own (through `panel`) that stands in for the generic register on this tab. */
   panel?: boolean;
+  /** Records here are made by actions elsewhere (a supplier's bid, an opening, an award), so the register only lists them: no New, Edit or Delete. */
+  readOnly?: boolean;
   /** Offer "Import" on the register: a downloadable CSV template and a checked upload. For registers filled in bulk. */
   importable?: boolean;
   /** Singular name for headings and buttons ("Vehicle" for "Vehicles"); derived from the label when omitted. */
