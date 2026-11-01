@@ -37,6 +37,8 @@ export interface EntityField {
   secondary?: boolean;
   /** One line of guidance shown under the input. */
   hint?: string;
+  /** Heading of the form section this field belongs to. Fields share a section when they share a group; ungrouped fields sit under "Details". */
+  group?: string;
 }
 
 export interface EntityConfig {

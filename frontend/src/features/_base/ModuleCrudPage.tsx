@@ -13,13 +13,21 @@ import type { Column } from '../../components/ResponsiveTable';
 import type { EntityConfig, ModuleConfig } from '../_base/types';
 import { EntityForm } from '../_base/EntityForm';
 import { useEntityList, useEntityCreate, useEntityUpdate, useEntityDelete } from '../_base/useEntityCrud';
-import { singularLabel } from './labels';
+import { plainName, singularLabel } from './labels';
 import './crud.css';
 
 interface ModuleCrudPageProps {
   config: ModuleConfig;
-  /** Extra content a module wants above the register. It renders inside the page shell, so it gets the same offset and padding. */
-  banner?: React.ReactNode;
+  /**
+   * Extra content a module wants above the register. It renders inside the page shell, so it gets the same offset and padding.
+   * Pass a function to vary it by tab and to open the form from the panel (a new record can start with `defaults`).
+   */
+  banner?: React.ReactNode | ((ctx: BannerContext) => React.ReactNode);
+}
+
+export interface BannerContext {
+  activeKey: string;
+  openForm: (entityKey: string, record?: Record<string, any> | null, defaults?: Record<string, any>) => void;
 }
 
 const listBase = (module: ModuleConfig, entity: EntityConfig) =>
@@ -58,7 +66,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
   const [formError, setFormError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState(config.entities[0]?.key ?? '');
   const [search, setSearch] = useState('');
-  const [modal, setModal] = useState<{ entity: EntityConfig; record: Record<string, any> | null } | null>(null);
+  const [modal, setModal] = useState<{ entity: EntityConfig; record: Record<string, any> | null; defaults?: Record<string, any> } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
 
@@ -109,7 +117,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
     if (!activeEntity) return;
     const id = row[activeEntity.idField ?? 'id'];
     Modal.confirm({
-      title: `Delete this ${singular.toLowerCase()}?`,
+      title: `Delete this ${plainName(singular)}?`,
       content: 'This cannot be undone.',
       okText: 'Delete',
       okButtonProps: { danger: true },
@@ -144,9 +152,9 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
       mobilePrimary: false,
       render: (row) => (
         <span style={{ display: 'inline-flex', gap: 2 }}>
-          <button type="button" className="reg-act" title="Edit" aria-label={`Edit ${singular.toLowerCase()}`}
+          <button type="button" className="reg-act" title="Edit" aria-label={`Edit ${plainName(singular)}`}
             onClick={() => setModal({ entity: activeEntity, record: row })}><EditOutlined /></button>
-          <button type="button" className="reg-act danger" title="Delete" aria-label={`Delete ${singular.toLowerCase()}`}
+          <button type="button" className="reg-act danger" title="Delete" aria-label={`Delete ${plainName(singular)}`}
             onClick={(e) => { e.stopPropagation(); handleDelete(row); }}><DeleteOutlined /></button>
         </span>
       ),
@@ -157,6 +165,12 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
   const refresh = () => list.refetch();
 
   const openNew = () => activeEntity && setModal({ entity: activeEntity, record: null });
+  const openForm: BannerContext['openForm'] = (entityKey, record = null, defaults) => {
+    const entity = config.entities.find((e) => e.key === entityKey);
+    if (!entity) return;
+    setActiveKey(entityKey);
+    setModal({ entity, record, defaults });
+  };
 
   return (
     <ListPageShell>
@@ -171,7 +185,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
         }
       />
 
-      {banner}
+      {typeof banner === 'function' ? banner({ activeKey, openForm }) : banner}
 
       <div className="reg-tabs" role="tablist" aria-label={`${config.label} sections`}>
         {config.entities.map((e) => (
@@ -272,7 +286,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
         title={modal ? (
           <div>
             <div style={{ fontSize: 16, fontWeight: 700 }}>
-              {modal.record ? `Edit ${singularLabel(modal.entity.label, modal.entity.singular).toLowerCase()}` : `New ${singularLabel(modal.entity.label, modal.entity.singular).toLowerCase()}`}
+              {modal.record ? `Edit ${plainName(singularLabel(modal.entity.label, modal.entity.singular))}` : `New ${plainName(singularLabel(modal.entity.label, modal.entity.singular))}`}
             </div>
             <div style={{ fontSize: 12.5, fontWeight: 400, color: 'var(--color-text-muted)' }}>{config.label}</div>
           </div>
@@ -283,6 +297,7 @@ export const ModuleCrudPage: React.FC<ModuleCrudPageProps> = ({ config, banner }
           <EntityForm
             config={modal.entity}
             initial={modal.record}
+            defaults={modal.defaults}
             onCancel={() => setModal(null)}
             onSubmit={handleSubmit}
             error={formError}

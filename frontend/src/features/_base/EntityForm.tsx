@@ -14,12 +14,14 @@
 import React, { useId, useMemo, useRef, useState } from 'react';
 import './crud.css';
 import { ReferenceField } from './ReferenceField';
-import { singularLabel } from './labels';
+import { plainName, singularLabel } from './labels';
 import type { EntityConfig, EntityField } from './types';
 
 interface EntityFormProps {
   config: EntityConfig;
   initial?: Record<string, any> | null;
+  /** Values to start a NEW record with (ignored when editing). */
+  defaults?: Record<string, any>;
   onSubmit: (payload: Record<string, any>) => void;
   onCancel: () => void;
   submitting?: boolean;
@@ -31,11 +33,11 @@ const isNumeric = (f: EntityField) => NUMERIC.includes(f.type);
 const isEmpty = (v: unknown) => v === '' || v === null || v === undefined;
 const asText = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
-function seedValues(config: EntityConfig, initial?: Record<string, any> | null): Record<string, any> {
+function seedValues(config: EntityConfig, initial?: Record<string, any> | null, defaults?: Record<string, any>): Record<string, any> {
   const seed: Record<string, any> = {};
   for (const f of config.fields) {
     if (f.hideInForm) continue;
-    const v = initial ? initial[f.name] : undefined;
+    const v = initial ? initial[f.name] : defaults?.[f.name];
     seed[f.name] = isEmpty(v) ? (f.type === 'boolean' ? false : '') : v;
   }
   return seed;
@@ -53,11 +55,11 @@ function problemWith(f: EntityField, v: unknown): string {
   return '';
 }
 
-export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, onSubmit, onCancel, submitting, error }) => {
+export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, defaults, onSubmit, onCancel, submitting, error }) => {
   const uid = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
   const formFields = useMemo(() => config.fields.filter((f) => !f.hideInForm), [config]);
-  const [values, setValues] = useState<Record<string, any>>(() => seedValues(config, initial));
+  const [values, setValues] = useState<Record<string, any>>(() => seedValues(config, initial, defaults));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<string | null>(null);
 
@@ -66,6 +68,16 @@ export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, onSubmi
     return main.length ? main : formFields;
   }, [formFields]);
   const more = useMemo(() => formFields.filter((f) => !primary.includes(f)), [formFields, primary]);
+  const sections = useMemo(() => {
+    const order: string[] = [];
+    const byGroup = new Map<string, EntityField[]>();
+    for (const f of primary) {
+      const g = f.group ?? 'Details';
+      if (!byGroup.has(g)) { byGroup.set(g, []); order.push(g); }
+      byGroup.get(g)!.push(f);
+    }
+    return order.map((title) => ({ title, fields: byGroup.get(title)! }));
+  }, [primary]);
   const [moreOpen, setMoreOpen] = useState(() => !!initial && more.some((f) => !isEmpty(initial[f.name])));
 
   // The record being edited, named by the fields people recognise it by.
@@ -207,18 +219,20 @@ export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, onSubmi
           <div className="ef-alert" role="alert" data-testid="ef-error">{error ?? summary}</div>
         )}
 
-        <section className="ef-section">
-          <div className="ef-section-head">
-            <span className="ef-section-no">01</span>
-            <span className="ef-section-title">Details</span>
-          </div>
-          <div className="ef-grid">{primary.map(field)}</div>
-        </section>
+        {sections.map((section, i) => (
+          <section className="ef-section" key={section.title}>
+            <div className="ef-section-head">
+              <span className="ef-section-no">{String(i + 1).padStart(2, '0')}</span>
+              <span className="ef-section-title">{section.title}</span>
+            </div>
+            <div className="ef-grid">{section.fields.map(field)}</div>
+          </section>
+        ))}
 
         {more.length > 0 && (
           <section className="ef-section">
             <button type="button" className="ef-section-head" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
-              <span className="ef-section-no">02</span>
+              <span className="ef-section-no">{String(sections.length + 1).padStart(2, '0')}</span>
               <span className="ef-section-title">Additional information</span>
               <span className="ef-section-toggle">{moreOpen ? 'Hide' : `Show ${more.length}`}</span>
             </button>
@@ -232,7 +246,7 @@ export const EntityForm: React.FC<EntityFormProps> = ({ config, initial, onSubmi
         <span className="ef-footer-actions">
           <button type="button" className="ef-btn" onClick={onCancel}>Cancel</button>
           <button type="button" className="ef-btn ef-btn-primary" onClick={submit} disabled={submitting}>
-            {submitting ? 'Saving…' : initial ? 'Save changes' : `Create ${singular.toLowerCase()}`}
+            {submitting ? 'Saving…' : initial ? 'Save changes' : `Create ${plainName(singular)}`}
           </button>
         </span>
       </div>

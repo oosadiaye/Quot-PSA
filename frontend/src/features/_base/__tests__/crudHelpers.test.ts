@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { singularLabel } from '../labels';
+import { plainName, singularLabel } from '../labels';
 import { describeRecord } from '../referenceRegistry';
 
 describe('singularLabel', () => {
@@ -23,6 +23,15 @@ describe('singularLabel', () => {
   it('leaves words that merely end in s alone', () => {
     expect(singularLabel('Analysis')).toBe('Analysis');
     expect(singularLabel('Status')).toBe('Status');
+  });
+});
+
+describe('plainName', () => {
+  it('lowercases ordinary words but keeps acronyms', () => {
+    expect(plainName('Vehicle Assignment')).toBe('vehicle assignment');
+    expect(plainName('MTEF Year')).toBe('MTEF year');
+    expect(plainName('IGR Billing Run')).toBe('IGR billing run');
+    expect(plainName('Budget Calendar')).toBe('budget calendar');
   });
 });
 

@@ -11,7 +11,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures/auth';
 import { apiContext } from '../fixtures/api';
-import { singularLabel } from '../../src/features/_base/labels';
+import { plainName, singularLabel } from '../../src/features/_base/labels';
 import type { EntityConfig, EntityField, ModuleConfig } from '../../src/features/_base/types';
 import { moduleConfig as budgetPrep } from '../../src/features/budget-prep/config';
 import { moduleConfig as cashPlanning } from '../../src/features/cash-planning/config';
@@ -107,8 +107,8 @@ for (const m of MODULES) {
         const dialog = await openNewForm(page, e);
         const single = singularLabel(e.label, e.singular);
 
-        await expect(dialog).toContainText(`New ${single.toLowerCase()}`);
-        await expect(dialog.getByRole('button', { name: `Create ${single.toLowerCase()}` })).toBeVisible();
+        await expect(dialog).toContainText(`New ${plainName(single)}`);
+        await expect(dialog.getByRole('button', { name: `Create ${plainName(single)}` })).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
 
         // every field a person is meant to fill is reachable by its label (secondary ones sit under "Additional information")
@@ -129,13 +129,13 @@ for (const m of MODULES) {
         for (const f of shown(e).filter((x) => x.reference && ['integer', 'number', 'decimal'].includes(x.type))) {
           const field = dialog.locator('.ef-field').filter({ has: page.locator('label', { hasText: new RegExp(`^${escapeRe(f.label)}\\s*\\*?$`) }) });
           const lookup = field.locator('.ef-ref input');
+          const fallback = field.getByText('Enter the ID of the linked record.');
+          await expect(lookup.or(fallback).first(), `"${f.label}" settles into a lookup or an ID box`).toBeVisible({ timeout: 15_000 });
           if (await lookup.count()) {
             await lookup.first().click();
-            await page.waitForTimeout(500);
-            await page.keyboard.press('Escape');
-            if (!(await dialog.isVisible())) await openNewForm(page, e);
-          } else {
-            await expect(field, `"${f.label}" fallback`).toContainText('Enter the ID of the linked record.');
+            await page.waitForTimeout(400);
+            await dialog.locator('.ef-section-title').first().click();      // click away; Escape would close the modal itself
+            await expect(dialog).toBeVisible();
           }
         }
 
@@ -143,7 +143,7 @@ for (const m of MODULES) {
         // because that would create a blank record)
         const required = shown(e).filter(mustFill);
         if (required.length > 0) {
-          await dialog.getByRole('button', { name: `Create ${single.toLowerCase()}` }).click();
+          await dialog.getByRole('button', { name: `Create ${plainName(single)}` }).click();
           await expect(dialog.getByTestId('ef-error')).toContainText(`${required.length} field${required.length === 1 ? ' needs' : 's need'} attention`);
           await expect(dialog.locator('.ef-error')).toHaveCount(required.length);
           await expect(dialog.locator('[aria-invalid="true"]').first()).toBeVisible();
@@ -161,8 +161,9 @@ for (const m of MODULES) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
       const dialog = await openNewForm(page, m.entities[0]);
-      const box = await dialog.boundingBox();
-      expect(box!.width).toBeGreaterThan(PHONE.width - 30);   // the drawer leaves a small margin; allow for sub-pixel rounding
+      // the modal zooms in, so poll until it has settled; it leaves a small margin, hence the allowance
+      await expect.poll(async () => (await dialog.boundingBox())?.width ?? 0, { timeout: 5_000 }).toBeGreaterThan(PHONE.width - 30);
+      await expect.poll(async () => (await dialog.boundingBox())?.width ?? 0).toBeLessThanOrEqual(PHONE.width);
       const create = dialog.getByRole('button', { name: /^Create / });
       await expect(create).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
