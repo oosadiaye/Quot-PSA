@@ -23,8 +23,16 @@ const BALANCED: Record<string, number> = {
   'Debt service': 40, 'Personnel cost': 300, Overheads: 100, 'Other recurrent': 100, 'Capital expenditure': 260,
 };
 
+const CEILINGS = '/api/v1/budget-prep/mda-ceilings/';
+const MDA = 'E2E MTEF Ministry';
+
 async function removeTestYears() {
   const api = await apiContext();
+  const ceilings = await api.get(`${CEILINGS}?fiscal_year=${BASE}&page_size=200`);
+  if (ceilings.ok()) {
+    const body = await ceilings.json();
+    for (const row of (body.results ?? body) as { id: number }[]) await api.delete(`${CEILINGS}${row.id}/`);
+  }
   const res = await api.get(`${API}?page_size=200`);
   if (res.ok()) {
     const body = await res.json();
@@ -46,7 +54,7 @@ async function openFramework(page: Page) {
 }
 
 test.describe('MTEF framework', () => {
-  test.beforeAll(removeTestYears);
+  test.beforeEach(removeTestYears);                       // each test starts from no framework for these years
   test.afterAll(removeTestYears);
 
   test('enter, roll forward, break, approve, reopen', async ({ authedPage: page }) => {
@@ -164,6 +172,27 @@ test.describe('MTEF framework', () => {
     await expect(page.getByTestId('mtef-roll')).toBeHidden();                         // controls stay off the page
     await expect(page.getByTestId('mtef-scenario')).toBeHidden();
     await expect(page.getByRole('navigation').first()).toBeHidden();                   // and so does the app around it
+  });
+
+  test('MDA ceilings are drawn from an approved envelope and cannot overspend it', async ({ authedPage: page }) => {
+    const api = await apiContext();
+    const created = await api.post(API, { data: { fiscal_year: BASE, inflation_assumption: '15', exchange_rate_assumption: '1500',
+      rev_statutory: String(500 * BN), exp_personnel: String(300 * BN), exp_overhead: String(100 * BN), exp_capital: String(100 * BN) } });
+    const { id } = await created.json();
+    const ceiling = (personnel: number) => api.post(CEILINGS, { data: { fiscal_year: BASE, mda_name: MDA, personnel_ceiling: String(personnel * BN), overhead_ceiling: '0', capital_ceiling: '0' } });
+
+    expect((await ceiling(100)).status()).toBe(400);                                  // no ceilings before the framework is approved
+    const approved = await api.post(`${API}${id}/approve/`, { data: {} });
+    expect(approved.ok(), await approved.text()).toBeTruthy();
+    expect((await ceiling(200)).status()).toBe(201);                                  // within the 300bn personnel envelope
+    expect((await ceiling(150)).status()).toBe(400);                                  // 350bn would overspend it
+    await api.dispose();
+
+    await openFramework(page);
+    const row = page.getByTestId('mtef-ceiling-personnel');
+    await expect(page.getByTestId('mtef-ceilings')).toBeVisible();
+    await expect(row).toContainText('200,000,000,000');                               // allocated
+    await expect(row).not.toContainText('Over by');                                   // 100bn of headroom remains
   });
 
   test('fits a phone screen without sideways page scroll', async ({ authedPage: page }) => {
