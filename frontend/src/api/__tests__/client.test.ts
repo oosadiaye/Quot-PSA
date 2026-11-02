@@ -105,7 +105,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token')
+      sessionStorage.setItem('authToken', 'test-token')
       localStorage.setItem('tenantDomain', 'acme.localhost')
 
       const config = {
@@ -170,7 +170,7 @@ describe('apiClient', () => {
       const requestInterceptor = (axios.create as ReturnType<typeof vi.fn>)
         .mock.results[0]?.value.interceptors.request.use.mock.calls[0][0]
 
-      localStorage.setItem('authToken', 'test-token')
+      sessionStorage.setItem('authToken', 'test-token')
       localStorage.setItem('tenantDomain', 'null')
 
       const config = {

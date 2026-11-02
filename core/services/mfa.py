@@ -315,5 +315,5 @@ class MFAService:
         # Use a tenant-specific issuer where available so a user with
         # multiple state-government logins sees distinct entries in
         # their authenticator app.
-        issuer = getattr(settings, 'MFA_ISSUER_NAME', None) or 'Quot PSE'
+        issuer = getattr(settings, 'MFA_ISSUER_NAME', None) or 'Quot PSA'
         return issuer

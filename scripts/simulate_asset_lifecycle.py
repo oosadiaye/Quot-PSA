@@ -1,5 +1,5 @@
 """
-End-to-end Asset Accounting Simulation - Quot PSE
+End-to-end Asset Accounting Simulation - Quot PSA
 
 Runs in the 'delta_state' tenant schema.
 

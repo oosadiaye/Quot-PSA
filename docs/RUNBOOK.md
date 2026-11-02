@@ -1,4 +1,4 @@
-# Quot PSE — Operator Runbook
+# Quot PSA — Operator Runbook
 
 Owner: Platform SRE  ·  On-call: `#quotpse-oncall`  ·  Last reviewed: 2026-04-17
 
@@ -10,7 +10,7 @@ as a checklist; don't improvise during an incident.
 
 ## 0. Prerequisites
 
-- SSH access to the Quot PSE application servers
+- SSH access to the Quot PSA application servers
 - `kubectl` context pointing at the production cluster
 - `psql` access to the primary (via IAM role)
 - Secrets in `~/.config/quotpse/.env` (never commit)
@@ -177,7 +177,7 @@ redis-cli --scan --pattern 'dtsg:rpt_ns:*'
 ## 10. Statutory XML rejected by FIRS / PENCOM
 
 **Symptoms:** FIRS / PENCOM portal returns a schema-validation error after
-upload of a Quot PSE-generated XML.
+upload of a Quot PSA-generated XML.
 
 **Triage:**
 ```bash

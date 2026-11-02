@@ -15,9 +15,13 @@ from .serializers import (
     AppropriationVirementSerializer,
 )
 from core.mixins import OrganizationFilterMixin
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class UnifiedBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """ViewSet for Unified Budget - supports both Public and Private Sector"""
     org_filter_field = 'mda'
     queryset = UnifiedBudget.objects.all().select_related(
@@ -139,6 +143,8 @@ class UnifiedBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class UnifiedBudgetEncumbranceViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_field = 'budget__mda'
     """ViewSet for Budget Encumbrances"""
     queryset = UnifiedBudgetEncumbrance.objects.all().select_related('budget')
@@ -167,6 +173,8 @@ class UnifiedBudgetEncumbranceViewSet(OrganizationFilterMixin, viewsets.ModelVie
 
 
 class UnifiedBudgetVarianceViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    module_key = "budget"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_field = 'budget__mda'
     """ViewSet for Budget Variance Analysis"""
     queryset = UnifiedBudgetVariance.objects.all().select_related('budget')
@@ -213,6 +221,8 @@ class UnifiedBudgetVarianceViewSet(OrganizationFilterMixin, viewsets.ReadOnlyMod
 
 
 class UnifiedBudgetAmendmentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     org_filter_field = 'budget__mda'
     """ViewSet for Budget Amendments"""
     queryset = UnifiedBudgetAmendment.objects.all().select_related('budget', 'from_budget', 'to_budget')
@@ -241,7 +251,7 @@ BudgetLineViewSet = UnifiedBudgetEncumbranceViewSet
 BudgetVarianceViewSet = UnifiedBudgetVarianceViewSet
 
 
-# ─── Government Appropriation & Warrant (Quot PSE Phase 3) ───────────
+# ─── Government Appropriation & Warrant (Quot PSA Phase 3) ───────────
 
 from .models import Appropriation, Warrant
 from .serializers import (
@@ -275,10 +285,11 @@ class AppropriationPagination(PageNumberPagination):
 
 
 class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
     org_filter_admin_field = 'administrative'
     """Legislative budget appropriation — the legal authority to spend."""
     serializer_class = AppropriationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = AppropriationPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     # ``economic`` added so Contract / IPC forms can drill down to the
@@ -1707,10 +1718,11 @@ class AppropriationViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class WarrantViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
     org_filter_admin_field = 'appropriation__administrative'
     """Quarterly cash release (warrant) against enacted appropriation."""
     serializer_class = WarrantSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['status', 'quarter', 'appropriation']
     ordering = ['appropriation', 'quarter']
@@ -2290,13 +2302,14 @@ class WarrantUtilizationReportView(APIView):
 
 
 class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "budget"
     """Revenue budget targets — statistical (no enforcement).
 
     Tracks estimated vs actual IGR/FAAC collections per MDA per account.
     """
     org_filter_admin_field = 'administrative'
     serializer_class = RevenueBudgetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     # SearchFilter was absent here, so '?search=' silently returned the
     # whole list rather than erroring — a filter that looks applied and
     # is not. Added along with the budget_code lookups, from
@@ -2524,6 +2537,7 @@ class RevenueBudgetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class AppropriationVirementViewSet(viewsets.ModelViewSet):
+    module_key = "budget"
     """CRUD + workflow actions for Appropriation virements.
 
     Creation goes through the service layer so every virement picks up
@@ -2548,7 +2562,7 @@ class AppropriationVirementViewSet(viewsets.ModelViewSet):
         'submitted_by', 'approved_by',
     ).all()
     serializer_class = AppropriationVirementSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['status', 'from_appropriation', 'to_appropriation']
 
     def create(self, request, *args, **kwargs):
@@ -2622,6 +2636,7 @@ from .serializers import WarrantPrintoutSettingsSerializer
 
 
 class WarrantPrintoutSettingsViewSet(viewsets.GenericViewSet):
+    module_key = "budget"
     """Singleton settings for the warrant (AIE) printout.
 
     One row per tenant, accessed via the well-known endpoints:
@@ -2642,7 +2657,7 @@ class WarrantPrintoutSettingsViewSet(viewsets.GenericViewSet):
     platform admin team. See ``permission_classes_by_action`` below.
     """
     serializer_class = WarrantPrintoutSettingsSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):

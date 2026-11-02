@@ -128,7 +128,9 @@ class VendorInvoice(SoftDeleteMixin, AuditBaseModel, ImmutableModelMixin):
         return self.total_amount - self.paid_amount - (self.retention_withheld or Decimal('0.00'))
 
     def __str__(self):
-        return f"{self.invoice_number} - {self.vendor.name} ({self.total_amount})"
+        # A draft scanned from an image may not have a matched supplier yet.
+        who = self.vendor.name if self.vendor_id and self.vendor else "no supplier yet"
+        return f"{self.invoice_number} - {who} ({self.total_amount})"
 
 
 class VendorInvoiceLine(models.Model):

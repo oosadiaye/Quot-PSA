@@ -1,5 +1,6 @@
 import React, { createContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import apiClient from '../api/client';
+import { getActiveTenantDomain } from '../utils/tenantResolver';
 
 // VITE_AUTH_COOKIE_ONLY is the frontend twin of the backend
 // AUTH_COOKIE_ONLY flag. When 'true', the SPA does NOT write the
@@ -261,7 +262,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // (Set-Cookie max-age=0). Fire-and-forget — if it fails the
         // local state is still cleared below and the token will be
         // garbage-collected by the next expiry sweep.
-        apiClient.post('/core/auth/logout/').catch(() => {
+        //
+        // The credentials are read NOW and sent explicitly. axios runs request
+        // interceptors asynchronously, so the interceptor would read storage
+        // only after the clearing loop below had emptied it — and the logout
+        // would reach the server anonymous, revoking nothing.
+        const token = getStored('authToken');
+        const tenantDomain = getActiveTenantDomain();
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Token ${token}`;
+        if (tenantDomain) headers['X-Tenant-Domain'] = tenantDomain;
+        apiClient.post('/core/auth/logout/', null, { headers }).catch(() => {
             /* swallow — local cleanup below is the source of truth */
         });
         // Clear auth data from both storages

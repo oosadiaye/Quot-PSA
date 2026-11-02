@@ -172,7 +172,7 @@ def build_document(out_path: Path) -> None:
     # Cover
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = title.add_run("Quot PSE — Contracts & Milestone Payment")
+    r = title.add_run("Quot PSA — Contracts & Milestone Payment")
     r.bold = True
     r.font.size = Pt(22)
     r.font.color.rgb = BRAND_NAVY
@@ -186,7 +186,7 @@ def build_document(out_path: Path) -> None:
 
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    rm = meta.add_run("Public Sector ERP · Nigeria IFMIS · Delta State Pilot\n"
+    rm = meta.add_run("Public Sector Accounting · Nigeria IFMIS · Delta State Pilot\n"
                        "Module: contracts  |  Related: accounting, procurement, workflow")
     rm.font.size = Pt(10)
     rm.font.color.rgb = GREY
@@ -203,7 +203,7 @@ def build_document(out_path: Path) -> None:
              "GRN. Their evidence of delivery is the Engineer's Interim Payment "
              "Certificate (IPC).")
 
-    add_para(doc, "Two parallel P2P rails exist in Quot PSE:", bold=True)
+    add_para(doc, "Two parallel P2P rails exist in Quot PSA:", bold=True)
     add_table(
         doc,
         header=["Rail", "Trigger", "Evidence of delivery", "Matching", "Payment doc"],
@@ -228,7 +228,7 @@ def build_document(out_path: Path) -> None:
         "The IPC is the works-equivalent of a GRN + invoice rolled into one. "
         "The certifying Engineer attests that work has physically been executed to "
         "the certified percentage, and the IPC itself becomes the claim on the "
-        "treasury. Quot PSE enforces this separation via ALLOWED_IPC_TRANSITIONS "
+        "treasury. Quot PSA enforces this separation via ALLOWED_IPC_TRANSITIONS "
         "in contracts/models/payment.py."
     )
 
@@ -607,7 +607,7 @@ def build_document(out_path: Path) -> None:
     footer = doc.add_paragraph()
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
     fr = footer.add_run(
-        "Quot PSE · Nigeria IFMIS · Delta State pilot — "
+        "Quot PSA · Nigeria IFMIS · Delta State pilot — "
         "process derived directly from contracts/, accounting/, and workflow/ source."
     )
     fr.italic = True

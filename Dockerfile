@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-stage Dockerfile for Quot PSE.
+# Multi-stage Dockerfile for Quot PSA.
 #
 # * ``builder`` installs Python dependencies into a virtualenv so the
 #   final image doesn't carry compilers or apt caches.

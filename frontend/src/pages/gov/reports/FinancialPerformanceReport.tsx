@@ -1,18 +1,34 @@
 /**
- * IPSAS Statement of Financial Performance (Income & Expenditure) — Quot PSE
+ * IPSAS Statement of Financial Performance (Income & Expenditure) — Quot PSA
  * Route: /accounting/ipsas/financial-performance
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Printer, TrendingUp, TrendingDown } from 'lucide-react';
+import { Printer } from 'lucide-react';
 import Sidebar from '../../../components/Sidebar';
 import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 import apiClient from '../../../api/client';
 import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
+import StatementSheet, { type SheetRow } from '../../../components/statement/StatementSheet';
 
-const fmtNGN = (v: number) => 'NGN ' + (v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-const card: React.CSSProperties = { background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', padding: '24px', marginBottom: '20px' };
+interface Item { code?: string; name: string; amount: number; is_header?: boolean }
+interface Group { items?: Item[]; total?: number }
+
+const GROUP_NOTE = 'Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account.';
+
+/** One heading, its lines, and its sub-total, for each family of the statement that has any lines. */
+function familyRows(groups: [string, Group | undefined, boolean?][]): SheetRow[] {
+    return groups.flatMap(([label, g, onlyIfAny]) => {
+        const items = g?.items ?? [];
+        if (onlyIfAny && items.length === 0) return [];
+        return [
+            { kind: 'group', label } as SheetRow,
+            ...items.map((i): SheetRow => ({ kind: 'item', code: i.code, label: i.name, values: [i.amount], flag: i.is_header ? GROUP_NOTE : undefined })),
+            { kind: 'subtotal', label: `Total ${label}`, values: [g?.total ?? 0] } as SheetRow,
+        ];
+    });
+}
 
 export default function FinancialPerformanceReport() {
     const [fy, setFy] = useState(new Date().getFullYear());
@@ -23,35 +39,30 @@ export default function FinancialPerformanceReport() {
         retry: false,
     });
 
-    const renderSection = (title: string, items: any[], total: number, color: string) => (
-        <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color, marginBottom: '8px' }}>{title}</div>
-            {/* This statement is flat — every row is a real balance, so
-                nothing is filtered. A row flagged ``is_header`` is money
-                posted to a group account: it belongs in the total, but
-                the coding needs fixing, so it is called out rather than
-                blended in. */}
-            {(items || []).map((i: any, idx: number) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: i.is_header ? '#92400e' : 'var(--color-text)' }}>
-                        {i.code} — {i.name}
-                        {i.is_header && (
-                            <span
-                                title="Posted directly to a group account. Included so the statement adds up; move these postings to a leaf account."
-                                style={{ marginLeft: 8, fontSize: '11px', fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 3, padding: '1px 6px' }}
-                            >
-                                posted to group account
-                            </span>
-                        )}
-                    </span>
-                    <span style={{ fontSize: '13px', fontWeight: 600, fontFamily: 'monospace', color: i.is_header ? '#92400e' : undefined }}>{fmtNGN(i.amount)}</span>
-                </div>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', fontWeight: 700, fontSize: '13px', background: 'var(--color-surface-hover)', borderRadius: '4px', marginTop: '4px' }}>
-                <span>Subtotal</span><span style={{ fontFamily: 'monospace', color }}>{fmtNGN(total)}</span>
-            </div>
-        </div>
-    );
+    const rows: SheetRow[] = data ? [
+        { kind: 'section', label: 'Revenue' },
+        ...familyRows([
+            ['Tax Revenue', data.revenue?.tax_revenue],
+            ['Non-Tax Revenue', data.revenue?.non_tax_revenue],
+            ['Grants & Transfers', data.revenue?.grants_transfers],
+            ['Other Revenue', data.revenue?.other_revenue],
+            // Family 1 outside 11-14: shown only when there is something, so a well-coded chart has no extra heading.
+            ['Unclassified Revenue (assign a sub-family)', data.revenue?.unclassified, true],
+        ]),
+        { kind: 'total', label: 'TOTAL REVENUE', values: [data.revenue?.total ?? 0] },
+        { kind: 'section', label: 'Expenditure' },
+        ...familyRows([
+            ['Personnel Costs', data.expenditure?.personnel_costs],
+            ['Overhead / O&M', data.expenditure?.overhead_costs],
+            ['Capital Expenditure', data.expenditure?.capital_expenditure],
+            ['Debt Service', data.expenditure?.debt_service],
+            ['Transfers & Subventions', data.expenditure?.transfers_subventions],
+            // Missing expenditure reads as underspend, so anything outside the families is shown.
+            ['Unclassified Expenditure (assign a sub-family)', data.expenditure?.unclassified, true],
+        ]),
+        { kind: 'total', label: 'TOTAL EXPENDITURE', values: [data.expenditure?.total ?? 0] },
+        { kind: 'grand', label: 'SURPLUS / (DEFICIT) FOR THE PERIOD', values: [data.surplus_deficit ?? 0] },
+    ] : [];
 
     return (
         <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
@@ -101,64 +112,8 @@ export default function FinancialPerformanceReport() {
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/financial-performance/" />
                 ) : data ? (
-                    <div style={{ maxWidth: '800px' }}>
-                        {/* Revenue */}
-                        <div style={card}>
-                            <div style={{ fontSize: '14px', fontWeight: 800, color: '#008751', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <TrendingUp size={18} /> REVENUE
-                            </div>
-                            {renderSection('Tax Revenue', data.revenue?.tax_revenue?.items, data.revenue?.tax_revenue?.total, '#16a34a')}
-                            {renderSection('Non-Tax Revenue', data.revenue?.non_tax_revenue?.items, data.revenue?.non_tax_revenue?.total, '#059669')}
-                            {renderSection('Grants & Transfers', data.revenue?.grants_transfers?.items, data.revenue?.grants_transfers?.total, '#0d9488')}
-                            {renderSection('Other Revenue', data.revenue?.other_revenue?.items, data.revenue?.other_revenue?.total, '#64748b')}
-                            {/* Family 1 outside 11-14. Rendered only when non-empty, so
-                                a well-coded chart shows no extra heading. */}
-                            {(data.revenue?.unclassified?.items || []).length > 0 &&
-                                renderSection('Unclassified Revenue — assign a sub-family', data.revenue?.unclassified?.items, data.revenue?.unclassified?.total, '#b45309')}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #008751', marginTop: '8px' }}>
-                                <span style={{ fontWeight: 800, fontSize: '15px', color: '#008751' }}>TOTAL REVENUE</span>
-                                <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#008751' }}>{fmtNGN(data.revenue?.total)}</span>
-                            </div>
-                        </div>
-
-                        {/* Expenditure */}
-                        <div style={card}>
-                            <div style={{ fontSize: '14px', fontWeight: 800, color: '#c0392b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <TrendingDown size={18} /> EXPENDITURE
-                            </div>
-                            {renderSection('Personnel Costs', data.expenditure?.personnel_costs?.items, data.expenditure?.personnel_costs?.total, '#dc2626')}
-                            {renderSection('Overhead / O&M', data.expenditure?.overhead_costs?.items, data.expenditure?.overhead_costs?.total, '#ea580c')}
-                            {renderSection('Capital Expenditure', data.expenditure?.capital_expenditure?.items, data.expenditure?.capital_expenditure?.total, '#9333ea')}
-                            {renderSection('Debt Service', data.expenditure?.debt_service?.items, data.expenditure?.debt_service?.total, '#64748b')}
-                            {renderSection('Transfers & Subventions', data.expenditure?.transfers_subventions?.items, data.expenditure?.transfers_subventions?.total, '#0369a1')}
-                            {/* Family 2 outside 21-25 — 20xxxxxx most commonly. Missing
-                                expenditure reads as underspend, so it is shown. */}
-                            {(data.expenditure?.unclassified?.items || []).length > 0 &&
-                                renderSection('Unclassified Expenditure — assign a sub-family', data.expenditure?.unclassified?.items, data.expenditure?.unclassified?.total, '#b45309')}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', borderTop: '3px solid #c0392b', marginTop: '8px' }}>
-                                <span style={{ fontWeight: 800, fontSize: '15px', color: '#c0392b' }}>TOTAL EXPENDITURE</span>
-                                <span style={{ fontWeight: 800, fontSize: '15px', fontFamily: 'monospace', color: '#c0392b' }}>{fmtNGN(data.expenditure?.total)}</span>
-                            </div>
-                        </div>
-
-                        {/* Surplus / Deficit */}
-                        <div style={{
-                            ...card,
-                            background: (data.surplus_deficit || 0) >= 0 ? '#f0fdf4' : '#fef2f2',
-                            border: `2px solid ${(data.surplus_deficit || 0) >= 0 ? '#22c55e' : '#ef4444'}`,
-                            textAlign: 'center',
-                        }}>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                                Surplus / (Deficit) for the Period
-                            </div>
-                            <div style={{
-                                fontSize: '28px', fontWeight: 800, fontFamily: 'monospace',
-                                color: (data.surplus_deficit || 0) >= 0 ? '#008751' : '#c0392b',
-                            }}>
-                                {fmtNGN(data.surplus_deficit)}
-                            </div>
-                        </div>
-                    </div>
+                    <StatementSheet testId="sheet-performance" caption={`Statement of Financial Performance for the year ended 31 December ${fy}`}
+                        valueColumns={[`FY ${fy}`]} rows={rows} />
                 ) : null}
             </main>
         </div>

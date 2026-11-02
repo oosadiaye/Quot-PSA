@@ -1,5 +1,5 @@
 /**
- * Appropriation Detail + Actions — Quot PSE
+ * Appropriation Detail + Actions — Quot PSA
  * Route: /budget/appropriations/:id
  *
  * Shows appropriation details and provides status transition buttons:

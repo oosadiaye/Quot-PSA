@@ -1,4 +1,4 @@
-"""Admin registration for Treasury, Revenue, and IPSAS models — Quot PSE"""
+"""Admin registration for Treasury, Revenue, and IPSAS models — Quot PSA"""
 from django.contrib import admin
 from accounting.models.treasury import TreasuryAccount, PaymentVoucherGov, PaymentInstruction
 from accounting.models.revenue import RevenueHead, RevenueCollection

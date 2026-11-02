@@ -1,4 +1,5 @@
 import logging
+import os
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
@@ -7,7 +8,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
+# Imported under its own name: this module defines ``logout = logout_view`` below
+# (a backward-compat alias), which would otherwise shadow Django's function and make
+# ``logout(request)`` inside logout_view call the view itself.
+from django.contrib.auth import authenticate, login, logout as django_logout
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
@@ -405,6 +409,14 @@ def jwt_login_view(request):
 
 
 @api_view(['POST'])
+# Without this the project default (RBACPermission) applies. It has no model to
+# check for this view, so it refused every non-admin — and on the public host
+# every non-superuser — and their token and session were never revoked.
+# A signed-in user must always be able to sign out, so no model permission applies.
+# The view checks is_authenticated itself and treats a request with NO credentials as a
+# normal "logged out". (A request carrying an invalid/expired token header is still
+# rejected 401 by token authentication before the view runs; the client ignores that.)
+@permission_classes([AllowAny])
 def logout_view(request):
     """Logout — deletes the auth token, marks session inactive, and
     blacklists any JWT refresh token the client supplied so stolen
@@ -423,7 +435,7 @@ def logout_view(request):
                 token.delete()
             except Token.DoesNotExist:
                 pass
-        logout(request)
+        django_logout(request)
 
     # If the client is using JWT and provides its refresh token in the
     # request body, blacklist it so it cannot mint fresh access tokens
@@ -631,7 +643,8 @@ def my_tenants(request):
 # ── Password Reset (self-service) ──────────────────────────────────────
 
 class PasswordResetRateThrottle(AnonRateThrottle):
-    rate = '3/hour'
+    # Strict by default; a developer machine running the end-to-end suite raises it with PASSWORD_RESET_THROTTLE_RATE.
+    rate = os.getenv('PASSWORD_RESET_THROTTLE_RATE', '3/hour')
 
 
 @api_view(['POST'])
@@ -650,7 +663,7 @@ def forgot_password(request):
                 frontend_url = settings.FRONTEND_URL
                 reset_link = f"{frontend_url}/reset-password?uid={uid}&token={token}"
                 send_mail(
-                    subject='QUOT ERP — Password Reset',
+                    subject='QUOT PSA — Password Reset',
                     message=f'Click the link to reset your password:\n\n{reset_link}\n\nThis link expires in 3 days. If you did not request this, ignore this email.',
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
@@ -763,7 +776,7 @@ def resend_verification_email(request):
 
         try:
             send_mail(
-                subject='QUOT ERP — Verify Your Email',
+                subject='QUOT PSA — Verify Your Email',
                 message=(
                     f"Hi {request.user.first_name or request.user.username},\n\n"
                     f"Please verify your email address by clicking this link:\n\n"

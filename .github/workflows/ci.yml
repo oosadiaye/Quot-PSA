@@ -95,6 +95,11 @@ jobs:
       - name: Migration consistency
         run: python manage.py makemigrations --check --dry-run
 
+      # A ViewSet in a gated app that forgets module_key escapes the module switch silently.
+      # Exits non-zero on violation, so it sits beside the other hard gates.
+      - name: Module gating audit
+        run: python manage.py audit_module_gating
+
       # ── Fast-tier tests (no-DB, must pass)
       - name: Pytest — no-DB fast tier
         run: |
@@ -119,6 +124,7 @@ jobs:
             accounting/tests/test_s20*.py \
             accounting/tests/test_s21*.py \
             accounting/tests/test_s25*.py \
+            core/tests/test_clear_orphaned_integrations.py \
             core/tests/test_s23*.py \
             core/tests/test_s24*.py \
             -v \

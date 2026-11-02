@@ -1,5 +1,5 @@
 /**
- * Organization Switcher — Quot PSE
+ * Organization Switcher — Quot PSA
  *
  * Dropdown in the sidebar allowing users to switch between their assigned
  * organizations (MDAs). Fetches org list from /core/organizations/my/ and

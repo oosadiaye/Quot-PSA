@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────
- * Responsive utility layer — Quot PSE
+ * Responsive utility layer — Quot PSA
  * Mobile-first. Every rule here is additive; existing inline
  * styles continue to win on desktop.
  * ───────────────────────────────────────────────────────────── */
@@ -285,7 +285,7 @@ html, body {
 }
 
 /* ───────────────────────────────────────────────────────────
- * Legacy sidebar offset override — Quot PSE
+ * Legacy sidebar offset override — Quot PSA
  *
  * Many pages hardcode `style={{ marginLeft: '260px' }}` on the
  * outer content wrapper (<main> or <div>). On mobile, the

@@ -1,5 +1,5 @@
 /**
- * IPSAS 2 — Cash Flow Statement (Direct Method) — Quot PSE
+ * IPSAS 2 — Cash Flow Statement (Direct Method) — Quot PSA
  * Route: /accounting/ipsas/cash-flow
  *
  * Three activity sections (Operating / Investing / Financing), each with
@@ -14,6 +14,7 @@ import BrandedPrintHeader from '../../../components/print/BrandedPrintHeader';
 import apiClient from '../../../api/client';
 import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
+import StatementSheet, { type SheetRow } from '../../../components/statement/StatementSheet';
 
 type AmountMap = Record<string, number | string>;
 
@@ -42,106 +43,24 @@ interface CashFlowResponse {
     };
 }
 
-const fmtNGN = (v: number | string): string => {
-    const n = typeof v === 'string' ? parseFloat(v) : v;
-    return 'NGN ' + (Number.isFinite(n) ? n : 0).toLocaleString('en-NG', {
-        minimumFractionDigits: 2, maximumFractionDigits: 2,
-    });
-};
-
 const prettify = (k: string): string =>
     k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-interface SectionProps {
-    label: string;
-    accent: string;
-    section: ActivitySection | undefined;
-}
+const num = (v: number | string | undefined): number => {
+    const n = typeof v === 'string' ? parseFloat(v) : v;
+    return Number.isFinite(n as number) ? (n as number) : 0;
+};
 
-function Section({ label, accent, section }: SectionProps) {
+/** One activity: what came in, what went out (shown as a deduction), and the net. */
+function activityRows(label: string, section: ActivitySection | undefined): SheetRow[] {
     const inflows = Object.entries(section?.inflows ?? {});
     const outflows = Object.entries(section?.outflows ?? {});
-    const net = section?.net ?? 0;
-
-    return (
-        <div style={{
-            background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
-            padding: '24px', marginBottom: '20px',
-        }}>
-            <div style={{
-                fontSize: '14px', fontWeight: 800, color: accent,
-                marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px',
-            }}>
-                {label}
-            </div>
-
-            {inflows.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                    <div style={{
-                        fontSize: '12px', fontWeight: 700, color: '#16a34a',
-                        marginBottom: '6px', textTransform: 'uppercase',
-                    }}>
-                        Inflows
-                    </div>
-                    {inflows.map(([k, v]) => (
-                        <div key={k} style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc',
-                        }}>
-                            <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>{prettify(k)}</span>
-                            <span style={{
-                                fontSize: '13px', fontWeight: 600, fontFamily: 'monospace',
-                            }}>
-                                {fmtNGN(v)}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {outflows.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                    <div style={{
-                        fontSize: '12px', fontWeight: 700, color: '#dc2626',
-                        marginBottom: '6px', textTransform: 'uppercase',
-                    }}>
-                        Outflows
-                    </div>
-                    {outflows.map(([k, v]) => (
-                        <div key={k} style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            padding: '5px 0 5px 20px', borderBottom: '1px solid #f8fafc',
-                        }}>
-                            <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>{prettify(k)}</span>
-                            <span style={{
-                                fontSize: '13px', fontWeight: 600, fontFamily: 'monospace',
-                                color: 'var(--color-text-muted)',
-                            }}>
-                                ({fmtNGN(v)})
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                padding: '10px 12px', marginTop: '8px',
-                background: `${accent}0d`, borderRadius: '6px',
-                borderTop: `2px solid ${accent}`,
-            }}>
-                <span style={{ fontWeight: 800, fontSize: '13px', color: accent }}>
-                    Net Cash from {label}
-                </span>
-                <span style={{
-                    fontWeight: 800, fontSize: '14px', fontFamily: 'monospace',
-                    color: parseFloat(String(net)) < 0 ? '#dc2626' : accent,
-                }}>
-                    {fmtNGN(net)}
-                </span>
-            </div>
-        </div>
-    );
+    return [
+        { kind: 'section', label },
+        ...(inflows.length ? [{ kind: 'group', label: 'Cash inflows' } as SheetRow, ...inflows.map(([k, v]): SheetRow => ({ kind: 'item', label: prettify(k), values: [num(v)] }))] : []),
+        ...(outflows.length ? [{ kind: 'group', label: 'Cash outflows' } as SheetRow, ...outflows.map(([k, v]): SheetRow => ({ kind: 'item', label: prettify(k), values: [-num(v)] }))] : []),
+        { kind: 'total', label: `Net cash from ${label.toLowerCase()}`, values: [num(section?.net)] },
+    ];
 }
 
 export default function CashFlowStatementReport() {
@@ -158,6 +77,22 @@ export default function CashFlowStatementReport() {
         },
         retry: false,
     });
+
+    const rows: SheetRow[] = data ? [
+        ...activityRows('Operating Activities', data.operating_activities),
+        ...activityRows('Investing Activities', data.investing_activities),
+        ...activityRows('Financing Activities', data.financing_activities),
+        { kind: 'section', label: 'Cash and cash equivalents' },
+        { kind: 'item', label: 'Opening cash balance', values: [num(data.opening_cash)] },
+        { kind: 'item', label: 'Net change in cash', values: [num(data.net_change_in_cash)] },
+        { kind: 'grand', label: 'CLOSING CASH BALANCE', values: [num(data.closing_cash)] },
+        {
+            kind: 'note',
+            label: data.reconciliation?.reconciles
+                ? 'Reconciled: opening balance plus the net change equals the closing balance.'
+                : 'NOT RECONCILED: opening balance plus the net change does not equal the closing balance. Investigate.',
+        },
+    ] : [];
 
     return (
         <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
@@ -239,81 +174,17 @@ export default function CashFlowStatementReport() {
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/cash-flow/" />
                 ) : data ? (
-                    <div style={{ maxWidth: '900px' }}>
-                        <Section label="Operating Activities" accent="#008751" section={data.operating_activities} />
-                        <Section label="Investing Activities" accent="#1e4d8c" section={data.investing_activities} />
-                        <Section label="Financing Activities" accent="#9333ea" section={data.financing_activities} />
-
-                        {/* Summary reconciliation */}
-                        <div style={{
-                            background: 'var(--color-surface)', borderRadius: '12px',
-                            border: `2px solid ${data.reconciliation?.reconciles ? '#22c55e' : '#ef4444'}`,
-                            padding: '24px',
-                        }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <tbody>
-                                    <ReconRow label="Opening Cash Balance" value={data.opening_cash} />
-                                    <ReconRow label="Net Change in Cash"    value={data.net_change_in_cash} bold />
-                                    <ReconRow
-                                        label="Closing Cash Balance"
-                                        value={data.closing_cash}
-                                        bold
-                                        borderTop
-                                    />
-                                </tbody>
-                            </table>
-                            <div style={{
-                                marginTop: 16,
-                                padding: '12px 16px',
-                                borderRadius: 8,
-                                background: data.reconciliation?.reconciles ? '#f0fdf4' : '#fef2f2',
-                                color: data.reconciliation?.reconciles ? '#16a34a' : '#dc2626',
-                                fontSize: 13, fontWeight: 700, textAlign: 'center',
-                                letterSpacing: '0.5px', textTransform: 'uppercase',
-                            }}>
-                                {data.reconciliation?.reconciles
-                                    ? '✓ Reconciled (Opening + Net Change = Closing)'
-                                    : '✗ Not Reconciled — investigate'}
-                            </div>
-                        </div>
-                    </div>
+                    <StatementSheet testId="sheet-cashflow" caption={`Cash Flow Statement (direct method) for the year ${fy}${period ? `, through period ${period}` : ''}`}
+                        valueColumns={[`FY ${fy}`]} rows={rows} />
                 ) : null}
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — IPSAS 2 Compliant
+                    Quot PSA IFMIS — IPSAS 2 Compliant
                 </div>
             </main>
         </div>
-    );
-}
-
-interface ReconRowProps {
-    label: string;
-    value: number | string;
-    bold?: boolean;
-    borderTop?: boolean;
-}
-
-function ReconRow({ label, value, bold, borderTop }: ReconRowProps) {
-    return (
-        <tr style={{ borderTop: borderTop ? '2px solid #1e293b' : undefined }}>
-            <td style={{
-                padding: '10px 0', fontSize: '14px',
-                fontWeight: bold ? 800 : 500,
-                color: 'var(--color-text)',
-            }}>
-                {label}
-            </td>
-            <td style={{
-                padding: '10px 0', textAlign: 'right', fontFamily: 'monospace',
-                fontSize: '14px', fontWeight: bold ? 800 : 600,
-                color: parseFloat(String(value)) < 0 ? '#dc2626' : 'var(--color-text)',
-            }}>
-                {fmtNGN(value)}
-            </td>
-        </tr>
     );
 }

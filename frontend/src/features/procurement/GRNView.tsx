@@ -14,6 +14,7 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { safeMultiply } from '../accounting/utils/currency';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
+import PrintDocButton from './print/PrintDocButton';
 import LoadingScreen from '../../components/common/LoadingScreen';
 import '../accounting/styles/glassmorphism.css';
 
@@ -175,6 +176,7 @@ export default function GRNView() {
                 onBack={() => navigate('/procurement/grn')}
                 actions={
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <PrintDocButton to={`/procurement/grn/${grn.id}/print`} />
                         {canPost && (
                             <button
                                 onClick={() => setConfirmAction('post')}

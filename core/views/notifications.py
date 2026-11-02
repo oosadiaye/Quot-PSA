@@ -1,5 +1,5 @@
 """
-In-App Notification API — Quot PSE
+In-App Notification API — Quot PSA
 
 Endpoints:
 - GET  /core/notifications/         — List user's notifications (unread first)

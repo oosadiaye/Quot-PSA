@@ -1,4 +1,4 @@
-"""Accounting Services Package — Quot PSE (Public Sector Edition)
+"""Accounting Services Package — Quot PSA (Public Sector Edition)
 
 Services for government IFMIS financial operations:
     - journal_validation: Journal balance and validation logic
@@ -55,7 +55,7 @@ from .procurement_posting import ProcurementPostingService
 from .inventory_posting import InventoryPostingService
 from .payroll_posting import PayrollPostingService
 
-# IPSAS & NCoA services (new for Quot PSE)
+# IPSAS & NCoA services (new for Quot PSA)
 from .ipsas_journal_service import IPSASJournalService, JournalPostingError
 
 __all__ = [

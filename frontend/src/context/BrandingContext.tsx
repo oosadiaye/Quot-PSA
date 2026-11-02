@@ -25,7 +25,7 @@ interface BrandingContextType {
 }
 
 const FALLBACK: BrandingInfo = {
-    name: 'QUOT ERP', tagline: '', logo: null,
+    name: 'QUOT PSA', tagline: '', logo: null,
     address: '', city: '', state: '', country: '',
     postal_code: '', phone: '', email: '', website: '',
 };

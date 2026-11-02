@@ -1,5 +1,5 @@
 /**
- * Revenue Performance Report — Quot PSE
+ * Revenue Performance Report — Quot PSA
  * Route: /accounting/ipsas/revenue-performance
  */
 import { useState } from 'react';

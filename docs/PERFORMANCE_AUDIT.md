@@ -1,4 +1,4 @@
-# Performance Audit — Quot PSE
+# Performance Audit — Quot PSA
 
 **Phase:** P6-T1  **Date:** 2026-04-17  **DB:** PostgreSQL 14 (tenant schemas)
 

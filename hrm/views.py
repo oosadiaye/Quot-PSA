@@ -1,6 +1,8 @@
 import logging
 
 from rest_framework import viewsets, status
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
 from rest_framework.response import Response
@@ -39,7 +41,8 @@ class HRMPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 class DepartmentViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
     pagination_class = HRMPagination
@@ -47,7 +50,8 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'code']
     ordering_fields = ['name', 'code']
 class PositionViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Position.objects.all().select_related('department')
     serializer_class = PositionSerializer
     filterset_fields = ['department', 'grade', 'is_active']
@@ -56,7 +60,8 @@ class PositionViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'code']
     ordering_fields = ['title', 'grade']
 class EmployeeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Employee.objects.all().select_related('user', 'department', 'position', 'supervisor')
     serializer_class = EmployeeSerializer
     filterset_fields = ['department', 'status', 'employee_type']
@@ -102,7 +107,8 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'by_status': list(by_status)
         })
 class LeaveTypeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = LeaveType.objects.all()
     serializer_class = LeaveTypeSerializer
     pagination_class = HRMPagination
@@ -110,7 +116,8 @@ class LeaveTypeViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'code']
     ordering_fields = ['name']
 class LeaveRequestViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = LeaveRequest.objects.all().select_related('employee__user', 'leave_type', 'approved_by')
     serializer_class = LeaveRequestSerializer
     filterset_fields = ['status', 'leave_type', 'employee']
@@ -190,7 +197,8 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         count = LeaveRequest.objects.filter(status='Pending').count()
         return Response({'count': count})
 class LeaveBalanceViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = LeaveBalance.objects.all().select_related('employee__user', 'leave_type')
     serializer_class = LeaveBalanceSerializer
     filterset_fields = ['employee', 'leave_type', 'year']
@@ -204,7 +212,8 @@ class LeaveBalanceViewSet(viewsets.ModelViewSet):
             return LeaveBalance.objects.all().select_related('employee__user', 'leave_type')
         return LeaveBalance.objects.filter(employee__user=user).select_related('employee__user', 'leave_type')
 class AttendanceViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Attendance.objects.all().select_related('employee__user')
     serializer_class = AttendanceSerializer
     filterset_fields = ['employee', 'date', 'status']
@@ -243,7 +252,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class HolidayViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Holiday.objects.all()
     serializer_class = HolidaySerializer
     pagination_class = HRMPagination
@@ -261,7 +271,8 @@ class HolidayViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class JobPostViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = JobPost.objects.all().select_related('department')
     serializer_class = JobPostSerializer
     filterset_fields = ['department', 'status', 'job_type', 'is_active']
@@ -281,7 +292,8 @@ class JobPostViewSet(viewsets.ModelViewSet):
             'by_department': list(by_department)
         })
 class CandidateViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Candidate.objects.all().select_related('job_post__department')
     serializer_class = CandidateSerializer
     filterset_fields = ['job_post', 'status', 'source']
@@ -295,7 +307,8 @@ class CandidateViewSet(viewsets.ModelViewSet):
         funnel = Candidate.objects.values('status').annotate(count=Count('id'))
         return Response({'funnel': list(funnel)})
 class InterviewViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Interview.objects.all().select_related('candidate__job_post', 'interviewer')
     serializer_class = InterviewSerializer
     filterset_fields = ['candidate', 'status', 'result']
@@ -322,13 +335,15 @@ class InterviewViewSet(viewsets.ModelViewSet):
         
         return Response(InterviewSerializer(interview).data)
 class OnboardingTaskViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = OnboardingTask.objects.all()
     serializer_class = OnboardingTaskSerializer
     filterset_fields = ['category', 'is_required', 'is_active']
     pagination_class = HRMPagination
 class OnboardingProgressViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = OnboardingProgress.objects.all().select_related('employee__user', 'task', 'assigned_to')
     serializer_class = OnboardingProgressSerializer
     filterset_fields = ['employee', 'status', 'task__category']
@@ -347,18 +362,21 @@ class OnboardingProgressViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class SalaryStructureViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = SalaryStructure.objects.all()
     serializer_class = SalaryStructureSerializer
     pagination_class = HRMPagination
 class SalaryComponentViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = SalaryComponent.objects.all()
     serializer_class = SalaryComponentSerializer
     filterset_fields = ['component_type', 'is_active']
     pagination_class = HRMPagination
 class PayrollPeriodViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PayrollPeriod.objects.all()
     serializer_class = PayrollPeriodSerializer
     filterset_fields = ['period_type', 'status']
@@ -366,7 +384,8 @@ class PayrollPeriodViewSet(viewsets.ModelViewSet):
     filter_backends = [OrderingFilter]
     ordering_fields = ['-start_date']
 class PayrollRunViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PayrollRun.objects.all().select_related('period', 'processed_by', 'approved_by')
     serializer_class = PayrollRunSerializer
     filterset_fields = ['period', 'status']
@@ -793,13 +812,15 @@ class PayrollRunViewSet(viewsets.ModelViewSet):
 
 
 class PayrollLineViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PayrollLine.objects.all().select_related('employee__user', 'payroll_run__period')
     serializer_class = PayrollLineSerializer
     filterset_fields = ['payroll_run', 'employee']
     pagination_class = HRMPagination
 class PayslipViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Payslip.objects.all().select_related('payroll_line__employee__user', 'payroll_line__payroll_run__period')
     serializer_class = PayslipSerializer
     pagination_class = HRMPagination
@@ -816,7 +837,8 @@ class PayslipViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class StatutoryDeductionTemplateViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = StatutoryDeductionTemplate.objects.all()
     serializer_class = StatutoryDeductionTemplateSerializer
     filterset_fields = ['deduction_type', 'is_active', 'is_mandatory']
@@ -824,7 +846,8 @@ class StatutoryDeductionTemplateViewSet(viewsets.ModelViewSet):
 
 
 class StatutoryDeductionViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = StatutoryDeduction.objects.all().select_related('payroll_line__employee__user', 'template')
     serializer_class = StatutoryDeductionSerializer
     filterset_fields = ['payroll_line', 'template']
@@ -835,7 +858,8 @@ class StatutoryDeductionViewSet(viewsets.ReadOnlyModelViewSet):
 # =============================================================================
 
 class PerformanceCycleViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PerformanceCycle.objects.all()
     serializer_class = PerformanceCycleSerializer
     filterset_fields = ['status', 'is_active']
@@ -848,7 +872,8 @@ class PerformanceCycleViewSet(viewsets.ModelViewSet):
             return Response({'error': 'No active cycle'}, status=status.HTTP_404_NOT_FOUND)
         return Response(PerformanceCycleSerializer(cycle).data)
 class PerformanceGoalViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PerformanceGoal.objects.all().select_related('employee__user', 'cycle')
     serializer_class = PerformanceGoalSerializer
     filterset_fields = ['employee', 'cycle', 'status', 'goal_type']
@@ -869,7 +894,8 @@ class PerformanceGoalViewSet(viewsets.ModelViewSet):
         goal.save()
         return Response(PerformanceGoalSerializer(goal).data)
 class PerformanceReviewViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PerformanceReview.objects.all().select_related('employee__user', 'cycle', 'reviewer')
     serializer_class = PerformanceReviewSerializer
     filterset_fields = ['employee', 'cycle', 'review_type', 'status']
@@ -895,13 +921,15 @@ class PerformanceReviewViewSet(viewsets.ModelViewSet):
         
         return Response(PerformanceReviewSerializer(review).data)
 class CompetencyViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Competency.objects.all()
     serializer_class = CompetencySerializer
     filterset_fields = ['category', 'is_active']
     pagination_class = HRMPagination
 class PromotionViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Promotion.objects.all().select_related('employee__user', 'from_position', 'to_position', 'approved_by')
     serializer_class = PromotionSerializer
     filterset_fields = ['employee', 'status']
@@ -944,7 +972,8 @@ class PromotionViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class TrainingProgramViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = TrainingProgram.objects.all().select_related('department')
     serializer_class = TrainingProgramSerializer
     filterset_fields = ['program_type', 'delivery_method', 'status', 'is_active']
@@ -963,7 +992,8 @@ class TrainingProgramViewSet(viewsets.ModelViewSet):
         )
         return Response(TrainingProgramSerializer(programs, many=True).data)
 class TrainingEnrollmentViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = TrainingEnrollment.objects.all().select_related('employee__user', 'program')
     serializer_class = TrainingEnrollmentSerializer
     filterset_fields = ['employee', 'program', 'status']
@@ -987,7 +1017,8 @@ class TrainingEnrollmentViewSet(viewsets.ModelViewSet):
         enrollment.save()
         return Response(TrainingEnrollmentSerializer(enrollment).data)
 class SkillViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Skill.objects.all()
     serializer_class = SkillSerializer
     filterset_fields = ['category', 'is_active']
@@ -995,7 +1026,8 @@ class SkillViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ['name', 'code']
 class EmployeeSkillViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = EmployeeSkill.objects.all().select_related('employee__user', 'skill')
     serializer_class = EmployeeSkillSerializer
     filterset_fields = ['employee', 'skill', 'proficiency_level']
@@ -1011,7 +1043,8 @@ class EmployeeSkillViewSet(viewsets.ModelViewSet):
         except Employee.DoesNotExist:
             return EmployeeSkill.objects.none()
 class TrainingPlanViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = TrainingPlan.objects.all().select_related('employee__user')
     serializer_class = TrainingPlanSerializer
     filterset_fields = ['employee', 'status']
@@ -1021,7 +1054,8 @@ class TrainingPlanViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class PolicyViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Policy.objects.all()
     serializer_class = PolicySerializer
     filterset_fields = ['category', 'status', 'is_active']
@@ -1048,7 +1082,8 @@ class PolicyViewSet(viewsets.ModelViewSet):
         
         return Response(PolicyAcknowledgementSerializer(acknowledgement).data)
 class PolicyAcknowledgementViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PolicyAcknowledgement.objects.all().select_related('employee__user', 'policy')
     serializer_class = PolicyAcknowledgementSerializer
     filterset_fields = ['employee', 'policy', 'status']
@@ -1064,7 +1099,8 @@ class PolicyAcknowledgementViewSet(viewsets.ModelViewSet):
         except Employee.DoesNotExist:
             return PolicyAcknowledgement.objects.none()
 class ComplianceRecordViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ComplianceRecord.objects.all().select_related('assigned_to')
     serializer_class = ComplianceRecordSerializer
     filterset_fields = ['compliance_type', 'status']
@@ -1073,7 +1109,8 @@ class ComplianceRecordViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'code', 'description']
     ordering_fields = ['effective_date']
 class ComplianceTaskViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ComplianceTask.objects.all().select_related('compliance_record', 'assigned_to')
     serializer_class = ComplianceTaskSerializer
     filterset_fields = ['compliance_record', 'assigned_to', 'status']
@@ -1088,7 +1125,8 @@ class ComplianceTaskViewSet(viewsets.ModelViewSet):
         task.save()
         return Response(ComplianceTaskSerializer(task).data)
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AuditLog.objects.all().select_related('user')
     serializer_class = AuditLogSerializer
     filterset_fields = ['user', 'action_type', 'module']
@@ -1101,7 +1139,8 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
 # =============================================================================
 
 class ExitRequestViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ExitRequest.objects.all().select_related('employee__user', 'approved_by')
     serializer_class = ExitRequestSerializer
     filterset_fields = ['employee', 'exit_type', 'status']
@@ -1140,7 +1179,8 @@ class ExitRequestViewSet(viewsets.ModelViewSet):
         
         return Response(ExitRequestSerializer(exit_request).data)
 class ExitInterviewViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ExitInterview.objects.all().select_related('exit_request__employee__user', 'interviewer')
     serializer_class = ExitInterviewSerializer
     filterset_fields = ['exit_request', 'status']
@@ -1154,7 +1194,8 @@ class ExitInterviewViewSet(viewsets.ModelViewSet):
         interview.save()
         return Response(ExitInterviewSerializer(interview).data)
 class ExitClearanceViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ExitClearance.objects.all().select_related('exit_request__employee__user', 'completed_by')
     serializer_class = ExitClearanceSerializer
     filterset_fields = ['exit_request', 'category', 'status']
@@ -1170,7 +1211,8 @@ class ExitClearanceViewSet(viewsets.ModelViewSet):
         clearance.save()
         return Response(ExitClearanceSerializer(clearance).data)
 class FinalSettlementViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = FinalSettlement.objects.all().select_related('exit_request__employee__user', 'calculated_by', 'approved_by')
     serializer_class = FinalSettlementSerializer
     filterset_fields = ['exit_request', 'status']
@@ -1211,13 +1253,15 @@ class FinalSettlementViewSet(viewsets.ModelViewSet):
         
         return Response(FinalSettlementSerializer(settlement).data)
 class ExperienceCertificateViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ExperienceCertificate.objects.all()
     serializer_class = ExperienceCertificateSerializer
     filterset_fields = ['exit_request']
     pagination_class = HRMPagination
 class AssetReturnViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetReturn.objects.all().select_related('exit_request__employee__user', 'verified_by')
     serializer_class = AssetReturnSerializer
     filterset_fields = ['exit_request', 'status']
@@ -1238,7 +1282,8 @@ class AssetReturnViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 class HRDashboardViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     def list(self, request):
         from django.db.models import Q
@@ -1281,7 +1326,8 @@ class HRDashboardViewSet(viewsets.ViewSet):
             'attendance_today': list(attendance_today),
         })
 class HRReportsViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, RBACPermission]
+    module_key = "hrm"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
 
     @action(detail=False, methods=['get'])
     def attendance_report(self, request):

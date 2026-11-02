@@ -32,6 +32,7 @@ ACCOUNTING_MODELS = [
     'budgetperiod', 'budget', 'budgetencumbrance', 'budgettransfer',
     'budgetforecast', 'budgetamendment', 'budgetanomaly',
     'bankaccount', 'vendorinvoice', 'payment', 'paymentallocation',
+    'cashjournal', 'cashdocument', 'cashclosing',
     'customerinvoice', 'receipt', 'receiptallocation',
     'fixedasset', 'depreciationschedule', 'costcenter',
     'checkbook', 'check', 'bankreconciliation',

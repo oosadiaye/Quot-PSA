@@ -499,7 +499,7 @@ def build():
     closing = doc.add_paragraph()
     closing.alignment = WD_ALIGN_PARAGRAPH.CENTER
     closing_run = closing.add_run(
-        'Document generated from the Quot PSE platform — '
+        'Document generated from the Quot PSA platform — '
         'Contract IPC walkthrough.'
     )
     closing_run.italic = True

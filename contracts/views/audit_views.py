@@ -19,9 +19,12 @@ from contracts.serializers import (
     ContractApprovalStepSerializer,
     ContractDocumentSerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class ContractApprovalStepViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "contracts"
     """Read-only audit trail. Rows are ONLY written by the service
     layer — no POST endpoint is exposed on purpose."""
 
@@ -31,13 +34,15 @@ class ContractApprovalStepViewSet(viewsets.ReadOnlyModelViewSet):
         .order_by("-action_at", "-id")
     )
     serializer_class = ContractApprovalStepSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ApprovalStepFilter
     ordering_fields = ["action_at", "step_number"]
 
 
 class ContractDocumentViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ContractDocument.objects.select_related(
         "contract", "uploaded_by",
     ).order_by("-created_at")

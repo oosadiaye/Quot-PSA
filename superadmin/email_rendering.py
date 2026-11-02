@@ -23,7 +23,7 @@ def base_layout(
     *,
     title: str,
     content_html: str,
-    org_name: str = 'QUOT ERP',
+    org_name: str = 'QUOT PSA',
     support_email: str = 'support@quot-erp.com',
     preheader: str = '',
 ) -> str:

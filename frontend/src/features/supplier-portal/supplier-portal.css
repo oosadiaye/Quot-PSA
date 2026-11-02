@@ -1,0 +1,402 @@
+/* Supplier portal: a calm, document-like workspace for a supplier who comes in to check an order or a payment. */
+.sp {
+  --sp-ink: #14183f;
+  --sp-ink-soft: #4b5280;
+  --sp-line: #dfe3f1;
+  --sp-surface: #ffffff;
+  --sp-ground: #f3f5fb;
+  --sp-brand: #242a88;
+  --sp-ok: #0b6b44;
+  --sp-ok-bg: #e3f5ec;
+  --sp-warn: #8a4b00;
+  --sp-warn-bg: #fff1dc;
+  --sp-bad: #a1261a;
+  --sp-bad-bg: #fdeceb;
+  min-height: 100vh;
+  background: var(--sp-ground);
+  color: var(--sp-ink);
+  font-feature-settings: 'tnum' 1;
+}
+
+.sp-top {
+  background: linear-gradient(135deg, #1a1f66 0%, #242a88 60%, #2f37a8 100%);
+  color: #fff;
+  padding: 22px 24px 0;
+}
+
+.sp-top-inner,
+.sp-main {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.sp-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sp-eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin: 0 0 4px;
+}
+
+.sp .sp-top .sp-name {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.sp-code {
+  margin: 4px 0 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.sp-signout {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sp-signout:hover,
+.sp-signout:focus-visible {
+  background: rgba(255, 255, 255, 0.22);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.sp-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+.sp-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 16px;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sp-tab:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sp-tab[aria-selected='true'] {
+  background: var(--sp-ground);
+  color: var(--sp-brand);
+}
+
+.sp-tab:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.sp-main {
+  padding: 24px;
+}
+
+.sp-card {
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-line);
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-bottom: 18px;
+}
+
+.sp-card h2 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+
+.sp-sub {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--sp-ink-soft);
+}
+
+.sp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px 24px;
+}
+
+.sp-fact dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-ink-soft);
+  margin-bottom: 3px;
+}
+
+.sp-fact dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sp-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #eceefa;
+  color: var(--sp-ink-soft);
+}
+
+.sp-pill.ok {
+  background: var(--sp-ok-bg);
+  color: var(--sp-ok);
+}
+
+.sp-pill.warn {
+  background: var(--sp-warn-bg);
+  color: var(--sp-warn);
+}
+
+.sp-pill.bad {
+  background: var(--sp-bad-bg);
+  color: var(--sp-bad);
+}
+
+.sp-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+  background: var(--sp-surface);
+}
+
+.sp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  min-width: 560px;
+}
+
+.sp-table th,
+.sp-table td {
+  padding: 11px 16px;
+  text-align: left;
+  border-bottom: 1px solid #eceff8;
+}
+
+.sp-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sp-ink-soft);
+  background: #f8f9fd;
+}
+
+.sp-table td.num,
+.sp-table th.num {
+  text-align: right;
+}
+
+.sp-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.sp-empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--sp-ink-soft);
+}
+
+.sp-empty h3 {
+  margin: 0 0 6px;
+  color: var(--sp-ink);
+  font-size: 16px;
+}
+
+.sp-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.sp-field label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sp .sp-field input,
+.sp .sp-field textarea {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1.5px solid #8b93bd;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--sp-ink);
+  box-shadow: none;
+}
+
+.sp .sp-field input:focus,
+.sp .sp-field textarea:focus {
+  outline: 3px solid rgba(36, 42, 136, 0.25);
+  border-color: var(--sp-brand);
+}
+
+.sp-hint {
+  font-size: 12.5px;
+  color: var(--sp-ink-soft);
+}
+
+.sp .sp-btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1.5px solid var(--sp-line);
+  background: #fff;
+  color: var(--sp-ink);
+  cursor: pointer;
+}
+
+.sp .sp-btn:hover {
+  border-color: var(--sp-brand);
+}
+
+.sp .sp-btn:focus-visible {
+  outline: 3px solid rgba(36, 42, 136, 0.35);
+  outline-offset: 2px;
+}
+
+.sp .sp-btn.primary {
+  background: var(--sp-brand);
+  border-color: var(--sp-brand);
+  color: #fff;
+}
+
+.sp .sp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sp-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--sp-brand);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.sp-alert {
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+.sp-alert.bad {
+  background: var(--sp-bad-bg);
+  color: var(--sp-bad);
+}
+
+.sp-alert.ok {
+  background: var(--sp-ok-bg);
+  color: var(--sp-ok);
+}
+
+.sp-alert.warn {
+  background: var(--sp-warn-bg);
+  color: var(--sp-warn);
+}
+
+.sp-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.sp .sp-choices {
+  list-style: none;
+  margin: 6px 0 0;
+  display: grid;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid var(--sp-line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #fff;
+}
+
+.sp .sp-tender {
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 12px;
+}
+
+.sp .sp-bidform {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--sp-line);
+}
+
+.sp .sp-field textarea {
+  min-height: 80px;
+}
+
+/* the procurement office's page lives inside the app shell, so it keeps the shell's background */
+.spa {
+  min-height: 0;
+  background: transparent;
+}
+
+.spa-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0;
+}
+
+.spa-check input {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 640px) {
+  .sp-main {
+    padding: 16px;
+  }
+
+  .sp-top {
+    padding: 18px 16px 0;
+  }
+
+  .sp-card {
+    padding: 18px 16px;
+  }
+}

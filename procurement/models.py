@@ -148,6 +148,13 @@ class Vendor(AuditBaseModel):
     )
     bank_sort_code = models.CharField(max_length=10, blank=True, default='')
 
+    # Supplier self-service: where the supplier stands with the portal (see procurement.services.supplier_portal)
+    PORTAL_STATUS_CHOICES = [
+        ('not_invited', 'Not invited'), ('invited', 'Invited'), ('active', 'Active'), ('suspended', 'Suspended'),
+    ]
+    portal_status = models.CharField(max_length=12, choices=PORTAL_STATUS_CHOICES, default='not_invited')
+    portal_invited_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=['is_active']),
@@ -462,6 +469,11 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
         'Closed': [],
     }
     po_number = models.CharField(max_length=50, unique=True)
+    GRN_MODE_CHOICES = [('', 'Use the default'), ('MANUAL', 'Manual'), ('AUTO', 'Automatic')]
+    grn_mode = models.CharField(
+        max_length=6, choices=GRN_MODE_CHOICES, blank=True, default='',
+        help_text='Blank follows Inventory Settings. AUTO books a posted GRN when the PO is approved.',
+    )
     vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     purchase_request = models.ForeignKey(PurchaseRequest, on_delete=models.SET_NULL, null=True, blank=True)
     order_date = models.DateField()
@@ -654,6 +666,10 @@ class PurchaseOrder(StatusTransitionMixin, AuditBaseModel, ImmutableModelMixin):
             if old_status == 'Posted':
                 kwargs['_allow_status_change'] = True
             super().save(*args, **kwargs)
+
+            if old_status is not None and self.status == 'Approved' and old_status != 'Approved':
+                from procurement.services.auto_grn import auto_receive_if_enabled
+                auto_receive_if_enabled(self)
 
     def _check_warrant_ceiling(self):
         """Validate the PO total against the released-warrant ceiling.
@@ -2432,3 +2448,56 @@ class ProcurementBudgetLink(models.Model):
 
     def __str__(self):
         return f"PO {self.purchase_order} -> APP {self.appropriation.pk}"
+
+
+class SupplierPortalSettings(AuditBaseModel):
+    """One row per government: is the supplier portal on, and are suppliers let in automatically on paying registration."""
+
+    enabled = models.BooleanField(default=False, help_text='Let invited suppliers sign in to the supplier portal.')
+    auto_activate_on_payment = models.BooleanField(
+        default=False, help_text='Invite and activate a supplier as soon as its registration payment is confirmed.')
+
+    def __str__(self):
+        return 'Supplier portal settings'
+
+
+class VendorUser(AuditBaseModel):
+    """The sign-in a supplier uses: one user speaks for exactly one supplier, and every portal answer is filtered to it."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='vendor_link')
+    vendor = models.OneToOneField(Vendor, on_delete=models.CASCADE, related_name='portal_user')
+
+    def __str__(self):
+        return f'{self.user} for {self.vendor}'
+
+
+class VendorBankChangeRequest(AuditBaseModel):
+    """A supplier's request to be paid into different bank details; applied only when the procurement office approves it."""
+
+    STATUS_CHOICES = [('pending', 'Waiting for approval'), ('approved', 'Approved'), ('rejected', 'Rejected')]
+
+    vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name='bank_change_requests')
+    bank_name = models.CharField(max_length=100)
+    bank_account_number = models.CharField(max_length=20, validators=[validate_nuban])
+    bank_sort_code = models.CharField(max_length=10, blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', db_index=True)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    decided_at = models.DateTimeField(null=True, blank=True)
+    reason = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Bank change for {self.vendor} ({self.status})'
+
+
+class PurchaseOrderAcknowledgement(AuditBaseModel):
+    """A supplier's confirmation that it has received a purchase order and will supply it. Kept apart from the order, which
+    is immutable once issued."""
+
+    purchase_order = models.OneToOneField(PurchaseOrder, on_delete=models.CASCADE, related_name='acknowledgement')
+    acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+    note = models.CharField(max_length=300, blank=True, default='')

@@ -10,9 +10,11 @@ from django.http import FileResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
+from core.permissions import ModuleEnabled, RBACPermission
 from accounting.models import PaymentDocument, PaymentDocumentLine, TransactionSequence
 from accounting.services.payment_document_posting import _bank_credit
 from core.mixins import OrganizationFilterMixin
@@ -161,6 +163,8 @@ class PaymentDocumentSerializer(serializers.ModelSerializer):
 
 
 class PaymentDocumentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     serializer_class = PaymentDocumentSerializer
     queryset = PaymentDocument.objects.prefetch_related("lines").all()
     # Tenant MDA-isolation: PaymentDocument carries an ``mda`` FK directly,

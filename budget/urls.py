@@ -17,7 +17,7 @@ router.register(r'encumbrances', UnifiedBudgetEncumbranceViewSet, basename='budg
 router.register(r'variances', UnifiedBudgetVarianceViewSet, basename='budget-variance')
 router.register(r'amendments', UnifiedBudgetAmendmentViewSet, basename='budget-amendment')
 
-# Government Appropriation & Warrant (Quot PSE)
+# Government Appropriation & Warrant (Quot PSA)
 router.register(r'appropriations', AppropriationViewSet, basename='appropriation')
 router.register(r'warrants', WarrantViewSet, basename='warrant')
 # Singleton: tenant-wide letterhead + signatures used to render the

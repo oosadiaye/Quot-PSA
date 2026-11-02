@@ -1,5 +1,5 @@
 """
-Budget Validation Service — Quot PSE
+Budget Validation Service — Quot PSA
 Called by ALL transactional modules before any payment or commitment.
 This is a hard gate — no exceptions, no bypasses.
 

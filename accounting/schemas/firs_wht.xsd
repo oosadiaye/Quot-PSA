@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  FIRS Withholding Tax schedule — Quot PSE internal representation.
+  FIRS Withholding Tax schedule — Quot PSA internal representation.
 
   Based on FIRS Integrated Tax Administration System (ITAS) submission
   format for WHT monthly returns. Field names / cardinalities tracked

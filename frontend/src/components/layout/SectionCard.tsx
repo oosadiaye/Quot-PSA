@@ -1,5 +1,5 @@
 /**
- * SectionCard — white card matching the Quot PSE glassmorphism theme.
+ * SectionCard — white card matching the Quot PSA glassmorphism theme.
  * Rounded, subtle indigo-tinted border, soft shadow, token-driven padding.
  *
  * Use for: wrapping tables, form sections, stat groups, etc.

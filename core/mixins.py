@@ -1,5 +1,5 @@
 """
-Organization-aware ViewSet mixins — Quot PSE
+Organization-aware ViewSet mixins — Quot PSA
 
 Provides automatic queryset filtering by the active organization
 when the tenant is in SEPARATED MDA isolation mode.

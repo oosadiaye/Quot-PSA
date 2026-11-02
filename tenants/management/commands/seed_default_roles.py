@@ -29,7 +29,7 @@ from core.models import Role
 
 
 DEFAULT_ROLES = [
-    # ── Quot PSE: Government IFMIS Roles ────────────────────────────────
+    # ── Quot PSA: Government IFMIS Roles ────────────────────────────────
     # Accounting (GL)
     {'name': 'Accountant', 'code': 'accountant', 'module': 'accounting',
      'role_type': 'manager', 'can_view': True, 'can_add': True, 'can_change': True,

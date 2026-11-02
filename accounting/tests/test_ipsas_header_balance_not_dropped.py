@@ -38,8 +38,11 @@ FY = 2026
 
 @pytest.fixture
 def header_and_leaf(db):
-    """A 22-series header with a postable child beneath it."""
+    """A 22-series header with a postable child beneath it, over a year with no other balances."""
     from accounting.models import Account
+    from accounting.models.balances import GLBalance
+    # Other tests post real journals that leave balances for this year behind; the totals asserted below are of these alone.
+    GLBalance.objects.filter(fiscal_year=FY).delete()
     header, _ = Account.objects.get_or_create(
         code='22000000',
         defaults={'name': 'Operations & Maintenance', 'account_type': 'Expense',
@@ -119,6 +122,8 @@ def test_descendants_are_not_double_counted_in_the_position_statement(db):
     children's own rows.
     """
     from accounting.models import Account
+    from accounting.models.balances import GLBalance
+    GLBalance.objects.filter(fiscal_year=FY).delete()      # other tests leave balances for this year behind
     header, _ = Account.objects.get_or_create(
         code='31000000',
         defaults={'name': 'Current Assets', 'account_type': 'Asset', 'is_active': True},

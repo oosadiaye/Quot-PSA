@@ -1,5 +1,5 @@
 /**
- * Fund Performance Report — Quot PSE
+ * Fund Performance Report — Quot PSA
  * Route: /accounting/ipsas/fund-performance
  *
  * Budget vs actual expenditure classified by Fund segment (Federation

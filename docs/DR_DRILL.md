@@ -1,4 +1,4 @@
-# Disaster-Recovery Drill — Quot PSE
+# Disaster-Recovery Drill — Quot PSA
 
 **Purpose**: verify that the nightly backup produced by
 `scripts/backup.sh` can be restored into an empty PostgreSQL

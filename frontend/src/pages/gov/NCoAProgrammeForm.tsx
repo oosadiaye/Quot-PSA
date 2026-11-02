@@ -1,5 +1,5 @@
 /**
- * NCoA Programme Segment Create/Edit Form — Quot PSE
+ * NCoA Programme Segment Create/Edit Form — Quot PSA
  * Route: /accounting/ncoa/programme/new      (create)
  * Route: /accounting/ncoa/programme/:id/edit  (edit)
  */

@@ -1,5 +1,5 @@
 /**
- * IPSAS 1 — Statement of Changes in Net Assets / Equity — Quot PSE
+ * IPSAS 1 — Statement of Changes in Net Assets / Equity — Quot PSA
  * Route: /accounting/ipsas/changes-in-net-assets
  *
  * Movement from opening net assets → surplus/deficit → revaluation →
@@ -13,6 +13,7 @@ import Sidebar from '../../../components/Sidebar';
 import apiClient from '../../../api/client';
 import ReportError from './ReportError';
 import ExportExcelButton from './ExportExcelButton';
+import StatementSheet, { sheetFigure, type SheetRow } from '../../../components/statement/StatementSheet';
 
 interface ChangesInnerBlock {
     opening_balance:      number | string;
@@ -39,13 +40,6 @@ interface ChangesResponse extends ChangesInnerBlock {
     comparative: ChangesInnerBlock | null;
 }
 
-const fmtNGN = (v: number | string): string => {
-    const n = typeof v === 'string' ? parseFloat(v) : v;
-    return 'NGN ' + (Number.isFinite(n) ? n : 0).toLocaleString('en-NG', {
-        minimumFractionDigits: 2, maximumFractionDigits: 2,
-    });
-};
-
 const ROWS: Array<{ key: keyof ChangesInnerBlock; label: string; style?: 'opening' | 'total' | 'movement' }> = [
     { key: 'opening_balance',      label: 'Opening Balance',                         style: 'opening'  },
     { key: 'surplus_deficit',      label: 'Surplus / (Deficit) for the Period',      style: 'movement' },
@@ -70,20 +64,24 @@ export default function ChangesInNetAssetsReport() {
         retry: false,
     });
 
-    const renderCell = (value: number | string, style?: 'opening' | 'total' | 'movement') => {
-        const n = parseFloat(String(value));
-        const color = n < 0 ? '#dc2626' : 'var(--color-text)';
-        return (
-            <td style={{
-                padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace',
-                fontSize: '14px',
-                fontWeight: style === 'total' || style === 'opening' ? 800 : 500,
-                color,
-            }}>
-                {fmtNGN(value)}
-            </td>
-        );
+    const num = (v: number | string | undefined | null): number => {
+        const n = parseFloat(String(v ?? 0));
+        return Number.isFinite(n) ? n : 0;
     };
+    const rows: SheetRow[] = data ? [
+        ...ROWS.map((row): SheetRow => {
+            const values = [num(data[row.key] as number | string), num(data.comparative?.[row.key] as number | string | undefined)];
+            if (row.style === 'total') return { kind: 'total', label: row.label, values };
+            if (row.style === 'opening') return { kind: 'subtotal', label: row.label, values };
+            return { kind: 'item', label: row.label, values };
+        }),
+        {
+            kind: 'note',
+            label: data.reconciliation?.reconciles
+                ? `Reconciled: the movements add up to the closing balance (computed ${sheetFigure(data.reconciliation?.computed)}, reported ${sheetFigure(data.reconciliation?.reported)}).`
+                : `NOT RECONCILED: computed ${sheetFigure(data.reconciliation?.computed)} against reported ${sheetFigure(data.reconciliation?.reported)} (tolerance ${data.reconciliation?.tolerance}).`,
+        },
+    ] : [];
 
     return (
         <div style={{ background: 'var(--color-surface-hover)', minHeight: '100vh' }}>
@@ -140,97 +138,15 @@ export default function ChangesInNetAssetsReport() {
                 ) : error ? (
                     <ReportError error={error} endpoint="/accounting/ipsas/changes-in-net-assets/" />
                 ) : data ? (
-                    <div style={{ maxWidth: '900px' }}>
-                        <div style={{
-                            background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)',
-                            overflow: 'hidden', marginBottom: '20px',
-                        }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead>
-                                    <tr style={{ background: 'var(--color-surface-hover)', borderBottom: '2px solid var(--color-border)' }}>
-                                        <th style={{
-                                            padding: '12px 14px', textAlign: 'left',
-                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
-                                            textTransform: 'uppercase', letterSpacing: '0.5px',
-                                        }}>
-                                            Component
-                                        </th>
-                                        <th style={{
-                                            padding: '12px 14px', textAlign: 'right',
-                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
-                                            textTransform: 'uppercase', letterSpacing: '0.5px',
-                                        }}>
-                                            FY {fy}
-                                        </th>
-                                        <th style={{
-                                            padding: '12px 14px', textAlign: 'right',
-                                            fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
-                                            textTransform: 'uppercase', letterSpacing: '0.5px',
-                                        }}>
-                                            FY {fy - 1} (Comparative)
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {ROWS.map(row => {
-                                        const isTotal = row.style === 'total';
-                                        const isOpening = row.style === 'opening';
-                                        return (
-                                            <tr
-                                                key={row.key}
-                                                style={{
-                                                    borderTop: isTotal ? '2px solid #1e293b' : undefined,
-                                                    borderBottom: '1px solid var(--color-border-light)',
-                                                    background: isTotal ? 'var(--color-surface-hover)' :
-                                                                isOpening ? 'var(--color-surface)' : undefined,
-                                                }}
-                                            >
-                                                <td style={{
-                                                    padding: '10px 14px', fontSize: '14px',
-                                                    fontWeight: isTotal || isOpening ? 800 : 500,
-                                                    color: 'var(--color-text)',
-                                                }}>
-                                                    {row.label}
-                                                </td>
-                                                {renderCell(data[row.key] as number | string, row.style)}
-                                                {renderCell(
-                                                    data.comparative?.[row.key] as number | string ?? 0,
-                                                    row.style,
-                                                )}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* Reconciliation check */}
-                        <div style={{
-                            background: data.reconciliation?.reconciles ? '#f0fdf4' : '#fef2f2',
-                            border: `2px solid ${data.reconciliation?.reconciles ? '#22c55e' : '#ef4444'}`,
-                            borderRadius: '12px', padding: '20px', textAlign: 'center',
-                        }}>
-                            <div style={{
-                                fontSize: '14px', fontWeight: 800,
-                                color: data.reconciliation?.reconciles ? '#16a34a' : '#dc2626',
-                                textTransform: 'uppercase', letterSpacing: '0.5px',
-                            }}>
-                                {data.reconciliation?.reconciles ? 'RECONCILED' : 'NOT RECONCILED'}
-                            </div>
-                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '6px' }}>
-                                Computed: {fmtNGN(data.reconciliation?.computed)} ·
-                                Reported: {fmtNGN(data.reconciliation?.reported)} ·
-                                Tolerance: {data.reconciliation?.tolerance}
-                            </div>
-                        </div>
-                    </div>
+                    <StatementSheet testId="sheet-changes" caption={`Statement of Changes in Net Assets / Equity for the year ${fy}`}
+                        valueColumns={[`FY ${fy}`, `FY ${fy - 1} (comparative)`]} rows={rows} />
                 ) : null}
 
                 <div style={{
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — IPSAS 1 Compliant
+                    Quot PSA IFMIS — IPSAS 1 Compliant
                 </div>
             </main>
         </div>

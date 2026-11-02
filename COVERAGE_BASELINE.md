@@ -1,4 +1,4 @@
-# Coverage Baseline — Quot PSE
+# Coverage Baseline — Quot PSA
 
 **Measured**: 2026-04-17 (after Sprint 25, start of Phase 1)
 

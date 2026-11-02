@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Quot PSE — End-User Training Guide</title>
-<meta name="description" content="Step-by-step training guide for Quot PSE end users — Budget Officers, Account Officers, Procurement Officers, and Accountant-General staff." />
+<title>Quot PSA — End-User Training Guide</title>
+<meta name="description" content="Step-by-step training guide for Quot PSA end users — Budget Officers, Account Officers, Procurement Officers, and Accountant-General staff." />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -158,7 +158,7 @@ table.role th{background:var(--surface);font-size:11px;font-weight:700;color:var
   <div class="brand">
     <div class="brand-logo">🏛</div>
     <div>
-      <div class="brand-name">Quot PSE</div>
+      <div class="brand-name">Quot PSA</div>
       <div class="brand-sub">Training Guide</div>
     </div>
   </div>
@@ -207,9 +207,9 @@ table.role th{background:var(--surface);font-size:11px;font-weight:700;color:var
 <!-- ══════════════════════════════════════════════════════════ -->
 <section id="welcome">
   <span class="badge badge-green">End-User Training Guide · v1 · 2026</span>
-  <h1>Quot PSE — Training Guide</h1>
+  <h1>Quot PSA — Training Guide</h1>
   <p class="lead">
-    This guide walks you through every task you'll perform on Quot PSE, from
+    This guide walks you through every task you'll perform on Quot PSA, from
     signing in on day one to filing your first IPSAS monthly pack. It is
     structured by module, and within each module by the specific workflow
     you're likely to run.
@@ -283,7 +283,7 @@ table.role th{background:var(--surface);font-size:11px;font-weight:700;color:var
   <rect x="290" y="270" width="340" height="36" rx="6" fill="#1a237e"/>
   <text x="460" y="294" text-anchor="middle" font-family="Inter" font-weight="700" font-size="13" fill="#fff">Sign In</text>
   <!-- Left column -->
-  <text x="60" y="170" font-family="Manrope" font-weight="800" font-size="20" fill="#1a237e">QUOT PSE</text>
+  <text x="60" y="170" font-family="Manrope" font-weight="800" font-size="20" fill="#1a237e">QUOT PSA</text>
   <text x="60" y="196" font-family="Inter" font-size="11" fill="#4a5568">Nigeria Public-Sector IFMIS</text>
   <rect x="60" y="220" width="4" height="80" fill="#008751"/>
   <text x="76" y="240" font-family="Inter" font-size="10" fill="#4a5568">Enterprise-grade security</text>
@@ -311,7 +311,7 @@ table.role th{background:var(--surface);font-size:11px;font-weight:700;color:var
   <rect width="720" height="420" fill="#f6f8fb"/>
   <!-- Sidebar -->
   <rect x="0" y="0" width="180" height="420" fill="#1a237e"/>
-  <text x="18" y="30" font-family="Manrope" font-weight="800" font-size="13" fill="#fff">QUOT PSE</text>
+  <text x="18" y="30" font-family="Manrope" font-weight="800" font-size="13" fill="#fff">QUOT PSA</text>
   <text x="18" y="44" font-family="Inter" font-size="8" fill="#6ee6a8" letter-spacing="0.6">IFMIS</text>
   <g font-family="Inter" font-size="10" fill="#ffffff" opacity="0.85">
     <text x="18" y="80">Dashboard</text>
@@ -550,7 +550,7 @@ flowchart LR
 <div class="sec-hero">
   <span class="tag">Module 02</span>
   <h2>General Ledger &amp; Accounting (IPSAS)</h2>
-  <p>The double-entry ledger at the heart of Quot PSE. Every transaction from every other module ends up here as a balanced journal.</p>
+  <p>The double-entry ledger at the heart of Quot PSA. Every transaction from every other module ends up here as a balanced journal.</p>
 </div>
 
 <p><strong>Who uses it:</strong>
@@ -697,7 +697,7 @@ flowchart LR
 </ol>
 
 <div class="callout info">
-  <strong>ℹ Composite code:</strong> when a journal line is saved, Quot PSE
+  <strong>ℹ Composite code:</strong> when a journal line is saved, Quot PSA
   concatenates all six segments into a 52-digit string stored as
   <code>ncoa_code</code>. This is what the OAGF Treasury returns file uses.
 </div>
@@ -925,7 +925,7 @@ flowchart LR
   <li>Pick <strong>Return Type</strong> (Original / Amended) and enter <strong>Prepared By</strong>.</li>
   <li>Click <strong>Export XML</strong>. The file downloads as <code>FIRS-WHT-&lt;state&gt;-&lt;YYYYMM&gt;.xml</code>.</li>
   <li>The file is XSD-validated before download. If anything fails validation you'll see a blocking error with the offending row.</li>
-  <li>Upload the XML to the FIRS TaxPro portal. Record the acknowledgement number back in Quot PSE under <strong>Filings</strong>.</li>
+  <li>Upload the XML to the FIRS TaxPro portal. Record the acknowledgement number back in Quot PSA under <strong>Filings</strong>.</li>
 </ol>
 
 <p>The flow for <strong>VAT</strong> and <strong>PENCOM</strong> follows the same 8-step pattern with schema-specific fields.</p>
@@ -1126,7 +1126,7 @@ every other module reads from.</p>
     <tr><td><strong>FAAC</strong></td><td>Federation Account Allocation Committee — the monthly distribution of federal revenue to States and LGAs.</td></tr>
     <tr><td><strong>FIRS</strong></td><td>Federal Inland Revenue Service — the federal tax authority.</td></tr>
     <tr><td><strong>GRN</strong></td><td>Goods Received Note — the document confirming receipt of goods against a PO.</td></tr>
-    <tr><td><strong>IFMIS</strong></td><td>Integrated Financial Management Information System — the umbrella term for systems like Quot PSE.</td></tr>
+    <tr><td><strong>IFMIS</strong></td><td>Integrated Financial Management Information System — the umbrella term for systems like Quot PSA.</td></tr>
     <tr><td><strong>IGR</strong></td><td>Internally Generated Revenue — non-federal State revenue (PAYE, fees, levies).</td></tr>
     <tr><td><strong>IPSAS</strong></td><td>International Public Sector Accounting Standards.</td></tr>
     <tr><td><strong>MDA</strong></td><td>Ministry, Department, or Agency — any administrative unit of the State.</td></tr>
@@ -1145,7 +1145,7 @@ every other module reads from.</p>
 </table>
 
 <p style="text-align:center;margin-top:40px;padding-top:24px;border-top:1px solid var(--border);color:var(--muted);font-size:13px">
-  &copy; 2026 Quot PSE &middot; End-User Training Guide v1 &middot;
+  &copy; 2026 Quot PSA &middot; End-User Training Guide v1 &middot;
   Questions? <a href="mailto:support@quotpse.ng">support@quotpse.ng</a>
 </p>
 </section>

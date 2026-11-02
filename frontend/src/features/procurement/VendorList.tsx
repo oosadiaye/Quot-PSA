@@ -64,6 +64,9 @@ const VendorList = () => {
         bank_name: '', bank_account_number: '', bank_sort_code: '',
     });
     const [error, setError] = useState('');
+    // Live duplicate-supplier warning (name already exists), backed by the
+    // check_duplicate endpoint so it agrees with the save-time block.
+    const [dupWarning, setDupWarning] = useState<{ name: string; code: string } | null>(null);
     const [viewMode, setViewMode] = useState<'card' | 'list'>('list');
     const [actionsOpen, setActionsOpen] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -103,9 +106,27 @@ const VendorList = () => {
     };
 
     const resetForm = () => {
-        setShowForm(false); setEditingVendor(null); setError('');
+        setShowForm(false); setEditingVendor(null); setError(''); setDupWarning(null);
         setForm({ name: '', code: '', tax_id: '', address: '', email: '', phone: '', is_active: false, category: '', registration_number: '', registration_fiscal_year: '', expiry_date: '', bank_name: '', bank_account_number: '', bank_sort_code: '' });
     };
+
+    // Debounced duplicate-supplier lookup while the form is open. Non-fatal:
+    // the serializer still blocks on save, so a failed check never stops work.
+    useEffect(() => {
+        const name = form.name.trim();
+        if (!showForm || name.length < 2) { setDupWarning(null); return; }
+        const handle = setTimeout(async () => {
+            try {
+                const params: Record<string, string> = { name };
+                if (editingVendor?.id) params.exclude = String(editingVendor.id);
+                const { data } = await apiClient.get('/procurement/vendors/check_duplicate/', { params });
+                setDupWarning(data?.exists ? { name: data.match.name, code: data.match.code } : null);
+            } catch {
+                setDupWarning(null);
+            }
+        }, 350);
+        return () => clearTimeout(handle);
+    }, [form.name, showForm, editingVendor]);
 
     const csvQuote = (val: string) => `"${String(val).replace(/"/g, '""')}"`;
 
@@ -256,7 +277,11 @@ const VendorList = () => {
             resetForm();
         } catch (err: any) {
             const data = err?.response?.data;
-            if (data?.detail) {
+            if (data?.name) {
+                // Field error from validate_name (the duplicate-supplier block) —
+                // show it as a plain sentence, not "name: …".
+                setError(Array.isArray(data.name) ? data.name.join(' ') : String(data.name));
+            } else if (data?.detail) {
                 setError(data.detail);
             } else if (data && typeof data === 'object') {
                 const msgs = Object.entries(data).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
@@ -476,7 +501,13 @@ const VendorList = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <div>
                                     <label className="label">Vendor Name *</label>
-                                    <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Enter vendor name" required />
+                                    <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Enter vendor name" required aria-invalid={!!dupWarning} />
+                                    {dupWarning && (
+                                        <div role="alert" style={{ marginTop: '0.4rem', padding: '0.4rem 0.6rem', borderRadius: 6, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', fontSize: 'var(--text-xs)', display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
+                                            <span aria-hidden="true">⚠</span>
+                                            <span>A supplier named “{dupWarning.name}” (code {dupWarning.code}) already exists. Saving will be blocked — reuse it or choose a different name.</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="label">Vendor Code *</label>

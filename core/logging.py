@@ -1,5 +1,5 @@
 """
-Structured JSON logging for Quot PSE.
+Structured JSON logging for Quot PSA.
 
 When ``DEBUG=False`` (production) every log line is emitted as a single
 JSON object with these mandatory fields:

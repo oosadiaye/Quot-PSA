@@ -1,5 +1,5 @@
 """
-NCoA Segment API Serializers — Quot PSE
+NCoA Segment API Serializers — Quot PSA
 """
 from rest_framework import serializers
 from accounting.models.ncoa import (

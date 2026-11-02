@@ -1,5 +1,5 @@
 """
-NCoA Segment API ViewSets — Quot PSE
+NCoA Segment API ViewSets — Quot PSA
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -9,6 +9,8 @@ from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 import pandas as pd
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class NCoAPagination(PageNumberPagination):
@@ -48,9 +50,10 @@ def _bool_col(row: 'pd.Series', col: str, default: bool = True) -> bool:
 # ── ViewSets ───────────────────────────────────────────────
 
 class AdministrativeSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Administrative Segment (MDA hierarchy)."""
     serializer_class = AdministrativeSegmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = NCoAPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['level', 'sector_code', 'is_active', 'is_mda', 'mda_type']
@@ -81,9 +84,10 @@ class AdministrativeSegmentViewSet(DimensionImportExportMixin, viewsets.ModelVie
 
 
 class FunctionalSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Functional Segment (COFOG)."""
     serializer_class = FunctionalSegmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = NCoAPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['division_code', 'is_active']
@@ -111,9 +115,10 @@ class FunctionalSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet
 
 
 class ProgrammeSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Programme Segment."""
     serializer_class = ProgrammeSegmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = NCoAPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['is_capital', 'is_active']
@@ -143,9 +148,10 @@ class ProgrammeSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet)
 
 
 class FundSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Fund Segment."""
     serializer_class = FundSegmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = NCoAPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['main_fund_code', 'is_restricted', 'is_active']
@@ -174,9 +180,10 @@ class FundSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
 
 
 class GeographicSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Geographic Segment."""
     serializer_class = GeographicSegmentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     pagination_class = NCoAPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['zone_code', 'state_code', 'is_active']
@@ -224,9 +231,10 @@ class GeographicSegmentViewSet(DimensionImportExportMixin, viewsets.ModelViewSet
 
 
 class NCoACodeViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """NCoA Composite Code — full 52-digit financial DNA."""
     serializer_class = NCoACodeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     # economic is the GL Account now — it carries account_type, not the
     # NCoA account_type_code digit the retired segment model used.

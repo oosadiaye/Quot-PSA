@@ -1,5 +1,5 @@
 /**
- * Budget Check — Quot PSE
+ * Budget Check — Quot PSA
  * Route: /budget/check
  *
  * Look a budget line up and read its current position. Nothing else.

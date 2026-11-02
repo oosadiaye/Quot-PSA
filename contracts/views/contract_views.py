@@ -45,9 +45,12 @@ from contracts.services import (
     ContractClosureService,
 )
 from contracts.views._helpers import translate_service_errors
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class ContractViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
     """CRUD for Contract headers + state-transition actions."""
 
     queryset = (
@@ -76,7 +79,7 @@ class ContractViewSet(viewsets.ModelViewSet):
         .order_by("-created_at")
     )
     serializer_class = ContractSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ContractFilter
     search_fields = ["contract_number", "title", "reference"]
@@ -388,12 +391,13 @@ class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
     an invoice (``MilestoneScheduleViewSet.post_invoice``). Filter by
     ``?milestone=<id>``.
     """
+    module_key = "contracts"
 
     queryset = MilestoneInvoiceLine.objects.select_related(
         "account", "milestone",
     ).order_by("milestone_id", "id")
     serializer_class = MilestoneInvoiceLineSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["milestone"]
 
@@ -424,13 +428,14 @@ class MilestoneInvoiceLineViewSet(viewsets.ModelViewSet):
 
 
 class MilestoneScheduleViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
     """Milestone rows — creatable only before activation."""
 
     queryset = MilestoneSchedule.objects.select_related("contract").order_by(
         "contract_id", "milestone_number",
     )
     serializer_class = MilestoneScheduleSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ["contract", "status"]
     ordering_fields = ["milestone_number", "target_date"]
@@ -624,16 +629,18 @@ class MilestoneScheduleViewSet(viewsets.ModelViewSet):
 class ContractBalanceViewSet(mixins.ListModelMixin,
                              mixins.RetrieveModelMixin,
                              viewsets.GenericViewSet):
+    module_key = "contracts"
     """Read-only financial snapshot per contract."""
 
     queryset = ContractBalance.objects.select_related("contract").order_by("-updated_at")
     serializer_class = ContractBalanceSerializer
-    permission_classes = [CanViewContracts]
+    permission_classes = [ModuleEnabled, CanViewContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["contract"]
 
 
 class ContractYearPlanViewSet(viewsets.ModelViewSet):
+    module_key = "contracts"
     """Multi-year contract year-plan slices.
 
     A contract has one or more ContractYearPlan rows; their planned_amount
@@ -659,7 +666,7 @@ class ContractYearPlanViewSet(viewsets.ModelViewSet):
         .order_by("contract", "sequence")
     )
     serializer_class = ContractYearPlanSerializer
-    permission_classes = [CanManageContracts]
+    permission_classes = [ModuleEnabled, CanManageContracts]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["contract", "fiscal_year"]
 

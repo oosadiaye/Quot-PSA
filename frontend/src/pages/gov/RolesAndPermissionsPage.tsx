@@ -1,5 +1,5 @@
 /**
- * Role & Permission Management — Quot PSE
+ * Role & Permission Management — Quot PSA
  * Route: /admin/roles
  *
  * Reviews tenant-local Role definitions (CRUD) and surfaces the
@@ -326,7 +326,7 @@ export default function RolesAndPermissionsPage() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
-                    Quot PSE IFMIS — Role & Permission Management
+                    Quot PSA IFMIS — Role & Permission Management
                 </div>
         </ListPageShell>
     );

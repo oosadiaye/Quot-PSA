@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { CurrencyProvider } from './context/CurrencyContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
 import { ToastProvider } from './context/ToastContext';
 import ToastContainer from './components/ToastContainer';
@@ -182,6 +182,12 @@ const PurchaseRequisitionView = lazy(() => import('./features/procurement/Purcha
 const GoodsReceivedNotes = lazy(() => import('./features/procurement/GoodsReceivedNotes'));
 const GRNForm = lazy(() => import('./features/procurement/GRNForm'));
 const GRNView = lazy(() => import('./features/procurement/GRNView'));
+const CashPostingPage = lazy(() => import('./features/accounting/cash-posting/CashPostingPage'));
+const CashVoucherPrint = lazy(() => import('./features/accounting/cash-posting/CashVoucherPrint'));
+const PurchaseRequisitionPrint = lazy(() => import('./features/procurement/print/PurchaseRequisitionPrint'));
+const PurchaseOrderPrint = lazy(() => import('./features/procurement/print/PurchaseOrderPrint'));
+const GoodsReceivedNotePrint = lazy(() => import('./features/procurement/print/GoodsReceivedNotePrint'));
+const InvoiceVerificationPrint = lazy(() => import('./features/procurement/print/InvoiceVerificationPrint'));
 const InvoiceMatchingPage = lazy(() => import('./features/procurement/InvoiceMatching'));
 const NewInvoiceMatching = lazy(() => import('./features/procurement/NewInvoiceMatching'));
 const InvoiceMatchingView = lazy(() => import('./features/procurement/InvoiceMatchingView'));
@@ -250,8 +256,12 @@ const ExitManagement = lazy(() => import('./features/hrm/pages/ExitManagement'))
 
 // ── User Management ──────────────────────────────────────────
 const UserManagement = lazy(() => import('./pages/UserManagement'));
+// Team chat: loaded after first paint; it renders nothing until a user is signed in.
+const ChatWidget = lazy(() => import('./features/chat/ChatWidget'));
 
 // ── Employee Self-Service Portal ─────────────────────────────
+const SupplierPortal = lazy(() => import('./features/supplier-portal/SupplierPortal'));
+const SupplierPortalAdmin = lazy(() => import('./features/supplier-portal/SupplierPortalAdmin'));
 const MyDashboard = lazy(() => import('./features/portal/pages/MyDashboard'));
 const MyPayslips  = lazy(() => import('./features/portal/pages/MyPayslips'));
 const MyLeave     = lazy(() => import('./features/portal/pages/MyLeave'));
@@ -274,6 +284,23 @@ const IPCDetail           = lazy(() => import('./features/contracts/ipcs/IPCDeta
 const VariationList       = lazy(() => import('./features/contracts/variations/VariationList'));
 const VariationForm       = lazy(() => import('./features/contracts/variations/VariationForm'));
 const VariationDetail     = lazy(() => import('./features/contracts/variations/VariationDetail'));
+
+// ── Future modules (FUTURE_MODULES.md) — data-driven CRUD pages ──────
+const BudgetPrep        = lazy(() => import('./features/budget-prep'));
+const EGPModule         = lazy(() => import('./features/egp'));
+const PersonnelBudget   = lazy(() => import('./features/personnel-budget'));
+const DebtModule        = lazy(() => import('./features/debt'));
+const Transparency      = lazy(() => import('./features/transparency'));
+const ResultsModule     = lazy(() => import('./features/results'));
+const Integrations      = lazy(() => import('./features/integrations'));
+const RevenueAdmin      = lazy(() => import('./features/revenue-admin'));
+const CashPlanning      = lazy(() => import('./features/cash-planning'));
+const StaffAdvances     = lazy(() => import('./features/staff-advances'));
+const InternalAudit     = lazy(() => import('./features/internal-audit'));
+const FleetPage         = lazy(() => import('./features/fleet'));
+const CataloguePage     = lazy(() => import('./features/catalogue'));
+const Disclosure        = lazy(() => import('./features/disclosure'));
+const LegalPage         = lazy(() => import('./features/legal'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -328,6 +355,12 @@ function RootRoute() {
   return <Navigate to="/login" replace />;
 }
 
+/** Team chat and similar staff tools are not for a supplier account, which can reach only the supplier portal. */
+function StaffOnly({ children }: { children: React.ReactNode }) {
+  const { tenantRole } = useAuth();
+  return tenantRole === 'vendor' ? null : <>{children}</>;
+}
+
 function App() {
   return (
     <ThemeProvider>
@@ -357,6 +390,8 @@ function App() {
                   </a>
                   <ImpersonationBanner />
                   <ImpersonationHandler />
+                  {/* Team chat, bottom right: message other users of the workspace and share a file up to 2 MB. */}
+                  <StaffOnly><Suspense fallback={null}><ChatWidget /></Suspense></StaffOnly>
                   {/* Inner ErrorBoundary scopes route crashes to the
                       content area — the outer ErrorBoundary at the
                       top-level catches anything that escapes; this
@@ -390,6 +425,11 @@ function App() {
                       } />
                       <Route path="/dashboard/legacy" element={
                         <ProtectedRoute><Dashboard /></ProtectedRoute>
+                      } />
+
+                      {/* ── Supplier Self-Service Portal (a supplier account reaches nothing else) ── */}
+                      <Route path="/supplier-portal" element={
+                        <ProtectedRoute><SupplierPortal /></ProtectedRoute>
                       } />
 
                       {/* ── Employee Self-Service Portal ───────────────── */}
@@ -640,6 +680,9 @@ function App() {
                         <Route path="/procurement/vendors" element={
                           <ProtectedRoute><VendorList /></ProtectedRoute>
                         } />
+                        <Route path="/procurement/supplier-portal" element={
+                          <ProtectedRoute><SupplierPortalAdmin /></ProtectedRoute>
+                        } />
                         <Route path="/procurement/vendors-expired" element={
                           <ProtectedRoute><ExpiredVendors /></ProtectedRoute>
                         } />
@@ -651,6 +694,24 @@ function App() {
                         } />
                         <Route path="/procurement/requisitions/:id/edit" element={
                           <ProtectedRoute><PurchaseRequisitionForm /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/cash-posting" element={
+                          <ProtectedRoute><CashPostingPage /></ProtectedRoute>
+                        } />
+                        <Route path="/accounting/cash-posting/:id/print" element={
+                          <ProtectedRoute><CashVoucherPrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/requisitions/:id/print" element={
+                          <ProtectedRoute><PurchaseRequisitionPrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/orders/:id/print" element={
+                          <ProtectedRoute><PurchaseOrderPrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/grn/:id/print" element={
+                          <ProtectedRoute><GoodsReceivedNotePrint /></ProtectedRoute>
+                        } />
+                        <Route path="/procurement/matching/:id/print" element={
+                          <ProtectedRoute><InvoiceVerificationPrint /></ProtectedRoute>
                         } />
                         <Route path="/procurement/requisitions/:id" element={
                           <ProtectedRoute><PurchaseRequisitionView /></ProtectedRoute>
@@ -917,7 +978,7 @@ function App() {
                         } />
                       </Route>
 
-                      {/* Production, Quality removed — Quot PSE is public sector only */}
+                      {/* Production, Quality removed — Quot PSA is public sector only */}
 
                       {/* ── Contracts module ─────────────────────────── */}
                       <Route element={<ModuleGuard module="contracts" />}>
@@ -991,6 +1052,57 @@ function App() {
                         <Route path="/workflow/instances" element={
                           <ProtectedRoute><ApprovalHistory /></ProtectedRoute>
                         } />
+                      </Route>
+
+                      {/* ── Future modules (FUTURE_MODULES.md) ─────────
+                          Each independently licensable module gets its own
+                          ModuleGuard layout route. Nav entries are added in
+                          Sidebar.tsx; the guard blocks direct URL access when
+                          the tenant has the module disabled. */}
+                      <Route element={<ModuleGuard module="budget_prep" />}>
+                        <Route path="/budget-prep" element={<ProtectedRoute><BudgetPrep /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="egp" />}>
+                        <Route path="/egp" element={<ProtectedRoute><EGPModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="personnel_budget" />}>
+                        <Route path="/personnel-budget" element={<ProtectedRoute><PersonnelBudget /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="debt" />}>
+                        <Route path="/debt" element={<ProtectedRoute><DebtModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="transparency" />}>
+                        <Route path="/transparency" element={<ProtectedRoute><Transparency /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="results" />}>
+                        <Route path="/results" element={<ProtectedRoute><ResultsModule /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="integrations" />}>
+                        <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="revenue_admin" />}>
+                        <Route path="/revenue-admin" element={<ProtectedRoute><RevenueAdmin /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="cash_planning" />}>
+                        <Route path="/cash-planning" element={<ProtectedRoute><CashPlanning /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="staff_advances" />}>
+                        <Route path="/staff-advances" element={<ProtectedRoute><StaffAdvances /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="internal_audit" />}>
+                        <Route path="/internal-audit" element={<ProtectedRoute><InternalAudit /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="fleet" />}>
+                        <Route path="/fleet" element={<ProtectedRoute><FleetPage /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="catalogue" />}>
+                        <Route path="/catalogue" element={<ProtectedRoute><CataloguePage /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="disclosure" />}>
+                        <Route path="/disclosure" element={<ProtectedRoute><Disclosure /></ProtectedRoute>} />
+                      </Route>
+                      <Route element={<ModuleGuard module="legal" />}>
+                        <Route path="/legal" element={<ProtectedRoute><LegalPage /></ProtectedRoute>} />
                       </Route>
 
                       {/* ── Catch-all ──────────────────────────────────

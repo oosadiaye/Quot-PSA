@@ -15,56 +15,76 @@ from ..serializers import (
     TreasuryForecastSerializer, InvestmentSerializer, LoanSerializer, LoanRepaymentSerializer,
     ExchangeRateHistorySerializer, ForeignCurrencyRevaluationSerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class DeferredRevenueViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = DeferredRevenue.objects.all()
     serializer_class = DeferredRevenueSerializer
     filterset_fields = ['payer_name', 'is_active']
 
 
 class DeferredExpenseViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = DeferredExpense.objects.all().select_related('vendor')
     serializer_class = DeferredExpenseSerializer
     filterset_fields = ['vendor', 'is_active']
 
 
 class LeaseViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Lease.objects.all().select_related('lessor', 'right_of_use_asset', 'lease_liability_account')
     serializer_class = LeaseSerializer
     filterset_fields = []
 
 
 class LeasePaymentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = LeasePayment.objects.all().select_related('lease')
     serializer_class = LeasePaymentSerializer
     filterset_fields = ['lease']
 
 
 class TreasuryForecastViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = TreasuryForecast.objects.all()
     serializer_class = TreasuryForecastSerializer
 
 
 class InvestmentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Investment.objects.all().select_related('bank_account')
     serializer_class = InvestmentSerializer
     filterset_fields = ['investment_type']
 
 
 class LoanViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Loan.objects.all().select_related('lender', 'loan_account', 'interest_expense_account')
     serializer_class = LoanSerializer
     filterset_fields = []
 
 
 class LoanRepaymentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = LoanRepayment.objects.all().select_related('loan')
     serializer_class = LoanRepaymentSerializer
     filterset_fields = ['loan']
 
 
 class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ExchangeRateHistory.objects.all().select_related('from_currency', 'to_currency')
     serializer_class = ExchangeRateHistorySerializer
     filterset_fields = ['from_currency', 'to_currency']
@@ -180,6 +200,8 @@ class ExchangeRateHistoryViewSet(viewsets.ModelViewSet):
 
 
 class ForeignCurrencyRevaluationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ForeignCurrencyRevaluation.objects.all().select_related('currency')
     serializer_class = ForeignCurrencyRevaluationSerializer
     filterset_fields = ['currency', 'is_posted']

@@ -1,5 +1,5 @@
 /**
- * Revenue Collection Detail Page — Quot PSE
+ * Revenue Collection Detail Page — Quot PSA
  * Route: /accounting/revenue-collections/:id
  *
  * Shows the receipt + action buttons + (when POSTED) the underlying

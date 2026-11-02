@@ -1,5 +1,5 @@
 """
-Quot PSE — Nigeria Government IFMIS
+Quot PSA — Nigeria Government IFMIS
 Settings for the quot_pse project.
 
 A public sector SaaS ERP compliant with:
@@ -19,8 +19,8 @@ from django.core.exceptions import ImproperlyConfigured
 # Load environment variables
 load_dotenv()
 
-# ─── Quot PSE Project Identity ─────────────────────────────────────────
-PROJECT_NAME = "Quot PSE"
+# ─── Quot PSA Project Identity ─────────────────────────────────────────
+PROJECT_NAME = "Quot PSA"
 PROJECT_SUBTITLE = "Nigeria Government IFMIS"
 PROJECT_VERSION = "1.0.0"
 GOVERNMENT_MODE = True  # Disables all commercial features globally
@@ -98,6 +98,23 @@ TENANT_APPS = [
     'hrm',
     'simple_history',
     'contracts',      # Contract & Milestone Payment Management (overpayment prevention)
+
+    # Future modules — fully integrated & switchable per-tenant (FUTURE_MODULES.md)
+    'personnel_budget',
+    'cash_planning',
+    'staff_advances',
+    'budget_prep',
+    'debt',
+    'transparency',
+    'integrations',
+    'egp',
+    'results',
+    'revenue_admin',
+    'internal_audit',
+    'fleet',
+    'catalogue',
+    'disclosure',
+    'legal',
 
     # Stub apps — deleted for public sector, kept for migration history only
     'sales',
@@ -267,6 +284,10 @@ STATICFILES_FINDERS = [
 # Media files
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+# Files that must never have a public URL (e.g. team-chat attachments). Kept
+# outside MEDIA_ROOT, which the web server may expose directly under /media/;
+# reads go through an authenticated endpoint that checks who is asking.
+PRIVATE_MEDIA_ROOT = Path(os.getenv('PRIVATE_MEDIA_ROOT', str(BASE_DIR / 'private_media')))
 
 # ── In-app snapshots (Phase 1) ─────────────────────────────────────
 SNAPSHOTS_BACKUP_DIR           = os.getenv(
@@ -430,6 +451,11 @@ REST_FRAMEWORK = {
         'login':        os.getenv('LOGIN_THROTTLE_RATE', '30/min' if DEBUG else '3/min'),
         'signup':       '5/hour',
         'impersonate':  '20/hour',   # superadmin tenant impersonation
+        # Team chat: messages a user may send per minute (reading is not limited).
+        'chat_send':    os.getenv('THROTTLE_CHAT_SEND', '60/min'),
+        # Chat reads (the widget polls: ~1,260/hour with one conversation open). Separate from the
+        # app-wide 'user' bucket (1000/hour) so polling can never lock someone out of the whole API.
+        'chat_read':    os.getenv('THROTTLE_CHAT_READ', '6000/hour'),
         # P1-T5 — tighter limits for mutating endpoints so a runaway
         # client can't DoS the posting pipeline. Applied via
         # throttle_scope='writes' on POST/PUT/PATCH/DELETE-only actions.
@@ -451,6 +477,13 @@ REST_FRAMEWORK = {
         'exports':      os.getenv('EXPORTS_THROTTLE_RATE', '300/hour'),
         'snapshot_create':    f'{SNAPSHOTS_CREATE_RATE_PER_HOUR}/hour',
         'snapshot_download':  f'{SNAPSHOTS_DOWNLOAD_RATE_PER_HOUR}/hour',
+        # FUTURE_MODULES §5.5 — the public, unauthenticated transparency
+        # portal has its OWN throttle scope, separate from authenticated
+        # traffic. Unauthenticated burst from the public internet needs a
+        # tighter ceiling than the trusted tenant API.
+        'transparency_public': os.getenv(
+            'TRANSPARENCY_PUBLIC_THROTTLE_RATE', '30/min',
+        ),
     },
     'DEFAULT_VERSION': 'v1',
     'VERSION_PARAM': 'version',
@@ -475,9 +508,9 @@ MFA_VERIFICATION_TTL_MINUTES = int(os.getenv('MFA_VERIFICATION_TTL_MINUTES', '30
 
 # P7-T1 — drf-spectacular configuration.
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Quot PSE API',
+    'TITLE': 'Quot PSA API',
     'DESCRIPTION': (
-        'Quot PSE — Public Sector ERP for the Office of the Accountant-General. '
+        'Quot PSA — Public Sector Accounting for the Office of the Accountant-General. '
         'Multi-tenant IPSAS-compliant GL, budget & appropriation, procurement, '
         'revenue, payroll, and statutory (FIRS / PENCOM) integrations. '
         'All endpoints are tenant-scoped via the X-Tenant-Schema header.'

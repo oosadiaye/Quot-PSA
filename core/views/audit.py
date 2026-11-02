@@ -1,5 +1,5 @@
 """
-Audit Trail Viewer API — Quot PSE
+Audit Trail Viewer API — Quot PSA
 
 Read-only API for searching and filtering the system-wide audit log.
 All changes across all modules are captured in core.AuditLog.

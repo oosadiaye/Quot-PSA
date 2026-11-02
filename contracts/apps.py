@@ -1,6 +1,6 @@
 """
 Contracts app — Contract & Milestone Payment Management Module
-Delta State Government of Nigeria / Quot PSE IFMIS
+Delta State Government of Nigeria / Quot PSA IFMIS
 
 Implements structural overpayment prevention across 10 control layers:
   1. Contract ceiling (original sum + approved variations)

@@ -23,6 +23,8 @@ from .serializers import (
 from accounting.transaction_posting import TransactionPostingService
 from accounting.models import BudgetEncumbrance   # BUG-3 FIX: was missing, caused NameError in PR approve
 from core.mixins import OrganizationFilterMixin
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger('dtsg')
 class ProcurementPagination(PageNumberPagination):
@@ -78,9 +80,10 @@ def recalc_quantity_received_for_po(po_id):
                 )
 
 class VendorCategoryViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = VendorCategory.objects.all().select_related('reconciliation_account')
     serializer_class = VendorCategorySerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     search_fields = ['name', 'code']
     filterset_fields = ['is_active']
     pagination_class = ProcurementPagination
@@ -95,9 +98,10 @@ class VendorCategoryViewSet(viewsets.ModelViewSet):
 
 
 class VendorViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = Vendor.objects.all().select_related('category', 'registration_fiscal_year')
     serializer_class = VendorSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     search_fields = ['name', 'code', 'registration_number', 'bank_name']
     filterset_fields = ['is_active', 'category']
     pagination_class = ProcurementPagination
@@ -132,8 +136,9 @@ class VendorViewSet(viewsets.ModelViewSet):
                 output_field=DecimalField(),
             )
         )
-        # Default list excludes expired & pending-activation vendors
-        if self.action == 'list':
+        # Default list excludes expired & pending-activation vendors. The supplier-portal page asks for the unpaid ones too
+        # (include_unpaid=1), so an officer can invite a supplier that has registered but not yet paid.
+        if self.action == 'list' and self.request.query_params.get('include_unpaid') != '1':
             qs = qs.filter(
                 is_active=True,
             ).filter(
@@ -168,6 +173,24 @@ class VendorViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
         serializer = self.get_serializer(qs[:100], many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def check_duplicate(self, request):
+        """Live duplicate-name check for the create/edit form.
+
+        Returns ``{"exists": bool, "match": {id, name, code}}`` for a candidate
+        supplier name, using the same normalisation as
+        ``VendorSerializer.validate_name`` so the warning shown while typing
+        matches the block enforced on save. Pass ``?exclude=<id>`` when editing
+        so a vendor never flags itself.
+        """
+        from procurement.serializers import normalize_vendor_name, find_duplicate_vendor
+        name = normalize_vendor_name(request.query_params.get('name', ''))
+        exclude = request.query_params.get('exclude') or None
+        match = find_duplicate_vendor(name, exclude_pk=exclude) if name else None
+        if match is None:
+            return Response({'exists': False})
+        return Response({'exists': True, 'match': {'id': match.id, 'name': match.name, 'code': match.code}})
 
     @action(detail=False, methods=['get'])
     def invoice_gate_status(self, request):
@@ -383,6 +406,10 @@ class VendorViewSet(viewsets.ModelViewSet):
                 {'error': f'Payment confirmation failed: {exc}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # With the tenant's say-so, a paid-up supplier is invited to the supplier portal; a failure here never undoes the payment.
+        from procurement.services.supplier_portal import on_registration_paid
+        on_registration_paid(vendor)
 
         return Response({
             'status': 'Payment confirmed. Vendor activated.',
@@ -667,6 +694,7 @@ class VendorViewSet(viewsets.ModelViewSet):
         return Response(data)
 
 class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "procurement"
     org_filter_field = 'mda'
     queryset = PurchaseRequest.objects.select_related(
         'fund', 'function', 'program', 'geo', 'mda',
@@ -674,7 +702,7 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         'lines', 'lines__account', 'lines__asset', 'lines__item',
     ).all()
     serializer_class = PurchaseRequestSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     filterset_fields = ['status']
     pagination_class = ProcurementPagination
 
@@ -1047,12 +1075,13 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "procurement"
     org_filter_field = 'mda'
     queryset = PurchaseOrder.objects.select_related(
         'vendor', 'purchase_request', 'fund', 'function', 'program', 'geo'
     ).prefetch_related('lines').all()
     serializer_class = PurchaseOrderSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     # Added 'mda' so the Invoice Verification screen can scope its PO
     # dropdown to the verifier's selected MDA — prevents cross-MDA
     # postings even at the dropdown level (defense in depth).
@@ -1252,7 +1281,10 @@ class PurchaseOrderViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                     "PO %s approved but down-payment advance PV not raised: %s",
                     po.po_number, exc,
                 )
-        return Response({"status": "Purchase Order approved.", "po_status": po.status})
+        body = {"status": "Purchase Order approved.", "po_status": po.status}
+        if getattr(po, 'auto_grn_error', None):
+            body["warning"] = f"The automatic GRN could not be booked ({po.auto_grn_error}). Receive the goods manually."
+        return Response(body)
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -1432,13 +1464,14 @@ def _down_payment_warrant_error(po, amount):
 
 
 class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "procurement"
     org_filter_field = 'purchase_order__mda'
     """Finance-facing view to list, review, and process down payment requests."""
     queryset = DownPaymentRequest.objects.select_related(
         'purchase_order', 'purchase_order__vendor', 'bank_account', 'payment'
     ).all()
     serializer_class = DownPaymentRequestSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     filterset_fields = ['status', 'payment_method', 'purchase_order']
     pagination_class = ProcurementPagination
 
@@ -1537,12 +1570,13 @@ class DownPaymentRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
 
 class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "procurement"
     org_filter_field = 'purchase_order__mda'
     queryset = GoodsReceivedNote.objects.select_related(
         'purchase_order', 'purchase_order__vendor', 'warehouse'
     ).prefetch_related('lines', 'lines__po_line').all()
     serializer_class = GoodsReceivedNoteSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     # 'mda' filter scopes GRNs to the verifier's selected MDA on the
     # Invoice Verification screen. Filters by GoodsReceivedNote.mda
     # which equals purchase_order.mda (enforced in clean()).
@@ -2074,9 +2108,10 @@ class GoodsReceivedNoteViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         return Response({"results": results})
 
 class InvoiceMatchingViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = InvoiceMatching.objects.all().select_related('purchase_order', 'purchase_order__vendor', 'goods_received_note')
     serializer_class = InvoiceMatchingSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     filterset_fields = ['status', 'purchase_order']
 
     @action(detail=True, methods=['post'], url_path='create-draft-voucher')
@@ -3506,9 +3541,10 @@ class InvoiceMatchingViewSet(viewsets.ModelViewSet):
         })
 
 class VendorCreditNoteViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = VendorCreditNote.objects.all().select_related('vendor', 'purchase_order', 'goods_received_note', 'journal_entry')
     serializer_class = VendorCreditNoteSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     search_fields = ['credit_note_number', 'vendor__name']
     filterset_fields = ['vendor', 'status']
     pagination_class = ProcurementPagination
@@ -3554,9 +3590,10 @@ class VendorCreditNoteViewSet(viewsets.ModelViewSet):
         credit_note.save()
         return Response({"status": "Credit note voided"})
 class VendorDebitNoteViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = VendorDebitNote.objects.all().select_related('vendor', 'purchase_order', 'journal_entry')
     serializer_class = VendorDebitNoteSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     search_fields = ['debit_note_number', 'vendor__name']
     filterset_fields = ['vendor', 'status']
     pagination_class = ProcurementPagination
@@ -3602,11 +3639,12 @@ class VendorDebitNoteViewSet(viewsets.ModelViewSet):
         debit_note.save()
         return Response({"status": "Debit note voided"})
 class PurchaseReturnViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     queryset = PurchaseReturn.objects.all().select_related(
         'vendor', 'purchase_order', 'goods_received_note', 'credit_note'
     ).prefetch_related('lines', 'lines__item', 'lines__po_line')
     serializer_class = PurchaseReturnSerializer
-    permission_classes = [RBACPermission]
+    permission_classes = [ModuleEnabled, RBACPermission]
     search_fields = ['return_number', 'vendor__name']
     filterset_fields = ['vendor', 'status', 'purchase_order']
     pagination_class = ProcurementPagination
@@ -3820,7 +3858,7 @@ class PurchaseReturnViewSet(viewsets.ModelViewSet):
         return Response({"status": "Purchase return cancelled.", "return_number": ret.return_number})
 
 
-# ─── BPP Due Process ViewSets (Quot PSE Phase 5) ────────────────────
+# ─── BPP Due Process ViewSets (Quot PSA Phase 5) ────────────────────
 
 from procurement.models import ProcurementThreshold, CertificateOfNoObjection, ProcurementBudgetLink
 from procurement.serializers import (
@@ -3831,9 +3869,10 @@ from rest_framework.views import APIView
 
 
 class ProcurementThresholdViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     """BPP procurement approval thresholds."""
     serializer_class = ProcurementThresholdSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['category', 'is_active']
     ordering = ['category', 'min_amount']
 
@@ -3842,9 +3881,10 @@ class ProcurementThresholdViewSet(viewsets.ModelViewSet):
 
 
 class CertificateOfNoObjectionViewSet(viewsets.ModelViewSet):
+    module_key = "procurement"
     """BPP No Objection Certificates."""
     serializer_class = CertificateOfNoObjectionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['is_valid', 'authority_level']
     search_fields = ['certificate_number']
 
@@ -3853,9 +3893,10 @@ class CertificateOfNoObjectionViewSet(viewsets.ModelViewSet):
 
 
 class ProcurementBudgetLinkViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "procurement"
     """Read-only view of PO-to-appropriation budget commitments."""
     serializer_class = ProcurementBudgetLinkSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['status']
 
     def get_queryset(self):

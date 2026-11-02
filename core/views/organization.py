@@ -1,5 +1,5 @@
 """
-Organization (MDA-as-Branch) API views — Quot PSE
+Organization (MDA-as-Branch) API views — Quot PSA
 
 Endpoints:
 - /core/organizations/           — CRUD for admin
@@ -9,11 +9,15 @@ Endpoints:
 """
 from rest_framework import serializers, status, generics
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db import connection
 from django.shortcuts import get_object_or_404
 
 from core.models import Organization, UserOrganization
+from core.permissions import IsTenantAdmin, IsTenantAdminOrReadOnly
+from core.services.organization_assignment import user_in_tenant
 
 
 # ── Serializers ────────────────────────────────────────────
@@ -60,6 +64,9 @@ class UserOrganizationSerializer(serializers.ModelSerializer):
             'organization_name', 'organization_code', 'org_role',
             'is_oversight', 'username',
         ]
+        # The MDA comes from the URL (<org_id>), never from the request body —
+        # a body value could contradict the URL the permission check ran on.
+        read_only_fields = ['organization']
 
 
 class MyOrganizationSerializer(serializers.Serializer):
@@ -78,18 +85,18 @@ class MyOrganizationSerializer(serializers.Serializer):
 # ── Views ──────────────────────────────────────────────────
 
 class OrganizationListCreate(generics.ListCreateAPIView):
-    """List all organizations or create a new one (admin only)."""
+    """List all organizations (any signed-in user) or create one (admin only)."""
     serializer_class = OrganizationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsTenantAdminOrReadOnly]
 
     def get_queryset(self):
         return Organization.objects.all()
 
 
 class OrganizationDetail(generics.RetrieveUpdateDestroyAPIView):
-    """Retrieve, update or delete an organization."""
+    """Retrieve an organization (any signed-in user); update or delete it (admin only)."""
     serializer_class = OrganizationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsTenantAdminOrReadOnly]
 
     def get_queryset(self):
         return Organization.objects.all()
@@ -239,9 +246,14 @@ def switch_organization(request):
 
 
 class OrganizationUsers(generics.ListCreateAPIView):
-    """List or add user assignments to an organization."""
+    """List or add user assignments to an organization.
+
+    Tenant admins only. Adding a user to an MDA decides what data they see —
+    an oversight MDA grants cross-MDA read — so this must not be open to every
+    signed-in user, and the user being added must belong to this tenant.
+    """
     serializer_class = UserOrganizationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsTenantAdmin]
 
     def get_queryset(self):
         org_id = self.kwargs['org_id']
@@ -252,4 +264,11 @@ class OrganizationUsers(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         org_id = self.kwargs['org_id']
         org = get_object_or_404(Organization, pk=org_id)
+        user = serializer.validated_data['user']
+
+        if not user_in_tenant(user.pk, getattr(connection, 'tenant', None)):
+            raise ValidationError({'user': 'That user does not belong to this workspace.'})
+        if UserOrganization.objects.filter(user=user, organization=org).exists():
+            raise ValidationError({'user': 'That user is already assigned to this MDA.'})
+
         serializer.save(organization=org)

@@ -1,5 +1,5 @@
 """
-Treasury Service — Quot PSE
+Treasury Service — Quot PSA
 ===========================
 Handles TSA balance management, cash sweeping, and bank reconciliation.
 

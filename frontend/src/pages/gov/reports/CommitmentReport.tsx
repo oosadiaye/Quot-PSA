@@ -1,5 +1,5 @@
 /**
- * Budget Commitment Report — Quot PSE
+ * Budget Commitment Report — Quot PSA
  * Route: /budget/commitment-report
  *
  * Shows Purchase Order commitments (encumbrances) against appropriations
@@ -293,7 +293,7 @@ export default function CommitmentReport() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — Commitment Register (IPSAS 24 Disclosure)
+                    Quot PSA IFMIS — Commitment Register (IPSAS 24 Disclosure)
                 </div>
             </main>
         </div>
