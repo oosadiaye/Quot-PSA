@@ -1,0 +1,171 @@
+/* A statement as a LibreOffice Calc table: Liberation Sans, a thin grid on every cell, a grey heading row, shaded sub-totals,
+   double-underlined totals. Colours are fixed (not themed) on purpose: a statement prints and exports the same everywhere. */
+.sheet-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #b2b2b2;
+  max-width: 1000px;
+}
+
+.sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Liberation Sans', Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  color: #000;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-caption {
+  caption-side: top;
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: 14px;
+  background: #fff;
+  color: #000;
+  border-bottom: 1px solid #b2b2b2;
+}
+
+.sheet th,
+.sheet td {
+  border: 1px solid #c0c0c0;
+  padding: 3px 8px;
+  vertical-align: middle;
+  line-height: 1.35;
+}
+
+.sheet thead th {
+  background: #dde4ee;
+  color: #000;
+  font-weight: 700;
+  text-align: center;
+  border-color: #9a9a9a;
+  padding: 5px 8px;
+}
+
+.sheet thead th.sheet-desc {
+  text-align: left;
+}
+
+.sheet-unit {
+  display: block;
+  font-weight: 400;
+  font-size: 10.5px;
+  color: #444;
+}
+
+.sheet .sheet-code {
+  width: 92px;
+  white-space: nowrap;
+  color: #333;
+}
+
+.sheet .sheet-desc {
+  text-align: left;
+}
+
+.sheet .sheet-num {
+  width: 150px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sheet .sheet-neg {
+  color: #c00000;
+}
+
+.sheet .sheet-section th {
+  background: #1f3864;
+  color: #fff;
+  text-align: left;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-color: #1f3864;
+  padding: 5px 8px;
+}
+
+.sheet .sheet-group th {
+  background: #eef1f6;
+  text-align: left;
+  font-weight: 700;
+  border-color: #c0c0c0;
+}
+
+.sheet .sheet-item:hover td {
+  background: #fffbe0;
+}
+
+.sheet .sheet-flagged td {
+  background: #fff7e0;
+}
+
+.sheet-flag {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #7a4a00;
+  background: #ffe9b0;
+  border: 1px solid #e0b050;
+  padding: 0 5px;
+}
+
+.sheet .sheet-subtotal td {
+  background: #f2f2f2;
+  font-weight: 700;
+  border-top: 1px solid #000;
+}
+
+.sheet .sheet-total td {
+  background: #e7ecf4;
+  font-weight: 700;
+  border-top: 1px solid #000;
+  border-bottom: 3px double #000;
+}
+
+.sheet .sheet-grand td {
+  background: #1f3864;
+  color: #fff;
+  font-weight: 700;
+  border-color: #1f3864;
+  border-bottom: 3px double #fff;
+}
+
+.sheet .sheet-grand .sheet-neg {
+  color: #ffb4b4;
+}
+
+.sheet .sheet-note td {
+  font-size: 11.5px;
+  color: #444;
+  background: #fafafa;
+  font-style: italic;
+}
+
+@media print {
+  .sheet-wrap {
+    border: 0;
+    max-width: none;
+    overflow: visible;
+  }
+
+  .sheet {
+    font-size: 10pt;
+  }
+
+  .sheet th,
+  .sheet td {
+    border-color: #000;
+  }
+
+  .sheet tr {
+    break-inside: avoid;
+  }
+
+  .sheet .sheet-section th,
+  .sheet .sheet-grand td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
