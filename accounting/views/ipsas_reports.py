@@ -67,15 +67,22 @@ class StatementOfFinancialPositionView(APIView):
         if err:
             return err
         comparative = _parse_bool(request, 'comparative', default=True)
+        compare_year, err = _parse_int_param(request, 'compare_year')
+        if err:
+            return err
+        if compare_year is not None and not 1990 <= compare_year <= 2200:
+            return Response({'error': f'compare_year must be a real fiscal year, got: {compare_year}'}, status=400)
         data = get_or_compute(
             report='sofp',
             params={
                 'fiscal_year': fiscal_year, 'period': period,
-                'comparative': comparative,
+                'comparative': comparative, 'compare_year': compare_year,
+                # Both years feed the answer, so a posting in either must retire a cached copy.
                 'gen': report_generation(fiscal_year),
+                'gen_cmp': report_generation(compare_year if compare_year is not None else fiscal_year - 1),
             },
             compute=lambda: IPSASReportService.statement_of_financial_position(
-                fiscal_year, period, comparative=comparative,
+                fiscal_year, period, comparative=comparative, compare_year=compare_year,
             ),
         )
         return serve_report(

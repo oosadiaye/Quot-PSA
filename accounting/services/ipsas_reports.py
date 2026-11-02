@@ -70,7 +70,7 @@ class IPSASReportService:
 
     @classmethod
     def statement_of_financial_position(
-        cls, fiscal_year: int, period: int = None, comparative: bool = True,
+        cls, fiscal_year: int, period: int = None, comparative: bool = True, compare_year: int | None = None,
     ) -> dict:
         """
         IPSAS 1 — Statement of Financial Position.
@@ -81,9 +81,13 @@ class IPSASReportService:
         Prior-year comparative (when ``comparative=True`` — the default):
         cumulative balances at the SAME period number of ``fiscal_year - 1``
         so users can compare like-for-like positions (IPSAS 1 ¶53).
+
+        ``compare_year`` sets the position against any other fiscal year instead (an earlier one, a later one, the same
+        period of a year several back), and ``comparative_year`` in the result says which year the block is.
         """
         current = cls._sofp_for_period(fiscal_year, period)
-        prior = cls._sofp_for_period(fiscal_year - 1, period) if comparative else None
+        against = (compare_year if compare_year is not None else fiscal_year - 1) if comparative else None
+        prior = cls._sofp_for_period(against, period) if against is not None else None
 
         total_assets = current['assets']['total']
         total_liab_plus_net = (
@@ -98,6 +102,7 @@ class IPSASReportService:
             'currency': 'NGN',
             **current,
             'comparative': prior,
+            'comparative_year': against,
             'balance_check': {
                 'assets': total_assets,
                 'liabilities_plus_net_assets': total_liab_plus_net,
