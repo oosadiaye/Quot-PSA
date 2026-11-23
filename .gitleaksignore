@@ -1,0 +1,5 @@
+# One accepted finding. A throwaway test-user password literal in the MDA-assignment test, introduced in
+# c4a30ca and replaced by per-run generated passwords in 048a774. It is not a credential for any real system.
+# Fingerprint = commit:file:rule:line, so it matches this commit, file, rule and line only; a new finding
+# anywhere else still fails the scan.
+c4a30ca4a1937e0a9379aa246b8470f02075a8bc:core/tests/test_user_mda_assignment.py:generic-api-key:19
