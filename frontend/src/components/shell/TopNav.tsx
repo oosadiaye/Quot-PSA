@@ -4,6 +4,8 @@ import { ChevronDown, Grid3x3, LogOut, User } from 'lucide-react';
 import { Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useIsMobile } from '../../design';
 import { useVisibleModules } from '../../hooks/useVisibleModules';
 import { activeModule, currentSub, fitCount } from '../../config/modules';
 import ThemeSwitcher from '../ThemeSwitcher';
@@ -35,6 +37,8 @@ export default function TopNav() {
   const { pathname, search } = useLocation();
   const { mdaIsolationMode, logout } = useAuth();
   const modules = useVisibleModules();
+  const isMobile = useIsMobile();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const tenantName = readTenant()?.name || 'No Organization';
 
   // Read on every render: it changes as the user moves between modules, and the read is cheap.
@@ -92,8 +96,18 @@ export default function TopNav() {
   }, [moreOpen]);
 
   const [confirmOut, setConfirmOut] = useState(false);
+  // The three-segment theme switcher does not fit a phone's bar, so there it lives in the account menu.
+  const themeItems: MenuProps['items'] = isMobile ? [
+    { type: 'divider' },
+    ...(['light', 'dark', 'auto'] as const).map((m) => ({
+      key: `theme-${m}`,
+      label: `${m === 'auto' ? 'Time of day' : `${m[0].toUpperCase()}${m.slice(1)}`} theme${themeMode === m ? ' ✓' : ''}`,
+      onClick: () => setThemeMode(m),
+    })),
+  ] : [];
   const userItems: MenuProps['items'] = [
     { key: 'account', label: 'My Account', icon: <User size={14} />, onClick: () => navigate('/account') },
+    ...themeItems,
     { type: 'divider' },
     { key: 'logout', label: 'Sign Out', icon: <LogOut size={14} />, danger: true, onClick: () => setConfirmOut(true) },
   ];
@@ -138,7 +152,7 @@ export default function TopNav() {
         <div className="topnav-systray">
           {mdaIsolationMode === 'SEPARATED' && <OrganizationSwitcher />}
           <span className="topnav-tenant" title={tenantName}>{tenantName}</span>
-          <ThemeSwitcher iconOnly />
+          {!isMobile && <ThemeSwitcher iconOnly />}
           <AppearanceMenu />
           <NotificationBell />
           <Dropdown menu={{ items: userItems }} trigger={['click']} placement="bottomRight" arrow>

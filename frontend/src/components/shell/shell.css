@@ -57,7 +57,11 @@
   background: #fff; color: var(--color-primary); border: none; cursor: pointer; font-weight: var(--font-bold); font-size: 12px;
 }
 @media (max-width: 767px) {
+  .topnav { gap: 8px; padding: 0 12px; }
+  .topnav-systray { gap: 6px; }
   .topnav-tenant { display: none; }
+  .topnav-module { max-width: 120px; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+  .topnav-apps, .topnav-icon-btn { width: 34px; }
 }
 
 /* Every page rendered a 260px sidebar and left room for it; the menu bar is on top now. */
