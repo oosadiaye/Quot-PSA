@@ -24,6 +24,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const AccountProfile = lazy(() => import('./pages/AccountProfile'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AppLauncher = lazy(() => import('./pages/AppLauncher'));
 const GovernmentDashboard = lazy(() => import('./pages/GovernmentDashboard'));
 const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
@@ -420,6 +421,9 @@ function App() {
                       } />
 
                       {/* ── Government IFMIS Dashboard ────────────────── */}
+                      <Route path="/apps" element={
+                        <ProtectedRoute><AppLauncher /></ProtectedRoute>
+                      } />
                       <Route path="/dashboard" element={
                         <ProtectedRoute><GovernmentDashboard /></ProtectedRoute>
                       } />

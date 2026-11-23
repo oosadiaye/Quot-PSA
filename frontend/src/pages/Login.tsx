@@ -188,7 +188,7 @@ const Login: React.FC = () => {
             );
 
             // A supplier account can reach only the supplier portal, so that is where it lands.
-            const targetPath = setup_required ? '/setup' : (role || tenant.role) === 'vendor' ? '/supplier-portal' : '/dashboard';
+            const targetPath = setup_required ? '/setup' : (role || tenant.role) === 'vendor' ? '/supplier-portal' : '/apps';
             if (redirect_url) {
                 try {
                     const target = new URL(redirect_url);

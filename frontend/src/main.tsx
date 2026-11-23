@@ -10,6 +10,8 @@ import './styles/modals.css'
 import { initTableTools } from './utils/tableTools'
 import App from './App.tsx'
 import { consumeTenantBootstrap } from './utils/tenantBootstrap'
+import { applyStoredBackground } from './config/appearance'
+import './styles/appearance.css'
 
 // Cross-host tenant handoff: when the apex login redirects a user to
 // their tenant subdomain, it stuffs the auth token into the URL
@@ -18,6 +20,9 @@ import { consumeTenantBootstrap } from './utils/tenantBootstrap'
 // token in storage. ``replaceState`` strips the fragment so it
 // doesn't leak into history. Safe no-op when there's no fragment.
 consumeTenantBootstrap()
+
+// The user's own background colour, before the first paint so there is no flash of the default.
+applyStoredBackground()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

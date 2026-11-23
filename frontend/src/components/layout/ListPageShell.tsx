@@ -19,7 +19,7 @@
  */
 import type { ReactNode } from 'react';
 import Sidebar from '../Sidebar';
-import { useBreakpoint, spaceFor, useIsMobile } from '../../design';
+import { useBreakpoint, spaceFor } from '../../design';
 
 interface ListPageShellProps {
     children: ReactNode;
@@ -34,7 +34,6 @@ interface ListPageShellProps {
 const ListPageShell = ({ children, maxWidth, title, subtitle }: ListPageShellProps) => {
     const bp = useBreakpoint();
     const space = spaceFor(bp);
-    const isMobile = useIsMobile();
 
     return (
         <div
@@ -47,8 +46,8 @@ const ListPageShell = ({ children, maxWidth, title, subtitle }: ListPageShellPro
             <Sidebar />
             <main
                 style={{
-                    marginLeft: isMobile ? 0 : 260,
-                    paddingTop: isMobile ? 56 + space.page : space.page,
+                    marginLeft: 0,
+                    paddingTop: 52 + space.page,   // the menu bar (--topnav-height) is fixed above the page
                     paddingLeft: space.page,
                     paddingRight: space.page,
                     paddingBottom: space.page + 24,

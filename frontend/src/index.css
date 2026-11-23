@@ -48,6 +48,38 @@
   --space-2xl: 48px;
   --transition: all 200ms ease;
 
+  /* Radius scale and weights (the shell: menu bar, launcher, dialogs) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --transition-fast: 150ms ease;
+
+  /* Shell: height of the horizontal menu bar */
+  --topnav-height: 52px;
+
+  /* Module accents: the tile colour of each module on the launcher (config/modules.ts names them) */
+  --module-blue: #2457d6;
+  --module-green: #15803d;
+  --module-orange: #c2570c;
+  --module-sky: #0369a1;
+  --module-teal: #0f766e;
+  --module-brown: #b45309;
+  --module-crimson: #be123c;
+  --module-cyan: #0e7490;
+  --module-purple: #9333ea;
+  --module-royal: #2563eb;
+  --module-slate: #475569;
+  --module-indigo: #4f46e5;
+  --module-charcoal: #374151;
+  --module-emerald: #16a34a;
+  --module-violet: #4338ca;
+  --module-plum: #7e22ce;
+  --module-aqua: #0d9488;
+
   /* Typography */
   --text-xs: 0.8rem;
   --text-sm: 0.9rem;
