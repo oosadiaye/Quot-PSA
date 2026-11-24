@@ -255,7 +255,10 @@ jobs:
   # ═════════════════════════════════════════════════════════════════════
   e2e:
     name: E2E (Playwright)
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: that now resolves to 26.04, where
+    # `playwright install --with-deps` cannot install its system packages and the job
+    # dies before running a single test. Move this forward once Playwright supports it.
+    runs-on: ubuntu-24.04
     needs: [backend, frontend]
     services:
       postgres:
