@@ -15,6 +15,7 @@ import { useCurrency } from '../../context/CurrencyContext';
 import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import LoadingScreen from '../../components/common/LoadingScreen';
+import PrintDocButton from './print/PrintDocButton';
 import '../accounting/styles/glassmorphism.css';
 
 const statusConfig: Record<string, { bg: string; color: string; border: string }> = {
@@ -99,10 +100,13 @@ export default function PurchaseRequisitionView() {
                 icon={<FileText size={22} />}
                 onBack={() => navigate('/procurement/requisitions')}
                 actions={
-                    <span style={{
-                        padding: '0.35rem 1rem', borderRadius: '20px', fontSize: 'var(--text-sm)', fontWeight: 700,
-                        background: sc.bg, color: sc.color, border: `1.5px solid ${sc.border}`,
-                    }}>{pr.status}</span>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <PrintDocButton to={`/procurement/requisitions/${pr.id}/print`} />
+                        <span style={{
+                            padding: '0.35rem 1rem', borderRadius: '20px', fontSize: 'var(--text-sm)', fontWeight: 700,
+                            background: sc.bg, color: sc.color, border: `1.5px solid ${sc.border}`,
+                        }}>{pr.status}</span>
+                    </div>
                 }
             />
 

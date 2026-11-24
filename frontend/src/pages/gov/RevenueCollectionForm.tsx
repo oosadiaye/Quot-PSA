@@ -1,5 +1,5 @@
 /**
- * Revenue Collection (IGR) — Journal-Style Entry — Quot PSE
+ * Revenue Collection (IGR) — Journal-Style Entry — Quot PSA
  * Route: /accounting/revenue-collections/new
  *
  * Lean Journal-style layout:

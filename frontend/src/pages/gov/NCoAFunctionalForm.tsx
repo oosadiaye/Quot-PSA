@@ -1,5 +1,5 @@
 /**
- * NCoA Functional Segment (COFOG) Create/Edit Form — Quot PSE
+ * NCoA Functional Segment (COFOG) Create/Edit Form — Quot PSA
  * Route: /accounting/ncoa/functional/new      (create)
  * Route: /accounting/ncoa/functional/:id/edit  (edit)
  */

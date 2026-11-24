@@ -242,6 +242,53 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         return super().__call__(request)
 
 
+#: A supplier (role ``vendor``) may use the supplier-portal API, read their own profile, and sign out (a public path).
+#: Everything else is refused here, before any view runs, because many staff endpoints are guarded only by "signed in",
+#: and a supplier must never reach budget, payroll or ledger data through one of them. Fail closed: new endpoints are
+#: unreachable to suppliers unless added to this list on purpose.
+VENDOR_ROLE = 'vendor'
+VENDOR_ALLOWED_PREFIXES = ('/api/v1/supplier-portal/',)
+VENDOR_ALLOWED_EXACT = ('/api/v1/core/users/me/',)
+
+
+def _request_user(request):
+    """Who is calling: the session user, else the user their API token belongs to, else None.
+
+    ``AuthenticationMiddleware`` only knows sessions, but the API authenticates with a token inside DRF, which runs after
+    this middleware. Without resolving the token here, every tenant check below was skipped for API calls: a signed-in
+    user with no role on a tenant could read any endpoint guarded only by "signed in". A bad or expired token resolves to
+    None and is left for the view to answer with 401.
+    """
+    user = getattr(request, 'user', None)
+    if user is not None and user.is_authenticated:
+        return user
+    from rest_framework.exceptions import AuthenticationFailed
+    from .authentication import ExpiringTokenAuthentication
+    try:
+        result = ExpiringTokenAuthentication().authenticate(request)
+    except AuthenticationFailed:
+        return None
+    return result[0] if result else None
+
+
+def _vendor_may_use(path):
+    return path in VENDOR_ALLOWED_EXACT or any(path.startswith(p) for p in VENDOR_ALLOWED_PREFIXES)
+
+
+def _tenant_role_name(user, tenant, cache):
+    """The user's active role name on the tenant, or '' when none; cached briefly like the access check."""
+    from tenants.models import UserTenantRole
+
+    key = f'role:{user.pk}:{tenant.schema_name}'
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    with schema_context('public'):
+        role = UserTenantRole.objects.filter(user=user, tenant=tenant, is_active=True).values_list('role', flat=True).first() or ''
+    cache.set(key, role, timeout=600)
+    return role
+
+
 class TenantAccessMiddleware:
     """Validates that the authenticated user has access to the current tenant.
 
@@ -261,7 +308,7 @@ class TenantAccessMiddleware:
         if _is_public_path(path) or _is_snapshot_path(path) or _is_gateway_webhook_path(path):
             return self.get_response(request)
 
-        user = getattr(request, 'user', None)
+        user = _request_user(request)
         tenant = getattr(request, 'tenant', None)
 
         # The public (platform) schema is not a tenant anyone is a
@@ -307,6 +354,16 @@ class TenantAccessMiddleware:
                     )
                     return JsonResponse(
                         {'error': 'You do not have access to this tenant'},
+                        status=403,
+                    )
+
+                if _tenant_role_name(user, tenant, cache) == VENDOR_ROLE and not _vendor_may_use(path):
+                    logger.warning(
+                        'Supplier account confined to the portal user_id=%s tenant=%s path=%s',
+                        user.pk, tenant.schema_name, path,
+                    )
+                    return JsonResponse(
+                        {'error': 'Supplier accounts can only use the supplier portal.'},
                         status=403,
                     )
 

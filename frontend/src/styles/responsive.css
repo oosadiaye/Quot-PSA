@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────
- * Responsive utility layer — Quot PSE
+ * Responsive utility layer — Quot PSA
  * Mobile-first. Every rule here is additive; existing inline
  * styles continue to win on desktop.
  * ───────────────────────────────────────────────────────────── */
@@ -285,7 +285,7 @@ html, body {
 }
 
 /* ───────────────────────────────────────────────────────────
- * Legacy sidebar offset override — Quot PSE
+ * Legacy sidebar offset override — Quot PSA
  *
  * Many pages hardcode `style={{ marginLeft: '260px' }}` on the
  * outer content wrapper (<main> or <div>). On mobile, the
@@ -296,6 +296,17 @@ html, body {
  * New code should use <ListPageShell> instead and let this
  * override act as a safety net.
  * ─────────────────────────────────────────────────────────── */
+/* The sidebar is now the horizontal menu bar (components/shell/TopNav), so the 260px is
+ * never needed at any width. Clear the fixed bar (--topnav-height, 52px) instead. */
+main[style*="marginLeft: 260px"],
+main[style*="margin-left: 260px"],
+main[style*="marginLeft:260px"],
+div[style*="marginLeft: 260px"],
+div[style*="margin-left: 260px"],
+div[style*="marginLeft:260px"] {
+    margin-left: 0 !important;
+    padding-top: calc(var(--topnav-height) + 24px) !important;
+}
 @media (max-width: 767px) {
     main[style*="marginLeft: 260px"],
     main[style*="margin-left: 260px"],
@@ -303,8 +314,6 @@ html, body {
     div[style*="marginLeft: 260px"],
     div[style*="margin-left: 260px"],
     div[style*="marginLeft:260px"] {
-        margin-left: 0 !important;
-        padding-top: 68px !important;
         padding-left: 16px !important;
         padding-right: 16px !important;
     }

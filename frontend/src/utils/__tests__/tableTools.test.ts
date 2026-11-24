@@ -263,6 +263,20 @@ describe('tableTools', () => {
       expect(columnValues(t, 'Date'))
         .toEqual(['03/01/2026', '15/06/2026', '01/12/2026']);
     });
+
+    it('orders an aging column of signed day-counts numerically, blanks last', async () => {
+      // The AP register's Aging column shows days overdue as a signed int
+      // (positive = overdue, negative = days until due) so it sorts by
+      // urgency, not as text. Values chosen so a text sort would misplace
+      // "9" (after "10"/"100"); a settled row shows "—" and sinks.
+      const t = makeTable(
+        ['Doc', 'Aging'],
+        [['A', '9'], ['B', '10'], ['C', '100'], ['D', '-5'], ['E', '-12'], ['F', '—']],
+      );
+      await settle();
+      sortBy(t, 'Aging');
+      expect(columnValues(t, 'Aging')).toEqual(['-12', '-5', '9', '10', '100', '—']);
+    });
   });
 
   describe('row numbers', () => {

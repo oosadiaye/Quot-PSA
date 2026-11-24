@@ -1,5 +1,5 @@
 /**
- * Virements — Quot PSE
+ * Virements — Quot PSA
  * Route: /budget/virements
  *
  * The register of budget transfers done: every virement between two

@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Date:** 2026-06-11
-**Author:** Quot PSE platform team
+**Author:** Quot PSA platform team
 **Branch (at authoring):** `fix/comprehensive-review-remediation`
 **Supersedes:** —
 

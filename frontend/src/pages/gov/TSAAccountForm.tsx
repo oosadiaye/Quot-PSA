@@ -1,5 +1,5 @@
 /**
- * Bank Account Create Form — Quot PSE
+ * Bank Account Create Form — Quot PSA
  * Route: /accounting/tsa-accounts/new
  *
  * Creates a bank account entry with:

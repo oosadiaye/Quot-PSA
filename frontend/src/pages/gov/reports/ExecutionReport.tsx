@@ -1,5 +1,5 @@
 /**
- * Budget Execution Report — Quot PSE
+ * Budget Execution Report — Quot PSA
  * Route: /budget/execution-report
  *
  * Shows active appropriations with the full budget lifecycle:
@@ -339,7 +339,7 @@ export default function ExecutionReport() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: '11px',
                 }}>
-                    Quot PSE IFMIS — Budget Execution (IPSAS 24 Disclosure)
+                    Quot PSA IFMIS — Budget Execution (IPSAS 24 Disclosure)
                 </div>
             </main>
         </div>

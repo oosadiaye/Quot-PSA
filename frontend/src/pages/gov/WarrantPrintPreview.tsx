@@ -1,5 +1,5 @@
 /**
- * Warrant Print Preview — Quot PSE
+ * Warrant Print Preview — Quot PSA
  * Route: /budget/warrants/:id/print
  *
  * Composes the warrant data + the tenant's WarrantPrintoutSettings
@@ -92,7 +92,7 @@ export default function WarrantPrintPreview() {
                     : warrant.quarter ? `Q${warrant.quarter}` : `Warrant-${warrant.id}`);
             document.title = `Warrant ${ref} — Print Preview`;
         }
-        return () => { document.title = 'Quot PSE'; };
+        return () => { document.title = 'Quot PSA'; };
     }, [warrant]);
 
     const handlePrint = () => window.print();

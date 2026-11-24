@@ -29,6 +29,8 @@ from accounting.models import (
     PensionScheme, ActuarialValuation, PensionContribution,
     SocialBenefitScheme, SocialBenefitClaim,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # =============================================================================
@@ -63,9 +65,10 @@ class PensionSchemeSerializer(serializers.ModelSerializer):
 
 
 class PensionSchemeViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = PensionScheme.objects.all()
     serializer_class = PensionSchemeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['scheme_type', 'status']
     ordering = ['code']
 
@@ -172,9 +175,10 @@ class ActuarialValuationSerializer(serializers.ModelSerializer):
 
 
 class ActuarialValuationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = ActuarialValuation.objects.all().select_related('scheme')
     serializer_class = ActuarialValuationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['scheme', 'valuation_method', 'valuation_date']
     ordering = ['-valuation_date']
 
@@ -198,9 +202,10 @@ class PensionContributionSerializer(serializers.ModelSerializer):
 
 
 class PensionContributionViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = PensionContribution.objects.all().select_related('scheme')
     serializer_class = PensionContributionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['scheme', 'period_year', 'period_month']
     ordering = ['-period_year', '-period_month']
 
@@ -237,9 +242,10 @@ class SocialBenefitSchemeSerializer(serializers.ModelSerializer):
 
 
 class SocialBenefitSchemeViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = SocialBenefitScheme.objects.all()
     serializer_class = SocialBenefitSchemeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['category', 'status']
     ordering = ['code']
 
@@ -283,9 +289,10 @@ class SocialBenefitClaimSerializer(serializers.ModelSerializer):
 
 
 class SocialBenefitClaimViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     queryset = SocialBenefitClaim.objects.all().select_related('scheme', 'approved_by')
     serializer_class = SocialBenefitClaimSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = [
         'scheme', 'status', 'period_year', 'period_month',
         'beneficiary_identifier',

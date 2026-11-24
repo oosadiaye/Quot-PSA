@@ -10,6 +10,10 @@ from .views import (
     ProcurementBudgetLinkViewSet, ThresholdCheckView, SplitPurchaseScanView,
 )
 
+from .views_portal_admin import BankChangeRequestViewSet, PortalSettingsViewSet, vendor_portal_actions
+
+vendor_portal_actions(VendorViewSet)      # invite / activate / suspend a supplier on the portal
+
 router = DefaultRouter()
 router.register(r'vendor-categories', VendorCategoryViewSet)
 router.register(r'vendors', VendorViewSet)
@@ -21,8 +25,10 @@ router.register(r'credit-notes', VendorCreditNoteViewSet)
 router.register(r'debit-notes', VendorDebitNoteViewSet)
 router.register(r'purchase-returns', PurchaseReturnViewSet)
 router.register(r'down-payment-requests', DownPaymentRequestViewSet, basename='down-payment-request')
+router.register(r'portal-settings', PortalSettingsViewSet, basename='supplier-portal-settings')
+router.register(r'bank-change-requests', BankChangeRequestViewSet, basename='bank-change-request')
 
-# BPP Due Process (Quot PSE Phase 5)
+# BPP Due Process (Quot PSA Phase 5)
 router.register(r'thresholds', ProcurementThresholdViewSet, basename='procurement-threshold')
 router.register(r'no-objection', CertificateOfNoObjectionViewSet, basename='no-objection')
 router.register(r'budget-links', ProcurementBudgetLinkViewSet, basename='budget-link')

@@ -1,5 +1,5 @@
 """
-Real-time Transaction Posting Service — Facade Module (Quot PSE)
+Real-time Transaction Posting Service — Facade Module (Quot PSA)
 
 This module is a backward-compatible facade. All implementation has been
 moved into domain-specific services under accounting/services/:

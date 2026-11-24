@@ -1,5 +1,5 @@
 /**
- * useBreakpoint — the one hook every responsive Quot PSE component uses.
+ * useBreakpoint — the one hook every responsive Quot PSA component uses.
  *
  * Why a hook instead of CSS media queries? Because most of our components
  * are inline-styled (`style={{...}}`) and media queries don't work in JS

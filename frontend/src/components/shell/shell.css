@@ -1,0 +1,148 @@
+/* Horizontal menu bar, module launcher, and the dialog they share. Values come from design-tokens.css. */
+
+/* ── Menu bar ─────────────────────────────────────────────── */
+.topnav {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--topnav-height);
+  display: flex; align-items: center; gap: var(--space-3, 12px);
+  padding: 0 var(--space-md);
+  background: var(--color-primary);
+  color: #fff;
+  z-index: 30;
+  box-shadow: var(--shadow-md);
+}
+.topnav-apps, .topnav-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: var(--radius-md);
+  background: transparent; border: none; color: inherit; cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.topnav-apps:hover, .topnav-icon-btn:hover { background: rgb(255 255 255 / 0.14); }
+.topnav :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.topnav-module {
+  font-weight: var(--font-bold); font-size: 15px; white-space: nowrap;
+  padding-right: var(--space-3, 12px); border-right: 1px solid rgb(255 255 255 / 0.25);
+}
+.topnav-menus {
+  position: relative; flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
+}
+.topnav-menus.is-measure {
+  position: absolute; visibility: hidden; pointer-events: none; height: 0; overflow: hidden; left: 0; right: 0;
+}
+.topnav-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: var(--radius-md);
+  color: rgb(255 255 255 / 0.88); text-decoration: none; white-space: nowrap;
+  font-size: 13.5px; font-weight: 500; background: transparent; border: none; cursor: pointer; font-family: inherit;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.topnav-link:hover { background: rgb(255 255 255 / 0.14); color: #fff; }
+.topnav-link.is-active { background: rgb(255 255 255 / 0.22); color: #fff; font-weight: var(--font-bold); }
+.topnav-more { position: relative; flex-shrink: 0; }
+.topnav-more-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 240px; max-height: 70vh; overflow-y: auto;
+  background: var(--color-surface, #fff); color: var(--color-text, #0f172a);
+  border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);
+  padding: var(--space-sm); z-index: 40;
+}
+.topnav-more-panel .topnav-link { display: flex; color: var(--color-text, #0f172a); width: 100%; }
+.topnav-more-panel .topnav-link:hover { background: var(--color-surface-hover, #f1f5f9); }
+.topnav-more-panel .topnav-link.is-active { background: var(--color-primary); color: #fff; }
+.topnav-systray { display: flex; align-items: center; gap: var(--space-3, 12px); flex-shrink: 0; }
+.topnav-tenant { font-size: 12.5px; color: rgb(255 255 255 / 0.85); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topnav-avatar {
+  width: 32px; height: 32px; border-radius: var(--radius-full);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff; color: var(--color-primary); border: none; cursor: pointer; font-weight: var(--font-bold); font-size: 12px;
+}
+@media (max-width: 767px) {
+  .topnav { gap: 8px; padding: 0 12px; }
+  .topnav-systray { gap: 6px; }
+  .topnav-tenant { display: none; }
+  .topnav-module { max-width: 120px; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+  .topnav-apps, .topnav-icon-btn { width: 34px; }
+}
+
+/* Every page rendered a 260px sidebar and left room for it; the menu bar is on top now. */
+.page-with-topnav { padding-top: var(--topnav-height); }
+
+/* ── Launcher ─────────────────────────────────────────────── */
+.launcher {
+  min-height: 100vh; color: #fff;
+  background: radial-gradient(1200px 600px at 20% -10%, var(--color-primary-light), var(--color-primary-dark));
+}
+.launcher-bar {
+  display: flex; align-items: center; gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+}
+.launcher-tenant { font-weight: var(--font-semibold); }
+.launcher input.launcher-search {
+  margin-left: auto; width: min(320px, 100%); height: auto; box-shadow: none;
+  padding: 8px 12px; border-radius: var(--radius-md);
+  border: 1px solid rgb(255 255 255 / 0.28); background: rgb(255 255 255 / 0.1); color: #fff; font: inherit;
+}
+.launcher input.launcher-search::placeholder { color: rgb(255 255 255 / 0.75); opacity: 1; }
+.launcher input.launcher-search:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.launcher-head { padding: var(--space-lg) var(--space-xl) var(--space-sm); }
+.launcher-head h1 { margin: 0; font-size: 28px; font-weight: var(--font-bold); color: inherit; }
+.launcher .launcher-tile:hover, .launcher .launcher-tile:focus-visible { color: inherit; text-decoration: none; }
+.launcher-grid {
+  display: grid; gap: var(--space-md);
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  padding: var(--space-md) var(--space-xl) var(--space-2xl);
+}
+.launcher-tile {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-sm);
+  padding: var(--space-md) var(--space-sm); border-radius: var(--radius-lg);
+  background: transparent; border: none; color: #fff; text-decoration: none; cursor: pointer; text-align: center; font-family: inherit;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.launcher-tile:hover { background: rgb(255 255 255 / 0.1); transform: translateY(-2px); }
+.launcher-tile:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.launcher-icon {
+  width: 64px; height: 64px; border-radius: var(--radius-xl);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg);
+}
+.launcher-name { font-weight: var(--font-semibold); font-size: 14px; line-height: 1.25; }
+.launcher-count { font-size: 12px; color: rgb(255 255 255 / 0.7); }
+/* Phones: three tiles to a row, like a home screen. */
+@media (max-width: 767px) {
+  .launcher-bar { flex-wrap: wrap; padding: var(--space-md); gap: var(--space-sm); }
+  .launcher-tenant { flex: 1 1 100%; order: -1; }
+  .launcher input.launcher-search { flex: 1 1 0; min-width: 0; margin-left: 0; }
+  .launcher-head { padding: var(--space-md) var(--space-md) 0; }
+  .launcher-head h1 { font-size: 22px; }
+  .launcher-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); padding: var(--space-md) var(--space-sm) var(--space-2xl); }
+  .launcher-tile { padding: var(--space-md) 4px; }
+  .launcher-icon { width: 56px; height: 56px; border-radius: var(--radius-lg); }
+  .launcher-name { font-size: 12.5px; overflow-wrap: anywhere; }
+  .launcher-count { font-size: 11px; }
+}
+.launcher-empty { padding: var(--space-xl); color: rgb(255 255 255 / 0.8); }
+.launcher-link { white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: transparent; border: 1px solid rgb(255 255 255 / 0.3); border-radius: var(--radius-md); padding: 6px 12px; cursor: pointer; font: inherit; }
+.launcher-link:hover { background: rgb(255 255 255 / 0.12); }
+
+/* ── Sign-out dialog ──────────────────────────────────────── */
+.shell-modal-scrim {
+  position: fixed; inset: 0; z-index: 9999; background: rgb(15 23 42 / 0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+}
+.shell-modal {
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl); padding: var(--space-xl); width: min(380px, 90%); text-align: center; box-shadow: var(--shadow-xl);
+}
+.shell-modal h3 { margin: 0 0 var(--space-sm); font-size: 20px; font-weight: var(--font-bold); }
+.shell-modal p { margin: 0 0 var(--space-lg); font-size: 14px; color: var(--color-text-muted); line-height: 1.6; }
+.shell-modal-icon {
+  width: 60px; height: 60px; border-radius: var(--radius-full); margin: 0 auto var(--space-5, 20px);
+  display: flex; align-items: center; justify-content: center; background: #fef2f2; color: #ef4444;
+}
+.shell-modal-actions { display: flex; gap: var(--space-3, 12px); }
+.shell-btn {
+  flex: 1; padding: 12px; border-radius: var(--radius-md); font: inherit; font-weight: var(--font-semibold); cursor: pointer;
+  background: var(--color-surface-hover); border: 1.5px solid var(--color-border); color: var(--color-text-secondary);
+}
+.shell-btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.shell-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }

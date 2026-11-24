@@ -27,6 +27,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from accounting.models import Provision, ContingentLiability, ContingentAsset
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # =============================================================================
@@ -122,10 +124,11 @@ class ContingentAssetSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 class ProvisionViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """Manage IPSAS 19 Provisions + their lifecycle."""
     queryset = Provision.objects.all().select_related('mda', 'journal_entry')
     serializer_class = ProvisionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['status', 'category', 'likelihood', 'mda']
     ordering_fields = ['recognition_date', 'amount', 'reference']
     ordering = ['-recognition_date']
@@ -219,20 +222,22 @@ class ProvisionViewSet(viewsets.ModelViewSet):
 
 
 class ContingentLiabilityViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """Manage IPSAS 19 Contingent Liabilities register."""
     queryset = ContingentLiability.objects.all().select_related('mda')
     serializer_class = ContingentLiabilitySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['likelihood', 'is_disclosed', 'mda']
     ordering_fields = ['arising_date', 'estimated_amount']
     ordering = ['-arising_date']
 
 
 class ContingentAssetViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """Manage IPSAS 19 Contingent Assets register."""
     queryset = ContingentAsset.objects.all().select_related('mda')
     serializer_class = ContingentAssetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['likelihood', 'mda']
     ordering_fields = ['arising_date', 'estimated_amount']
     ordering = ['-arising_date']

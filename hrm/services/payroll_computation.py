@@ -1,5 +1,5 @@
 """
-HRM Payroll Services — Quot PSE
+HRM Payroll Services — Quot PSA
 PAYE computation per Nigeria Finance Act + Pension CPS calculation.
 """
 from decimal import Decimal, ROUND_HALF_UP

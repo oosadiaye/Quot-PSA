@@ -16,6 +16,7 @@ from .views.organization import (
     sync_from_ncoa,
 )
 from .views.audit import AuditLogListView
+from .views.chat import chat_summary, chat_contacts, chat_messages, chat_attachment
 from .views.ai import ai_status, ai_calls, ai_disable_all, ai_enable
 from .views.gateway import gateway_status, gateway_enable, gateway_disable_all
 from .views.notifications import NotificationViewSet
@@ -102,6 +103,12 @@ urlpatterns = [
     path('organizations/switch/', switch_organization, name='org-switch'),
     path('organizations/<int:org_id>/users/', OrganizationUsers.as_view(), name='org-users'),
     path('organizations/sync-from-ncoa/', sync_from_ncoa, name='org-sync-from-ncoa'),
+
+    # Team chat: message other users of the workspace, share a file up to 2 MB
+    path('chat/summary/', chat_summary, name='chat-summary'),
+    path('chat/contacts/', chat_contacts, name='chat-contacts'),
+    path('chat/messages/', chat_messages, name='chat-messages'),
+    path('chat/attachments/<int:message_id>/', chat_attachment, name='chat-attachment'),
     # Audit Trail
     path('audit-trail/', AuditLogListView.as_view(), name='audit-trail'),
     # AI — the tenant's own view of what is switched on for it. The

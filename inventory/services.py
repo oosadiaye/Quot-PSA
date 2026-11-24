@@ -2,7 +2,7 @@
 
 The main export is :func:`get_default_warehouse_for_mda`, which returns the
 auto-provisioned ``Warehouse`` row that represents an MDA's physical stores.
-In Quot PSE the user never picks a warehouse in the GRN screen — they pick
+In Quot PSA the user never picks a warehouse in the GRN screen — they pick
 an MDA, and the backend transparently resolves that MDA to its dedicated
 warehouse for downstream inventory tracking (``ItemBatch``, ``StockMovement``,
 ``ItemStock``).

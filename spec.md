@@ -1,4 +1,4 @@
-# QUOT ERP — Full System Specification
+# QUOT PSA — Full System Specification
 
 > Multi-Tenant SaaS Enterprise Resource Planning System
 > Tech Stack: Django 5/6 + DRF | React 19 + TypeScript + Vite | PostgreSQL | django-tenants
@@ -26,7 +26,7 @@
 
 ### 1.1 What Has Been Built
 
-QUOT ERP is a **production-grade, multi-tenant SaaS ERP** with 11 business modules, centralized authentication, role-based access control, and a modern glassmorphism UI.
+QUOT PSA is a **production-grade, multi-tenant SaaS ERP** with 11 business modules, centralized authentication, role-based access control, and a modern glassmorphism UI.
 
 **Core Capabilities:**
 - Schema-per-tenant isolation via `django-tenants`
@@ -673,7 +673,7 @@ The UI uses fixed-width sidebar (260px) and is primarily desktop-optimized. Mobi
 ```json
 // manifest.json
 {
-  "name": "QUOT ERP",
+  "name": "QUOT PSA",
   "short_name": "DTSG",
   "start_url": "/dashboard",
   "display": "standalone",
@@ -743,7 +743,7 @@ The UI uses fixed-width sidebar (260px) and is primarily desktop-optimized. Mobi
 Create `.github/workflows/ci-cd.yml`:
 
 ```yaml
-name: QUOT ERP CI/CD
+name: QUOT PSA CI/CD
 
 on:
   push:
@@ -1468,4 +1468,4 @@ GET    /api/tenants/superadmin-dashboard/
 
 ---
 
-*Generated: March 2026 | QUOT ERP v1.0*
+*Generated: March 2026 | QUOT PSA v1.0*

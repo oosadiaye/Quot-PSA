@@ -1,5 +1,5 @@
 /**
- * IPSAS — Programme Performance Report — Quot PSE
+ * IPSAS — Programme Performance Report — Quot PSA
  * Route: /accounting/ipsas/programme-performance
  */
 import { useEffect, useMemo, useState } from 'react';

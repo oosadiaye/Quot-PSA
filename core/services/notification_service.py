@@ -14,7 +14,7 @@ class NotificationService:
         verify_link = f"{frontend_url}/verify-email?token={token}"
         try:
             send_mail(
-                subject='QUOT ERP — Verify Your Email',
+                subject='QUOT PSA — Verify Your Email',
                 message=(
                     f"Hi {user.first_name or user.username},\n\n"
                     f"Please verify your email address by clicking this link:\n\n"
@@ -34,7 +34,7 @@ class NotificationService:
         """Send a password reset email to the user."""
         try:
             send_mail(
-                subject='QUOT ERP — Password Reset',
+                subject='QUOT PSA — Password Reset',
                 message=(
                     f'Click the link to reset your password:\n\n'
                     f'{reset_link}\n\n'

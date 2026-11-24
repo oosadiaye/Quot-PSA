@@ -1,4 +1,4 @@
-# QUOT ERP SaaS SuperAdmin Dashboard Enhancement Plan
+# QUOT PSA SaaS SuperAdmin Dashboard Enhancement Plan
 ## Comprehensive Feature Implementation Plan
 
 ---

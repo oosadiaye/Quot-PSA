@@ -24,6 +24,8 @@ from rest_framework.response import Response
 from accounting.models import (
     IntangibleAsset, OpeningBalanceSheet, OpeningBalanceItem,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # =============================================================================
@@ -79,10 +81,11 @@ class IntangibleAssetSerializer(serializers.ModelSerializer):
 
 
 class IntangibleAssetViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """IPSAS 31 register + lifecycle."""
     queryset = IntangibleAsset.objects.all().select_related('mda', 'journal_entry')
     serializer_class = IntangibleAssetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['status', 'category', 'amortisation_method', 'mda']
     ordering_fields = ['acquisition_date', 'acquisition_cost', 'asset_number']
     ordering = ['-acquisition_date']
@@ -303,12 +306,13 @@ class OpeningBalanceSheetSerializer(serializers.ModelSerializer):
 
 
 class OpeningBalanceSheetViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """IPSAS 33 opening balance sheet lifecycle."""
     queryset = OpeningBalanceSheet.objects.all().prefetch_related(
         'items__account',
     )
     serializer_class = OpeningBalanceSheetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['status', 'transition_date']
     ordering = ['-transition_date']
 
@@ -481,10 +485,11 @@ class OpeningBalanceSheetViewSet(viewsets.ModelViewSet):
 
 
 class OpeningBalanceItemViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
     """CRUD on individual items within a sheet."""
     queryset = OpeningBalanceItem.objects.all().select_related('sheet', 'account')
     serializer_class = OpeningBalanceItemSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filterset_fields = ['sheet', 'deemed_cost_basis', 'account']
 
     def _check_sheet_mutable(self, sheet: OpeningBalanceSheet):

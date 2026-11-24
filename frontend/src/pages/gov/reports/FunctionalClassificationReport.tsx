@@ -1,5 +1,5 @@
 /**
- * IPSAS — Functional Classification Report (COFOG) — Quot PSE
+ * IPSAS — Functional Classification Report (COFOG) — Quot PSA
  * Route: /accounting/ipsas/functional-classification
  */
 import { useEffect, useMemo, useState } from 'react';

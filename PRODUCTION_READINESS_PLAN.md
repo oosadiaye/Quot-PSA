@@ -1,4 +1,4 @@
-# Production Readiness Plan — Quot PSE
+# Production Readiness Plan — Quot PSA
 
 **Baseline assessment (post-Sprint 25)**: ~50% production-ready for real
 state-government deployment, ~70% for internal pilot. Core accounting is

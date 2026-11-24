@@ -14,7 +14,7 @@
  *
  *   npx playwright test --config playwright.local.config.ts
  *
- * Ports default to the local stack rather than CI's: the Quot PSE backend
+ * Ports default to the local stack rather than CI's: the Quot PSA backend
  * runs on 8032, and the SPA must be served from 127.0.0.1 because CORS
  * allows that origin and because `localhost` can resolve to a different
  * project's dev server on the same port number.

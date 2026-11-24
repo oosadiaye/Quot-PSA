@@ -12,9 +12,13 @@ by default; other roles must be granted them explicitly.
 from rest_framework import viewsets
 from accounting.models.budget_check_rules import BudgetCheckRule
 from accounting.serializers import BudgetCheckRuleSerializer
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class BudgetCheckRuleViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BudgetCheckRule.objects.all()
     serializer_class = BudgetCheckRuleSerializer
     filterset_fields = ['is_active', 'check_level']

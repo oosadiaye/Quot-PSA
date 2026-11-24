@@ -1,4 +1,4 @@
-"""P6-T3 — Locust load-test harness for Quot PSE.
+"""P6-T3 — Locust load-test harness for Quot PSA.
 
 Models a mixed public-sector workload:
   * 70 % read traffic (dashboards, reports, list-pages)

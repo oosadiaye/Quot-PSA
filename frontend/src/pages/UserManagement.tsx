@@ -22,13 +22,65 @@ interface TenantUser {
     role_display: string;
     groups: string[];
     employee: { id: number; employee_number: string; department: string | null; position: string | null } | null;
+    organizations: UserOrgMembership[];
     created_at: string;
+}
+
+/** An MDA a user is assigned to, as the list API returns it. */
+interface UserOrgMembership {
+    organization: number;
+    code: string;
+    name: string;
+    per_org_role: string;
+    is_default: boolean;
+}
+
+/** An MDA that can be assigned (active organizations only). */
+interface OrgOption {
+    id: number;
+    code: string;
+    name: string;
+}
+
+/** What the create/update endpoints accept for one MDA. */
+interface OrgAssignment {
+    organization: number;
+    per_org_role: string;
 }
 
 interface AvailableGroup {
     id: number;
     name: string;
 }
+
+// Mirrors core.UserOrganization.PER_ORG_ROLE_CHOICES.
+const PER_ORG_ROLES = [
+    { value: 'admin', label: 'MDA Admin' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'officer', label: 'Officer' },
+    { value: 'viewer', label: 'Read-only' },
+];
+const DEFAULT_PER_ORG_ROLE = 'officer';
+
+/** Flatten a DRF error body (string, list, or {field: [msgs]}) into one sentence. */
+const apiErrorText = (data: any, fallback: string): string => {
+    if (!data) return fallback;
+    if (typeof data === 'string') return data;
+    if (typeof data.error === 'string') return data.error;
+    if (typeof data.detail === 'string') return data.detail;
+    // Our own messages already name what is wrong; DRF's generic ones
+    // ("This field may not be blank.") need the field name to be useful.
+    const SELF_EXPLANATORY = new Set(['organizations', 'default_organization', 'non_field_errors']);
+    const humanise = (key: string) => key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    const parts: string[] = [];
+    const walk = (v: any, field?: string) => {
+        if (typeof v === 'string') parts.push(field && !SELF_EXPLANATORY.has(field) ? `${humanise(field)}: ${v}` : v);
+        else if (Array.isArray(v)) v.forEach(x => walk(x, field));
+        else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, /^\d+$/.test(k) ? field : k));
+    };
+    walk(data);
+    return parts.length ? parts.join(' ') : fallback;
+};
 
 const ROLE_OPTIONS = [
     { value: 'senior_manager', label: 'Senior Manager', color: '#8b5cf6' },
@@ -90,6 +142,20 @@ const UserManagement = () => {
             return res.data;
         },
     });
+
+    // Active MDAs a user can be assigned to. The endpoint may paginate or not.
+    const { data: orgOptions = [], status: orgQueryStatus } = useQuery<OrgOption[]>({
+        queryKey: ['org-options'],
+        queryFn: async () => {
+            const res = await apiClient.get('/core/organizations/');
+            const rows: any[] = Array.isArray(res.data) ? res.data : (res.data?.results ?? []);
+            return rows
+                .filter(o => o.is_active)
+                .map(o => ({ id: o.id, code: o.code, name: o.name }));
+        },
+    });
+    const orgStatus: OrgOptionsStatus =
+        orgQueryStatus === 'success' ? 'ready' : orgQueryStatus === 'error' ? 'error' : 'loading';
 
     const deactivateMutation = useMutation({
         mutationFn: (id: number) => apiClient.delete(`/core/tenant-users/${id}/`),
@@ -233,6 +299,7 @@ const UserManagement = () => {
                                 <th style={thStyle}>User</th>
                                 <th style={thStyle}>Role</th>
                                 <th style={thStyle}>Groups</th>
+                                <th style={thStyle}>MDAs</th>
                                 <th style={thStyle}>Employee</th>
                                 <th style={thStyle}>Status</th>
                                 <th style={thStyle}>Created</th>
@@ -242,7 +309,7 @@ const UserManagement = () => {
                         <tbody>
                             {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                         <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.5, display: 'block' }} />
                                         <p style={{ margin: 0 }}>No users found</p>
                                     </td>
@@ -275,6 +342,21 @@ const UserManagement = () => {
                                                 }}>{g}</span>
                                             )) : (
                                                 <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>No groups</span>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td style={tdStyle} data-testid={`mdas-${u.username}`}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                            {(u.organizations ?? []).length > 0 ? u.organizations.map(o => (
+                                                <span key={o.organization} title={`${o.name} — ${o.per_org_role}${o.is_default ? ' (default)' : ''}`} style={{
+                                                    padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: 'var(--text-xs)',
+                                                    background: o.is_default ? 'var(--color-primary)15' : 'var(--color-surface)',
+                                                    border: `1px solid ${o.is_default ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                                                    color: o.is_default ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                                                    fontWeight: o.is_default ? 700 : 400,
+                                                }}>{o.code}{o.is_default ? ' ★' : ''}</span>
+                                            )) : (
+                                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>No MDA</span>
                                             )}
                                         </div>
                                     </td>
@@ -353,6 +435,8 @@ const UserManagement = () => {
                 {showCreateModal && (
                     <CreateUserModal
                         groups={availableGroups}
+                        orgOptions={orgOptions}
+                        orgStatus={orgStatus}
                         onClose={() => setShowCreateModal(false)}
                         onSuccess={() => {
                             setShowCreateModal(false);
@@ -366,6 +450,8 @@ const UserManagement = () => {
                     <EditUserModal
                         user={editUser}
                         groups={availableGroups}
+                        orgOptions={orgOptions}
+                        orgStatus={orgStatus}
                         onClose={() => setEditUser(null)}
                         onSuccess={() => {
                             setEditUser(null);
@@ -388,18 +474,140 @@ const UserManagement = () => {
     );
 };
 
+// ── MDA assignment field ───────────────────────────────────────────
+//
+// Which MDA(s) a user belongs to decides what the app scopes their data to
+// (the active-MDA switcher and the per-MDA filters read these memberships).
+// One MDA is the default — the one selected automatically at sign-in.
+
+type OrgOptionsStatus = 'loading' | 'ready' | 'error';
+
+const MdaAssignmentField: React.FC<{
+    options: OrgOption[];
+    status: OrgOptionsStatus;
+    assignments: OrgAssignment[];
+    defaultOrg: number | null;
+    onChange: (assignments: OrgAssignment[], defaultOrg: number | null) => void;
+}> = ({ options, status, assignments, defaultOrg, onChange }) => {
+    const assigned = new Map(assignments.map(a => [a.organization, a]));
+    // A tenant can have hundreds of MDAs (OAG has ~200), so the list is searchable.
+    const [query, setQuery] = useState('');
+    const needle = query.trim().toLowerCase();
+    const visible = needle
+        ? options.filter(o => o.code.toLowerCase().includes(needle) || o.name.toLowerCase().includes(needle))
+        : options;
+    const optionById = new Map(options.map(o => [o.id, o]));
+
+    const toggle = (id: number, checked: boolean) => {
+        if (checked) {
+            // The first MDA ticked becomes the default automatically.
+            onChange([...assignments, { organization: id, per_org_role: DEFAULT_PER_ORG_ROLE }], defaultOrg ?? id);
+            return;
+        }
+        const next = assignments.filter(a => a.organization !== id);
+        onChange(next, defaultOrg === id ? (next[0]?.organization ?? null) : defaultOrg);
+    };
+
+    const setRole = (id: number, role: string) =>
+        onChange(assignments.map(a => (a.organization === id ? { ...a, per_org_role: role } : a)), defaultOrg);
+
+    const hint = { fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' } as const;
+
+    return (
+        <div style={{ marginTop: '1rem' }} data-testid="mda-field">
+            <label style={labelStyle}>MDA Assignment (optional)</label>
+            {status === 'loading' && <div style={hint}>Loading MDAs…</div>}
+            {status === 'error' && (
+                <div role="alert" style={{ ...hint, color: 'var(--color-error)' }}>
+                    Could not load the MDA list. Existing MDA assignments will be left unchanged.
+                </div>
+            )}
+            {status === 'ready' && options.length === 0 && (
+                <div style={hint}>No MDAs are set up yet. Add them under Settings → Organizations (MDAs).</div>
+            )}
+            {status === 'ready' && assignments.length > 0 && (
+                <div data-testid="mda-selected" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                    {assignments.map(a => {
+                        const o = optionById.get(a.organization);
+                        return (
+                            <span key={a.organization} style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                padding: '0.15rem 0.4rem', borderRadius: '999px', fontSize: 'var(--text-xs)',
+                                border: `1px solid ${defaultOrg === a.organization ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                                color: defaultOrg === a.organization ? 'var(--color-primary)' : 'var(--color-text)',
+                                fontWeight: defaultOrg === a.organization ? 700 : 400,
+                            }}>
+                                {o ? o.code : `#${a.organization}`}{defaultOrg === a.organization ? ' ★' : ''}
+                                <button type="button" aria-label={`Remove ${o ? o.code : a.organization}`}
+                                    onClick={() => toggle(a.organization, false)}
+                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, lineHeight: 1, color: 'var(--color-text-muted)' }}>
+                                    <X size={12} />
+                                </button>
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+            {status === 'ready' && options.length > 8 && (
+                <input type="search" aria-label="Search MDAs" placeholder="Search MDAs by code or name…"
+                    value={query} onChange={e => setQuery(e.target.value)}
+                    style={{ ...inputStyle, marginBottom: '0.5rem' }} />
+            )}
+            {status === 'ready' && options.length > 0 && (
+                <div style={{
+                    maxHeight: '170px', overflowY: 'auto', padding: '0.25rem 0.5rem',
+                    borderRadius: '8px', border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                }}>
+                    {visible.length === 0 && (
+                        <div style={{ ...hint, padding: '0.4rem 0' }}>No MDA matches “{query}”.</div>
+                    )}
+                    {visible.map(o => {
+                        const a = assigned.get(o.id);
+                        return (
+                            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.3rem 0' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, minWidth: 0, fontSize: 'var(--text-xs)', color: 'var(--color-text)', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={!!a} onChange={e => toggle(o.id, e.target.checked)} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.code} — {o.name}</span>
+                                </label>
+                                {a && (
+                                    <>
+                                        <select aria-label={`Role in ${o.code}`} value={a.per_org_role}
+                                            onChange={e => setRole(o.id, e.target.value)}
+                                            style={{ ...inputStyle, width: 'auto', padding: '0.2rem 0.4rem' }}>
+                                            {PER_ORG_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                                        </select>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: 'var(--text-xs)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                            <input type="radio" name="default-mda" aria-label={`Default MDA ${o.code}`}
+                                                checked={defaultOrg === o.id} onChange={() => onChange(assignments, o.id)} />
+                                            Default
+                                        </label>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ── Create User Modal ──────────────────────────────────────────────
 
 const CreateUserModal: React.FC<{
     groups: AvailableGroup[];
+    orgOptions: OrgOption[];
+    orgStatus: OrgOptionsStatus;
     onClose: () => void;
     onSuccess: () => void;
-}> = ({ groups, onClose, onSuccess }) => {
+}> = ({ groups, orgOptions, orgStatus, onClose, onSuccess }) => {
     const [form, setForm] = useState({
         username: '', email: '', first_name: '', last_name: '',
         password: '', role: 'user', link_employee: false,
     });
     const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
+    const [assignments, setAssignments] = useState<OrgAssignment[]>([]);
+    const [defaultOrg, setDefaultOrg] = useState<number | null>(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -411,11 +619,12 @@ const CreateUserModal: React.FC<{
             await apiClient.post('/core/tenant-users/', {
                 ...form,
                 group_ids: selectedGroups,
+                organizations: assignments,
+                default_organization: assignments.length ? defaultOrg : null,
             });
             onSuccess();
         } catch (err: any) {
-            setError(err.response?.data?.username?.[0] || err.response?.data?.email?.[0] ||
-                     err.response?.data?.error || JSON.stringify(err.response?.data) || 'Failed to create user');
+            setError(apiErrorText(err.response?.data, 'Failed to create user'));
         } finally {
             setLoading(false);
         }
@@ -513,6 +722,10 @@ const CreateUserModal: React.FC<{
                         </div>
                     )}
 
+                    <MdaAssignmentField options={orgOptions} status={orgStatus}
+                        assignments={assignments} defaultOrg={defaultOrg}
+                        onChange={(next, nextDefault) => { setAssignments(next); setDefaultOrg(nextDefault); }} />
+
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
                         <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
                         <button type="submit" className="btn btn-primary" disabled={loading}
@@ -531,9 +744,11 @@ const CreateUserModal: React.FC<{
 const EditUserModal: React.FC<{
     user: TenantUser;
     groups: AvailableGroup[];
+    orgOptions: OrgOption[];
+    orgStatus: OrgOptionsStatus;
     onClose: () => void;
     onSuccess: () => void;
-}> = ({ user, groups, onClose, onSuccess }) => {
+}> = ({ user, groups, orgOptions, orgStatus, onClose, onSuccess }) => {
     const [form, setForm] = useState({
         email: user.email,
         first_name: user.first_name,
@@ -544,6 +759,12 @@ const EditUserModal: React.FC<{
     const [selectedGroups, setSelectedGroups] = useState<number[]>(
         groups.filter(g => user.groups.includes(g.name)).map(g => g.id)
     );
+    const [assignments, setAssignments] = useState<OrgAssignment[]>(
+        (user.organizations ?? []).map(o => ({ organization: o.organization, per_org_role: o.per_org_role }))
+    );
+    const [defaultOrg, setDefaultOrg] = useState<number | null>(
+        (user.organizations ?? []).find(o => o.is_default)?.organization ?? null
+    );
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -552,13 +773,27 @@ const EditUserModal: React.FC<{
         setLoading(true);
         setError('');
         try {
-            await apiClient.put(`/core/tenant-users/${user.id}/`, {
-                ...form,
-                group_ids: selectedGroups,
-            });
+            const { role, ...profile } = form;
+            const payload: Record<string, unknown> = { ...profile, group_ids: selectedGroups };
+            // Send the role only when it was changed: the server will not grant
+            // `admin` through an edit, so echoing an admin's own role back is
+            // rejected ("admin is not a valid choice").
+            if (role !== user.role) payload.role = role;
+            // Only send MDAs when the list loaded: omitting the field leaves the
+            // user's assignments untouched, whereas sending [] would clear them.
+            // An assignment to an MDA that has since been deactivated is dropped
+            // (the API only accepts active MDAs, and it grants nothing anyway).
+            if (orgStatus === 'ready') {
+                const active = new Set(orgOptions.map(o => o.id));
+                const kept = assignments.filter(a => active.has(a.organization));
+                payload.organizations = kept;
+                payload.default_organization =
+                    kept.length ? (kept.some(a => a.organization === defaultOrg) ? defaultOrg : kept[0].organization) : null;
+            }
+            await apiClient.put(`/core/tenant-users/${user.id}/`, payload);
             onSuccess();
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to update user');
+            setError(apiErrorText(err.response?.data, 'Failed to update user'));
         } finally {
             setLoading(false);
         }
@@ -625,6 +860,11 @@ const EditUserModal: React.FC<{
                         <div>
                             <label style={labelStyle}>Role</label>
                             <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
+                                {/* A role that is not assignable here (e.g. Tenant Admin) must still
+                                    show as the current value, not silently read as Senior Manager. */}
+                                {!ROLE_OPTIONS.some(r => r.value === user.role) && (
+                                    <option value={user.role}>{user.role_display || user.role} (current)</option>
+                                )}
                                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                             </select>
                         </div>
@@ -659,6 +899,10 @@ const EditUserModal: React.FC<{
                             </div>
                         </div>
                     )}
+
+                    <MdaAssignmentField options={orgOptions} status={orgStatus}
+                        assignments={assignments} defaultOrg={defaultOrg}
+                        onChange={(next, nextDefault) => { setAssignments(next); setDefaultOrg(nextDefault); }} />
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
                         <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>

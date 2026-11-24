@@ -1,7 +1,7 @@
-# QUOT ERP Integration Architecture
+# QUOT PSA Integration Architecture
 
 ## Document Purpose
-Enterprise integration strategy for QUOT ERP with major ERP systems and third-party applications.
+Enterprise integration strategy for QUOT PSA with major ERP systems and third-party applications.
 
 ---
 

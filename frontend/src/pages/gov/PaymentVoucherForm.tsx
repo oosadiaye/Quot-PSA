@@ -1,5 +1,5 @@
 /**
- * Payment Voucher Create Form — Quot PSE
+ * Payment Voucher Create Form — Quot PSA
  * Route: /accounting/payment-vouchers/new
  *
  * Simplified flow per user requirements:

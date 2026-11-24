@@ -1,4 +1,4 @@
-# Responsive Design Plan — Quot PSE
+# Responsive Design Plan — Quot PSA
 
 **Goal:** make every page usable on every screen size from 320 px (small Android phone) to 2560 px (QHD desktop) — **without rewriting existing component internals or breaking any current flow.**
 

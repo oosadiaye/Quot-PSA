@@ -1,5 +1,5 @@
 /**
- * Override Audit — Quot PSE
+ * Override Audit — Quot PSA
  * Route: /admin/audit/overrides
  *
  * Combines two override streams for audit review:
@@ -300,7 +300,7 @@ export default function OverrideAuditPage() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
-                    Quot PSE IFMIS — Authorisation Override Audit
+                    Quot PSA IFMIS — Authorisation Override Audit
                 </div>
         </ListPageShell>
     );

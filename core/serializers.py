@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 
+from core.models import Organization, UserOrganization
+
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
@@ -95,10 +97,25 @@ class TenantUserSerializer(serializers.Serializer):
     role_display = serializers.CharField(source='get_role_display')
     groups = serializers.SerializerMethodField()
     employee = serializers.SerializerMethodField()
+    organizations = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
 
     def get_groups(self, obj):
         return list(obj.groups.values_list('name', flat=True))
+
+    def get_organizations(self, obj):
+        """The MDAs this user is assigned to (uses the prefetched rows)."""
+        return [
+            {
+                'organization': uo.organization_id,
+                'code': uo.organization.code,
+                'name': uo.organization.name,
+                'per_org_role': uo.per_org_role,
+                'is_default': uo.is_default,
+            }
+            for uo in obj.user.user_organizations.all()
+            if uo.is_active
+        ]
 
     def get_employee(self, obj):
         try:
@@ -113,12 +130,56 @@ class TenantUserSerializer(serializers.Serializer):
             return None
 
 
-class TenantUserCreateSerializer(serializers.Serializer):
+class OrganizationAssignmentItemSerializer(serializers.Serializer):
+    """One MDA a user is being assigned to, and their role within it."""
+    organization = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.filter(is_active=True),
+        error_messages={'does_not_exist': 'That MDA does not exist or is no longer active.'},
+    )
+    per_org_role = serializers.ChoiceField(
+        choices=UserOrganization.PER_ORG_ROLE_CHOICES,
+        # The model field owns the default; do not restate it here.
+        required=False, default=UserOrganization._meta.get_field('per_org_role').get_default(),
+    )
+
+
+class OrganizationAssignmentsMixin(serializers.Serializer):
+    """MDA assignment input shared by user create and user update.
+
+    ``organizations`` absent means "leave the user's MDAs alone" (so it must not
+    appear in ``validated_data``); an empty list means "remove them all".
+    """
+    organizations = OrganizationAssignmentItemSerializer(many=True, required=False)
+    default_organization = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        items = attrs.get('organizations')
+        default = attrs.get('default_organization')
+
+        if items is None:
+            if default is not None:
+                raise serializers.ValidationError(
+                    {'default_organization': 'Choose the MDAs first, then pick one as the default.'}
+                )
+            return attrs
+
+        ids = [item['organization'].pk for item in items]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError({'organizations': 'The same MDA is listed more than once.'})
+        if default is not None and default not in ids:
+            raise serializers.ValidationError(
+                {'default_organization': 'The default MDA must be one of the assigned MDAs.'}
+            )
+        return attrs
+
+
+class TenantUserCreateSerializer(OrganizationAssignmentsMixin):
     """Create a new user and assign them to the current tenant with a role."""
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
-    first_name = serializers.CharField(max_length=150, required=False, default='')
-    last_name = serializers.CharField(max_length=150, required=False, default='')
+    first_name = serializers.CharField(max_length=150, required=False, default='', allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, default='', allow_blank=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
     role = serializers.ChoiceField(choices=[
         ('senior_manager', 'Senior Manager'),
@@ -142,11 +203,13 @@ class TenantUserCreateSerializer(serializers.Serializer):
         return value
 
 
-class TenantUserUpdateSerializer(serializers.Serializer):
+class TenantUserUpdateSerializer(OrganizationAssignmentsMixin):
     """Update an existing tenant user's profile and role."""
     email = serializers.EmailField(required=False)
-    first_name = serializers.CharField(max_length=150, required=False)
-    last_name = serializers.CharField(max_length=150, required=False)
+    # Names are optional at create (default ''), so an edit must be able to send
+    # them back blank — otherwise a user with no name can never be edited.
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     is_active = serializers.BooleanField(required=False)
     role = serializers.ChoiceField(
         choices=[

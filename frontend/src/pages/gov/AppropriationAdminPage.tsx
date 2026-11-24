@@ -1,5 +1,5 @@
 /**
- * Appropriation admin — Quot PSE
+ * Appropriation admin — Quot PSA
  * Route: /budget/appropriations/admin
  *
  * Lists the full appropriation register with filter + inline drawer

@@ -1,5 +1,5 @@
 """
-Celery application configuration for QUOT ERP.
+Celery application configuration for QUOT PSA.
 
 Phase 2: Async task processing for tenant schema creation,
 heavy reports, bulk operations, and background maintenance.

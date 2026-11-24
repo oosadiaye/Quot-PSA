@@ -1,4 +1,4 @@
-# Quot PSE — User Guide
+# Quot PSA — User Guide
 
 One chapter per baseline role. Keep this next to your workstation — each
 chapter ends with a checklist of day-to-day actions you own.

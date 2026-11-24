@@ -175,13 +175,19 @@ def test_post_vendor_only_line_resolves_ap_account(pd_accounts, pd_bank, open_pe
     PaymentDocumentLine.objects.create(payment_document=doc, account=pd_accounts["bank_gl"], credit=Decimal("10000.00"))
     assert line.account_id is None  # entered with a vendor but no GL
 
+    from accounting.services.procurement_posting import get_vendor_ap_account
+    # Accounts persist between runs, so another test may have left a second globally-flagged AP account; the rule under test
+    # is "the line takes whatever the vendor's AP account resolves to", not which of them that happens to be.
+    expected = get_vendor_ap_account(vendor)[0]
+    assert expected is not None
+
     journal = post_payment_document(doc, actor=None)
 
     line.refresh_from_db()
-    assert line.account_id == ap.pk  # vendor-only line resolved to the AP recon GL (persisted)
+    assert line.account_id == expected.pk  # vendor-only line resolved to the AP recon GL (persisted)
     jlines = list(journal.lines.all())
     debit_line = next(l for l in jlines if l.debit > 0)
-    assert debit_line.account_id == ap.pk  # journal debits the resolved AP account
+    assert debit_line.account_id == expected.pk  # journal debits the resolved AP account
     assert sum(l.debit for l in jlines) == sum(l.credit for l in jlines) == Decimal("10000.00")
     vendor.refresh_from_db()
     assert vendor.balance == Decimal("0.00")  # AP is a Liability → sub-ledger decremented

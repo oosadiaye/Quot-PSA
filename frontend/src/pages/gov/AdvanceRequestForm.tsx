@@ -1,5 +1,5 @@
 /**
- * Vendor Down Payment — Quot PSE
+ * Vendor Down Payment — Quot PSA
  * Route: /accounting/advance-requests/new
  *
  * SAP-Fiori-styled request for a vendor down payment (special G/L "A"):

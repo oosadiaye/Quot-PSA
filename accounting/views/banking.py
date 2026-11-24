@@ -18,11 +18,15 @@ from ..serializers import (
     ReceiptSerializer, PaymentSerializer,
 )
 from core.utils import api_response
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
 
 class BankAccountViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BankAccount.objects.all().select_related('gl_account', 'currency')
     serializer_class = BankAccountSerializer
     filterset_fields = ['account_type', 'is_active', 'currency']
@@ -231,12 +235,16 @@ class BankAccountViewSet(viewsets.ModelViewSet):
 
 
 class CheckbookViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Checkbook.objects.all().select_related('bank_account')
     serializer_class = CheckbookSerializer
     filterset_fields = ['bank_account', 'status']
 
 
 class CheckViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Check.objects.all().select_related('checkbook', 'payment')
     serializer_class = CheckSerializer
     filterset_fields = ['checkbook', 'status']
@@ -425,6 +433,8 @@ def _post_bank_charges_journal(recon, amount, actor):
 
 
 class BankReconciliationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BankReconciliation.objects.all().select_related('bank_account', 'reconciled_by', 'approved_by')
     serializer_class = BankReconciliationSerializer
     filterset_fields = ['bank_account', 'status']
@@ -488,12 +498,16 @@ class BankReconciliationViewSet(viewsets.ModelViewSet):
 
 
 class CashFlowCategoryViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CashFlowCategory.objects.all()
     serializer_class = CashFlowCategorySerializer
     filterset_fields = ['category_type', 'is_active']
 
 
 class CashFlowForecastViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CashFlowForecast.objects.all().select_related('bank_account')
     serializer_class = CashFlowForecastSerializer
     filterset_fields = ['bank_account']
@@ -553,6 +567,8 @@ def _parse_decimal(raw):
 
 
 class BankStatementViewSet(viewsets.ViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """
     Endpoints for importing and listing bank statements.
 

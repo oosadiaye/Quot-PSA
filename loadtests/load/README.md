@@ -1,4 +1,4 @@
-# Load Testing — Quot PSE
+# Load Testing — Quot PSA
 
 Locust-based load harness. See `locustfile.py`.
 

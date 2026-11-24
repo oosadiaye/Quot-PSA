@@ -1,5 +1,5 @@
 /**
- * Government Configuration Setup — Quot PSE
+ * Government Configuration Setup — Quot PSA
  * Route: /settings/government
  *
  * Allows tenant admins to configure:

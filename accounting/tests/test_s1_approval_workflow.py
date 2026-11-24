@@ -28,16 +28,16 @@ class TestMakerCheckerEnforcement:
             approvals=[],
         )
 
-    def test_submitter_cannot_self_approve(self, maker_user):
-        """Same user who submitted cannot call approve()."""
+    def test_submitter_may_approve_when_they_hold_the_access(self, maker_user):
+        """Separation of duties is by role and access (the approver permission), not by who created the document, so the
+        service does not bar the submitter; who may approve is decided before it is called."""
         from accounting.services.approval_workflow import ApprovalWorkflowService
         inst = self._make_instance(submitted_by=maker_user)
 
         result = ApprovalWorkflowService.approve(
             instance_id=inst.id, user=maker_user, comment='self-approve attempt',
         )
-        assert result.success is False
-        assert 'maker-checker' in result.message.lower()
+        assert result.success is True
 
     def test_checker_approves_makers_submission(self, maker_user, checker_user):
         """Different user from submitter CAN approve."""

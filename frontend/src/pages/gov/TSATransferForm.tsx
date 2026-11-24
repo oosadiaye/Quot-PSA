@@ -1,5 +1,5 @@
 /**
- * Bank Transfer Form — Quot PSE
+ * Bank Transfer Form — Quot PSA
  * Route: /accounting/tsa-accounts/transfer
  *
  * Atomic transfer of cash between two bank accounts.

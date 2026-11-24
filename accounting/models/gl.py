@@ -493,6 +493,11 @@ class JournalLine(models.Model):
     credit = models.DecimalField(max_digits=15, decimal_places=2, default=0, validators=[MinValueValidator(Decimal('0.00'))])
     memo = models.CharField(max_length=255, blank=True, default='')
     document_number = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    # The cash / bank account this line moves, so a cash book sees exactly its own desk's money even when
+    # several cash accounts share one GL account. Set by Cash Posting; empty on every other journal.
+    bank_account = models.ForeignKey(
+        'accounting.BankAccount', null=True, blank=True, on_delete=models.PROTECT, related_name='journal_lines',
+    )
     # Cost-centre dimension — allows per-department GL line allocation (e.g. payroll split)
     cost_center = models.ForeignKey(
         MDA, null=True, blank=True, on_delete=models.SET_NULL,

@@ -1,4 +1,4 @@
-"""NCoA Admin Registration — Quot PSE"""
+"""NCoA Admin Registration — Quot PSA"""
 from django.contrib import admin
 from accounting.models.ncoa import (
     AdministrativeSegment, FunctionalSegment,

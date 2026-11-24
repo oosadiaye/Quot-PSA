@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quot PSE nightly backup — pg_dump per schema with rotation.
+# Quot PSA nightly backup — pg_dump per schema with rotation.
 #
 # Usage
 # -----

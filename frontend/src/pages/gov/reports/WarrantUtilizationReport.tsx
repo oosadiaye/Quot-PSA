@@ -1,5 +1,5 @@
 /**
- * Warrant Utilization Report — Quot PSE
+ * Warrant Utilization Report — Quot PSA
  * Route: /budget/warrant-utilization
  *
  * Public-sector quarterly AIE (Authority to Incur Expenditure) reconciliation:

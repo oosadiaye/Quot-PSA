@@ -125,3 +125,32 @@ class TestCanViewFinancialStatements:
         """`user=None` must be denied — guards against misconfiguration."""
         request = MagicMock(user=None)
         assert self.perm.has_permission(request, view=None) is False
+
+
+# ── tenant roles, through the real endpoint ───────────────────────────────────────────────────────────────────
+
+import pytest  # noqa: E402
+
+from procurement.tests.test_vendor_role_containment import client_with_role  # noqa: E402
+from procurement.tests.test_vendor_role_containment import tenant_schema  # noqa: E402,F401  (autouse)
+
+REPORT = '/api/v1/accounting/ipsas/financial-performance/?fiscal_year=2026'
+
+
+@pytest.mark.django_db
+def test_a_tenant_admin_can_open_the_financial_statements():
+    """The tenant's administrator has full access everywhere else, so a report must not turn them away."""
+    assert client_with_role('admin').get(REPORT).status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('role', ['user', 'viewer'])
+def test_ordinary_roles_still_need_a_grant(role):
+    r = client_with_role(role).get(REPORT)
+    assert r.status_code == 403 and 'permission' in str(r.json()).lower()
+
+
+@pytest.mark.django_db
+def test_a_supplier_never_gets_the_statements():
+    assert client_with_role('vendor').get(REPORT).status_code == 403
+

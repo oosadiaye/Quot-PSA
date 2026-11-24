@@ -4,7 +4,7 @@
  * Decodes the Axios error and tells the user *why* the report is blank,
  * with an actionable next step (log in, pick a tenant, check seed data).
  */
-import { AlertTriangle, LogIn, Database, ServerCrash } from 'lucide-react';
+import { AlertTriangle, LogIn, Database, ServerCrash, ShieldAlert } from 'lucide-react';
 
 interface AxiosLike {
     response?: {
@@ -30,10 +30,17 @@ export default function ReportError({ error, endpoint }: ReportErrorProps) {
     let hint = 'An unexpected error occurred. Check the browser console.';
     let color = '#dc2626';
 
-    if (status === 401 || status === 403) {
+    if (status === 401) {
         icon = LogIn;
         title = 'Sign-in required';
         hint = 'Your session has expired or you are not signed in. Log in again to view this report.';
+        color = '#d97706';
+    } else if (status === 403) {
+        // Signed in, but not allowed: a different problem from an expired session, and logging in again will not fix it.
+        icon = ShieldAlert;
+        title = 'You do not have access to this report';
+        hint = 'You are signed in, but your account is not allowed to view financial statements. Ask your administrator to give you '
+            + 'the “view financial statements” permission or a finance or audit role.';
         color = '#d97706';
     } else if (status === 404) {
         icon = Database;

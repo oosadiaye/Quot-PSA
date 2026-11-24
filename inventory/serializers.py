@@ -300,4 +300,4 @@ class BatchExpiryAlertSerializer(serializers.ModelSerializer):
 class InventorySettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventorySettings
-        fields = ['id', 'auto_po_enabled', 'auto_po_draft_only']
+        fields = ['id', 'auto_po_enabled', 'auto_po_draft_only', 'default_grn_mode']

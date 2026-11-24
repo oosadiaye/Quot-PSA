@@ -1,5 +1,5 @@
 """
-Document Print Views — Quot PSE
+Document Print Views — Quot PSA
 Renders Payment Voucher and Revenue Receipt as printable HTML documents.
 Users print via browser (Ctrl+P / Print to PDF).
 """

@@ -39,12 +39,15 @@ from accounting.serializers_async_export import (
     AsyncExportJobCreateSerializer,
     AsyncExportJobSerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class AsyncExportJobViewSet(viewsets.GenericViewSet):
+    module_key = "accounting"
     """Queue-and-poll surface for off-worker report exports."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'exports'
     serializer_class = AsyncExportJobSerializer

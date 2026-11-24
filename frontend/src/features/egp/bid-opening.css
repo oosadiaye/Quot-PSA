@@ -1,0 +1,174 @@
+.bo {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #dfe3f1);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+}
+
+.bo h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.bo-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary, #4b5280);
+}
+
+.bo-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.bo-list > li {
+  border: 1px solid var(--color-border-light, #eceff8);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.bo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bo-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-border, #dfe3f1);
+}
+
+.bo-scroll {
+  overflow-x: auto;
+}
+
+.bo-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-table th,
+.bo-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-light, #eceff8);
+}
+
+.bo-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary, #4b5280);
+}
+
+.bo-table .num {
+  text-align: right;
+}
+
+.bo-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.bo-pill.sealed {
+  background: #fff1dc;
+  color: #8a4b00;
+}
+
+.bo-pill.open {
+  background: #e3f5ec;
+  color: #0b6b44;
+}
+
+.bo-open {
+  margin-top: 16px;
+}
+
+.bo-open h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.bo-field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.bo-field label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bo .bo-field textarea {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1.5px solid #8b93bd;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+}
+
+.bo-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fdeceb;
+  color: #a1261a;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.bo-eval {
+  margin-top: 14px;
+}
+
+.bo-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 18px;
+}
+
+.bo .bo-field select,
+.bo .bo-field input {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1.5px solid #8b93bd;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+}
+
+.bo-pill.out {
+  background: #fdeceb;
+  color: #a1261a;
+}
+
+.bo-done {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #e3f5ec;
+  color: #0b6b44;
+  font-size: 14px;
+  font-weight: 600;
+}

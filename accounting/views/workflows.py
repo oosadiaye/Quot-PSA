@@ -27,6 +27,8 @@ from ..serializers import (
 )
 from accounting.transaction_posting import get_gl_account
 from django.utils import timezone
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # ===================== Helper =====================
@@ -62,6 +64,8 @@ def _log_audit(transaction_type, transaction_id, act, user, request=None, **kwar
 # ===================== Credit / Debit Notes =====================
 
 class CreditNoteViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CreditNote.objects.all().select_related('original_invoice')
     serializer_class = CreditNoteSerializer
     filterset_fields = ['customer_name', 'status', 'reason_type']
@@ -147,6 +151,8 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
 
 
 class DebitNoteViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = DebitNote.objects.all().select_related('vendor', 'original_invoice')
     serializer_class = DebitNoteSerializer
     filterset_fields = ['vendor', 'status', 'reason_type']
@@ -225,6 +231,8 @@ class DebitNoteViewSet(viewsets.ModelViewSet):
 # ===================== Bad Debt =====================
 
 class BadDebtProvisionViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BadDebtProvision.objects.all()
     serializer_class = BadDebtProvisionSerializer
     filterset_fields = ['fiscal_year', 'status']
@@ -296,6 +304,8 @@ class BadDebtProvisionViewSet(viewsets.ModelViewSet):
 
 
 class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BadDebtWriteOff.objects.all().select_related('original_invoice')
     serializer_class = BadDebtWriteOffSerializer
     filterset_fields = ['customer_name', 'status']
@@ -332,6 +342,8 @@ class BadDebtWriteOffViewSet(viewsets.ModelViewSet):
 # ===================== Petty Cash =====================
 
 class PettyCashFundViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PettyCashFund.objects.all().select_related('bank_account', 'custodian')
     serializer_class = PettyCashFundSerializer
     filterset_fields = ['is_active']
@@ -396,6 +408,8 @@ class PettyCashFundViewSet(viewsets.ModelViewSet):
 
 
 class PettyCashVoucherViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PettyCashVoucher.objects.all().select_related('petty_cash_fund', 'account', 'cost_center')
     serializer_class = PettyCashVoucherSerializer
     filterset_fields = ['petty_cash_fund', 'approval_status']
@@ -483,6 +497,8 @@ class PettyCashVoucherViewSet(viewsets.ModelViewSet):
 
 
 class PettyCashReplenishmentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = PettyCashReplenishment.objects.all().select_related('petty_cash_fund', 'bank_account')
     serializer_class = PettyCashReplenishmentSerializer
     filterset_fields = ['petty_cash_fund', 'status']
@@ -557,6 +573,8 @@ class PettyCashReplenishmentViewSet(viewsets.ModelViewSet):
 # ===================== Cheque Register =====================
 
 class ChequeRegisterViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ChequeRegister.objects.all().select_related('bank_account')
     serializer_class = ChequeRegisterSerializer
     filterset_fields = ['bank_account', 'status', 'cheque_type']
@@ -643,6 +661,8 @@ class ChequeRegisterViewSet(viewsets.ModelViewSet):
 # ===================== Budget Period Management =====================
 
 class BudgetPeriodManagementViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Extended budget period ViewSet with close/lock/reopen actions."""
     queryset = BudgetPeriod.objects.all()
     serializer_class = BudgetPeriodSerializer
@@ -692,6 +712,8 @@ class BudgetPeriodManagementViewSet(viewsets.ModelViewSet):
 # ===================== Suspense Clearing =====================
 
 class SuspenseClearingViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = SuspenseClearing.objects.all().select_related(
         'journal_header', 'suspense_account', 'clearing_account',
     )

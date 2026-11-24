@@ -22,6 +22,8 @@ Grant policy (any of the following satisfies access):
 * Legacy permission ``accounting.view_journalheader`` (anyone with
   general ledger read access implicitly has report access — matches
   the historical role model before this permission existed)
+* A tenant admin: the tenant's own administrator role, which is full access everywhere else in the app (it was
+  refused here, because that role is neither a Django superuser nor staff)
 * ``is_oversight`` role on a ``core.Organization`` linked to the user
   (BUDGET_AUTHORITY, FINANCE_AUTHORITY, AUDIT_AUTHORITY) — this is
   the Nigerian public-sector equivalent of "Commissioner of Finance /
@@ -60,6 +62,9 @@ class CanViewFinancialStatements(IsAuthenticated):
         if any(user.has_perm(p) for p in self._ACCEPTED_PERMS):
             return True
 
+        if _is_tenant_admin(user):
+            return True
+
         # Nigerian public-sector oversight roles.
         # User must be linked via UserOrganization to an Organization whose
         # ``org_role`` grants cross-MDA read (BUDGET/FINANCE/AUDIT authority).
@@ -67,6 +72,22 @@ class CanViewFinancialStatements(IsAuthenticated):
             return True
 
         return False
+
+
+def _is_tenant_admin(user) -> bool:
+    """True if the user holds the admin role on the tenant this request is for. Never raises: no tenant, or no database, is just False."""
+    from django.db import connection
+
+    tenant = getattr(connection, 'tenant', None)
+    if tenant is None or getattr(tenant, 'schema_name', 'public') == 'public' or not getattr(tenant, 'pk', None):
+        return False
+    try:
+        from core.permissions import _get_tenant_role
+        role = _get_tenant_role(user, tenant)
+    except Exception:  # noqa: BLE001 - a lookup problem must read as "not an admin", never as an error page
+        logger.warning('Could not read the tenant role for user_id=%s', getattr(user, 'pk', None), exc_info=True)
+        return False
+    return bool(role and role.role == 'admin')
 
 
 def _user_has_oversight_org(user) -> bool:

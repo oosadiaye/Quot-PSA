@@ -1,5 +1,5 @@
 """
-Sales module — STUB for Quot PSE (public sector).
+Sales module — STUB for Quot PSA (public sector).
 These minimal models exist ONLY to satisfy migration FK references from
 accounting/inventory migrations that were created before the sales module
 was deleted. No business logic. No views. No serializers.

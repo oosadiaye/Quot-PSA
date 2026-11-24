@@ -33,6 +33,8 @@ from accounting.models import (
     VendorAdvanceStatus,
 )
 from accounting.services.vendor_advance import VendorAdvanceService
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 # ── Serializers ────────────────────────────────────────────────────────
@@ -105,6 +107,7 @@ class ClearAdvanceSerializer(serializers.Serializer):
 
 
 class VendorAdvanceViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "accounting"
     """Read-only collection + state-transition actions.
 
     Disbursement is never POSTed to the collection — that comes from
@@ -120,7 +123,7 @@ class VendorAdvanceViewSet(viewsets.ReadOnlyModelViewSet):
         .order_by("-posting_date", "-created_at")
     )
     serializer_class = VendorAdvanceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleEnabled]
     filter_backends = [DjangoFilterBackend, drf_filters.SearchFilter]
     filterset_fields = ["vendor", "status", "source_type"]
     search_fields = ["reference", "vendor__name", "vendor__code"]

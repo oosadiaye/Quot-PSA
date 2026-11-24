@@ -25,6 +25,23 @@ const MODULE_META: Record<string, { title: string; icon: string; color: string }
   inventory:   { title: 'Inventory',            icon: '📦', color: '#13c2c2' },
   hrm:         { title: 'Human Resources',      icon: '👥', color: '#eb2f96' },
   workflow:    { title: 'Workflow & Approvals', icon: '🔀', color: '#722ed1' },
+  // FUTURE_MODULES.md — 15 independently licensable, switchable modules.
+  // Entries power the "Module Disabled" page; routes/nav are added per module.
+  budget_prep:      { title: 'Budget Preparation (MTEF/MTSS)', icon: '🏛️', color: '#1d39c4' },
+  egp:              { title: 'e-Procurement & Tendering',      icon: '🏷️', color: '#d48806' },
+  personnel_budget: { title: 'Establishment & Personnel Cost', icon: '👥', color: '#c41d7f' },
+  debt:             { title: 'Public Debt Management',         icon: '🏦', color: '#7c3aed' },
+  transparency:     { title: 'Fiscal Transparency Portal',     icon: '🔎', color: '#08979c' },
+  results:          { title: 'Results & Performance (M&E)',    icon: '📊', color: '#237804' },
+  integrations:     { title: 'Integration Gateway',            icon: '🔌', color: '#636f8f' },
+  revenue_admin:    { title: 'Revenue Administration (IGR)',   icon: '🧾', color: '#ad4b00' },
+  cash_planning:    { title: 'Cash Planning & Forecasting',    icon: '💹', color: '#003a8c' },
+  staff_advances:   { title: 'Staff Advances, Imprest & Travel', icon: '✈️', color: '#5b21b6' },
+  internal_audit:   { title: 'Internal Audit Management',      icon: '🕵️', color: '#a8071a' },
+  fleet:            { title: 'Fleet Management',               icon: '🚌', color: '#434343' },
+  catalogue:        { title: 'Supplier Catalogue',             icon: '📚', color: '#614700' },
+  disclosure:       { title: 'Asset Declaration',              icon: '📄', color: '#531dab' },
+  legal:            { title: 'Legal, Risk & Case Tracking',    icon: '⚖️', color: '#9c0006' },
 };
 
 interface ModuleGuardProps {

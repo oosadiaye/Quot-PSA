@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** QUOT ERP Accounting
+**Project:** QUOT PSA Accounting
 **Generated:** 2026-02-13 18:35:51
 **Category:** Financial Dashboard
 

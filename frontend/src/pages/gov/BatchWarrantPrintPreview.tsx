@@ -96,7 +96,7 @@ export default function BatchWarrantPrintPreview() {
             const ref = warrants[0].authority_reference || `Batch-${warrants.length}`;
             document.title = `Warrant Batch ${ref} — Print Preview`;
         }
-        return () => { document.title = 'Quot PSE'; };
+        return () => { document.title = 'Quot PSA'; };
     }, [warrants]);
 
     if (ids.length === 0) {

@@ -1,5 +1,5 @@
 /**
- * GL Data Quality Diagnostics — Quot PSE
+ * GL Data Quality Diagnostics — Quot PSA
  * Route: /accounting/data-quality
  *
  * Runs five audit checks against the live GL and renders:

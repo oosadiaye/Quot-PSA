@@ -1,5 +1,5 @@
 /**
- * Appropriation / Budget Entry — Quot PSE
+ * Appropriation / Budget Entry — Quot PSA
  * Route: /budget/appropriations/new
  *
  * Glassmorphism-styled spreadsheet budget entry:

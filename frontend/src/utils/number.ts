@@ -1,5 +1,5 @@
 /**
- * Amount-input helpers — Quot PSE.
+ * Amount-input helpers — Quot PSA.
  *
  * Number inputs (``type="number"``) can't render thousands separators, so
  * money fields use a plain text input whose displayed value is formatted

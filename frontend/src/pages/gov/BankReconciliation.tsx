@@ -1,5 +1,5 @@
 /**
- * Bank Reconciliation — Quot PSE
+ * Bank Reconciliation — Quot PSA
  * Route: /accounting/bank-reconciliation
  *
  * Complete bank-reconciliation workflow:

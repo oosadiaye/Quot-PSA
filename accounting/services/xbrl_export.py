@@ -309,7 +309,7 @@ class XBRLExportService:
         return f'''<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink">
 <head>
-    <title>QUOT ERP - {report_type}</title>
+    <title>QUOT PSA - {report_type}</title>
     <meta charset="UTF-8"/>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
@@ -322,7 +322,7 @@ class XBRLExportService:
 </head>
 <body>
     <div class="header">
-        <h1>QUOT ERP Financial Report</h1>
+        <h1>QUOT PSA Financial Report</h1>
         <h2>{report_type}</h2>
         <p>Fiscal Year: {fiscal_year} | As of: {period_end}</p>
         <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>

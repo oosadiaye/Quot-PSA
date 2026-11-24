@@ -1,6 +1,6 @@
 /**
  * ThemedButton — the brand gradient primary / bordered secondary /
- * danger / ghost variants used across every page of Quot PSE.
+ * danger / ghost variants used across every page of Quot PSA.
  *
  * Gradient is the same as PageHeader / AuthShell:
  *   linear-gradient(135deg, #242a88, #2e35a0)

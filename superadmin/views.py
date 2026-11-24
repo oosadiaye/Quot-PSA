@@ -25,6 +25,12 @@ from tenants.models import (
 # Per-tenant schema models — live in each tenant's own PostgreSQL schema.
 # Superadmin cross-tenant operations must wrap queries in schema_context().
 from core.models import TenantModule as PerTenantModule
+from core.permissions import (
+    active_module_keys,
+    validate_module_activation,
+    ModuleDependencyError,
+    MODULE_DEPENDENCIES,
+)
 from .models import (
     SuperAdminProfile, SuperAdminSettings, ImpersonationLog,
     Referrer, Referral, Commission, CommissionPayout,
@@ -172,7 +178,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     from django.utils.http import urlsafe_base64_encode
 
     frontend_url = django_settings.FRONTEND_URL
-    subject = f"Welcome to QUOT ERP - {tenant.name} Organization Created"
+    subject = f"Welcome to QUOT PSA - {tenant.name} Organization Created"
 
     if temp_password:
         # Generate a signed, single-use password-reset link. The
@@ -197,7 +203,7 @@ def send_tenant_welcome_email(tenant, admin_user, temp_password, plan_name):
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
 
-Your organization "{tenant.name}" has been successfully created on QUOT ERP Platform.
+Your organization "{tenant.name}" has been successfully created on QUOT PSA Platform.
 
 Login Details:
 --------------
@@ -216,7 +222,7 @@ Important Next Steps:
 If you have any questions, please contact support.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
     try:
         send_mail(
@@ -234,11 +240,11 @@ QUOT ERP Administration
 def send_password_reset_email(tenant, admin_user, temp_password):
     """Notify tenant admin that their password has been reset by superadmin."""
     frontend_url = django_settings.FRONTEND_URL
-    subject = f"Password Reset - {tenant.name} | QUOT ERP"
+    subject = f"Password Reset - {tenant.name} | QUOT PSA"
     message = f"""
 Dear {admin_user.first_name or admin_user.username},
 
-Your password for "{tenant.name}" on QUOT ERP has been reset by the platform administrator.
+Your password for "{tenant.name}" on QUOT PSA has been reset by the platform administrator.
 
 New Login Details:
 ------------------
@@ -251,7 +257,7 @@ IMPORTANT: Please login and change your password immediately.
 If you did not request this change, please contact support.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
     try:
         send_mail(
@@ -286,7 +292,7 @@ New Plan: {new_plan.name}
 If you did not initiate this change, please contact support immediately.
 
 Best regards,
-QUOT ERP Administration
+QUOT PSA Administration
     """
 
     # Resolve tenant admin email
@@ -377,7 +383,7 @@ def tenant_signup(request):
     plan_type = data.get('plan_type', '')
     business_category = data.get('business_category', 'other')
 
-    # Government configuration (Quot PSE)
+    # Government configuration (Quot PSA)
     government_tier = data.get('government_tier', '')   # STATE or LGA
     state_nbs_code = data.get('state_nbs_code', '')     # NBS 2-digit code
     state_name = data.get('state_name', '')
@@ -1045,6 +1051,12 @@ def tenant_change_plan(request, tenant_id):
                         'is_active': True,
                     },
                 )
+            # Bust the module-enabled cache (core.permissions.ModuleEnabled)
+            try:
+                from core.permissions import invalidate_module_cache
+                invalidate_module_cache(tenant.pk)
+            except Exception:
+                pass
 
     send_plan_change_email(tenant, old_plan, plan)
     cache.delete('superadmin_dashboard_stats')
@@ -1263,8 +1275,28 @@ def global_module_toggle(request):
     tenants_qs = Client.objects.exclude(schema_name='public')
     updated_count = 0
     created_count = 0
-    for tenant in tenants_qs.only('schema_name'):
+    from core.permissions import invalidate_module_cache
+    for tenant in tenants_qs.only('id', 'schema_name'):
+        def _title_desc(key):
+            for k, t, d in AVAILABLE_MODULES:
+                if k == key:
+                    return t, d
+            return key, ''
         with schema_context(tenant.schema_name):
+            # A global ENABLE must satisfy hard dependencies (invariant 5):
+            # auto-activate the prerequisite rows so this tenant is never left
+            # in a contradictory state.  Deactivation is never touched.
+            if is_enabled:
+                for dep_key in MODULE_DEPENDENCIES.get(module_info[0], ()):
+                    dt, dd = _title_desc(dep_key)
+                    PerTenantModule.objects.update_or_create(
+                        module_name=dep_key,
+                        defaults={
+                            'module_title': dt,
+                            'description': dd,
+                            'is_active': True,
+                        },
+                    )
             _, created = PerTenantModule.objects.update_or_create(
                 module_name=module_info[0],
                 defaults={
@@ -1277,6 +1309,11 @@ def global_module_toggle(request):
                 created_count += 1
             else:
                 updated_count += 1
+        # Bust the per-tenant module cache for this toggle.
+        try:
+            invalidate_module_cache(tenant.pk, module_info[0])
+        except Exception:
+            pass
 
     return Response({
         'message': f'Module {"enabled" if is_enabled else "disabled"} globally',
@@ -1519,11 +1556,27 @@ def tenant_modules(request, tenant_id):
     _module_map = {k: (t, d) for k, t, d in AVAILABLE_MODULES}
 
     with schema_context(tenant.schema_name):
+        # Proposed state: current active set + payload activations, so a module
+        # and its prerequisites shipped in the same request validate together.
+        proposed_active = active_module_keys()
+        for mod in modules_data:
+            module_name = mod.get('module_name')
+            is_active = mod.get('is_active', False)
+            if module_name and module_name in _module_map and is_active:
+                proposed_active.add(module_name)
         for mod in modules_data:
             module_name = mod.get('module_name')
             is_active = mod.get('is_active', False)
             if not module_name or module_name not in _module_map:
                 continue
+            try:
+                validate_module_activation(module_name, is_active, proposed_active)
+            except ModuleDependencyError as exc:
+                return Response(
+                    {'error': str(exc), 'module': exc.module_name,
+                     'missing': list(exc.missing)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             title, desc = _module_map[module_name]
             PerTenantModule.objects.update_or_create(
                 module_name=module_name,
@@ -1533,6 +1586,13 @@ def tenant_modules(request, tenant_id):
                     'is_active': is_active,
                 },
             )
+
+        # Bust the module-enabled cache (core.permissions.ModuleEnabled)
+        try:
+            from core.permissions import invalidate_module_cache
+            invalidate_module_cache(tenant.pk)
+        except Exception:
+            pass
 
     return Response({'message': 'Modules updated successfully'})
 
@@ -1624,7 +1684,7 @@ def platform_settings(request):
             'smtp_use_tls': getattr(sa_settings, 'smtp_use_tls', True),
             'smtp_use_ssl': getattr(sa_settings, 'smtp_use_ssl', False),
             'smtp_from_email': getattr(sa_settings, 'smtp_from_email', ''),
-            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'QUOT ERP'),
+            'smtp_from_name': getattr(sa_settings, 'smtp_from_name', 'QUOT PSA'),
             'support_email': getattr(sa_settings, 'support_email', ''),
             'smtp_enabled': getattr(sa_settings, 'smtp_enabled', False),
         })
@@ -3178,7 +3238,7 @@ def webhook_test(request, pk):
     payload = {
         'event': 'test.ping',
         'timestamp': timezone.now().isoformat(),
-        'data': {'message': 'Test webhook from QUOT ERP'},
+        'data': {'message': 'Test webhook from QUOT PSA'},
     }
 
     # Sign the payload
@@ -4241,7 +4301,7 @@ def email_template_preview(request, pk):
         context.setdefault(var, f'<{var}>')
 
     settings_obj = SuperAdminSettings.load()
-    org_name = settings_obj.organization_name or 'QUOT ERP'
+    org_name = settings_obj.organization_name or 'QUOT PSA'
     support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
 
     rendered_subject = substitute(tpl.subject, context)
@@ -4280,7 +4340,7 @@ def email_template_send_test(request, pk):
         context.setdefault(var, f'<{var}>')
 
     settings_obj = SuperAdminSettings.load()
-    org_name = settings_obj.organization_name or 'QUOT ERP'
+    org_name = settings_obj.organization_name or 'QUOT PSA'
     support_email = settings_obj.support_email or settings_obj.smtp_from_email or 'support@example.com'
 
     rendered_subject = substitute(tpl.subject, context)

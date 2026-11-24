@@ -1,5 +1,5 @@
 /**
- * Named breakpoints for Quot PSE.
+ * Named breakpoints for Quot PSA.
  *
  * Mobile-first (min-width). Every component that adapts to viewport
  * should import from here — never hard-code a pixel threshold.

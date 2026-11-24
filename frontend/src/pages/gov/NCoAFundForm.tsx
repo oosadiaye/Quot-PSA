@@ -1,5 +1,5 @@
 /**
- * NCoA Fund Segment Create/Edit Form — Quot PSE
+ * NCoA Fund Segment Create/Edit Form — Quot PSA
  * Route: /accounting/ncoa/fund/new      (create)
  * Route: /accounting/ncoa/fund/:id/edit  (edit)
  */

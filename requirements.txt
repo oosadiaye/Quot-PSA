@@ -1,4 +1,4 @@
-# Quot PSE — Python runtime dependencies
+# Quot PSA — Python runtime dependencies
 #
 # Pinned to the versions the codebase is validated against on the
 # 2026-05 working tree (post-Sprint A/B/C/D fixes). Verified by running

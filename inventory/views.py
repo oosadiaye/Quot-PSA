@@ -26,6 +26,8 @@ from .serializers import (
     InventorySettingsSerializer,
 )
 from accounting.transaction_posting import TransactionPostingService
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger('dtsg')
 
@@ -37,12 +39,16 @@ class InventoryPagination(PageNumberPagination):
 
 
 class WarehouseViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Warehouse.objects.all()
     serializer_class = WarehouseSerializer
     pagination_class = InventoryPagination
 
 
 class ProductTypeViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ProductType.objects.all().select_related(
         'inventory_account', 'expense_account', 'revenue_account',
         'clearing_account', 'goods_in_transit_account',   # was missing → N+1 queries
@@ -53,6 +59,8 @@ class ProductTypeViewSet(viewsets.ModelViewSet):
 
 
 class ProductCategoryViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ProductCategory.objects.all().select_related('product_type', 'parent')
     serializer_class = ProductCategorySerializer
     pagination_class = InventoryPagination
@@ -68,12 +76,16 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
 
 
 class ItemCategoryViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ItemCategory.objects.all()
     serializer_class = ItemCategorySerializer
     pagination_class = InventoryPagination
 
 
 class ItemViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = Item.objects.all().select_related(
         'product_type', 'product_category', 'category',
         'inventory_account', 'expense_account'
@@ -246,6 +258,8 @@ class ItemViewSet(viewsets.ModelViewSet):
 
 
 class ItemStockViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ItemStock.objects.all().select_related('item', 'warehouse')
     serializer_class = ItemStockSerializer
     filterset_fields = ['item', 'warehouse']
@@ -281,6 +295,8 @@ class ItemStockViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ItemBatchViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ItemBatch.objects.all().select_related('item', 'warehouse')
     serializer_class = ItemBatchSerializer
     filterset_fields = ['item', 'warehouse']
@@ -575,6 +591,8 @@ def _maybe_create_auto_po(movement_id):
 # ─── Stock Movements ──────────────────────────────────────────────────────────
 
 class StockMovementViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = StockMovement.objects.all().select_related('item', 'warehouse', 'batch', 'to_warehouse')
     serializer_class = StockMovementSerializer
     filterset_fields = ['movement_type', 'item', 'warehouse', 'to_warehouse', 'batch']
@@ -820,6 +838,8 @@ class StockMovementViewSet(viewsets.ModelViewSet):
 
 
 class StockReconciliationViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = StockReconciliation.objects.all().select_related('warehouse').prefetch_related('lines')
     serializer_class = StockReconciliationSerializer
     filterset_fields = ['status', 'warehouse', 'reconciliation_type']
@@ -1010,6 +1030,8 @@ class StockReconciliationViewSet(viewsets.ModelViewSet):
 
 
 class ReorderAlertViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ReorderAlert.objects.all().select_related('item', 'warehouse')
     serializer_class = ReorderAlertSerializer
     filterset_fields = ['item', 'warehouse', 'is_sent']
@@ -1042,6 +1064,8 @@ class ReorderAlertViewSet(viewsets.ModelViewSet):
 
 
 class ItemSerialNumberViewSet(viewsets.ModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ItemSerialNumber.objects.all().select_related('item', 'warehouse', 'batch')
     serializer_class = ItemSerialNumberSerializer
     filterset_fields = ['item', 'status', 'warehouse', 'batch']
@@ -1050,6 +1074,8 @@ class ItemSerialNumberViewSet(viewsets.ModelViewSet):
 
 
 class BatchExpiryAlertViewSet(viewsets.ReadOnlyModelViewSet):
+    module_key = "inventory"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = BatchExpiryAlert.objects.all().select_related('item', 'batch', 'warehouse')
     serializer_class = BatchExpiryAlertSerializer
     filterset_fields = ['item', 'warehouse', 'is_sent', 'is_dismissed']

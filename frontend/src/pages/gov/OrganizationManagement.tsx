@@ -1,5 +1,5 @@
 /**
- * Organization Management Settings Page — Quot PSE
+ * Organization Management Settings Page — Quot PSA
  * Route: /settings/organizations
  *
  * Shows all MDA organizations with their roles, user counts, and status.
@@ -336,7 +336,7 @@ export default function OrganizationManagement() {
                 </div>
 
                 <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-subtle)', fontSize: 11 }}>
-                    Quot PSE IFMIS — Organization Management
+                    Quot PSA IFMIS — Organization Management
                 </div>
             </main>
         </div>

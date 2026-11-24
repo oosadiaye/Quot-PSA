@@ -1,5 +1,5 @@
 /**
- * Budget Entry — Quot PSE (Public Sector)
+ * Budget Entry — Quot PSA (Public Sector)
  *
  * Appropriation budget entry with mandatory NCoA dimensions:
  * - Fiscal Year + Period (Monthly or Annual)

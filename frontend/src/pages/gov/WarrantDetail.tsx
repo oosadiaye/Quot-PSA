@@ -1,5 +1,5 @@
 /**
- * Warrant / AIE Detail + Release — Quot PSE
+ * Warrant / AIE Detail + Release — Quot PSA
  * Route: /budget/warrants/:id
  *
  * Shows warrant details and provides Release / Suspend actions.

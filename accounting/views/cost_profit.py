@@ -8,9 +8,13 @@ from ..models import (
 from ..serializers import (
     CostCenterSerializer, ProfitCenterSerializer, CostAllocationRuleSerializer,
 )
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class CostCenterViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CostCenter.objects.all().select_related('parent', 'manager', 'gl_account')
     serializer_class = CostCenterSerializer
     filterset_fields = ['center_type', 'is_active']
@@ -74,12 +78,16 @@ class CostCenterViewSet(viewsets.ModelViewSet):
 
 
 class ProfitCenterViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = ProfitCenter.objects.all().select_related('manager').prefetch_related('cost_centers')
     serializer_class = ProfitCenterSerializer
     filterset_fields = ['is_active']
 
 
 class CostAllocationRuleViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = CostAllocationRule.objects.all().select_related('source_cost_center', 'source_account')
     serializer_class = CostAllocationRuleSerializer
     filterset_fields = ['allocation_method', 'is_active']

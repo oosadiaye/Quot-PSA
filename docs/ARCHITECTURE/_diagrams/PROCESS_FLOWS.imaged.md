@@ -1,4 +1,4 @@
-# Quot PSE — Module Process Flows
+# Quot PSA — Module Process Flows
 
 > Public-sector IFMIS (Integrated Financial Management Information System) for
 > Nigerian state governments. Multi-tenant Django + DRF backend with a React 19

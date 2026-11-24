@@ -1,4 +1,4 @@
-# Live / Real-Time Data Review — Quot PSE (Public Sector ERP)
+# Live / Real-Time Data Review — Quot PSA (Public Sector Accounting)
 
 **Date:** 2026-05-09
 **Scope:** Django backend (`accounting`, `budget`, `procurement`, `contracts`, `inventory`, `workflow`, `hrm`, `core`, `tenants`) + React/Vite frontend (`features/*`, `pages/gov/*`).

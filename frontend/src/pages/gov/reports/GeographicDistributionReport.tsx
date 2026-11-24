@@ -1,5 +1,5 @@
 /**
- * IPSAS — Geographic Distribution Report — Quot PSE
+ * IPSAS — Geographic Distribution Report — Quot PSA
  * Route: /accounting/ipsas/geographic-distribution
  */
 import { useEffect, useMemo, useState } from 'react';

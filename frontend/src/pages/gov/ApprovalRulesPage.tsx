@@ -1,5 +1,5 @@
 /**
- * Approval Rules admin — Quot PSE
+ * Approval Rules admin — Quot PSA
  * Route: /admin/approval-rules
  *
  * Shows the active approval matrix: for every document type the
@@ -146,7 +146,7 @@ export default function ApprovalRulesPage() {
                     textAlign: 'center', padding: '20px 0',
                     color: 'var(--color-text-subtle)', fontSize: 11,
                 }}>
-                    Quot PSE IFMIS — Approval Workflow Matrix
+                    Quot PSA IFMIS — Approval Workflow Matrix
                 </div>
         </ListPageShell>
     );

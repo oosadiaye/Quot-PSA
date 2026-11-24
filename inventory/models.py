@@ -206,7 +206,7 @@ class Item(AuditBaseModel):
         help_text='Default vendor used when automatically generating Purchase Orders from reorder alerts.',
     )
 
-    # Production BOM link removed — Quot PSE is public sector (no manufacturing)
+    # Production BOM link removed — Quot PSA is public sector (no manufacturing)
 
     class Meta:
         verbose_name = 'Product'
@@ -511,6 +511,17 @@ class InventorySettings(models.Model):
         ),
     )
 
+    GRN_MODE_MANUAL = 'MANUAL'
+    GRN_MODE_AUTO = 'AUTO'
+    GRN_MODE_CHOICES = [(GRN_MODE_MANUAL, 'Manual'), (GRN_MODE_AUTO, 'Automatic')]
+    default_grn_mode = models.CharField(
+        max_length=6, choices=GRN_MODE_CHOICES, default=GRN_MODE_MANUAL,
+        help_text=(
+            'Manual: the store raises a GRN when goods arrive. Automatic: approving a Purchase '
+            'Order books a posted GRN for the full outstanding quantity. A PO can override this.'
+        ),
+    )
+
     class Meta:
         verbose_name = 'Inventory Settings'
         verbose_name_plural = 'Inventory Settings'
@@ -742,7 +753,7 @@ class ItemSerialNumber(AuditBaseModel):
     purchase_date = models.DateField(blank=True, null=True)
     purchase_price = models.DecimalField(max_digits=19, decimal_places=4, blank=True, null=True)
     sale_date = models.DateField(blank=True, null=True)
-    # Sales FK removed — Quot PSE is public sector (no sales orders)
+    # Sales FK removed — Quot PSA is public sector (no sales orders)
     issue_reference = models.CharField(max_length=100, blank=True, default='',
         help_text="Issue/distribution reference number")
     warranty_start = models.DateField(blank=True, null=True)

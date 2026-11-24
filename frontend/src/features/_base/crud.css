@@ -1,0 +1,753 @@
+/*
+ * Shared look for the module registers and their forms.
+ *
+ * Direction: an institutional ledger. Quiet surfaces, hairline rules, numbered sections like an official form,
+ * tabular figures, and one accent (the product indigo). Everything reads from the project's colour tokens, so light
+ * and dark themes both work and nothing here hardcodes a palette.
+ */
+
+/* ───────────────────────────── Register ───────────────────────────── */
+
+.reg-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 20px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.reg-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.reg-tab {
+  position: relative;
+  flex: none;
+  margin-bottom: -1px;
+  padding: 11px 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.reg-tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.reg-tab[aria-selected='true'] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.reg-tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
+}
+
+.reg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+  padding: 2px 0 16px;
+}
+
+.reg-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.reg-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reg-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+}
+
+.reg-search {
+  position: relative;
+  flex: 1 1 220px;
+  max-width: 360px;
+}
+
+.reg-search svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: var(--color-text-subtle);
+  pointer-events: none;
+}
+
+.reg-head .reg-search input[type='search'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px 9px 38px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.reg-head .reg-search input[type='search']:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.reg-surface {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.reg-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 56px 20px 60px;
+  text-align: center;
+}
+
+.reg-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  font-size: 20px;
+}
+
+.reg-empty h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.reg-empty p {
+  margin: 0 0 10px;
+  max-width: 380px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.reg-skeleton {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.reg-skeleton span {
+  height: 38px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--color-surface-hover) 25%, var(--color-border-light) 50%, var(--color-surface-hover) 75%);
+  background-size: 200% 100%;
+  animation: reg-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes reg-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reg-skeleton span {
+    animation: none;
+  }
+}
+
+.reg-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reg-pager-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* ───────────────────────────── Buttons ───────────────────────────── */
+
+.ef-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.ef-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-text-subtle);
+}
+
+.ef-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.ef-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ef-btn-primary {
+  border-color: transparent;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.ef-btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+  border-color: transparent;
+}
+
+.ef-btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+/* ───────────────────────────── Form ───────────────────────────── */
+
+.ef {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.ef-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 12px;
+}
+
+.ef-record {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin-bottom: 22px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.ef-record b {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-right: 6px;
+}
+
+.ef-alert {
+  margin-bottom: 20px;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-error) 9%, transparent);
+  color: var(--color-error);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ef-section + .ef-section {
+  margin-top: 30px;
+}
+
+.ef-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+}
+
+button.ef-section-head {
+  cursor: pointer;
+}
+
+.ef-section-no {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ef-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.ef-section-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.ef-section-toggle {
+  order: 3;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.ef-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 22px;
+}
+
+.ef-field.full {
+  grid-column: 1 / -1;
+}
+
+.ef-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ef-req {
+  color: var(--color-error);
+  font-weight: 700;
+}
+
+.ef-opt {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--color-text-subtle);
+}
+
+.ef-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.ef-error {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-error);
+}
+
+.ef .ef-field .ef-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.ef .ef-field textarea.ef-input {
+  min-height: 104px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ef .ef-field .ef-input::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.ef .ef-field .ef-input:hover:not(:disabled):not([readonly]) {
+  border-color: var(--color-text-subtle);
+}
+
+.ef .ef-field .ef-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.ef .ef-field .ef-input[aria-invalid='true'] {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 14%, transparent);
+}
+
+.ef .ef-field .ef-input[readonly],
+.ef .ef-field .ef-input:disabled {
+  background: var(--color-surface-hover);
+  color: var(--color-text-secondary);
+  cursor: default;
+}
+
+.ef .ef-field .ef-input.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ef .ef-field select.ef-input {
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.ef-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.ef-switch-row .ef-label {
+  margin: 0;
+}
+
+.ef-switch {
+  position: relative;
+  flex: none;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-text-subtle);
+  cursor: pointer;
+  transition: background 0.18s;
+}
+
+.ef-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 0.18s;
+}
+
+.ef-switch[aria-checked='true'] {
+  background: var(--color-primary);
+}
+
+.ef-switch[aria-checked='true']::after {
+  transform: translateX(18px);
+}
+
+.ef-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.ef-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-text-subtle);
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.ef-file[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+
+.ef .ef-file input[type='file'] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+
+.ef-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 28px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.ef-footer-note {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.ef-footer-actions {
+  display: inline-flex;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .ef-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ef-scroll,
+  .ef-footer {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .ef-footer-note {
+    display: none;
+  }
+}
+
+/* The linked-record lookup is a shared component with its own look; bring it in line with the inputs beside it. */
+.ef .ef-ref input {
+  min-height: 43px !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
+}
+
+.ef .ef-ref[aria-invalid='true'] input {
+  border-color: var(--color-error) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 14%, transparent) !important;
+}
+
+/* Row actions: quiet until used, so a register of many rows does not shout. */
+.reg-act {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.reg-act:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-primary);
+}
+
+.reg-act.danger:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: var(--color-error);
+}
+
+.reg-act:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+/* The form sits in a centred modal: the header and the action bar stay put and a long form scrolls between them. */
+.ef-modal .ant-modal-container,
+.ef-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.ef-modal .ant-modal-header {
+  margin: 0;
+  padding: 18px 28px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ef-modal .ef {
+  height: auto;
+}
+
+.ef-modal .ef-scroll {
+  max-height: calc(100vh - 230px);
+}
+
+/* ───────────── Fields that stand out from the sheet they sit on ─────────────
+ * A tinted sheet, white fields with a clear edge and a faint inset, and a stronger focus ring. Later than the rules above
+ * and the same specificity, so it wins; background-color (not the shorthand) keeps the dropdown arrow. */
+
+.ef {
+  --ef-sheet: var(--color-surface-hover);
+  --ef-field: #ffffff;
+  /* Dark enough to clear 3:1 against the field (the WCAG minimum for the boundary of an input). */
+  --ef-edge: color-mix(in srgb, var(--color-text-muted) 78%, var(--color-border));
+  --ef-edge-hover: var(--color-text);
+}
+
+[data-theme='dark'] .ef {
+  --ef-field: var(--color-background);
+  --ef-edge: color-mix(in srgb, var(--color-text-muted) 78%, var(--color-border));
+}
+
+.ef-scroll {
+  background: var(--ef-sheet);
+}
+
+.ef .ef-field .ef-input {
+  min-height: 44px;
+  border: 1px solid var(--ef-edge);
+  background-color: var(--ef-field);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+.ef .ef-field textarea.ef-input {
+  min-height: 104px;
+}
+
+.ef .ef-field .ef-input:hover:not(:disabled):not([readonly]) {
+  border-color: var(--ef-edge-hover);
+}
+
+.ef .ef-field .ef-input:focus {
+  border-color: var(--color-primary);
+  background-color: var(--ef-field);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 26%, transparent);
+}
+
+.ef .ef-field .ef-input[aria-invalid='true'] {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error) 18%, transparent);
+}
+
+.ef .ef-field .ef-input[readonly],
+.ef .ef-field .ef-input:disabled {
+  background-color: color-mix(in srgb, var(--ef-sheet) 70%, var(--ef-edge));
+  box-shadow: none;
+}
+
+.ef .ef-field .ef-input::placeholder {
+  color: color-mix(in srgb, var(--color-text-muted) 72%, transparent);
+}
+
+.ef .ef-ref input {
+  border: 1px solid var(--ef-edge) !important;
+  background-color: var(--ef-field) !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07) !important;
+}
+
+.ef .ef-ref input:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 26%, transparent) !important;
+}
+
+.ef .ef-switch-row,
+.ef .ef-file {
+  border-color: var(--ef-edge);
+  background: var(--ef-field);
+}
+
+.ef .ef-file {
+  border-style: dashed;
+}
+
+.ef-record {
+  background: var(--ef-field);
+  border-color: var(--ef-edge);
+  border-left-color: var(--color-primary);
+}
+
+.ef-section-head::after {
+  background: var(--ef-edge);
+  opacity: 0.55;
+}
+
+.ef-label {
+  font-size: 13.5px;
+}
+
+/* Import dialog */
+.imp { padding: 8px 28px 22px; }
+.imp-steps { margin: 0; padding-left: 20px; display: grid; gap: 18px; font-size: 14px; color: var(--color-text); }
+.imp-steps li > div { margin-top: 10px; }
+.imp-file { position: relative; cursor: pointer; }
+.imp-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.imp-name { margin-left: 12px; font-size: 13px; color: var(--color-text-secondary); }
+.imp-note { margin: 14px 0 0; font-size: 13px; color: var(--color-text-secondary); }
+.imp-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border-light); }
+.imp-summary { margin: 0 0 8px; font-weight: 700; font-size: 14px; }
+.imp-bad { margin: 0 0 6px; color: #b42318; font-size: 13.5px; }
+.imp-errors { margin: 8px 0 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; display: grid; gap: 6px; font-size: 13px; }
+.imp-errors li { padding: 8px 12px; border-radius: 8px; background: #fef3f2; color: #7a271a; }
+.imp-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }

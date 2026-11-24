@@ -13,6 +13,7 @@ from core.serializers import (
     TenantUserUpdateSerializer, RoleAssignmentSerializer,
 )
 from core.permissions import IsTenantAdmin, invalidate_permission_cache
+from core.services.organization_assignment import replace_user_organizations
 
 logger = logging.getLogger('dtsg')
 security_logger = logging.getLogger('security')
@@ -38,8 +39,17 @@ class TenantUserViewSet(viewsets.ViewSet):
             UserTenantRole.objects
             .filter(tenant=tenant)
             .select_related('user')
-            .prefetch_related('groups')
+            .prefetch_related('groups', 'user__user_organizations__organization')
         )
+
+    def _get_utr(self, user_id):
+        """The role record for ``user_id`` in this tenant.
+
+        ``user_id`` is the ``id`` the list API publishes (the *user's* id), which
+        is what the UI sends back. It is not the role row's own primary key; the
+        two differ on every real tenant. Raises ``UserTenantRole.DoesNotExist``.
+        """
+        return self._get_utr_queryset().get(user_id=user_id)
 
     def list(self, request):
         """List all users in the current tenant."""
@@ -67,7 +77,7 @@ class TenantUserViewSet(viewsets.ViewSet):
     def retrieve(self, request, pk=None):
         """Get a specific tenant user by UserTenantRole ID."""
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except Exception:
             return Response({'error': 'User not found in this tenant'}, status=status.HTTP_404_NOT_FOUND)
         serializer = TenantUserSerializer(utr)
@@ -123,6 +133,12 @@ class TenantUserViewSet(viewsets.ViewSet):
         else:
             self._auto_assign_groups(utr)
 
+        # Assign the user to their MDA(s)
+        if 'organizations' in data:
+            replace_user_organizations(
+                user, data['organizations'], data.get('default_organization'),
+            )
+
         # Optionally link HRM employee
         if data.get('link_employee'):
             self._create_employee(user, tenant)
@@ -135,7 +151,7 @@ class TenantUserViewSet(viewsets.ViewSet):
         from tenants.models import UserTenantRole
 
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except UserTenantRole.DoesNotExist:
             return Response({'error': 'User not found in this tenant'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -167,6 +183,14 @@ class TenantUserViewSet(viewsets.ViewSet):
             groups = Group.objects.filter(id__in=data['group_ids'])
             utr.groups.set(groups)
 
+        # Replace the user's MDA assignments when the caller sent them
+        if 'organizations' in data:
+            replace_user_organizations(
+                user, data['organizations'], data.get('default_organization'),
+            )
+            # The queryset prefetched the old memberships; reload before serialising.
+            utr = self._get_utr_queryset().get(pk=utr.pk)
+
         invalidate_permission_cache(user.pk, utr.tenant_id)
         return Response(TenantUserSerializer(utr).data)
 
@@ -175,7 +199,7 @@ class TenantUserViewSet(viewsets.ViewSet):
         from tenants.models import UserTenantRole
 
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except UserTenantRole.DoesNotExist:
             return Response({'error': 'User not found in this tenant'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -190,7 +214,7 @@ class TenantUserViewSet(viewsets.ViewSet):
         from tenants.models import UserTenantRole
 
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except UserTenantRole.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -220,7 +244,7 @@ class TenantUserViewSet(viewsets.ViewSet):
         from core.models import PasswordHistory, UserSession
 
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except UserTenantRole.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -261,7 +285,7 @@ class TenantUserViewSet(viewsets.ViewSet):
         from tenants.models import UserTenantRole
 
         try:
-            utr = self._get_utr_queryset().get(pk=pk)
+            utr = self._get_utr(pk)
         except UserTenantRole.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 

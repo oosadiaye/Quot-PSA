@@ -21,9 +21,13 @@ from ..serializers import (
     AssetRevaluationRunSerializer, AssetDisposalSerializer, AssetImpairmentSerializer,
 )
 from core.mixins import OrganizationFilterMixin
+from core.permissions import ModuleEnabled, RBACPermission
+from rest_framework.permissions import IsAuthenticated
 
 
 class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """Fixed Asset management — MDA mandatory, budget check on acquisition."""
     org_filter_field = 'mda'
     queryset = FixedAsset.objects.all().select_related(
@@ -439,6 +443,8 @@ class FixedAssetViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 # =============================================================================
 
 class AssetClassViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetClass.objects.all().select_related(
         'asset_account', 'accumulated_depreciation_account',
         'depreciation_expense_account', 'disposal_gain_account', 'disposal_loss_account'
@@ -449,11 +455,15 @@ class AssetClassViewSet(viewsets.ModelViewSet):
 
 
 class AssetConfigurationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetConfiguration.objects.all()
     serializer_class = AssetConfigurationSerializer
 
 
 class AssetCategoryViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetCategory.objects.all().select_related(
         'cost_account',
         'accumulated_depreciation_account', 'depreciation_expense_account',
@@ -781,6 +791,8 @@ class AssetCategoryViewSet(viewsets.ModelViewSet):
 
 
 class AssetLocationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetLocation.objects.all().select_related('parent', 'manager')
     serializer_class = AssetLocationSerializer
     filterset_fields = ['is_active']
@@ -788,18 +800,24 @@ class AssetLocationViewSet(viewsets.ModelViewSet):
 
 
 class AssetInsuranceViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetInsurance.objects.all().select_related('asset')
     serializer_class = AssetInsuranceSerializer
     filterset_fields = ['asset', 'is_active']
 
 
 class AssetMaintenanceViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetMaintenance.objects.all().select_related('asset', 'vendor')
     serializer_class = AssetMaintenanceSerializer
     filterset_fields = ['asset', 'maintenance_type', 'status']
 
 
 class AssetTransferViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetTransfer.objects.all().select_related(
         'asset', 'from_location', 'to_location',
         'from_employee', 'to_employee', 'approved_by'
@@ -809,18 +827,24 @@ class AssetTransferViewSet(viewsets.ModelViewSet):
 
 
 class AssetDepreciationScheduleViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetDepreciationSchedule.objects.all().select_related('asset', 'period')
     serializer_class = AssetDepreciationScheduleSerializer
     filterset_fields = ['asset', 'period_date', 'is_posted']
 
 
 class AssetRevaluationViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetRevaluationRun.objects.all().select_related('approved_by')
     serializer_class = AssetRevaluationRunSerializer
     filterset_fields = ['status', 'revaluation_method']
 
 
 class AssetDisposalViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetDisposal.objects.all().select_related('asset', 'approved_by')
     serializer_class = AssetDisposalSerializer
     filterset_fields = ['asset', 'status', 'disposal_method']
@@ -949,12 +973,16 @@ class AssetDisposalViewSet(viewsets.ModelViewSet):
 
 
 class AssetImpairmentViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     queryset = AssetImpairment.objects.all().select_related('asset')
     serializer_class = AssetImpairmentSerializer
     filterset_fields = ['asset']
 
 
 class DepreciationRunScheduleViewSet(viewsets.ModelViewSet):
+    module_key = "accounting"
+    permission_classes = [IsAuthenticated, ModuleEnabled, RBACPermission]
     """CRUD + manual-trigger endpoint for the monthly auto-depreciation schedule.
 
     Typical flow:

@@ -424,9 +424,9 @@ def run_pandoc() -> None:
         "--reference-doc", str(REFERENCE_DOCX),
         "--toc", "--toc-depth=2",
         "--standalone",
-        "--metadata", "title=Quot PSE — Module Process Flows",
+        "--metadata", "title=Quot PSA — Module Process Flows",
         "--metadata", "subtitle=Public-Sector IFMIS Architecture Reference",
-        "--metadata", "author=Quot PSE Engineering",
+        "--metadata", "author=Quot PSA Engineering",
         "--metadata", "date=2026-05-08",
         # Resource path so relative image refs in the markdown resolve
         # against the diagrams directory.

@@ -1,4 +1,4 @@
-# QUOT ERP Comprehensive Module Review & Implementation Plan
+# QUOT PSA Comprehensive Module Review & Implementation Plan
 
 ## Multi-Role Analysis: Production, Maintenance, QA, and Approval Systems
 
