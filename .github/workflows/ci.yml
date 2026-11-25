@@ -375,6 +375,9 @@ jobs:
           E2E_USER: ${{ secrets.E2E_USER || 'ci_admin' }}
           E2E_PASSWORD: ${{ secrets.E2E_PASSWORD || 'Insecure-CI-1234' }}
           E2E_TENANT_DOMAIN: ${{ secrets.E2E_TENANT_DOMAIN || 'ci_e2e.dtsg.test' }}
+          # django-tenants picks the tenant from the Host header, and the seed step created only this
+          # domain. Without it the fixtures call the API as "localhost" and get the public URLs (404).
+          E2E_API_HOST_HEADER: ${{ secrets.E2E_TENANT_DOMAIN || 'ci_e2e.dtsg.test' }}
           # The seed step exports the id it created; a secret, if set, wins.
           E2E_APPROPRIATION_ID: ${{ secrets.E2E_APPROPRIATION_ID || env.E2E_APPROPRIATION_ID }}
         run: npx playwright test
