@@ -1,0 +1,43 @@
+/* Form controls that a page styles inline.
+ *
+ * index.css gives every input, select and textarea the design's look through plain rules, but a page that
+ * writes `style={{ borderRadius: 6, border: '1px solid ...' }}` beats a stylesheet rule. This file carries the
+ * design's radius, border, surface and focus ring to those controls too, so every form looks alike without
+ * editing the pages.
+ *
+ * It leaves alone, on purpose, a control that
+ *   - has no border or a transparent one (a field inside a bordered wrapper, an inline-edit cell),
+ *   - shows an error colour inline (a page marking a field invalid keeps showing it),
+ *   - is a checkbox, radio, range, file, colour or hidden input, an antd control, disabled or read-only.
+ * Sizes (height, padding) stay as each page set them.
+ */
+:is(input, select, textarea)[style]:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="button"], [type="submit"], [type="image"]):not([class*="ant-"], :disabled, [readonly]):not(
+  [style*="border: none" i], [style*="border:none" i], [style*="border: 0" i], [style*="border:0" i],
+  [style*="border-width: 0" i], [style*="transparent" i],
+  [style*="239, 68, 68"], [style*="220, 38, 38"], [style*="185, 28, 28"], [style*="248, 113, 113"],
+  [style*="color-error"], [style*="color-danger"], [style*="#ef4444" i], [style*="#dc2626" i]
+) {
+  border-radius: var(--radius-control) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--color-border-strong) !important;
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  font-family: inherit !important;
+}
+
+:is(input, select, textarea)[style]:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="button"], [type="submit"], [type="image"]):not([class*="ant-"], :disabled, [readonly]):not(
+  [style*="border: none" i], [style*="border:none" i], [style*="border: 0" i], [style*="border:0" i],
+  [style*="border-width: 0" i], [style*="transparent" i],
+  [style*="239, 68, 68"], [style*="220, 38, 38"], [style*="185, 28, 28"], [style*="248, 113, 113"],
+  [style*="color-error"], [style*="color-danger"], [style*="#ef4444" i], [style*="#dc2626" i]
+):focus {
+  border-color: var(--color-text) !important;
+  box-shadow: 0 0 0 3px var(--color-surface-strong) !important;
+  outline: none !important;
+}
+
+:is(input, textarea)[style]::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
