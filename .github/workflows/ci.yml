@@ -259,6 +259,7 @@ jobs:
     # `playwright install --with-deps` cannot install its system packages and the job
     # dies before running a single test. Move this forward once Playwright supports it.
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     needs: [backend, frontend]
     services:
       postgres:
@@ -368,16 +369,15 @@ jobs:
         env:
           E2E_BASE_URL: http://localhost:5173
           E2E_API_URL: http://localhost:8000
-          E2E_USER: ${{ secrets.E2E_USER }}
-          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-          E2E_TENANT_DOMAIN: ${{ secrets.E2E_TENANT_DOMAIN }}
-          E2E_APPROPRIATION_ID: ${{ secrets.E2E_APPROPRIATION_ID }}
-        run: |
-          if [ -z "$E2E_USER" ]; then
-            echo "::warning::E2E_USER secret not set — skipping Playwright run."
-            exit 0
-          fi
-          npx playwright test
+          # The same fallbacks as the seed step, so the suite logs in as the user that step created.
+          # It used to read the raw secrets and skip when they were unset, so the job went green
+          # without running a single test.
+          E2E_USER: ${{ secrets.E2E_USER || 'ci_admin' }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD || 'Insecure-CI-1234' }}
+          E2E_TENANT_DOMAIN: ${{ secrets.E2E_TENANT_DOMAIN || 'ci_e2e.dtsg.test' }}
+          # The seed step exports the id it created; a secret, if set, wins.
+          E2E_APPROPRIATION_ID: ${{ secrets.E2E_APPROPRIATION_ID || env.E2E_APPROPRIATION_ID }}
+        run: npx playwright test
         working-directory: frontend
 
       - name: Upload Playwright report
