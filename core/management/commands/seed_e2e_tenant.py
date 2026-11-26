@@ -71,8 +71,9 @@ class Command(BaseCommand):
 
         # Client.auto_create_schema is False, so the schema does not exist yet on a fresh database
         # (CI), and nothing has migrated it. Create it if missing, then bring it up to date; both
-        # are no-ops on a database that already has a migrated schema.
-        client.create_schema(check_if_exists=True, sync_schema=False, verbosity=0)
+        # are no-ops on a database that already has a migrated schema. sync_schema=True matters: django-tenants
+        # only issues CREATE SCHEMA inside that branch, so False would leave a fresh database with no schema.
+        client.create_schema(check_if_exists=True, sync_schema=True, verbosity=0)
         call_command(
             "migrate_schemas", tenant=True, schema_name=schema,
             interactive=False, verbosity=0,
