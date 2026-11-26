@@ -1,6 +1,6 @@
 /**
  * The background colour a user chooses for the app. Stored per browser; applied as ``--user-bg`` on the root element, which
- * ``styles/appearance.css`` turns into the page background (light theme) and the launcher.
+ * ``styles/appearance.css`` turns into the All modules launcher's background (no other page).
  */
 
 export const BACKGROUND_STORAGE_KEY = 'quotpse.appearance.background.v1';
