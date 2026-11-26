@@ -103,8 +103,7 @@
 .launcher-icon {
   width: 64px; height: 64px; border-radius: var(--radius-xl);
   display: flex; align-items: center; justify-content: center;
-  /* The ring keeps a tile apart from a background of its own hue (a blue tile on a blue pick). */
-  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.7), var(--shadow-lg);
+  box-shadow: var(--shadow-lg);
 }
 .launcher-name { font-weight: var(--font-semibold); font-size: 14px; line-height: 1.25; }
 .launcher-count { font-size: 12px; color: rgb(255 255 255 / 0.7); }
