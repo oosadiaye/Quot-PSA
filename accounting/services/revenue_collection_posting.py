@@ -41,7 +41,10 @@ Raises
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from accounting.models.revenue import RevenueCollection
@@ -136,4 +139,23 @@ def post_revenue_collection_to_gl(
     # This mirrors what the view does after calling _post_revenue_journal.
     TSABalanceService.process_revenue(collection)
 
+    announce_revenue_collected(collection, header)
     return header
+
+
+def announce_revenue_collected(collection, journal) -> None:
+    """Tell any listener (an optional module such as revenue_admin) that a collection has posted.
+
+    Sent robustly: a listener that fails is logged and never undoes the posted journal. Whoever listens is
+    responsible for being idempotent, because a retry or a catch-up run may announce the same receipt again.
+    """
+    from accounting.signals.events import revenue_collected
+
+    for receiver, outcome in revenue_collected.send_robust(
+        sender=type(collection), collection=collection, journal=journal,
+    ):
+        if isinstance(outcome, Exception):
+            logger.exception(
+                'revenue_collected listener %r failed for receipt %s',
+                receiver, getattr(collection, 'receipt_number', '?'), exc_info=outcome,
+            )
