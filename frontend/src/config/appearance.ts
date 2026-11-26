@@ -7,7 +7,7 @@ export const BACKGROUND_STORAGE_KEY = 'quotpse.appearance.background.v1';
 
 export interface BackgroundPreset { name: string; value: string }
 
-/** Offered swatches. The first is the app's own default, shown as "Default" and stored as nothing. */
+/** Offered swatches. Each one applies its own colour; only "Reset to default" returns to the app's built-in look. */
 export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
   { name: 'Mist', value: '#eef2f7' },
   { name: 'Paper', value: '#faf7f0' },
@@ -21,6 +21,7 @@ export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
   { name: 'Charcoal', value: '#1f2937' },
 ];
 
+/** What the colour inputs show while nothing is chosen. */
 export const DEFAULT_BACKGROUND = BACKGROUND_PRESETS[0].value;
 
 /** "#abc" or "#aabbcc" (any case) to "#aabbcc"; anything else is not a colour and gives null. */
