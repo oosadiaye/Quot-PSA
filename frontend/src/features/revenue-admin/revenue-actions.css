@@ -1,0 +1,8 @@
+.ra-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-md); margin-bottom: var(--space-md); }
+.ra-card h3 { margin: 0 0 var(--space-sm); }
+.ra-hint { color: var(--color-text-muted); margin: 0 0 var(--space-sm); }
+.ra-error { background: var(--color-error-soft); color: var(--color-error); border-radius: var(--radius-control); padding: 8px 12px; margin-bottom: var(--space-sm); }
+.ra-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); }
+.ra-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); }
+.ra-form { display: grid; grid-template-columns: max-content minmax(200px, 360px); gap: var(--space-sm) var(--space-md); align-items: center; margin-bottom: var(--space-sm); }
+@media (max-width: 640px) { .ra-form { grid-template-columns: 1fr; } .ra-list li { flex-direction: column; align-items: stretch; } }

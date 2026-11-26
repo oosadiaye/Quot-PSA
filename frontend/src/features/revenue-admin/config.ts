@@ -196,5 +196,25 @@ export const moduleConfig: ModuleConfig = {
         { name: 'verified_at', label: 'Verified At', type: 'datetime', readOnly: true, hideInForm: true },
       ],
     },
+    {
+      key: 'collectionApplication',
+      plural: 'collection-applications',
+      label: 'Collection Applications',
+      readOnly: true,
+      searchField: 'collection_receipt',
+      idField: 'id',
+      columns: [
+        { name: 'collection_receipt', label: 'Receipt', type: 'text' },
+        { name: 'taxpayer', label: 'Taxpayer', type: 'integer', reference: { module: 'revenue_admin', entity: 'taxpayer' } },
+        { name: 'arrears', label: 'Arrears Row', type: 'integer', numeric: true },
+        { name: 'demand_notice', label: 'Demand Notice', type: 'integer', reference: { module: 'revenue_admin', entity: 'demandNotice' } },
+        { name: 'amount', label: 'Amount Applied', type: 'decimal', numeric: true },
+        { name: 'applied_at', label: 'Applied At', type: 'datetime' },
+      ],
+      fields: [
+        { name: 'collection_receipt', label: 'Receipt', type: 'text', readOnly: true },
+        { name: 'amount', label: 'Amount Applied', type: 'decimal', numeric: true, readOnly: true },
+      ],
+    },
   ],
 };
