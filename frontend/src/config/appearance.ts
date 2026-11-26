@@ -9,16 +9,24 @@ export interface BackgroundPreset { name: string; value: string }
 
 /** Offered swatches. Each one applies its own colour; only "Reset to default" returns to the app's built-in look. */
 export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
+  // Soft
   { name: 'Mist', value: '#eef2f7' },
   { name: 'Paper', value: '#faf7f0' },
   { name: 'Sage', value: '#e8f1ea' },
   { name: 'Sky', value: '#e6f0fa' },
   { name: 'Blush', value: '#f8ecee' },
-  { name: 'Lavender', value: '#eeebf8' },
+  // Bright
+  { name: 'Royal', value: '#2563eb' },
+  { name: 'Azure', value: '#0ea5e9' },
+  { name: 'Emerald', value: '#10b981' },
+  { name: 'Amber', value: '#f59e0b' },
+  { name: 'Rose', value: '#f43f5e' },
+  // Bold
+  { name: 'Violet', value: '#7c3aed' },
+  { name: 'Teal', value: '#0d9488' },
   { name: 'Slate', value: '#475569' },
   { name: 'Navy', value: '#1a1f66' },
   { name: 'Forest', value: '#14532d' },
-  { name: 'Charcoal', value: '#1f2937' },
 ];
 
 /** What the colour inputs show while nothing is chosen. */
