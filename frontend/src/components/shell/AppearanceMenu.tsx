@@ -60,8 +60,8 @@ export default function AppearanceMenu({ buttonClassName = 'topnav-icon-btn' }: 
               <button
                 key={p.value} type="button" className="appearance-swatch" style={{ background: p.value }}
                 aria-label={p.name} title={p.name}
-                aria-pressed={current === p.value && (chosen !== null || p.value === DEFAULT_BACKGROUND)}
-                onClick={() => choose(p.value === DEFAULT_BACKGROUND ? null : p.value)}
+                aria-pressed={chosen === p.value}
+                onClick={() => choose(p.value)}
               />
             ))}
           </div>

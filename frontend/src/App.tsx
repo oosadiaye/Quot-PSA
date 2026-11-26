@@ -315,6 +315,7 @@ const queryClient = new QueryClient({
 });
 
 import { App as AntApp, ConfigProvider, theme as antdTheme } from 'antd';
+import { antdTokens } from './config/themePalette';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -330,7 +331,7 @@ function ThemedApp({ children }: { children: ReactNode }) {
     <ConfigProvider
       theme={{
         algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: { colorPrimary: '#242a88', borderRadius: 8 },
+        token: antdTokens(theme),
       }}
     >
       <AntApp>{children}</AntApp>
