@@ -354,7 +354,7 @@ jobs:
             --username="$E2E_USER" \
             --password="$E2E_PASSWORD" | tee seed-output.json
           # Extract appropriation_id for the test runner.
-          echo "E2E_APPROPRIATION_ID=$(python -c "import json; print(json.load(open('seed-output.json'))['appropriation_id'])")" >> "$GITHUB_ENV"
+          echo "E2E_APPROPRIATION_ID=$(python -c "import json; print((lambda t: json.loads(t[t.index('{'):]))(open('seed-output.json').read())['appropriation_id'])")" >> "$GITHUB_ENV"
 
       - name: Start Django
         run: nohup python manage.py runserver 0.0.0.0:8000 --noreload > backend.log 2>&1 &
