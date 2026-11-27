@@ -215,3 +215,36 @@ class TaxClearanceCertificate(AuditBaseModel):
 
     class Meta:
         ordering = ['-issue_date']
+
+
+class CollectionApplication(AuditBaseModel):
+    """How one posted revenue collection was applied to what the taxpayer owed.
+
+    The collection is held by its receipt number, a plain string, not a foreign key: accounting owns the collection and
+    must never depend on this module, and the history has to survive the module being switched off. Every collection
+    this module has handled has at least one row here, which is what makes applying it idempotent: a receipt that
+    already has a row is never applied again. A row with neither ``arrears`` nor ``demand_notice`` records money that
+    matched nothing (an unknown TIN, or more than the taxpayer owed).
+    """
+    collection_receipt = models.CharField(max_length=30, db_index=True)
+    line_no = models.PositiveSmallIntegerField(default=1)
+    taxpayer = models.ForeignKey(
+        Taxpayer, on_delete=models.PROTECT, null=True, blank=True, related_name='collection_applications',
+    )
+    arrears = models.ForeignKey(
+        ArrearsLedger, on_delete=models.PROTECT, null=True, blank=True, related_name='applications',
+    )
+    demand_notice = models.ForeignKey(
+        DemandNotice, on_delete=models.PROTECT, null=True, blank=True, related_name='applications',
+    )
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    applied_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['collection_receipt', 'line_no']
+        constraints = [
+            models.UniqueConstraint(fields=['collection_receipt', 'line_no'], name='unique_application_line_per_receipt'),
+        ]
+
+    def __str__(self):
+        return f'{self.collection_receipt}#{self.line_no}: {self.amount}'

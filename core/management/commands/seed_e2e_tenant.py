@@ -68,6 +68,12 @@ class Command(BaseCommand):
             defaults={"tenant": client, "is_primary": True},
         )
 
+        # Client.auto_create_schema is False, so a fresh database (CI) has no tenant schema yet. Build it the way the test
+        # suite does: create the empty schema, run the contenttypes migrations to completion first (otherwise a later
+        # migration's seeder trips the legacy NOT NULL "name" column of django_content_type), then migrate everything.
+        # A no-op when the schema already exists and is current.
+        self._ensure_schema(schema)
+
         # 2. Tenant-schema work: user + dimension data + appropriation.
         connection.set_schema(schema)
         try:
@@ -83,6 +89,11 @@ class Command(BaseCommand):
                     program_id, geo_id, economic_id,
                 )
                 vendor_id = self._ensure_vendor(fiscal_year_id)
+                self._ensure_modules()
+                employee_id = self._ensure_employee(user_id)
+                advance_accounts = self._ensure_advance_accounts()
+                revenue_head_id = self._ensure_revenue_head()
+                self._ensure_open_period()
 
             output = {
                 "schema": schema,
@@ -93,6 +104,9 @@ class Command(BaseCommand):
                 "fiscal_year_id": fiscal_year_id,
                 "appropriation_id": appropriation_id,
                 "vendor_id": vendor_id,
+                "employee_id": employee_id,
+                "revenue_head_id": revenue_head_id,
+                "advance_accounts": advance_accounts,
                 "ncoa": {
                     "administrative": admin_id, "fund": fund_id,
                     "functional": function_id, "programme": program_id,
@@ -106,6 +120,20 @@ class Command(BaseCommand):
 
     # ── ensures ──
 
+    def _ensure_schema(self, schema: str) -> None:
+        import re
+        from django.core.management import CommandError, call_command
+        from django_tenants.utils import schema_context, schema_exists
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+            raise CommandError(f"Not a usable schema name: {schema!r}")
+        if not schema_exists(schema):
+            with connection.cursor() as cur:
+                cur.execute(f'CREATE SCHEMA "{schema}"')
+            with schema_context(schema):
+                call_command("migrate", "contenttypes", verbosity=0, interactive=False)
+        call_command("migrate_schemas", schema_name=schema, verbosity=0, interactive=False)
+        connection.set_schema_to_public()
+
     def _ensure_user(self, username: str, password: str, email: str) -> int:
         from django.contrib.auth import get_user_model
         U = get_user_model()
@@ -117,7 +145,19 @@ class Command(BaseCommand):
         u.set_password(password)
         u.is_active = True
         u.save()
+        self._ensure_membership(u)
         return u.id
+
+    def _ensure_membership(self, user) -> None:
+        """The user must belong to the tenant as an admin, or every API call is refused ("You do not have access to this
+        tenant"). Membership lives in the public schema, while this runs inside the tenant's."""
+        from django_tenants.utils import schema_context
+        from tenants.models import Client, UserTenantRole
+        schema = connection.schema_name
+        with schema_context("public"):
+            tenant = Client.objects.get(schema_name=schema)
+            UserTenantRole.objects.update_or_create(
+                user=user, tenant=tenant, defaults={"role": "admin", "is_active": True})
 
     def _ensure_fiscal_year(self) -> int:
         from accounting.models.advanced import FiscalYear
@@ -210,10 +250,84 @@ class Command(BaseCommand):
         )
         return appr.id
 
+    OPTIONAL_MODULES = (
+        "budget_prep", "personnel_budget", "cash_planning", "catalogue", "egp", "revenue_admin", "debt",
+        "staff_advances", "fleet", "legal", "disclosure", "internal_audit", "transparency", "results", "integrations",
+    )
+
+    def _ensure_modules(self) -> None:
+        """Switch the optional modules on for this tenant. They default to off, and a spec that finds a module off can only
+        see the 'Module Disabled' page, which proves nothing about the module."""
+        from core.models import TenantModule
+        for key in self.OPTIONAL_MODULES:
+            TenantModule.objects.update_or_create(module_name=key, defaults={"is_active": True})
+
+    def _ensure_employee(self, user_id: int) -> int:
+        """An employee record for the e2e admin, so staff advances and travel requests have someone to belong to. It is the
+        admin's own record because a user without the view-all permission only ever sees their own employee."""
+        from django.contrib.auth import get_user_model
+        from hrm.models import Department, Employee, Position
+        user = get_user_model().objects.get(pk=user_id)
+        dept, _ = Department.objects.get_or_create(code="CI-D", defaults={"name": "CI Department"})
+        pos, _ = Position.objects.get_or_create(
+            code="CI-P", defaults={"title": "CI Officer", "department": dept, "grade": "Mid"})
+        emp, _ = Employee.objects.get_or_create(
+            user=user,
+            defaults={"employee_number": "CI-EMP-ADMIN", "department": dept, "position": pos, "hire_date": date(2025, 1, 1)},
+        )
+        return emp.id
+
+    def _ensure_revenue_head(self) -> int:
+        """One revenue head (and its revenue account), so revenue administration has something to assess against."""
+        from accounting.models import Account, RevenueHead
+        econ, _ = Account.objects.get_or_create(
+            code="12000100",
+            defaults={"name": "Ground Rent Revenue (CI)", "account_type": "Revenue", "is_active": True},
+        )
+        head, _ = RevenueHead.objects.get_or_create(
+            code="CI-RH-001",
+            defaults={"name": "CI Ground Rent", "economic_segment": econ, "revenue_type": "OTHER"},
+        )
+        return head.id
+
+    def _ensure_advance_accounts(self) -> dict:
+        """The accounts a staff advance touches: the tagged recon account (an asset) and a cash account."""
+        from accounting.models import Account
+        recon, _ = Account.objects.update_or_create(
+            code="19001000",
+            defaults={"name": "Staff Advances (CI)", "account_type": "Asset",
+                      "reconciliation_type": "staff_advance", "is_active": True},
+        )
+        cash, _ = Account.objects.update_or_create(
+            code="31009000",
+            defaults={"name": "TSA Cash (CI advances)", "account_type": "Asset", "is_active": True},
+        )
+        return {"recon": recon.id, "cash": cash.id}
+
+    def _ensure_open_period(self) -> None:
+        """An open monthly period covering today: the ledger refuses to post into a date with none."""
+        import calendar
+        from django.utils import timezone
+        from accounting.models import FiscalPeriod
+        today = timezone.localdate()
+        month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+        FiscalPeriod.objects.get_or_create(
+            fiscal_year=today.year, period_number=today.month, period_type="Monthly",
+            defaults={"start_date": today.replace(day=1), "end_date": month_end, "status": "Open", "is_closed": False},
+        )
+
     def _ensure_vendor(self, fy_id) -> int:
+        from accounting.models import Account
         from procurement.models import Vendor, VendorCategory
+        # A vendor category must point at an accounts-payable reconciliation account.
+        payable, _ = Account.objects.get_or_create(
+            code="21009000",
+            defaults={"name": "Accounts Payable (CI)", "account_type": "Liability",
+                      "reconciliation_type": "accounts_payable", "is_active": True},
+        )
         cat, _ = VendorCategory.objects.get_or_create(
             name="LOCAL supplier/Contractors",
+            defaults={"code": "CI-LOCAL", "reconciliation_account": payable},
         )
         v, _ = Vendor.objects.get_or_create(
             code="CI-V-001",
