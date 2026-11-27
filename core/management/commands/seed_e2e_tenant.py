@@ -68,6 +68,12 @@ class Command(BaseCommand):
             defaults={"tenant": client, "is_primary": True},
         )
 
+        # Client.auto_create_schema is False, so a fresh database (CI) has no tenant schema yet. Build it the way the test
+        # suite does: create the empty schema, run the contenttypes migrations to completion first (otherwise a later
+        # migration's seeder trips the legacy NOT NULL "name" column of django_content_type), then migrate everything.
+        # A no-op when the schema already exists and is current.
+        self._ensure_schema(schema)
+
         # 2. Tenant-schema work: user + dimension data + appropriation.
         connection.set_schema(schema)
         try:
@@ -83,6 +89,9 @@ class Command(BaseCommand):
                     program_id, geo_id, economic_id,
                 )
                 vendor_id = self._ensure_vendor(fiscal_year_id)
+                employee_id = self._ensure_employee()
+                advance_accounts = self._ensure_advance_accounts()
+                self._ensure_open_period()
 
             output = {
                 "schema": schema,
@@ -93,6 +102,8 @@ class Command(BaseCommand):
                 "fiscal_year_id": fiscal_year_id,
                 "appropriation_id": appropriation_id,
                 "vendor_id": vendor_id,
+                "employee_id": employee_id,
+                "advance_accounts": advance_accounts,
                 "ncoa": {
                     "administrative": admin_id, "fund": fund_id,
                     "functional": function_id, "programme": program_id,
@@ -105,6 +116,20 @@ class Command(BaseCommand):
             connection.set_schema_to_public()
 
     # ── ensures ──
+
+    def _ensure_schema(self, schema: str) -> None:
+        import re
+        from django.core.management import CommandError, call_command
+        from django_tenants.utils import schema_context, schema_exists
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+            raise CommandError(f"Not a usable schema name: {schema!r}")
+        if not schema_exists(schema):
+            with connection.cursor() as cur:
+                cur.execute(f'CREATE SCHEMA "{schema}"')
+            with schema_context(schema):
+                call_command("migrate", "contenttypes", verbosity=0, interactive=False)
+        call_command("migrate_schemas", schema_name=schema, verbosity=0, interactive=False)
+        connection.set_schema_to_public()
 
     def _ensure_user(self, username: str, password: str, email: str) -> int:
         from django.contrib.auth import get_user_model
@@ -209,6 +234,46 @@ class Command(BaseCommand):
             },
         )
         return appr.id
+
+    def _ensure_employee(self) -> int:
+        """One employee, so staff advances and travel requests have someone to belong to."""
+        from django.contrib.auth.models import User
+        from hrm.models import Department, Employee, Position
+        user, _ = User.objects.get_or_create(username="ci_employee", defaults={"email": "employee@example.com"})
+        dept, _ = Department.objects.get_or_create(code="CI-D", defaults={"name": "CI Department"})
+        pos, _ = Position.objects.get_or_create(
+            code="CI-P", defaults={"title": "CI Officer", "department": dept, "grade": "Mid"})
+        emp, _ = Employee.objects.get_or_create(
+            employee_number="CI-EMP-001",
+            defaults={"user": user, "department": dept, "position": pos, "hire_date": date(2025, 1, 1)},
+        )
+        return emp.id
+
+    def _ensure_advance_accounts(self) -> dict:
+        """The accounts a staff advance touches: the tagged recon account (an asset) and a cash account."""
+        from accounting.models import Account
+        recon, _ = Account.objects.update_or_create(
+            code="19001000",
+            defaults={"name": "Staff Advances (CI)", "account_type": "Asset",
+                      "reconciliation_type": "staff_advance", "is_active": True},
+        )
+        cash, _ = Account.objects.update_or_create(
+            code="31009000",
+            defaults={"name": "TSA Cash (CI advances)", "account_type": "Asset", "is_active": True},
+        )
+        return {"recon": recon.id, "cash": cash.id}
+
+    def _ensure_open_period(self) -> None:
+        """An open monthly period covering today: the ledger refuses to post into a date with none."""
+        import calendar
+        from django.utils import timezone
+        from accounting.models import FiscalPeriod
+        today = timezone.localdate()
+        month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+        FiscalPeriod.objects.get_or_create(
+            fiscal_year=today.year, period_number=today.month, period_type="Monthly",
+            defaults={"start_date": today.replace(day=1), "end_date": month_end, "status": "Open", "is_closed": False},
+        )
 
     def _ensure_vendor(self, fy_id) -> int:
         from procurement.models import Vendor, VendorCategory

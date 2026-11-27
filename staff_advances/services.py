@@ -200,14 +200,13 @@ class StaffAdvanceGLService:
 
         posting_date = posting_date or timezone.now().date()
         ref = staff_advance.reference or f"STAFFADV-{staff_advance.pk:04d}"
-        # Unique reference per recovery slice (JournalHeader.reference_number
-        # is uniquely indexed) — count prior recovery journals for this app.
-        from accounting.models import JournalHeader as _JH
-        n = _JH.objects.filter(
-            source_module="staff_advance_recovery",
-            source_document_id=staff_advance.pk,
-        ).count()
-        recovery_ref = f"REC-{ref}-{n + 1:02d}"
+        # One AdvanceRecovery row per slice: a posted journal is unique per (source module, source document), so each
+        # slice needs a source document of its own, and the row is also the advance's recovery history.
+        from .models import AdvanceRecovery
+        recovery = AdvanceRecovery.objects.create(
+            advance=staff_advance, amount=amount, recovered_on=posting_date, notes=(notes or '')[:255],
+        )
+        recovery_ref = f"REC-{ref}-{recovery.pk:05d}"
 
         journal = JournalHeader.objects.create(
             posting_date=posting_date,
@@ -215,7 +214,7 @@ class StaffAdvanceGLService:
             description=f"Staff advance recovery — {ref} ({notes})",
             status="Draft",
             source_module="staff_advance_recovery",
-            source_document_id=staff_advance.pk,
+            source_document_id=recovery.pk,
             posted_by=actor,
         )
         JournalLine.objects.create(
@@ -229,6 +228,7 @@ class StaffAdvanceGLService:
             memo=f"Clear advance — {ref}",
         )
         IPSASJournalService.post_journal(journal, actor)
+        AdvanceRecovery.objects.filter(pk=recovery.pk).update(journal=journal)
 
         locked = type(staff_advance).objects.select_for_update().get(pk=staff_advance.pk)
         locked.recovered_amount = quantize_currency(
