@@ -21,9 +21,9 @@ async function employeeId(api: APIRequestContext): Promise<number> {
 }
 
 async function reconConfigured(api: APIRequestContext): Promise<boolean> {
-  const res = await api.get('/api/v1/accounting/accounts/', { params: { reconciliation_type: 'staff_advance', page_size: 1 } });
+  const res = await api.get('/api/v1/accounting/accounts/', { params: { page_size: 200 } });
   const body = res.ok() ? await res.json() : {};
-  return ((body.results ?? []) as unknown[]).length > 0;
+  return ((body.results ?? []) as Array<{ reconciliation_type?: string }>).some((a) => a.reconciliation_type === 'staff_advance');
 }
 
 async function newRequest(api: APIRequestContext, employee: number, destination: string, cost = '300.00') {

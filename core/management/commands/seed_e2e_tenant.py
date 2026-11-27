@@ -89,8 +89,10 @@ class Command(BaseCommand):
                     program_id, geo_id, economic_id,
                 )
                 vendor_id = self._ensure_vendor(fiscal_year_id)
-                employee_id = self._ensure_employee()
+                self._ensure_modules()
+                employee_id = self._ensure_employee(user_id)
                 advance_accounts = self._ensure_advance_accounts()
+                revenue_head_id = self._ensure_revenue_head()
                 self._ensure_open_period()
 
             output = {
@@ -103,6 +105,7 @@ class Command(BaseCommand):
                 "appropriation_id": appropriation_id,
                 "vendor_id": vendor_id,
                 "employee_id": employee_id,
+                "revenue_head_id": revenue_head_id,
                 "advance_accounts": advance_accounts,
                 "ncoa": {
                     "administrative": admin_id, "fund": fund_id,
@@ -142,7 +145,19 @@ class Command(BaseCommand):
         u.set_password(password)
         u.is_active = True
         u.save()
+        self._ensure_membership(u)
         return u.id
+
+    def _ensure_membership(self, user) -> None:
+        """The user must belong to the tenant as an admin, or every API call is refused ("You do not have access to this
+        tenant"). Membership lives in the public schema, while this runs inside the tenant's."""
+        from django_tenants.utils import schema_context
+        from tenants.models import Client, UserTenantRole
+        schema = connection.schema_name
+        with schema_context("public"):
+            tenant = Client.objects.get(schema_name=schema)
+            UserTenantRole.objects.update_or_create(
+                user=user, tenant=tenant, defaults={"role": "admin", "is_active": True})
 
     def _ensure_fiscal_year(self) -> int:
         from accounting.models.advanced import FiscalYear
@@ -235,19 +250,45 @@ class Command(BaseCommand):
         )
         return appr.id
 
-    def _ensure_employee(self) -> int:
-        """One employee, so staff advances and travel requests have someone to belong to."""
-        from django.contrib.auth.models import User
+    OPTIONAL_MODULES = (
+        "budget_prep", "personnel_budget", "cash_planning", "catalogue", "egp", "revenue_admin", "debt",
+        "staff_advances", "fleet", "legal", "disclosure", "internal_audit", "transparency", "results", "integrations",
+    )
+
+    def _ensure_modules(self) -> None:
+        """Switch the optional modules on for this tenant. They default to off, and a spec that finds a module off can only
+        see the 'Module Disabled' page, which proves nothing about the module."""
+        from core.models import TenantModule
+        for key in self.OPTIONAL_MODULES:
+            TenantModule.objects.update_or_create(module_name=key, defaults={"is_active": True})
+
+    def _ensure_employee(self, user_id: int) -> int:
+        """An employee record for the e2e admin, so staff advances and travel requests have someone to belong to. It is the
+        admin's own record because a user without the view-all permission only ever sees their own employee."""
+        from django.contrib.auth import get_user_model
         from hrm.models import Department, Employee, Position
-        user, _ = User.objects.get_or_create(username="ci_employee", defaults={"email": "employee@example.com"})
+        user = get_user_model().objects.get(pk=user_id)
         dept, _ = Department.objects.get_or_create(code="CI-D", defaults={"name": "CI Department"})
         pos, _ = Position.objects.get_or_create(
             code="CI-P", defaults={"title": "CI Officer", "department": dept, "grade": "Mid"})
         emp, _ = Employee.objects.get_or_create(
-            employee_number="CI-EMP-001",
-            defaults={"user": user, "department": dept, "position": pos, "hire_date": date(2025, 1, 1)},
+            user=user,
+            defaults={"employee_number": "CI-EMP-ADMIN", "department": dept, "position": pos, "hire_date": date(2025, 1, 1)},
         )
         return emp.id
+
+    def _ensure_revenue_head(self) -> int:
+        """One revenue head (and its revenue account), so revenue administration has something to assess against."""
+        from accounting.models import Account, RevenueHead
+        econ, _ = Account.objects.get_or_create(
+            code="12000100",
+            defaults={"name": "Ground Rent Revenue (CI)", "account_type": "Revenue", "is_active": True},
+        )
+        head, _ = RevenueHead.objects.get_or_create(
+            code="CI-RH-001",
+            defaults={"name": "CI Ground Rent", "economic_segment": econ, "revenue_type": "OTHER"},
+        )
+        return head.id
 
     def _ensure_advance_accounts(self) -> dict:
         """The accounts a staff advance touches: the tagged recon account (an asset) and a cash account."""
@@ -276,9 +317,17 @@ class Command(BaseCommand):
         )
 
     def _ensure_vendor(self, fy_id) -> int:
+        from accounting.models import Account
         from procurement.models import Vendor, VendorCategory
+        # A vendor category must point at an accounts-payable reconciliation account.
+        payable, _ = Account.objects.get_or_create(
+            code="21009000",
+            defaults={"name": "Accounts Payable (CI)", "account_type": "Liability",
+                      "reconciliation_type": "accounts_payable", "is_active": True},
+        )
         cat, _ = VendorCategory.objects.get_or_create(
             name="LOCAL supplier/Contractors",
+            defaults={"code": "CI-LOCAL", "reconciliation_account": payable},
         )
         v, _ = Vendor.objects.get_or_create(
             code="CI-V-001",
