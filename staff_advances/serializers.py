@@ -84,9 +84,16 @@ class TravelAdvanceSerializer(serializers.ModelSerializer):
 
 
 class TravelRetirementSerializer(serializers.ModelSerializer):
+    # True once the trip has been retired, so a screen can tell a posted retirement from one still waiting.
+    retired = serializers.SerializerMethodField()
+
     class Meta:
         model = TravelRetirement
         fields = [
             'id', 'travel_advance', 'retired_date', 'amount',
-            'balance_returned', 'documents',
+            'balance_returned', 'documents', 'retired',
         ]
+        read_only_fields = ['retired']
+
+    def get_retired(self, obj) -> bool:
+        return obj.travel_advance.travel_request.status == 'retired'

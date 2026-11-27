@@ -74,6 +74,28 @@ class StaffAdvance(AuditBaseModel):
         indexes = [models.Index(fields=['employee', 'status'])]
 
 
+class AdvanceRecovery(AuditBaseModel):
+    """One slice recovered against a staff advance.
+
+    A row per slice, because a posted journal is unique per (source module, source document): an advance recovered in
+    two instalments needs two distinct source documents, and this row is that document. It is also the advance's
+    recovery history.
+    """
+    advance = models.ForeignKey('StaffAdvance', on_delete=models.PROTECT, related_name='recoveries')
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    recovered_on = models.DateField(default=timezone.localdate)
+    notes = models.CharField(max_length=255, blank=True, default='')
+    journal = models.ForeignKey(
+        'accounting.JournalHeader', on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['advance', 'id']
+
+    def __str__(self):
+        return f'recovery {self.pk} of advance {self.advance_id}: {self.amount}'
+
+
 class ImprestAccount(AuditBaseModel):
     """Imprest: issue, expenditure, retirement, replenishment."""
 

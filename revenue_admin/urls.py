@@ -9,6 +9,7 @@ from .views import (
     ArrearsLedgerViewSet,
     EnforcementCaseViewSet,
     TaxClearanceCertificateViewSet,
+    CollectionApplicationViewSet,
 )
 
 router = DefaultRouter()
@@ -20,6 +21,7 @@ router.register(r'demand-notices', DemandNoticeViewSet, basename='demand-notice'
 router.register(r'arrears', ArrearsLedgerViewSet, basename='arrears-ledger')
 router.register(r'enforcement-cases', EnforcementCaseViewSet, basename='enforcement-case')
 router.register(r'clearance-certificates', TaxClearanceCertificateViewSet, basename='clearance-certificate')
+router.register(r'collection-applications', CollectionApplicationViewSet, basename='collection-application')
 
 urlpatterns = [
     path('', include(router.urls)),

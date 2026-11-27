@@ -1,11 +1,5 @@
 /* The user's own background colour (config/appearance.ts sets --user-bg on <html>).
- * Light theme only: the dark theme keeps its own surface, so a pale pick can't wash out dark mode. */
-:root[data-user-bg]:not([data-theme="dark"]) {
-  --color-background: var(--user-bg);
-}
-:root[data-user-bg]:not([data-theme="dark"]) body {
-  background-color: var(--user-bg);
-}
+ * It applies to the All modules launcher only; every other page keeps the theme's own background. */
 
 /* The launcher draws its own background and white text; with a pick it takes the colour and the readable text. */
 :root[data-user-bg] .launcher {

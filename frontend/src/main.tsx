@@ -1,6 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// The Quot ERP design typeface, self-hosted (no CDN request).
+import '@fontsource-variable/geist'
 import './index.css'
+// Carries the design's form-control look to controls a page styles inline.
+import './styles/forms.css'
 import './styles/responsive.css'
 // Last, deliberately: the spreadsheet register style for every list view
 // has to win over the per-page table styling it replaces.

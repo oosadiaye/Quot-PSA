@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import (
+    CollectionApplication,
     Taxpayer,
     TaxAccount,
     Assessment,
@@ -86,3 +87,10 @@ class TaxClearanceCertificateSerializer(serializers.ModelSerializer):
             'issue_date', 'expiry_date', 'verified_at',
         ]
         read_only_fields = ['verified_at']
+
+
+class CollectionApplicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CollectionApplication
+        fields = ['id', 'collection_receipt', 'line_no', 'taxpayer', 'arrears', 'demand_notice', 'amount', 'applied_at']
+        read_only_fields = fields

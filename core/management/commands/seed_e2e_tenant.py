@@ -33,7 +33,6 @@ import os
 from datetime import date
 from decimal import Decimal
 
-from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 
@@ -90,6 +89,11 @@ class Command(BaseCommand):
                     program_id, geo_id, economic_id,
                 )
                 vendor_id = self._ensure_vendor(fiscal_year_id)
+                self._ensure_modules()
+                employee_id = self._ensure_employee(user_id)
+                advance_accounts = self._ensure_advance_accounts()
+                revenue_head_id = self._ensure_revenue_head()
+                self._ensure_open_period()
 
             output = {
                 "schema": schema,
@@ -100,6 +104,9 @@ class Command(BaseCommand):
                 "fiscal_year_id": fiscal_year_id,
                 "appropriation_id": appropriation_id,
                 "vendor_id": vendor_id,
+                "employee_id": employee_id,
+                "revenue_head_id": revenue_head_id,
+                "advance_accounts": advance_accounts,
                 "ncoa": {
                     "administrative": admin_id, "fund": fund_id,
                     "functional": function_id, "programme": program_id,
@@ -254,6 +261,60 @@ class Command(BaseCommand):
         from core.models import TenantModule
         for key in self.OPTIONAL_MODULES:
             TenantModule.objects.update_or_create(module_name=key, defaults={"is_active": True})
+
+    def _ensure_employee(self, user_id: int) -> int:
+        """An employee record for the e2e admin, so staff advances and travel requests have someone to belong to. It is the
+        admin's own record because a user without the view-all permission only ever sees their own employee."""
+        from django.contrib.auth import get_user_model
+        from hrm.models import Department, Employee, Position
+        user = get_user_model().objects.get(pk=user_id)
+        dept, _ = Department.objects.get_or_create(code="CI-D", defaults={"name": "CI Department"})
+        pos, _ = Position.objects.get_or_create(
+            code="CI-P", defaults={"title": "CI Officer", "department": dept, "grade": "Mid"})
+        emp, _ = Employee.objects.get_or_create(
+            user=user,
+            defaults={"employee_number": "CI-EMP-ADMIN", "department": dept, "position": pos, "hire_date": date(2025, 1, 1)},
+        )
+        return emp.id
+
+    def _ensure_revenue_head(self) -> int:
+        """One revenue head (and its revenue account), so revenue administration has something to assess against."""
+        from accounting.models import Account, RevenueHead
+        econ, _ = Account.objects.get_or_create(
+            code="12000100",
+            defaults={"name": "Ground Rent Revenue (CI)", "account_type": "Revenue", "is_active": True},
+        )
+        head, _ = RevenueHead.objects.get_or_create(
+            code="CI-RH-001",
+            defaults={"name": "CI Ground Rent", "economic_segment": econ, "revenue_type": "OTHER"},
+        )
+        return head.id
+
+    def _ensure_advance_accounts(self) -> dict:
+        """The accounts a staff advance touches: the tagged recon account (an asset) and a cash account."""
+        from accounting.models import Account
+        recon, _ = Account.objects.update_or_create(
+            code="19001000",
+            defaults={"name": "Staff Advances (CI)", "account_type": "Asset",
+                      "reconciliation_type": "staff_advance", "is_active": True},
+        )
+        cash, _ = Account.objects.update_or_create(
+            code="31009000",
+            defaults={"name": "TSA Cash (CI advances)", "account_type": "Asset", "is_active": True},
+        )
+        return {"recon": recon.id, "cash": cash.id}
+
+    def _ensure_open_period(self) -> None:
+        """An open monthly period covering today: the ledger refuses to post into a date with none."""
+        import calendar
+        from django.utils import timezone
+        from accounting.models import FiscalPeriod
+        today = timezone.localdate()
+        month_end = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+        FiscalPeriod.objects.get_or_create(
+            fiscal_year=today.year, period_number=today.month, period_type="Monthly",
+            defaults={"start_date": today.replace(day=1), "end_date": month_end, "status": "Open", "is_closed": False},
+        )
 
     def _ensure_vendor(self, fy_id) -> int:
         from accounting.models import Account

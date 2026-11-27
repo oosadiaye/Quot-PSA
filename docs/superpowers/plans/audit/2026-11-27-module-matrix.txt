@@ -1,0 +1,16 @@
+app                tests    ledger  workflow       mda   signals
+budget_prep            8         0         2        11         0
+personnel_budget       3         0         2         4         1
+cash_planning          1         0         0         4         1
+catalogue              1         0         2         0         0
+egp                    2         0         2         2         0
+revenue_admin          0         0         1         0         0
+debt                   2         3         0         0         0
+staff_advances         0         2         0         0         0
+fleet                  0         0         0         1         0
+legal                  0         0         0         0         0
+disclosure             0         0         1         0         0
+internal_audit         0         0         0         0         0
+transparency           1         0         0         1         0
+results                0         0         0         1         0
+integrations           0         0         0         0         0

@@ -60,8 +60,8 @@ export default function AppearanceMenu({ buttonClassName = 'topnav-icon-btn' }: 
               <button
                 key={p.value} type="button" className="appearance-swatch" style={{ background: p.value }}
                 aria-label={p.name} title={p.name}
-                aria-pressed={current === p.value && (chosen !== null || p.value === DEFAULT_BACKGROUND)}
-                onClick={() => choose(p.value === DEFAULT_BACKGROUND ? null : p.value)}
+                aria-pressed={chosen === p.value}
+                onClick={() => choose(p.value)}
               />
             ))}
           </div>
@@ -72,7 +72,7 @@ export default function AppearanceMenu({ buttonClassName = 'topnav-icon-btn' }: 
           </label>
           {error && <p className="appearance-error" role="alert">{error}</p>}
           {!kept && <p className="appearance-note">This browser would not save it, so it lasts until you leave.</p>}
-          <p className="appearance-note">Applies to the page background in light mode and to the module launcher.</p>
+          <p className="appearance-note">Applies to the All modules page only.</p>
           <button type="button" className="appearance-reset" onClick={() => choose(null)}>Reset to default</button>
         </div>
       )}

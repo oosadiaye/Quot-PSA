@@ -109,11 +109,9 @@ class PayrollPostingService(BasePostingService):
         total_pension = Decimal(str(line_totals['total_pension'] or 0))
         total_other = total_deductions - total_tax - total_pension
 
-        # G3 payroll budget gate: salary posting must not bypass the
-        # appropriation/commitment control that the rest of the GL honours.
-        # Lazy import keeps accounting decoupled from personnel_budget — if the
-        # module (or its service) is unavailable the core flow is unaffected.
-        _enforce_payroll_budget(payroll_run, total_gross)
+        # Announce the run before it posts. Controls that belong to optional modules (the payroll budget gate of
+        # personnel_budget) listen for this and may refuse it; accounting itself knows no module by name.
+        _announce_payroll_posting(payroll_run, total_gross)
 
         description = f"Payroll Run: {payroll_run.run_number}"
         if allocation_warning:
@@ -275,41 +273,8 @@ class PayrollPostingService(BasePostingService):
         return reversal_journal
 
 
-def _personnel_budget_enabled() -> bool:
-    """Is the personnel_budget module switched on for this tenant? Off (or no row) means payroll posts exactly as it
-    did before the module existed."""
-    from django.db import connection
-    from core.permissions import _is_module_enabled
+def _announce_payroll_posting(payroll_run, total_gross):
+    """Tell any listener a payroll run is about to post. A listener that raises stops the posting."""
+    from accounting.signals.events import payroll_pre_post
 
-    tenant = getattr(connection, 'tenant', None)
-    if tenant is None or getattr(tenant, 'schema_name', 'public') == 'public':
-        return False
-    return _is_module_enabled('personnel_budget', tenant)
-
-
-def _enforce_payroll_budget(payroll_run, total_gross):
-    """Run the personnel_budget G3 gate before a payroll run posts to the GL.
-
-    Enforces the central ``check_policy`` engine against the salary expense
-    account, so payroll honours the same appropriation/commitment control as
-    journals, POs, and vouchers. Additionally, when a ``PayrollBudgetBinding``
-    is present its governing STRICT level is honoured exactly.
-
-    Uses a lazy import so ``accounting`` never hard-depends on the
-    personnel_budget module; a missing/broken module fails open (logs and
-    continues), matching how the rest of the legacy flow tolerates optional
-    future modules.
-    """
-    if not _personnel_budget_enabled():
-        return
-    try:
-        from personnel_budget.services import assert_payroll_budget_ok
-        assert_payroll_budget_ok(payroll_run, requested_amount=total_gross)
-    except ImportError:
-        logger.warning(
-            'personnel_budget module unavailable; skipping payroll budget '
-            'gate (accounting decoupled).',
-            exc_info=True,
-        )
-    except Exception:
-        raise
+    payroll_pre_post.send(sender=type(payroll_run), payroll_run=payroll_run, total_gross=total_gross)

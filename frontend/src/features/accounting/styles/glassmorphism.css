@@ -24,15 +24,8 @@
     --glass-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
     --glass-shadow-hover: 0 4px 12px 0 rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 
-    /* Enterprise-standard form styling */
-    --color-surface: #ffffff;
-    --color-border: #e2e8f0;
-    --color-text: #0f172a;
-    --color-text-muted: #64748b;
-    --color-primary: #191e6a;
-    --color-success: #22c55e;
-    --color-error: #ef4444;
-    --color-warning: #f59e0b;
+    /* The shared --color-* tokens come from index.css (the Quot ERP design); this file no longer
+       redefines them, so accounting pages follow the app theme in light and dark. */
 
     /* Typography */
     --text-xs: 0.75rem;
@@ -46,20 +39,6 @@
     --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
     --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* Dark mode: re-assert the shared design tokens this file overrides above.
-   The light `:root` block ties index.css's `[data-theme="dark"]` on
-   specificity (both 0,1,0) and, being loaded later in the accounting bundle,
-   wins the tie — leaking light surfaces/text/borders into dark mode. This
-   `:root[data-theme="dark"]` selector (0,2,0) outranks the tie and restores
-   the app-wide dark palette. Values mirror index.css `[data-theme="dark"]`. */
-:root[data-theme="dark"] {
-    --color-surface: #1e293b;
-    --color-border: #334155;
-    --color-text: #f1f5f9;
-    --color-text-muted: #94a3b8;
-    --color-primary: #4d8fdb;
 }
 
 /* ============================================================================

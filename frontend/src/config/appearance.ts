@@ -1,26 +1,35 @@
 /**
  * The background colour a user chooses for the app. Stored per browser; applied as ``--user-bg`` on the root element, which
- * ``styles/appearance.css`` turns into the page background (light theme) and the launcher.
+ * ``styles/appearance.css`` turns into the All modules launcher's background (no other page).
  */
 
 export const BACKGROUND_STORAGE_KEY = 'quotpse.appearance.background.v1';
 
 export interface BackgroundPreset { name: string; value: string }
 
-/** Offered swatches. The first is the app's own default, shown as "Default" and stored as nothing. */
+/** Offered swatches. Each one applies its own colour; only "Reset to default" returns to the app's built-in look. */
 export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [
+  // Soft
   { name: 'Mist', value: '#eef2f7' },
   { name: 'Paper', value: '#faf7f0' },
   { name: 'Sage', value: '#e8f1ea' },
   { name: 'Sky', value: '#e6f0fa' },
   { name: 'Blush', value: '#f8ecee' },
-  { name: 'Lavender', value: '#eeebf8' },
+  // Bright
+  { name: 'Royal', value: '#2563eb' },
+  { name: 'Azure', value: '#0ea5e9' },
+  { name: 'Emerald', value: '#10b981' },
+  { name: 'Amber', value: '#f59e0b' },
+  { name: 'Rose', value: '#f43f5e' },
+  // Bold
+  { name: 'Violet', value: '#7c3aed' },
+  { name: 'Teal', value: '#0d9488' },
   { name: 'Slate', value: '#475569' },
   { name: 'Navy', value: '#1a1f66' },
   { name: 'Forest', value: '#14532d' },
-  { name: 'Charcoal', value: '#1f2937' },
 ];
 
+/** What the colour inputs show while nothing is chosen. */
 export const DEFAULT_BACKGROUND = BACKGROUND_PRESETS[0].value;
 
 /** "#abc" or "#aabbcc" (any case) to "#aabbcc"; anything else is not a colour and gives null. */
