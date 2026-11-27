@@ -69,16 +69,11 @@ class Command(BaseCommand):
             defaults={"tenant": client, "is_primary": True},
         )
 
-        # Client.auto_create_schema is False, so the schema does not exist yet on a fresh database
-        # (CI), and nothing has migrated it. Create it if missing, then bring it up to date; both
-        # are no-ops on a database that already has a migrated schema. sync_schema=True matters: django-tenants
-        # only issues CREATE SCHEMA inside that branch, so False would leave a fresh database with no schema.
-        client.create_schema(check_if_exists=True, sync_schema=True, verbosity=0)
-        call_command(
-            "migrate_schemas", tenant=True, schema_name=schema,
-            interactive=False, verbosity=0,
-        )
-        connection.set_schema_to_public()
+        # Client.auto_create_schema is False, so a fresh database (CI) has no tenant schema yet. Build it the way the test
+        # suite does: create the empty schema, run the contenttypes migrations to completion first (otherwise a later
+        # migration's seeder trips the legacy NOT NULL "name" column of django_content_type), then migrate everything.
+        # A no-op when the schema already exists and is current.
+        self._ensure_schema(schema)
 
         # 2. Tenant-schema work: user + dimension data + appropriation.
         connection.set_schema(schema)
@@ -117,6 +112,20 @@ class Command(BaseCommand):
             connection.set_schema_to_public()
 
     # ── ensures ──
+
+    def _ensure_schema(self, schema: str) -> None:
+        import re
+        from django.core.management import CommandError, call_command
+        from django_tenants.utils import schema_context, schema_exists
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+            raise CommandError(f"Not a usable schema name: {schema!r}")
+        if not schema_exists(schema):
+            with connection.cursor() as cur:
+                cur.execute(f'CREATE SCHEMA "{schema}"')
+            with schema_context(schema):
+                call_command("migrate", "contenttypes", verbosity=0, interactive=False)
+        call_command("migrate_schemas", schema_name=schema, verbosity=0, interactive=False)
+        connection.set_schema_to_public()
 
     def _ensure_user(self, username: str, password: str, email: str) -> int:
         from django.contrib.auth import get_user_model
@@ -222,10 +231,30 @@ class Command(BaseCommand):
         )
         return appr.id
 
+    OPTIONAL_MODULES = (
+        "budget_prep", "personnel_budget", "cash_planning", "catalogue", "egp", "revenue_admin", "debt",
+        "staff_advances", "fleet", "legal", "disclosure", "internal_audit", "transparency", "results", "integrations",
+    )
+
+    def _ensure_modules(self) -> None:
+        """Switch the optional modules on for this tenant. They default to off, and a spec that finds a module off can only
+        see the 'Module Disabled' page, which proves nothing about the module."""
+        from core.models import TenantModule
+        for key in self.OPTIONAL_MODULES:
+            TenantModule.objects.update_or_create(module_name=key, defaults={"is_active": True})
+
     def _ensure_vendor(self, fy_id) -> int:
+        from accounting.models import Account
         from procurement.models import Vendor, VendorCategory
+        # A vendor category must point at an accounts-payable reconciliation account.
+        payable, _ = Account.objects.get_or_create(
+            code="21009000",
+            defaults={"name": "Accounts Payable (CI)", "account_type": "Liability",
+                      "reconciliation_type": "accounts_payable", "is_active": True},
+        )
         cat, _ = VendorCategory.objects.get_or_create(
             name="LOCAL supplier/Contractors",
+            defaults={"code": "CI-LOCAL", "reconciliation_account": payable},
         )
         v, _ = Vendor.objects.get_or_create(
             code="CI-V-001",
