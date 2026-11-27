@@ -138,7 +138,19 @@ class Command(BaseCommand):
         u.set_password(password)
         u.is_active = True
         u.save()
+        self._ensure_membership(u)
         return u.id
+
+    def _ensure_membership(self, user) -> None:
+        """The user must belong to the tenant as an admin, or every API call is refused ("You do not have access to this
+        tenant"). Membership lives in the public schema, while this runs inside the tenant's."""
+        from django_tenants.utils import schema_context
+        from tenants.models import Client, UserTenantRole
+        schema = connection.schema_name
+        with schema_context("public"):
+            tenant = Client.objects.get(schema_name=schema)
+            UserTenantRole.objects.update_or_create(
+                user=user, tenant=tenant, defaults={"role": "admin", "is_active": True})
 
     def _ensure_fiscal_year(self) -> int:
         from accounting.models.advanced import FiscalYear
