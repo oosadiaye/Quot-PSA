@@ -80,3 +80,11 @@ def test_a_journal_level_default_fills_lines_without_their_own_tag(zone_ward):
     services.apply_default_to_journal(a.header_id, {'ward': 'W1'})
     assert services.get_tags('journal_line', a.pk) == {'ward': 'W2'}      # own tag kept
     assert services.get_tags('journal_line', b.pk) == {'ward': 'W1'}      # default filled
+
+
+def test_deleting_a_line_removes_its_tags(zone_ward):
+    line = _line()
+    services.set_tags('journal_line', line.pk, {'ward': 'W1'})
+    pk = line.pk
+    line.delete()
+    assert not DimensionTag.objects.filter(record_type='journal_line', record_id=pk).exists()

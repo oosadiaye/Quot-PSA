@@ -20,6 +20,8 @@ import LoadingScreen from '../../components/common/LoadingScreen';
 import AmountInput from '../../components/AmountInput';
 import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
 import GlCodingWarningModal from '../../components/GlCodingWarningModal';
+import DimensionFields from '../dimensions/DimensionFields';
+import { getTags, saveTags, useFormDimensions, type Tags } from '../dimensions/api';
 
 /**
  * Fixed-asset dropdown source for journal lines. Used for depreciation
@@ -116,6 +118,12 @@ const JournalForm = () => {
     // Appropriation lookup for budget control cannot resolve.
     const { data: mdas = [] } = useMDAs({ is_active: true });
 
+    // Tenant-defined dimensions (Ward, Zone, ...): one default for the whole journal, and an optional value per line that
+    // wins over it. Empty (and invisible) until the tenant defines a dimension for journal lines.
+    const { data: formDimensions = [] } = useFormDimensions('journal_line');
+    const [defaultTags, setDefaultTags] = useState<Tags>({});
+    const [lineTags, setLineTags] = useState<Record<string, Tags>>({});
+
     const [lines, setLines] = useState([
         { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
         { id: crypto.randomUUID(), account: '', debit: '0', credit: '0', memo: '', asset: '' },
@@ -182,10 +190,11 @@ const JournalForm = () => {
             geo: existingJournal.geo ? String(existingJournal.geo) : '',
         });
         const incoming = Array.isArray(existingJournal.lines) ? existingJournal.lines : [];
+        const rowIds: string[] = incoming.map(() => crypto.randomUUID());
         setLines(
             incoming.length
-                ? incoming.map((l: any) => ({
-                      id: crypto.randomUUID(),
+                ? incoming.map((l: any, i: number) => ({
+                      id: rowIds[i],
                       account: l.account ? String(l.account) : '',
                       debit: String(l.debit ?? '0'),
                       credit: String(l.credit ?? '0'),
@@ -198,6 +207,12 @@ const JournalForm = () => {
                   ],
         );
         setHydrated(true);
+        incoming.forEach((l: any, i: number) => {
+            if (!l.id) return;
+            getTags('journal_line', l.id)
+                .then((tags) => { if (Object.keys(tags).length) setLineTags((prev) => ({ ...prev, [rowIds[i]]: tags })); })
+                .catch(() => undefined);   // a role that may not read dimensions simply sees none
+        });
     }, [isEditMode, hydrated, existingJournal, navigate]);
 
     const totalDebit = lines.reduce((sum, l) => sum + parseFloat(l.debit || '0'), 0);
@@ -213,9 +228,18 @@ const JournalForm = () => {
         setLines(newLines);
     };
 
+    const tagsFor = (lineId: string): Tags => ({ ...defaultTags, ...(lineTags[lineId] ?? {}) });
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isBalanced) return;
+        const missing = formDimensions.filter((d) => d.required && lines.some((l) => !tagsFor(l.id)[d.code]));
+        if (missing.length) {
+            const msg = `${missing.map((d) => d.name).join(', ')} ${missing.length > 1 ? 'are' : 'is'} required on every line.`;
+            setFormError(msg);
+            addToast(msg, 'error', 0);
+            return;
+        }
 
         const payload: JournalPayload = {
             posting_date: header.posting_date,
@@ -251,13 +275,36 @@ const JournalForm = () => {
         );
     };
 
+    /** The server recreates a journal's lines on every save, so tag the lines it now holds, in the order they were sent. */
+    const tagSavedLines = async (journalId: number) => {
+        const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
+        const saved: Array<{ id: number }> = Array.isArray(data?.lines) ? data.lines : [];
+        for (let i = 0; i < saved.length && i < lines.length; i += 1) {
+            const tags = tagsFor(lines[i].id);
+            if (Object.keys(tags).length) await saveTags('journal_line', saved[i].id, tags);
+        }
+    };
+
     const doSubmit = async (payload: JournalPayload) => {
         try {
             setFormError('');
+            let saved: { id?: number } | undefined;
             if (isEditMode && editingId !== null) {
                 await updateJournal.mutateAsync({ id: editingId, payload: payload as unknown as Record<string, unknown> });
+                saved = { id: editingId };
             } else {
-                await createJournal.mutateAsync(payload);
+                saved = await createJournal.mutateAsync(payload);
+            }
+            if (formDimensions.length && saved?.id) {
+                try {
+                    await tagSavedLines(saved.id);
+                } catch (tagErr: unknown) {
+                    // The draft is saved; only its dimensions are not. Stay here so they can be fixed and saved again.
+                    const msg = `The journal was saved, but its dimensions were not: ${formatApiError(tagErr, 'try saving again.')}`;
+                    setFormError(msg);
+                    addToast(msg, 'error', 0);
+                    return;
+                }
             }
             navigate('/accounting');
         } catch (err: unknown) {
@@ -497,6 +544,15 @@ const JournalForm = () => {
                     </div>
                 )}
 
+                {formDimensions.length > 0 && (
+                    <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '1rem' }} data-testid="journal-dimension-defaults">
+                        <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, marginBottom: 6 }}>
+                            For every line <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>- a line can pick its own below</span>
+                        </div>
+                        <DimensionFields dimensions={formDimensions} value={defaultTags} onChange={setDefaultTags} layout="row" idPrefix="jd" />
+                    </div>
+                )}
+
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                     {/* Horizontal scroll on narrow viewports keeps the line columns
                         readable rather than squashing dropdowns into 40px cells. */}
@@ -511,6 +567,7 @@ const JournalForm = () => {
                                 <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', width: '220px' }} title="Tag this line to a Fixed Asset for depreciation / disposal / cost accumulation posting">
                                     Asset <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional)</span>
                                 </th>
+                                {formDimensions.length > 0 && <th style={{ padding: '1rem', fontSize: 'var(--text-xs)', minWidth: 220 }}>Dimensions</th>}
                                 <th style={{ padding: '1rem', width: '50px' }}></th>
                             </tr>
                         </thead>
@@ -543,6 +600,17 @@ const JournalForm = () => {
                                             placeholder="— No asset —"
                                         />
                                     </td>
+                                    {formDimensions.length > 0 && (
+                                        <td style={{ padding: '0.75rem' }}>
+                                            <DimensionFields
+                                                dimensions={formDimensions}
+                                                value={tagsFor(line.id)}
+                                                onChange={(next) => setLineTags((prev) => ({ ...prev, [line.id]: next }))}
+                                                layout="inline"
+                                                idPrefix={`jl${idx}`}
+                                            />
+                                        </td>
+                                    )}
                                     <td style={{ padding: '0.75rem' }}>
                                         {lines.length > 2 && (
                                             <button type="button" onClick={() => removeLine(idx)} style={{ color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer' }}>
@@ -562,7 +630,7 @@ const JournalForm = () => {
                                 </td>
                                 <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalDebit)}</td>
                                 <td style={{ padding: '1rem', fontWeight: 700, textAlign: 'right', borderTop: '2px solid var(--border)' }}>{formatCurrency(totalCredit)}</td>
-                                <td colSpan={3} style={{ padding: '1rem' }}>
+                                <td colSpan={formDimensions.length > 0 ? 4 : 3} style={{ padding: '1rem' }}>
                                     {!isBalanced && totalDebit > 0 && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--error)', fontSize: 'var(--text-xs)' }}>
                                             <AlertCircle size={14} /> Entry is not balanced

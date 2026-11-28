@@ -223,6 +223,8 @@ const ApprovalHistory = lazy(() => import('./features/workflow/pages/ApprovalHis
 
 // ── Settings ─────────────────────────────────────────────
 const AccountingSettingsPage  = lazy(() => import('./features/settings/AccountingSettings'));
+const DimensionSettingsPage = lazy(() => import('./features/dimensions/DimensionSettingsPage'));
+const DimensionReportPage = lazy(() => import('./features/dimensions/DimensionReportPage'));
 const BudgetCheckRulesSettings = lazy(() => import('./features/settings/BudgetCheckRulesSettings'));
 const InventorySettingsPage   = lazy(() => import('./features/settings/InventorySettingsPage'));
 const CurrencyManagement = lazy(() => import('./features/settings/CurrencyManagement'));
@@ -471,6 +473,10 @@ function App() {
                           All settings routes mutate tenant-wide
                           configuration; gated to ``admin`` role so a
                           ``viewer`` or ``user`` can't reach them. */}
+                      <Route path="/settings/dimensions" element={
+                        <ProtectedRoute requiredRole="admin"><DimensionSettingsPage /></ProtectedRoute>
+                      } />
+                      <Route path="/accounting/reports/dimension/:code" element={<ProtectedRoute><DimensionReportPage /></ProtectedRoute>} />
                       <Route path="/settings/accounting" element={
                         <ProtectedRoute requiredRole="admin"><AccountingSettingsPage /></ProtectedRoute>
                       } />
