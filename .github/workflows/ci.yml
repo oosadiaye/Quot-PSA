@@ -259,6 +259,7 @@ jobs:
     # `playwright install --with-deps` cannot install its system packages and the job
     # dies before running a single test. Move this forward once Playwright supports it.
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     needs: [backend, frontend]
     services:
       postgres:
@@ -344,13 +345,16 @@ jobs:
           E2E_USER: ${{ secrets.E2E_USER || 'ci_admin' }}
           E2E_PASSWORD: ${{ secrets.E2E_PASSWORD || 'Insecure-CI-1234' }}
         run: |
+          # pipefail: `| tee` otherwise hides a crashing seed behind tee's exit status, and the
+          # step used to go green while printing a traceback.
+          set -euo pipefail
           python manage.py seed_e2e_tenant \
             --schema="$E2E_TENANT_SCHEMA" \
             --domain="$E2E_TENANT_DOMAIN" \
             --username="$E2E_USER" \
             --password="$E2E_PASSWORD" | tee seed-output.json
           # Extract appropriation_id for the test runner.
-          echo "E2E_APPROPRIATION_ID=$(python -c 'import json; print(json.load(open(\"seed-output.json\"))[\"appropriation_id\"])')" >> $GITHUB_ENV
+          echo "E2E_APPROPRIATION_ID=$(python -c "import json; print((lambda t: json.loads(t[t.index('{'):]))(open('seed-output.json').read())['appropriation_id'])")" >> "$GITHUB_ENV"
 
       - name: Start Django
         run: nohup python manage.py runserver 0.0.0.0:8000 --noreload > backend.log 2>&1 &
@@ -368,16 +372,17 @@ jobs:
         env:
           E2E_BASE_URL: http://localhost:5173
           E2E_API_URL: http://localhost:8000
-          E2E_USER: ${{ secrets.E2E_USER }}
-          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-          E2E_TENANT_DOMAIN: ${{ secrets.E2E_TENANT_DOMAIN }}
-          E2E_APPROPRIATION_ID: ${{ secrets.E2E_APPROPRIATION_ID }}
-        run: |
-          if [ -z "$E2E_USER" ]; then
-            echo "::warning::E2E_USER secret not set — skipping Playwright run."
-            exit 0
-          fi
-          npx playwright test
+          # The same fallbacks as the seed step, so the suite logs in as the user that step created.
+          # It used to read the raw secrets and skip when they were unset, so the job went green
+          # without running a single test.
+          E2E_USER: ${{ secrets.E2E_USER || 'ci_admin' }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD || 'Insecure-CI-1234' }}
+          E2E_TENANT_DOMAIN: ${{ secrets.E2E_TENANT_DOMAIN || 'ci_e2e.dtsg.test' }}
+          # The API is reached as localhost (the public tenant, which the seed step creates) and the tenant is named in
+          # the X-Tenant-Domain header; a Host of the tenant's own domain would 404 on login, a public-schema URL.
+          # The seed step exports the id it created; a secret, if set, wins.
+          E2E_APPROPRIATION_ID: ${{ secrets.E2E_APPROPRIATION_ID || env.E2E_APPROPRIATION_ID }}
+        run: npx playwright test
         working-directory: frontend
 
       - name: Upload Playwright report

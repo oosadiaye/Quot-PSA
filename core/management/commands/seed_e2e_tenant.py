@@ -59,6 +59,12 @@ class Command(BaseCommand):
         # 1. Public-schema work: tenant + domain rows.
         connection.set_schema_to_public()
         from tenants.models import Client, Domain
+        # Login and tenant selection are public-schema URLs: a request whose Host is the tenant's own domain gets 404 for
+        # them. The suite reaches the API as localhost and names the tenant in a header, so localhost must resolve to the
+        # public tenant. A fresh CI database has none.
+        public, _ = Client.objects.get_or_create(schema_name="public", defaults={"name": "Public Schema"})
+        for host in ("localhost", "127.0.0.1"):
+            Domain.objects.get_or_create(domain=host, defaults={"tenant": public, "is_primary": host == "localhost"})
         client, _ = Client.objects.get_or_create(
             schema_name=schema,
             defaults={"name": tenant_name},
