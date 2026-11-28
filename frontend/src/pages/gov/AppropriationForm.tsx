@@ -13,6 +13,8 @@ import { Save, AlertCircle, Plus, X, FileSpreadsheet, Calendar, Info } from 'luc
 import Sidebar from '../../components/Sidebar';
 import PageHeader from '../../components/PageHeader';
 import SearchableSelect from '../../components/SearchableSelect';
+import DimensionFields from '../../features/dimensions/DimensionFields';
+import { saveTags, useFormDimensions, type Tags } from '../../features/dimensions/api';
 import {
     useCreateAppropriation, useNCoASegments, useFiscalYears,
     useAppropriationsList,
@@ -77,6 +79,10 @@ export default function AppropriationForm() {
         appropriation_type: presetType, law_reference: '', enactment_date: '',
     });
 
+    // Tenant-defined dimensions (Ward, Zone, ...) for budget lines; invisible until the tenant switches one on here.
+    const { data: formDimensions = [] } = useFormDimensions('appropriation');
+    const [lineTags, setLineTags] = useState<Record<string, Tags>>({});
+
     const [lines, setLines] = useState<BudgetLine[]>([
         { id: '1', economic: '', functional: '', programme: '', geographic: '', amount_approved: '', description: '', budget_code: '' },
     ]);
@@ -138,13 +144,19 @@ export default function AppropriationForm() {
             }
         }
 
+        const missing = formDimensions.filter((d) => d.required && lines.some((l) => !(lineTags[l.id] ?? {})[d.code]));
+        if (missing.length) {
+            setFormError(`${missing.map((d) => d.name).join(', ')} ${missing.length > 1 ? 'are' : 'is'} required on every line.`);
+            return;
+        }
+
         setIsSaving(true);
         let created = 0;
         const errors: string[] = [];
 
         for (const line of lines) {
             try {
-                await createAppropriation.mutateAsync({
+                const made = await createAppropriation.mutateAsync({
                     fiscal_year: parseInt(header.fiscal_year),
                     administrative: parseInt(header.administrative),
                     economic: parseInt(line.economic),
@@ -160,6 +172,15 @@ export default function AppropriationForm() {
                     budget_code: line.budget_code,
                 });
                 created++;
+                const tags = lineTags[line.id] ?? {};
+                if (made?.id && Object.keys(tags).length) {
+                    try {
+                        await saveTags('appropriation', made.id, tags);
+                    } catch (tagErr: any) {
+                        const econ = economicList.find((s: any) => String(s.id) === line.economic)?.name || line.economic;
+                        errors.push(`${econ}: created, but its dimensions were not saved (${tagErr?.response?.data?.error ?? 'try again from the list'})`);
+                    }
+                }
             } catch (err: any) {
                 const d = err.response?.data;
                 const msg = d?.detail || d?.non_field_errors?.[0] || JSON.stringify(d) || 'Error';
@@ -470,6 +491,9 @@ export default function AppropriationForm() {
                                                 Optional — enables geographic distribution report
                                             </div>
                                         </th>
+                                        {formDimensions.length > 0 && (
+                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '200px' }}>Dimensions</th>
+                                        )}
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '160px' }}>Amount (NGN) {requiredMark}</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)' }}>Description</th>
                                         <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)', width: '160px' }}>
@@ -560,6 +584,17 @@ export default function AppropriationForm() {
                                                         placeholder="— Statewide —"
                                                     />
                                                 </td>
+                                                {formDimensions.length > 0 && (
+                                                    <td style={{ padding: '0.5rem 0.5rem' }}>
+                                                        <DimensionFields
+                                                            dimensions={formDimensions}
+                                                            value={lineTags[line.id] ?? {}}
+                                                            onChange={(next) => setLineTags((prev) => ({ ...prev, [line.id]: next }))}
+                                                            layout="inline"
+                                                            idPrefix={`ap-${line.id}`}
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td style={{ padding: '0.5rem 0.5rem' }}>
                                                     <input type="number" step="0.01" min="0.01"
                                                         value={line.amount_approved}

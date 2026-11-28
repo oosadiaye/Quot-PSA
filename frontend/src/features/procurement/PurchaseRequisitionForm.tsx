@@ -14,6 +14,8 @@ import AccountingLayout from '../accounting/AccountingLayout';
 import PageHeader from '../../components/PageHeader';
 import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
 import GlCodingWarningModal from '../../components/GlCodingWarningModal';
+import DimensionFields from '../dimensions/DimensionFields';
+import { useRecordDimensions } from '../dimensions/api';
 import '../accounting/styles/glassmorphism.css';
 
 type LineType = 'expense' | 'asset' | 'item';
@@ -73,6 +75,8 @@ const PurchaseRequisitionForm = () => {
     const createPR = useCreatePR();
     const updatePR = useUpdatePR();
     const { data: existingPR, isLoading: existingLoading } = usePurchaseRequest(editId ? Number(editId) : null);
+    const recordDims = useRecordDimensions('purchase_request');
+    const [createdId, setCreatedId] = useState<number | null>(null);
 
     const [header, setHeader] = useState({
         description: '',
@@ -92,6 +96,7 @@ const PurchaseRequisitionForm = () => {
     // Populate form when editing an existing PR
     useEffect(() => {
         if (!existingPR) return;
+        void recordDims.load('purchase_request', existingPR.id);
         setHeader({
             description: existingPR.description || '',
             mda: existingPR.mda ? String(existingPR.mda) : '',
@@ -191,13 +196,24 @@ const PurchaseRequisitionForm = () => {
 
     const doSubmit = async (payload: any) => {
         try {
-            if (isEditMode && editId) {
-                const result = await updatePR.mutateAsync({ id: Number(editId), data: payload });
-                setCreatedPR({ request_number: result.request_number, id: result.id });
-            } else {
-                const result = await createPR.mutateAsync(payload);
-                setCreatedPR({ request_number: result.request_number, id: result.id });
+            if (recordDims.missing.length) {
+                setFormError(`${recordDims.missing.join(', ')} ${recordDims.missing.length > 1 ? 'are' : 'is'} required.`);
+                return;
             }
+            // After the first save the requisition exists: a retry updates it instead of making a twin.
+            const existingId = isEditMode && editId ? Number(editId) : createdId;
+            const result = existingId !== null
+                ? await updatePR.mutateAsync({ id: existingId, data: payload })
+                : await createPR.mutateAsync(payload);
+            if (existingId === null) setCreatedId(result.id);
+            try {
+                await recordDims.save(result.id);
+            } catch (tagErr: any) {
+                setFormError(`The requisition was saved, but its dimensions were not: ${tagErr?.response?.data?.error ?? 'try saving again.'}`);
+                return;
+            }
+            setFormError('');
+            setCreatedPR({ request_number: result.request_number, id: result.id });
         } catch (err: any) {
             const data = err.response?.data;
             if (data?.detail) {
@@ -402,6 +418,14 @@ const PurchaseRequisitionForm = () => {
                                             </select>
                                         </div>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Custom dimensions (Ward, Zone, ...) the tenant switched on for requisitions */}
+                            {recordDims.dimensions.length > 0 && (
+                                <div data-testid="pr-dimensions">
+                                    <label style={labelStyle}>Dimensions</label>
+                                    <DimensionFields dimensions={recordDims.dimensions} value={recordDims.tags} onChange={recordDims.setTags} layout="row" idPrefix="pr" />
                                 </div>
                             )}
 

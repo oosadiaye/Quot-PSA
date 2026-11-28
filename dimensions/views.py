@@ -2,6 +2,8 @@
 Dimensions API. Core, not an optional module: no ModuleEnabled gate. With no dimensions defined every list is empty
 and the forms show nothing extra.
 """
+from django.db.models import ProtectedError
+from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -17,7 +19,18 @@ def _refused(exc: Exception) -> Response:
     return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
 
 
-class DimensionTypeViewSet(viewsets.ModelViewSet):
+class _ProtectedDeleteMixin:
+    """Deleting a dimension that has values or tags is a 409 with the reason, not a 500; switch it off instead."""
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response({'error': 'It is in use (it has values or tagged records). Switch it off instead of deleting it.'},
+                            status=status.HTTP_409_CONFLICT)
+
+
+class DimensionTypeViewSet(_ProtectedDeleteMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, RBACPermission]
     queryset = DimensionType.objects.select_related('parent_type').all()
     serializer_class = DimensionTypeSerializer
@@ -45,7 +58,7 @@ class DimensionTypeViewSet(viewsets.ModelViewSet):
         return Response(out)
 
 
-class DimensionValueViewSet(viewsets.ModelViewSet):
+class DimensionValueViewSet(_ProtectedDeleteMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, RBACPermission]
     queryset = DimensionValue.objects.select_related('dimension_type', 'parent').all()
     serializer_class = DimensionValueSerializer
@@ -80,6 +93,9 @@ class DimensionTagViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['get'], url_path=r'report/(?P<type_code>[-\w]+)')
     def report(self, request, type_code=None):
         params = request.query_params
+        for key in ('date_from', 'date_to'):
+            if params.get(key) and not parse_date(params[key]):
+                return Response({'error': f'{key} must be a date like 2026-01-31.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             return Response(services.dimension_report(
                 type_code, parent_value=params.get('parent_value'), date_from=params.get('date_from') or None,

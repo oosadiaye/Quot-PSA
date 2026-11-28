@@ -2,6 +2,7 @@
  * Custom dimensions (Ward, Zone, ...): what a form should show, reading and setting a record's tags, and the settings lists.
  * With no dimensions defined every list is empty and callers render nothing extra.
  */
+import { useCallback, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
 
@@ -107,4 +108,22 @@ export function useDimensionReport(code: string, parentValue: string | null, ran
       params: { parent_value: parentValue || undefined, date_from: range.from || undefined, date_to: range.to || undefined },
     })).data as DimensionReport,
   });
+}
+
+/**
+ * The dimension values of one document (a purchase request, an order, an appropriation) while its form is open: what to
+ * show, the chosen values, the ones still missing, loading them from a saved record or a source record, and saving them
+ * against the record once it exists.
+ */
+export function useRecordDimensions(recordType: RecordType) {
+  const { data: dimensions = [] } = useFormDimensions(recordType);
+  const [tags, setTags] = useState<Tags>({});
+  const missing = dimensions.filter((d) => d.required && !tags[d.code]).map((d) => d.name);
+  const load = useCallback(async (fromType: RecordType, fromId: number) => {
+    try { setTags(await getTags(fromType, fromId)); } catch { /* a role that may not read dimensions simply sees none */ }
+  }, []);
+  const save = useCallback(async (recordId: number) => {
+    if (dimensions.length) await saveTags(recordType, recordId, tags);
+  }, [dimensions.length, recordType, tags]);
+  return { dimensions, tags, setTags, missing, load, save };
 }

@@ -49,3 +49,14 @@ def test_drill_down_from_a_zone_to_its_wards(zone_ward):
     rows = _by_code(services.dimension_report('ward', parent_value='Z1'))
     assert 'W1' in rows and 'W2' not in rows
     assert '(untagged)' not in rows                              # a drill-down lists only that parent's children
+
+
+def test_a_reversed_journal_and_its_reversal_cancel_out(zone_ward):
+    from accounting.models import JournalReversal
+    base = _by_code(services.dimension_report('ward')).get('W1', {}).get('debit', '0')
+    original = _posted_line(100, {'ward': 'W1'})
+    reversal = _posted_line(100, None)                         # the reversing journal's lines carry no tags
+    JournalHeader.all_objects.filter(pk=original.header_id).update(is_reversed=True)
+    JournalReversal.objects.create(original_journal=original.header, reversal_journal=reversal.header)
+    after = _by_code(services.dimension_report('ward'))
+    assert Decimal(after['W1']['debit']) == Decimal(base)      # the spend that was reversed is no longer spend

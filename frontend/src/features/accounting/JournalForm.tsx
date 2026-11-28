@@ -122,6 +122,7 @@ const JournalForm = () => {
     // wins over it. Empty (and invisible) until the tenant defines a dimension for journal lines.
     const { data: formDimensions = [] } = useFormDimensions('journal_line');
     const [defaultTags, setDefaultTags] = useState<Tags>({});
+    const [createdId, setCreatedId] = useState<number | null>(null);
     const [lineTags, setLineTags] = useState<Record<string, Tags>>({});
 
     const [lines, setLines] = useState([
@@ -278,7 +279,8 @@ const JournalForm = () => {
     /** The server recreates a journal's lines on every save, so tag the lines it now holds, in the order they were sent. */
     const tagSavedLines = async (journalId: number) => {
         const { data } = await apiClient.get(`/accounting/journals/${journalId}/`);
-        const saved: Array<{ id: number }> = Array.isArray(data?.lines) ? data.lines : [];
+        // Lines come back in the order they were sent; sorting by id makes that a guarantee, not a habit of the database.
+        const saved: Array<{ id: number }> = (Array.isArray(data?.lines) ? [...data.lines] : []).sort((a, b) => a.id - b.id);
         for (let i = 0; i < saved.length && i < lines.length; i += 1) {
             const tags = tagsFor(lines[i].id);
             if (Object.keys(tags).length) await saveTags('journal_line', saved[i].id, tags);
@@ -289,11 +291,14 @@ const JournalForm = () => {
         try {
             setFormError('');
             let saved: { id?: number } | undefined;
-            if (isEditMode && editingId !== null) {
-                await updateJournal.mutateAsync({ id: editingId, payload: payload as unknown as Record<string, unknown> });
-                saved = { id: editingId };
+            // After the first save the journal exists: a retry (say, after a refused dimension) updates it, never makes a twin.
+            const existingId = isEditMode && editingId !== null ? editingId : createdId;
+            if (existingId !== null) {
+                await updateJournal.mutateAsync({ id: existingId, payload: payload as unknown as Record<string, unknown> });
+                saved = { id: existingId };
             } else {
                 saved = await createJournal.mutateAsync(payload);
+                if (saved?.id) setCreatedId(saved.id);
             }
             if (formDimensions.length && saved?.id) {
                 try {

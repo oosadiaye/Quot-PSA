@@ -40,7 +40,9 @@ test.describe('Custom dimensions', () => {
     }
 
     // Two zones, then a ward under the first.
+    await page.getByPlaceholder(/Filter these rows/).first().fill(ZONE.code);
     await page.getByTestId(`dim-row-${ZONE.code}`).locator('xpath=ancestor::tr').getByRole('button', { name: /expand row/i }).click();
+    await page.getByPlaceholder(/Filter these rows/).first().fill('');      // the row filter would hide the opened panel
     const zonePanel = page.getByTestId(`dim-values-${ZONE.code}`);
     for (const [code, name] of [['Z1', 'North'], ['Z2', 'South']]) {
       await zonePanel.getByTestId('dim-value-code').fill(code);
@@ -48,7 +50,9 @@ test.describe('Custom dimensions', () => {
       await zonePanel.getByTestId('dim-value-add').click();
       await expect(zonePanel.getByText(name, { exact: true })).toBeVisible({ timeout: 15_000 });
     }
+    await page.getByPlaceholder(/Filter these rows/).first().fill(WARD.code);
     await page.getByTestId(`dim-row-${WARD.code}`).locator('xpath=ancestor::tr').getByRole('button', { name: /expand row/i }).click();
+    await page.getByPlaceholder(/Filter these rows/).first().fill('');      // the row filter would hide the opened panel
     const wardPanel = page.getByTestId(`dim-values-${WARD.code}`);
     await wardPanel.getByTestId('dim-value-code').fill('W1');
     await wardPanel.getByTestId('dim-value-name').fill('Ward One');
@@ -125,5 +129,26 @@ test.describe('Custom dimensions', () => {
     await page.goto(`/accounting/reports/dimension/${WARD.code}`);
     await expect(page.getByTestId('dim-report-row-W1')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('dim-report-total')).toBeVisible();
+  });
+
+  test('switching the dimensions on for requisitions, orders and budget lines shows them on those forms', async ({ authedPage: page }) => {
+    const api = await apiContext();
+    const types = (await (await api.get('/api/v1/dimensions/types/', { params: { page_size: 200 } })).json()).results as Array<{ id: number; code: string }>;
+    for (const t of types.filter((x) => [ZONE.code, WARD.code].includes(x.code))) {
+      const res = await api.patch(`/api/v1/dimensions/types/${t.id}/`, {
+        data: { applies_to: ['journal_line', 'purchase_request', 'purchase_order', 'appropriation'] } });
+      expect(res.ok(), await res.text()).toBe(true);
+    }
+    const form = (await (await api.get('/api/v1/dimensions/types/for-record/', { params: { record_type: 'purchase_order' } })).json()) as Array<{ code: string }>;
+    expect(form.map((d) => d.code)).toEqual(expect.arrayContaining([ZONE.code, WARD.code]));
+
+    await page.goto('/procurement/requisitions/new');
+    await expect(page.getByTestId('pr-dimensions').getByLabel(WARD.name)).toBeVisible({ timeout: 30_000 });
+
+    await page.goto('/procurement/orders/new');
+    await expect(page.getByTestId('po-dimensions').getByLabel(ZONE.name)).toBeVisible({ timeout: 30_000 });
+
+    await page.goto('/budget/appropriations/new');
+    await expect(page.getByRole('columnheader', { name: 'Dimensions' })).toBeVisible({ timeout: 30_000 });
   });
 });
