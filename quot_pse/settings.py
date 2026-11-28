@@ -97,6 +97,7 @@ TENANT_APPS = [
     'workflow',
     'hrm',
     'simple_history',
+    'dimensions',     # Tenant-defined analytical dimensions (core: never an optional module)
     'contracts',      # Contract & Milestone Payment Management (overpayment prevention)
 
     # Future modules — fully integrated & switchable per-tenant (FUTURE_MODULES.md)
