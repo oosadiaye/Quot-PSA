@@ -1065,6 +1065,10 @@ class PurchaseRequestViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 ]
                 PurchaseOrderLine.objects.bulk_create(po_lines)
 
+                # The order carries the request's custom dimensions (a ward, a zone), so the cost follows the project.
+                from dimensions.services import copy_tags
+                copy_tags('purchase_request', pr.pk, 'purchase_order', po.pk)
+
             return Response({
                 "status": "PO created successfully.",
                 "po_id": po.id,

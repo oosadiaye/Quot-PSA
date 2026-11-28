@@ -16,6 +16,8 @@ import { parsePostingError } from '../accounting/utils/parsePostingError';
 import AccountingLayout from '../accounting/AccountingLayout';
 import { useGlCodingGuard } from '../../hooks/useGlCodingGuard';
 import GlCodingWarningModal from '../../components/GlCodingWarningModal';
+import DimensionFields from '../dimensions/DimensionFields';
+import { useRecordDimensions } from '../dimensions/api';
 import PageHeader from '../../components/PageHeader';
 import PrintDocButton from './print/PrintDocButton';
 import '../accounting/styles/glassmorphism.css';
@@ -55,6 +57,11 @@ const POForm = () => {
     // its line items + dimensions.
     const [selectedPRId, setSelectedPRId] = useState<string>(prId || '');
     const { data: sourcePR } = usePurchaseRequest(selectedPRId ? Number(selectedPRId) : null);
+    const poDims = useRecordDimensions('purchase_order');
+    const { load: loadPoDims } = poDims;
+    // The order starts with the dimensions of the request it is made from, and shows its own when it is opened.
+    useEffect(() => { if (sourcePR?.id) void loadPoDims('purchase_request', sourcePR.id); }, [sourcePR?.id, loadPoDims]);
+    useEffect(() => { if (existingPO?.id) void loadPoDims('purchase_order', existingPO.id); }, [existingPO?.id, loadPoDims]);
 
     // Approved PRs list — only Approved PRs can be converted to a PO
     const { data: approvedPRsData } = usePurchaseRequests({ status: 'Approved', page_size: 100 });
@@ -324,7 +331,19 @@ const POForm = () => {
 
     const doSubmit = async (payload: any) => {
         try {
+            if (poDims.missing.length) {
+                const msg = `${poDims.missing.join(', ')} ${poDims.missing.length > 1 ? 'are' : 'is'} required.`;
+                setFormError(msg);
+                addToast(msg, 'error', 0);
+                return;
+            }
             const result = await createPO.mutateAsync(payload);
+            try {
+                await poDims.save(result.id);
+            } catch (tagErr: any) {
+                // The order exists; only its dimensions did not save. Say so rather than hide it.
+                addToast(`The order was created, but its dimensions were not saved: ${tagErr?.response?.data?.error ?? 'please set them again.'}`, 'error', 0);
+            }
             setCreatedPO({ po_number: result.po_number, id: result.id });
         } catch (err: unknown) {
             // Centralised parser handles budget / warrant / period
@@ -728,6 +747,14 @@ const POForm = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Custom dimensions (Ward, Zone, ...) the tenant switched on for orders; a source request supplies the first values */}
+                        {poDims.dimensions.length > 0 && (
+                            <div className="card" style={{ padding: '1.25rem 1.75rem' }} data-testid="po-dimensions">
+                                <label style={labelStyle}>Dimensions</label>
+                                <DimensionFields dimensions={poDims.dimensions} value={poDims.tags} onChange={poDims.setTags} layout="row" idPrefix="po" disabled={!!existingPO} />
+                            </div>
+                        )}
 
                         {/* ── Down Payment Request Card ─────────────────────── */}
                         <div className="card" style={{ padding: '1.75rem' }}>

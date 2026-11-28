@@ -320,6 +320,7 @@ export const menuItems: MenuItem[] = [
             { name: 'Payment Deduction', path: '/settings/tax', icon: Receipt },
             { name: 'Branding & Company', path: '/settings/branding', icon: Building },
             { name: 'Accounting Settings', path: '/settings/accounting', icon: Settings },
+            { name: 'Custom Dimensions', path: '/settings/dimensions', icon: MapPin },
             // Tenant-wide warrant printout config — letterhead + 3
             // signatures (Governor, Finance Commissioner, AG) used to
             // compose every AIE printout. Configure once at onboarding;

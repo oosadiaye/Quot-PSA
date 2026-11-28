@@ -127,15 +127,24 @@ def assert_accounts_exist(cleaned_lines: list[dict]) -> None:
     """
     from accounting.models import Account
 
-    wanted = {line['account'] for line in cleaned_lines}
+    # The journal form sends ids as strings ("6"); the database keys are integers. Compare like with like, and treat an
+    # id that is not a whole number as unknown instead of letting the query raise.
+    def as_pk(value):
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return value
+
+    wanted = {as_pk(line['account']) for line in cleaned_lines}
+    numeric = {w for w in wanted if isinstance(w, int)}
     found = {
         pk: (code, name, postable)
         for pk, code, name, postable in Account.objects.filter(
-            pk__in=wanted
+            pk__in=numeric
         ).values_list('id', 'code', 'name', 'is_postable')
     }
 
-    missing = sorted(w for w in wanted if w not in found)
+    missing = sorted((w for w in wanted if w not in found), key=str)
     if missing:
         raise ValidationError(
             f'Unknown account id(s): {missing}. Pick accounts from the '
@@ -143,7 +152,7 @@ def assert_accounts_exist(cleaned_lines: list[dict]) -> None:
         )
 
     for index, line in enumerate(cleaned_lines, start=1):
-        code, name, postable = found[line['account']]
+        code, name, postable = found[as_pk(line['account'])]
         if not postable:
             raise ValidationError(
                 f'Line {index}: account {code} ({name}) is a header / group '

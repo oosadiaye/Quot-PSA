@@ -259,7 +259,11 @@ class Command(BaseCommand):
         """Switch the optional modules on for this tenant. They default to off, and a spec that finds a module off can only
         see the 'Module Disabled' page, which proves nothing about the module."""
         from core.models import TenantModule
-        for key in self.OPTIONAL_MODULES:
+        from tenants.models import AVAILABLE_MODULES
+        # Every module the tenant can have, the core ones included: the SPA's guard reads the same list and shows
+        # "Module Disabled" for any key without an active row, Accounting itself among them.
+        keys = {key for key, _, _ in AVAILABLE_MODULES} | set(self.OPTIONAL_MODULES)
+        for key in sorted(keys):
             TenantModule.objects.update_or_create(module_name=key, defaults={"is_active": True})
 
     def _ensure_employee(self, user_id: int) -> int:

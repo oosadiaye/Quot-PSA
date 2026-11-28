@@ -46,6 +46,7 @@ v1_patterns = [
     path('personnel-budget/', include('personnel_budget.urls')),
     path('cash-planning/', include('cash_planning.urls')),
     path('staff-advances/', include('staff_advances.urls')),
+    path('dimensions/', include('dimensions.urls')),
     path('budget-prep/', include('budget_prep.urls')),
     path('debt/', include('debt.urls')),
     path('transparency/', include('transparency.urls')),
